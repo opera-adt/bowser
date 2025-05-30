@@ -107,9 +107,7 @@ def get_aligned_disp_s1_outputs(aligned_dir: Path | str):
             "file_list": glob(str(Path(aligned_dir) / "displacement*.tif")),
             "uses_spatial_ref": True,
             "algorithm": Algorithm.SHIFT.value,
-            "mask_file_list": glob(
-                str(Path(aligned_dir) / "recommended_mask*.tif")
-            ),
+            "mask_file_list": glob(str(Path(aligned_dir) / "recommended_mask*.tif")),
         },
         {
             "name": "Short Wavelength Displacement",

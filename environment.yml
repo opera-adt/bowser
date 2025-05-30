@@ -12,6 +12,7 @@ dependencies:
   - matplotlib-base
   - numpy>=1.22
   - rasterio>=1.3
+  - rioxarray
   - gdal>=3.7
   - libgdal-netcdf
   - libgdal-hdf5
@@ -20,6 +21,10 @@ dependencies:
   - tqdm
   - typing_extensions>=3.10
   - uvicorn
+  - xarray
   # # Optional for reading from S3:
   - s5cmd
   - boto3
+  - pip:
+    - titiler.xarray[minimal,http]
+    - starlette-cramjam

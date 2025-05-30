@@ -4,34 +4,20 @@ import * as L from "leaflet";
 import { BaseMapItem, baseMaps } from "./basemap"
 import { mousePosition } from './mouse';
 
-// TODO
-/*
-- for single products (file_list.length === 1), hide the slider
-  - also the python breaks now
-- Reference
-  - have a "usesReference" field in `set-data`
-    - cor: false
-    - unw: true
-*/
-
 interface State {
   datasetInfo: { [key: string]: RasterGroup };
   markerTs: L.Marker;
   markerRef: L.Marker;
-  // Url of the raster to use into the map comes from:
-  // 1. name of current dataset to show
+  // Current variable name to display
   name: string;
-  // 2. current index of the file list of the current dataset
-  // For sliding through files of a dataset
+  // Current time index for the variable
   tileIdx: number;
   tile: L.TileLayer | null;
-  // The shifts from the reference point for all `tileIdx`s
-  // Maps from dataset name (like `datasetInfo`) to array of values
+  // The shifts from the reference point for all time indices
   refValues: { [key: string]: number[] };
   // Background tiles
   basemap: BaseMapItem
 }
-
 
 interface RasterGroup {
   name: string;
@@ -45,16 +31,13 @@ interface RasterGroup {
   x_values: Array<number | string>;
 }
 
-
 var map = L.map('map', {
-  // https://leafletjs.com/reference.html#map-factory
   doubleClickZoom: false,
 })
 
 mousePosition().addTo(map);
 
 const fontAwesomeIcon = L.divIcon({
-  // html: '<i class="fa-solid fa-asterisk fa-4x""></i>',
   html: '<i class="fa-solid fa-location-dot fa-3x"></i>',
   iconSize: [20, 20],
   className: 'myDivIcon'
@@ -64,8 +47,7 @@ var state: State = {
   datasetInfo: {},
   markerTs: L.marker([0, -0.], { draggable: true, title: 'Time Series Point' }),
   markerRef: L.marker([0, -0.], { icon: fontAwesomeIcon, draggable: true, title: 'Reference Location' }),
-  // Name of dataset to show
-  name: 'unwrapped',
+  name: 'displacement', // Default to displacement variable
   tile: null,
   tileIdx: 0,
   refValues: {},
@@ -81,37 +63,29 @@ let baseMapTile = L.tileLayer(state.basemap.url, {
 })
 baseMapTile.addTo(map);
 
-// Get the url for the current choice
+// Basemap selector setup (unchanged)
 const basemapSelector = document.getElementById('basemap-selector') as HTMLInputElement
-// Change the base map upon selection
 basemapSelector.addEventListener('change', (event) => {
   const target = (event.target as HTMLSelectElement)
   const newUrl = target.value
-
   const newBasemapName: string = target.options[target.selectedIndex].innerText
   const newBasemap = baseMaps[newBasemapName]
 
-  // Drop the old attribution
   map.attributionControl.removeAttribution(state.basemap.attribution)
-
-  // Switch to new one
   state.basemap = newBasemap
   baseMapTile.setUrl(newUrl)
   map.attributionControl.addAttribution(state.basemap.attribution)
 })
 
-// Add the basemap choices to #
-// Update the dropdown
+// Add basemap options
 for (const [name, basemap] of Object.entries(baseMaps)) {
   const option = document.createElement('option');
   option.textContent = name;
   option.value = basemap.url;
   basemapSelector.appendChild(option);
-  console.log(name, basemap)
 }
 
 map.on('click', function (e) {
-  // Set the markers
   console.log('click', e.latlng)
   let lat = e.latlng.lat
   let lon = e.latlng.lng
@@ -127,25 +101,25 @@ const setRefValues = (datasetName: string) => {
       console.log('getPointTimeSeries', values)
       if (values !== undefined) {
         state.refValues[datasetName] = values
-        // If the current dataset uses this, then re-render
         curUsesRef() && updateRasterTile()
       }
     }, (error) => {
       console.log('setRefValues error:', error)
     })
 }
-// drag for the markers
+
+// Marker event handlers
 state.markerTs.on('moveend', function () {
   console.log('moveend', state.markerTs.getLatLng())
   chartContainer.style.display !== 'none' && updateChart()
 });
+
 state.markerRef.on('moveend', function () {
   chartContainer.style.display !== 'none' && updateChart()
-  // Save these new values to the state
   setRefValues(state.name)
 });
 
-// Add a location pop up when you click on either marker
+// Popup for coordinates
 const showLatLngPopup = (event: L.LeafletMouseEvent) => {
   const { lat, lng } = event.latlng
   L.popup()
@@ -156,12 +130,13 @@ const showLatLngPopup = (event: L.LeafletMouseEvent) => {
 state.markerRef.addEventListener('click', showLatLngPopup)
 state.markerTs.addEventListener('click', showLatLngPopup)
 
+// UI elements
 const cmapNameSelect = document.getElementById('colormap-selector') as HTMLInputElement
 const colormapImg = document.getElementById('colormap-img') as HTMLImageElement
 const vminSelect = document.getElementById('vmin') as HTMLInputElement
 const vmaxSelect = document.getElementById('vmax') as HTMLInputElement
 
-
+// Preference management (unchanged)
 const loadPreferences = (name: string) => {
   const colormap_name = localStorage.getItem(`${name}-colormap_name`)
   const vmin = localStorage.getItem(`${name}-vmin`)
@@ -176,9 +151,6 @@ const loadPreferences = (name: string) => {
   vmaxSelect.value = vmax
   return { colormap_name: colormap_name, vmin: parseFloat(vmin), vmax: parseFloat(vmax) }
 }
-// document.addEventListener('DOMContentLoaded', () => {
-//   loadPreferences(state.datasetInfo[state.name]);
-// });
 
 const savePreferences = (name: string) => {
   const vmin = parseFloat(vminSelect.value);
@@ -189,65 +161,58 @@ const savePreferences = (name: string) => {
   localStorage.setItem(`${name}-vmax`, vmax.toString())
 }
 
-// Setting up the raster tiles
+// Updated raster tile function for Xarray
 const updateRasterTile = () => {
   const { name, tileIdx } = state
   const curDataset = state.datasetInfo[name];
 
   let { colormap_name, vmin, vmax } = loadPreferences(name)
-  // Fetch UI values for color map name/limits if not set
   if (colormap_name === null) colormap_name = cmapNameSelect.value;
   if (vmin === null) vmin = parseFloat(vminSelect.value);
   if (vmax === null) vmax = parseFloat(vmaxSelect.value);
   setChartYLimits(vmin, vmax)
 
-  // Save colormap preferences to localStorage
   colormapImg.src = `/colorbar/${colormap_name}`
-  // make sure we aren't passed the edge
-  // TODO: should probably record the last tileIdx per dataset?
-  // Otherwise, we should have one per "same length" lists
-  const curTileIdx = Math.max(0, Math.min(tileIdx, curDataset.file_list.length - 1))
-  state.tileIdx = curTileIdx
-  const url = curDataset.file_list[curTileIdx];
-  const maskUrl = curDataset.mask_file_list[curTileIdx];
-  const maskMinValue = curDataset.mask_min_value;
 
+  // Ensure tileIdx is within bounds
+  const maxIdx = curDataset.x_values.length - 1
+  const curTileIdx = Math.max(0, Math.min(tileIdx, maxIdx))
+  state.tileIdx = curTileIdx
+
+  // Build parameters for Xarray tiler using standard titiler pattern
   let params: { [key: string]: string } = {
-    url: encodeURIComponent(url),
+    variable: name,
+    time_idx: curTileIdx.toString(),
     rescale: `${vmin},${vmax}`,
     colormap_name: colormap_name,
-    // algorithm_params:
   }
 
-  if (maskUrl !== undefined) params.mask = encodeURIComponent(maskUrl)
-  if (maskMinValue !== undefined) params.mask_min_value = maskMinValue.toString()
-  if (curDataset.algorithm !== null) params.algorithm = curDataset.algorithm
-  if (curDataset.nodata !== null) params.nodata = curDataset.nodata.toString()
+  // Add algorithm if needed
+  if (curDataset.algorithm !== null) {
+    params.algorithm = curDataset.algorithm
+  }
 
-  if (state.refValues[name] !== undefined) {
-
+  // Add shift for reference point if available
+  if (state.refValues[name] !== undefined && curDataset.algorithm === 'shift') {
     const shift = state.refValues[name][curTileIdx]
-    console.log(`updateRasterTile: shift=${shift} for ${name}`)
-    if (params.algorithm === 'shift') {
-      if (shift !== undefined) {
-        params.algorithm_params = `{"shift": ${shift}}`
-      } else {
-        console.log(`Error in updateRasterTile: shift=${shift} for ${name}`)
-        delete params['algorithm']
-      }
+    if (shift !== undefined) {
+      params.algorithm_params = JSON.stringify({ "shift": shift })
     }
   }
+  // TODO: make the mask a dropdown as well? with a slider for the level
+  // const maskUrl = curDataset.mask_file_list[curTileIdx];
+  // const maskMinValue = curDataset.mask_min_value;
+  // if (maskUrl !== undefined) params.mask = encodeURIComponent(maskUrl)
+  // if (maskMinValue !== undefined) params.mask_min_value = maskMinValue.toString()
 
-  const url_params = Object.keys(params).map(i => `${i}=${params[i]}`).join('&')
-  console.log('url_params', url_params)
+  const url_params = Object.keys(params).map(i => `${i}=${encodeURIComponent(params[i])}`).join('&')
+  console.log('Standard titiler url_params', url_params)
 
-  // TODO: do i like the loader?
-  // document.getElementById('loader').classList.add('off')
-  fetch(`/tilejson.json?${url_params}`
-  ).then(response => response.json())
+  // Use the standard WebMercatorQuad endpoint
+  fetch(`/WebMercatorQuad/tilejson.json?${url_params}`)
+    .then(response => response.json())
     .then((tileInfo) => {
-
-      // Create a new tile layer and remove old
+      // Create new tile layer
       let newTile = L.tileLayer(tileInfo.tiles[0], {
         maxZoom: 19,
       })
@@ -256,69 +221,56 @@ const updateRasterTile = () => {
       }
       newTile.addTo(map)
       state.tile = newTile
-
-    }, error => {
-      console.error('Error in getting tile info:', error)
+    })
+    .catch(error => {
+      console.error('Error in getting standard titiler tile info:', error)
     });
 }
 
-// Add handler for changing the dataset
+// Dataset selector
 const datasetSelector = document.getElementById('dataset-selector') as HTMLSelectElement;
 datasetSelector.addEventListener('change', (event: Event) => {
-  // Save the current preferences
   savePreferences(state.name)
-
-  // Get the new dataset name
   const datasetName = (event.target as HTMLSelectElement).value;
-  console.log('Changing! datasetName', datasetName)
-  // Update the raster tiles/sliders
+  console.log('Changing variable to:', datasetName)
   setupDataset(datasetName)
-
-  loadPreferences(datasetName);  // Load preferences for the new dataset
+  loadPreferences(datasetName);
 });
 
-// Whenever it's dragged, update the text so the user knows where it is
+// Layer slider for time dimension
 const layerSlider = document.getElementById('layer-slider') as HTMLInputElement;
 const layerSliderText = document.getElementById('layer-slider-value') as HTMLSpanElement;
+
 layerSlider.addEventListener('input', (event: Event) => {
   const { name } = state
   const target = event.target as HTMLInputElement;
   let newIdx: number = parseInt(target.value);
 
-  // Change the name listed in the layerSliderText layer-slider-value
-  const url = state.datasetInfo[name].file_list[newIdx];
-  const lastSegment = url.split('/').pop() as string | null;
-  layerSliderText.textContent = lastSegment;
+  // Update display text with time value
+  const timeValue = state.datasetInfo[name].x_values[newIdx];
+  layerSliderText.textContent = timeValue.toString();
 })
 
-// Then if it actually changes, set the new raster image
 layerSlider.addEventListener('change', (event: Event) => {
-  console.log(event)
   const { name } = state
   const target = event.target as HTMLInputElement;
   let newIdx: number = parseInt(target.value);
   state.tileIdx = newIdx;
   state.name = name;
-  // Trigger the update
   updateRasterTile()
-
 })
 
-// Add a colormap change watcher
+// Colormap and scale controls
 cmapNameSelect.addEventListener('change', () => { savePreferences(state.name); updateRasterTile() })
-
-// Add a vmin/vmax change watcher
 vminSelect.addEventListener('change', () => { savePreferences(state.name); updateRasterTile() })
 vmaxSelect.addEventListener('change', () => { savePreferences(state.name); updateRasterTile() })
 
-// Attach the opacity slider layer
+// Opacity slider
 const opacitySlider = document.getElementById('opacity-slider') as HTMLInputElement
 const opacitySliderText = document.getElementById('opacity-slider-value') as HTMLSpanElement
 opacitySlider.addEventListener('input', (event: Event) => {
-  // Get the new opacity value
   const opacity = (event.target as HTMLInputElement).value
   opacitySliderText.textContent = opacity
-  // Update the raster tile
   if (state.tile !== null) {
     state.tile.setOpacity(parseFloat(opacity))
   }
@@ -327,14 +279,13 @@ opacitySlider.addEventListener('input', (event: Event) => {
 const setupDataset = (name: string) => {
   const curDataset = state.datasetInfo[name]
 
-  // Set up the slider for the dataset
-  layerSlider.max = (curDataset.file_list.length - 1).toString()
-  const lastSegment = curDataset.file_list[0].split('/').pop() as string | null;
-  layerSliderText.textContent = lastSegment;
-  // Save to the state
+  // Set up the time slider
+  layerSlider.max = (curDataset.x_values.length - 1).toString()
+  layerSliderText.textContent = curDataset.x_values[0].toString();
+
   state.name = name;
 
-  if ((state.datasetInfo[name].uses_spatial_ref) && (state.refValues[name] === undefined)) {
+  if (curDataset.uses_spatial_ref && state.refValues[name] === undefined) {
     setRefValues(name)
   }
 
@@ -343,18 +294,13 @@ const setupDataset = (name: string) => {
 
 const computeCenter = (name: string) => {
   const curDataset = state.datasetInfo[name]
-  // Use the bounds for setting up the map/pointers
   let bounds = curDataset.latlon_bounds;
-  // Compute initial center
   const centerLat = (bounds[1] + bounds[3]) / 2;
   const centerLng = (bounds[0] + bounds[2]) / 2;
   return { centerLat: centerLat, centerLng: centerLng }
 }
 
-// Fetch the dataset info from /datasets
-// Should be something like
-// {"unwrapped":{"name":"unwrapped","file_list":["./data2/20.tif", ...],"vmin":-10.0,"vmax":10.0,
-//     ??? "algorithm":null}}
+// Initialize datasets from new endpoint
 const initializeDatasets = () => {
   fetch('/datasets')
     .then(response => response.json())
@@ -362,7 +308,7 @@ const initializeDatasets = () => {
       state.datasetInfo = data;
       console.log('datasetInfo', state.datasetInfo);
 
-      // Set the initial tile to be the first one
+      // Use first available variable
       const name0: string = Object.keys(state.datasetInfo)[0];
 
       // Set the view
@@ -374,47 +320,38 @@ const initializeDatasets = () => {
 
       setupDataset(name0);
 
-      // Update the dropdown
+      // Update dropdown with variables
       datasetSelector.innerHTML = '';
-      Object.keys(state.datasetInfo).forEach((dsName) => {
+      Object.keys(state.datasetInfo).forEach((varName) => {
         const option = document.createElement('option');
-        option.value = dsName;
-        option.textContent = dsName;
+        option.value = varName;
+        option.textContent = varName;
         datasetSelector.appendChild(option);
       });
     })
 }
 
-// /////////////////////////////////////
-// Chart and time series clicking setup
-// /////////////////////////////////////
+// Chart setup (mostly unchanged)
 const chartElem = document.querySelector<HTMLCanvasElement>('#chart')!
 const chartContainer = document.querySelector<HTMLCanvasElement>('#chart-container')!
 const hideChartBtn = document.querySelector<HTMLButtonElement>("#hide-chart")!;
 
-
-var chart = new Chart(
-  chartElem,
-  {
-    options: {
-      animation: false,
-      plugins: {
-        legend: { display: false }
-      },
-      scales: { y: {} }
+var chart = new Chart(chartElem, {
+  options: {
+    animation: false,
+    plugins: {
+      legend: { display: false }
     },
-    type: 'line',
-    // Start empty
-    data: { datasets: [] }
-  }
-)
+    scales: { y: {} },
+    // scales: { xAxes: [{ type: 'time' }], yAxes: [{ type: 'linear' }] }
+  },
+  type: 'line',
+  data: { datasets: [] }
+})
 
 function setChartYLimits(min: number, max: number) {
-  // https://www.chartjs.org/docs/latest/developers/updates.html#updating-options
-  // Use type assertion to inform TypeScript that we've ensured yAxis is an object
   const scales = chart.options.scales || {}
   const yAxis = scales.y || {}
-  // Note: SUGGESTION means it gets overridden by real data limits, not cut off
   yAxis.suggestedMin = min
   yAxis.suggestedMax = max
   chart.update()
@@ -429,12 +366,13 @@ async function getPointTimeSeries(lon: number, lat: number, name: string) {
   const url_params = Object.keys(params).map(i => `${i}=${params[i]}`).join('&')
   const endpoint = `/point?${url_params}`
   console.log(endpoint)
-  // Get the data from the server using `fetch`, save it in a variable
+
   try {
     const response = await fetch(endpoint);
     return await response.json();
   } catch (error) {
-    return console.log(error);
+    console.log(error);
+    return undefined;
   }
 }
 
@@ -452,22 +390,20 @@ async function getChartTimeSeries(lon: number, lat: number, ref_lon: number | nu
   const url_params = Object.keys(params).map(i => `${i}=${params[i]}`).join('&')
   const endpoint = `/chart_point?${url_params}`
   console.log(endpoint)
-  // Get the data from the server using `fetch`, save it in a variable
+
   try {
     const response = await fetch(endpoint);
     return await response.json();
   } catch (error) {
-    return console.log(error);
+    console.log(error);
+    return undefined;
   }
 }
 
 function updateChart() {
-  // const response = fetch(`/point?lon=${lon}&lat=${lat}`)
-  // Get the current marker position
   const { lat, lng } = state.markerTs.getLatLng();
-  // Get the reference marker position
   let tsPromise
-  // Get the data from the server using `fetch`, save it in a variable
+
   if (curUsesRef()) {
     const refLatlng = state.markerRef.getLatLng();
     tsPromise = getChartTimeSeries(lng, lat, refLatlng.lng, refLatlng.lat)
@@ -476,32 +412,28 @@ function updateChart() {
   }
 
   tsPromise.then((data) => {
-    chart.data = data
-    // Or if we want to update the data in the existing chart:
-    // chart.data.datasets.pop()
-    chart.update()
+    if (data) {
+      chart.data = data
+      chart.update()
+    }
   })
 }
 
+// Chart visibility controls
 state.markerRef.addTo(map);
 hideChartBtn.addEventListener('click', () => {
   if (chartContainer.style.display !== 'none') {
     chartContainer.style.display = 'none';
     hideChartBtn.textContent = 'Show time series';
     state.markerTs.remove();
-    // (!curUsesRef()) && state.markerRef.remove();
   } else {
     chartContainer.style.display = 'block';
     hideChartBtn.textContent = 'Hide time series';
     state.markerTs.addTo(map);
-    // state.markerRef.addTo(map);
   }
 });
 
-
-// /////////////////////////////////////
-// Page start: setup the datasets
-// /////////////////////////////////////
-console.log('trying setup...')
+// Initialize the application
+console.log('Initializing Xarray-based app...')
 initializeDatasets();
 console.log('datasets loaded?', state.datasetInfo);

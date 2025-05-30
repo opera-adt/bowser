@@ -73,15 +73,16 @@ select = [
 ]
 
 ignore = [
-  "D100", # Missing docstring in public module
-  "D104", # Missing docstring in public package
-  "D105", # Missing docstring in magic method
-  "D203", # 1 blank line required before class docstring
-  "D213", # Multi-line docstring summary should start at the second line
-  "N803", # Argument name should be lowercase
-  "N806", # Variable _ in function should be lowercase
+  "D100",   # Missing docstring in public module
+  "D104",   # Missing docstring in public package
+  "D105",   # Missing docstring in magic method
+  "D203",   # 1 blank line required before class docstring
+  "D213",   # Multi-line docstring summary should start at the second line
+  "N802",   # Function name should be lowercase (Titiler uses a lot of upper)
+  "N803",   # Argument name should be lowercase
+  "N806",   # Variable _ in function should be lowercase
   "PIE796", # Non-unique values are redundant and likely a mistake.
-  "PLR",  # Pylint Refactor
+  "PLR",    # Pylint Refactor
   "PTH123", # `open()` should be replaced by `Path.open()`
   "PTH207", # "Replace `glob` with `Path.glob` or `Path.rglob`
 ]

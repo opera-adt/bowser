@@ -23957,12 +23957,10 @@ L$1.control.mousePosition = function(options) {
 };
 const mousePosition = L$1.control.mousePosition;
 var map = leafletSrcExports.map("map", {
-  // https://leafletjs.com/reference.html#map-factory
   doubleClickZoom: false
 });
 mousePosition().addTo(map);
 const fontAwesomeIcon = leafletSrcExports.divIcon({
-  // html: '<i class="fa-solid fa-asterisk fa-4x""></i>',
   html: '<i class="fa-solid fa-location-dot fa-3x"></i>',
   iconSize: [20, 20],
   className: "myDivIcon"
@@ -23971,8 +23969,8 @@ var state = {
   datasetInfo: {},
   markerTs: leafletSrcExports.marker([0, -0], { draggable: true, title: "Time Series Point" }),
   markerRef: leafletSrcExports.marker([0, -0], { icon: fontAwesomeIcon, draggable: true, title: "Reference Location" }),
-  // Name of dataset to show
-  name: "unwrapped",
+  name: "displacement",
+  // Default to displacement variable
   tile: null,
   tileIdx: 0,
   refValues: {},
@@ -24000,7 +23998,6 @@ for (const [name, basemap] of Object.entries(baseMaps)) {
   option.textContent = name;
   option.value = basemap.url;
   basemapSelector.appendChild(option);
-  console.log(name, basemap);
 }
 map.on("click", function(e) {
   console.log("click", e.latlng);
@@ -24074,42 +24071,27 @@ const updateRasterTile = () => {
     vmax = parseFloat(vmaxSelect.value);
   setChartYLimits(vmin, vmax);
   colormapImg.src = `/colorbar/${colormap_name}`;
-  const curTileIdx = Math.max(0, Math.min(tileIdx, curDataset.file_list.length - 1));
+  const maxIdx = curDataset.x_values.length - 1;
+  const curTileIdx = Math.max(0, Math.min(tileIdx, maxIdx));
   state.tileIdx = curTileIdx;
-  const url = curDataset.file_list[curTileIdx];
-  const maskUrl = curDataset.mask_file_list[curTileIdx];
-  const maskMinValue = curDataset.mask_min_value;
   let params = {
-    url: encodeURIComponent(url),
+    variable: name,
+    time_idx: curTileIdx.toString(),
     rescale: `${vmin},${vmax}`,
     colormap_name
-    // algorithm_params:
   };
-  if (maskUrl !== void 0)
-    params.mask = encodeURIComponent(maskUrl);
-  if (maskMinValue !== void 0)
-    params.mask_min_value = maskMinValue.toString();
-  if (curDataset.algorithm !== null)
+  if (curDataset.algorithm !== null) {
     params.algorithm = curDataset.algorithm;
-  if (curDataset.nodata !== null)
-    params.nodata = curDataset.nodata.toString();
-  if (state.refValues[name] !== void 0) {
+  }
+  if (state.refValues[name] !== void 0 && curDataset.algorithm === "shift") {
     const shift = state.refValues[name][curTileIdx];
-    console.log(`updateRasterTile: shift=${shift} for ${name}`);
-    if (params.algorithm === "shift") {
-      if (shift !== void 0) {
-        params.algorithm_params = `{"shift": ${shift}}`;
-      } else {
-        console.log(`Error in updateRasterTile: shift=${shift} for ${name}`);
-        delete params["algorithm"];
-      }
+    if (shift !== void 0) {
+      params.algorithm_params = JSON.stringify({ "shift": shift });
     }
   }
-  const url_params = Object.keys(params).map((i) => `${i}=${params[i]}`).join("&");
-  console.log("url_params", url_params);
-  fetch(
-    `/tilejson.json?${url_params}`
-  ).then((response) => response.json()).then((tileInfo) => {
+  const url_params = Object.keys(params).map((i) => `${i}=${encodeURIComponent(params[i])}`).join("&");
+  console.log("Standard titiler url_params", url_params);
+  fetch(`/WebMercatorQuad/tilejson.json?${url_params}`).then((response) => response.json()).then((tileInfo) => {
     let newTile = leafletSrcExports.tileLayer(tileInfo.tiles[0], {
       maxZoom: 19
     });
@@ -24118,15 +24100,15 @@ const updateRasterTile = () => {
     }
     newTile.addTo(map);
     state.tile = newTile;
-  }, (error) => {
-    console.error("Error in getting tile info:", error);
+  }).catch((error) => {
+    console.error("Error in getting standard titiler tile info:", error);
   });
 };
 const datasetSelector = document.getElementById("dataset-selector");
 datasetSelector.addEventListener("change", (event) => {
   savePreferences(state.name);
   const datasetName = event.target.value;
-  console.log("Changing! datasetName", datasetName);
+  console.log("Changing variable to:", datasetName);
   setupDataset(datasetName);
   loadPreferences(datasetName);
 });
@@ -24136,12 +24118,10 @@ layerSlider.addEventListener("input", (event) => {
   const { name } = state;
   const target = event.target;
   let newIdx = parseInt(target.value);
-  const url = state.datasetInfo[name].file_list[newIdx];
-  const lastSegment = url.split("/").pop();
-  layerSliderText.textContent = lastSegment;
+  const timeValue = state.datasetInfo[name].x_values[newIdx];
+  layerSliderText.textContent = timeValue.toString();
 });
 layerSlider.addEventListener("change", (event) => {
-  console.log(event);
   const { name } = state;
   const target = event.target;
   let newIdx = parseInt(target.value);
@@ -24172,11 +24152,10 @@ opacitySlider.addEventListener("input", (event) => {
 });
 const setupDataset = (name) => {
   const curDataset = state.datasetInfo[name];
-  layerSlider.max = (curDataset.file_list.length - 1).toString();
-  const lastSegment = curDataset.file_list[0].split("/").pop();
-  layerSliderText.textContent = lastSegment;
+  layerSlider.max = (curDataset.x_values.length - 1).toString();
+  layerSliderText.textContent = curDataset.x_values[0].toString();
   state.name = name;
-  if (state.datasetInfo[name].uses_spatial_ref && state.refValues[name] === void 0) {
+  if (curDataset.uses_spatial_ref && state.refValues[name] === void 0) {
     setRefValues(name);
   }
   updateRasterTile();
@@ -24200,10 +24179,10 @@ const initializeDatasets = () => {
     }
     setupDataset(name0);
     datasetSelector.innerHTML = "";
-    Object.keys(state.datasetInfo).forEach((dsName) => {
+    Object.keys(state.datasetInfo).forEach((varName) => {
       const option = document.createElement("option");
-      option.value = dsName;
-      option.textContent = dsName;
+      option.value = varName;
+      option.textContent = varName;
       datasetSelector.appendChild(option);
     });
   });
@@ -24211,21 +24190,18 @@ const initializeDatasets = () => {
 const chartElem = document.querySelector("#chart");
 const chartContainer = document.querySelector("#chart-container");
 const hideChartBtn = document.querySelector("#hide-chart");
-var chart = new Chart(
-  chartElem,
-  {
-    options: {
-      animation: false,
-      plugins: {
-        legend: { display: false }
-      },
-      scales: { y: {} }
+var chart = new Chart(chartElem, {
+  options: {
+    animation: false,
+    plugins: {
+      legend: { display: false }
     },
-    type: "line",
-    // Start empty
-    data: { datasets: [] }
-  }
-);
+    scales: { y: {} }
+    // scales: { xAxes: [{ type: 'time' }], yAxes: [{ type: 'linear' }] }
+  },
+  type: "line",
+  data: { datasets: [] }
+});
 function setChartYLimits(min, max) {
   const scales2 = chart.options.scales || {};
   const yAxis = scales2.y || {};
@@ -24246,7 +24222,8 @@ async function getPointTimeSeries(lon, lat, name) {
     const response = await fetch(endpoint);
     return await response.json();
   } catch (error) {
-    return console.log(error);
+    console.log(error);
+    return void 0;
   }
 }
 async function getChartTimeSeries(lon, lat, ref_lon = null, ref_lat = null) {
@@ -24266,7 +24243,8 @@ async function getChartTimeSeries(lon, lat, ref_lon = null, ref_lat = null) {
     const response = await fetch(endpoint);
     return await response.json();
   } catch (error) {
-    return console.log(error);
+    console.log(error);
+    return void 0;
   }
 }
 function updateChart() {
@@ -24279,8 +24257,10 @@ function updateChart() {
     tsPromise = getChartTimeSeries(lng, lat);
   }
   tsPromise.then((data) => {
-    chart.data = data;
-    chart.update();
+    if (data) {
+      chart.data = data;
+      chart.update();
+    }
   });
 }
 state.markerRef.addTo(map);
@@ -24295,6 +24275,6 @@ hideChartBtn.addEventListener("click", () => {
     state.markerTs.addTo(map);
   }
 });
-console.log("trying setup...");
+console.log("Initializing Xarray-based app...");
 initializeDatasets();
 console.log("datasets loaded?", state.datasetInfo);
