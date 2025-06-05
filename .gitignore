@@ -30,3 +30,6 @@ __pycache__
 _version.py
 
 data/
+
+# ignor build dir
+build/
