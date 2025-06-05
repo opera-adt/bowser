@@ -65,7 +65,9 @@ def load_data_sources():
         ds = (
             xr.open_zarr(stack_file)
             if stack_file.endswith(".zarr")
-            else xr.open_dataset(stack_file)
+            else xr.open_mfdataset(
+                stack_file + "/*.nc", engine="h5netcdf", combine="by_coords"
+            )
         )
         crs = CRS.from_wkt(ds.spatial_ref.crs_wkt)
         ds.rio.write_crs(crs, inplace=True)
