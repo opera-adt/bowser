@@ -6,9 +6,11 @@ import warnings
 from pathlib import Path
 from typing import Annotated, Callable, Optional
 
+import fsspec
 import numpy as np
 import rasterio
 import xarray as xr
+import zarr
 from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pyproj import CRS, Transformer
@@ -61,8 +63,13 @@ def load_data_sources():
     if settings.BOWSER_STACK_DATA_FILE:
         stack_file = os.environ["BOWSER_STACK_DATA_FILE"]
         logger.info(f"Loading xarray dataset from {stack_file} (MD mode)")
+        if stack_file.startswith("s3://"):
+            # TODO: Do I need to pass `anon=True` ? or will it get handled by fsspec?
+            fs = fsspec.filesystem("s3", asynchronous=True)
+            store = zarr.storage.FsspecStore(fs, path=stack_file.lstrip("s3://"))
+            ds = xr.open_zarr(store, consolidated=False)
         ds = (
-            xr.open_zarr(stack_file)
+            xr.open_zarr(stack_file, consolidated=False)
             if stack_file.endswith(".zarr")
             else xr.open_dataset(stack_file)
         )
