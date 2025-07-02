@@ -7,6 +7,15 @@ export default defineConfig({
 	// plugins: [viteSingleFile()],
 	// https://stackoverflow.com/a/69746868/4174466
 	base: './',
+	server: {
+		proxy: {
+			// Proxy all API routes to backend
+			'^/(mode|datasets|colorbar|md|cog|point|chart_point)': {
+				target: process.env.VITE_API_URL || 'http://localhost:8000',
+				changeOrigin: true
+			}
+		}
+	},
 	build: {
 		outDir: 'src/bowser/dist/',
 		minify: false,
