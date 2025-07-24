@@ -115,12 +115,51 @@ To manually specify a raster/set of rasters, use the interactive `bowser set-dat
 
 ## Developer Setup
 
+### Prerequisites
+
+Developement requires Node.js. I recommend using some kind of `npm` version manager, such as [`asdf`](https://asdf-vm.com/) or [`nvm`](https://github.com/nvm-sh/nvm).
+
+```bash
+asdf install nodejs latest
+asdf global nodejs latest
+```
+
+### Installation
+
 `npm` is used to manage javascript dependencies.
 
-`npm install` will install all dependencies.
+```bash
+npm install
+```
+
+### Development Workflow
+
+Change to the UI or styling are easier with hot reload, which requires two terminals:
+```bash
+# Terminal 1 - Start FastAPI backend
+npm run dev-backend
+
+# Terminal 2 - Start Vite frontend with hot reload
+npm run dev
+```
+
+The frontend will run on http://localhost:5173 with hot reload, proxying API calls to the backend on port 8000.
+
+To use a different backend port, set the `VITE_API_URL` environment variable:
+```bash
+VITE_API_URL=http://localhost:8001 npm run dev
+```
+
+### Production Build
 
 After making HTML or CSS changes, run `npm run build` to build the project.
 Currently the `dist/` HTML and CSS files are checked in to git for easier deployment for non-javascript users.
+
+Basic production workflow:
+```bash
+npm run build
+```
+This builds into the `dist/` directory, which is checked in to git for easier deployment for non-javascript users.
 
 ## License
 
