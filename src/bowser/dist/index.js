@@ -17446,7 +17446,7 @@ function ControlPanel() {
     localStorage.setItem(`${datasetName}-colormap_name`, state.colormap);
     localStorage.setItem(`${datasetName}-vmin`, safeNumToString(state.vmin));
     localStorage.setItem(`${datasetName}-vmax`, safeNumToString(state.vmax));
-  }, [state.currentDataset, state.colormap, state.vmin, state.vmax]);
+  }, [state.colormap, state.vmin, state.vmax]);
   reactExports.useEffect(() => {
     const datasetName = state.currentDataset;
     if (!datasetName) return;
