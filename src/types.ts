@@ -8,6 +8,7 @@ export interface RasterGroup {
   algorithm: string | null;
   latlon_bounds: [number, number, number, number];
   x_values: Array<number | string>;
+  reference_date?: string | null;
 }
 
 export interface TimeSeriesPoint {
@@ -42,6 +43,11 @@ export interface BaseMapItem {
   attribution: string;
 }
 
+export interface ClickedPointTimeseries {
+  pointId: number;
+  timeseries: Array<{ date: string; displacement: number }>;
+}
+
 export interface AppState {
   datasetInfo: { [key: string]: RasterGroup };
   timeSeriesPoints: TimeSeriesPoint[];
@@ -58,6 +64,27 @@ export interface AppState {
   showChart: boolean;
   selectedPointId: string | null;
   showTrends: boolean;
+  // V2 point layer state
+  activePointLayer: string | null;
+  pointLayerBounds: [number, number, number, number] | null;
+  clickedPoints: ClickedPointTimeseries[];
+  pointColorBy: string;
+  pointVmin: number;
+  pointVmax: number;
+  pointAttributes: Record<string, { type: string; min?: number; max?: number; mean?: number; count?: number }>;
+  pointFilter: string;
+  pointBasemap: 'satellite' | 'osm' | 'dark';
+  pointColormap: string;
+  referencePointId: number | null;
+  referenceTimeseries: Array<{ date: string; displacement: number }>;
+  // Histogram bins for current color-by attribute
+  pointHistogram: { edges: number[]; counts: number[] } | null;
+  // Chart theme
+  chartTheme: 'dark' | 'light';
+  // Layer visibility
+  rasterLayerVisible: boolean;
+  pointLayerVisible: boolean;
+  pointOpacity: number;
 }
 
 export type AppAction =
@@ -79,7 +106,27 @@ export type AppAction =
   | { type: 'SET_OPACITY'; payload: number }
   | { type: 'TOGGLE_CHART' }
   | { type: 'SET_SELECTED_POINT'; payload: string | null }
-  | { type: 'TOGGLE_TRENDS' };
+  | { type: 'TOGGLE_TRENDS' }
+  // V2 point layer actions
+  | { type: 'SET_ACTIVE_POINT_LAYER'; payload: string }
+  | { type: 'SET_POINT_LAYER_BOUNDS'; payload: [number, number, number, number] }
+  | { type: 'SET_CLICKED_POINT_TIMESERIES'; payload: ClickedPointTimeseries }
+  | { type: 'CLEAR_CLICKED_POINTS' }
+  | { type: 'REMOVE_CLICKED_POINT'; payload: number }
+  | { type: 'SET_POINT_COLOR_BY'; payload: string }
+  | { type: 'SET_POINT_VMIN'; payload: number }
+  | { type: 'SET_POINT_VMAX'; payload: number }
+  | { type: 'SET_POINT_ATTRIBUTES'; payload: Record<string, { type: string; min?: number; max?: number; mean?: number; count?: number }> }
+  | { type: 'SET_POINT_FILTER'; payload: string }
+  | { type: 'SET_POINT_BASEMAP'; payload: 'satellite' | 'osm' | 'dark' }
+  | { type: 'SET_POINT_COLORMAP'; payload: string }
+  | { type: 'SET_REFERENCE_POINT'; payload: { pointId: number; timeseries: Array<{ date: string; displacement: number }> } }
+  | { type: 'CLEAR_REFERENCE_POINT' }
+  | { type: 'SET_CHART_THEME'; payload: 'dark' | 'light' }
+  | { type: 'SET_POINT_HISTOGRAM'; payload: { edges: number[]; counts: number[] } | null }
+  | { type: 'SET_RASTER_LAYER_VISIBLE'; payload: boolean }
+  | { type: 'SET_POINT_LAYER_VISIBLE'; payload: boolean }
+  | { type: 'SET_POINT_OPACITY'; payload: number };
 
 // Backward compatibility
 export type LegacyAppAction = { type: 'SET_TS_MARKER_POSITION'; payload: [number, number] };

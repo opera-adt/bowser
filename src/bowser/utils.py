@@ -24,8 +24,7 @@ def _parse_x_values(x_values: list[str | int]) -> np.ndarray:
     x_values : list[str | int]
         List of x values which can be:
         - integers (no time information)
-        - datetime strings in "%Y-%m-%d" format (xarray mode)
-        - datetime strings in "%Y%m%d" or "%Y%m%d_%Y%m%d" format (COG mode)
+        - datetime strings in "%Y-%m-%d" format (both xarray and COG modes)
 
     Returns
     -------

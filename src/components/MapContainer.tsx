@@ -1,318 +1,374 @@
-import { useEffect, useState } from 'react';
-import { MapContainer as LeafletMapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-leaflet';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
-import { useApi } from '../hooks/useApi';
+import { useEffect, useState, useRef, useCallback } from 'react';
+import maplibregl from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
+import { MapboxOverlay } from '@deck.gl/mapbox';
+import { ScatterplotLayer } from '@deck.gl/layers';
 import { useAppContext } from '../context/AppContext';
-import { baseMaps } from '../basemap';
-import { MousePositionControl } from '../mouse';
+import { usePointsApi, PointData } from '../hooks/usePointsApi';
+import { valueToColor } from '../colorscales';
+import { parseUrlState } from '../hooks/useUrlState';
 
-// Fix for default markers in React Leaflet
-delete (L.Icon.Default.prototype as any)._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
-  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
-});
+const BASEMAPS: Record<string, { url: string; maxZoom: number }> = {
+  satellite: {
+    url: 'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+    maxZoom: 21,
+  },
+  osm: {
+    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    maxZoom: 19,
+  },
+  dark: {
+    url: 'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
+    maxZoom: 20,
+  },
+};
 
-const fontAwesomeIcon = L.divIcon({
-  html: '<i class="fa-solid fa-location-dot fa-3x"></i>',
-  iconSize: [20, 20],
-  className: 'myDivIcon'
-});
+export default function MapContainer() {
+  const { state, dispatch } = useAppContext();
+  const { fetchPoints, fetchPointTimeseries } = usePointsApi();
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<maplibregl.Map | null>(null);
+  const deckOverlayRef = useRef<MapboxOverlay | null>(null);
 
-function MapEvents() {
-  const { dispatch } = useAppContext();
+  const [pointData, setPointData] = useState<PointData | null>(null);
+  const [selectedPointId, setSelectedPointId] = useState<number | null>(null);
+  const [pointCount, setPointCount] = useState<number>(0);
 
-  useMapEvents({
-    click: (e) => {
-      // Add new time series point on map click
-      dispatch({
-        type: 'ADD_TIME_SERIES_POINT',
-        payload: {
-          position: [e.latlng.lat, e.latlng.lng],
-          name: `Point ${Date.now().toString().slice(-4)}` // Short unique name
-        }
-      });
-    },
-  });
+  // Read point viz state from global state (controlled by PointControlsPanel)
+  const colorBy = state.pointColorBy;
+  const pointVmin = state.pointVmin;
+  const pointVmax = state.pointVmax;
+  const pointFilter = state.pointFilter;
+  const pointBasemap = state.pointBasemap;
+  const pointColormap = state.pointColormap;
 
-  return null;
-}
-
-function MousePosition() {
-  const map = useMap();
-
+  // Initialize map
   useEffect(() => {
-    const mousePositionControl = new MousePositionControl();
-    mousePositionControl.addTo(map);
+    if (!mapContainerRef.current || mapRef.current) return;
+
+    const map = new maplibregl.Map({
+      container: mapContainerRef.current,
+      style: {
+        version: 8,
+        sources: {
+          'basemap': {
+            type: 'raster',
+            tiles: [BASEMAPS.satellite.url],
+            tileSize: 256,
+            maxzoom: BASEMAPS.satellite.maxZoom,
+          }
+        },
+        layers: [{
+          id: 'basemap',
+          type: 'raster',
+          source: 'basemap',
+        }],
+      },
+      center: (() => {
+        const url = parseUrlState();
+        if (url.lon && url.lat) return [parseFloat(url.lon), parseFloat(url.lat)] as [number, number];
+        return [-99.077, 19.315] as [number, number];
+      })(),
+      zoom: (() => {
+        const url = parseUrlState();
+        return url.zoom ? parseFloat(url.zoom) : 12;
+      })(),
+      maxZoom: 22,
+      attributionControl: false,
+    });
+
+    map.addControl(new maplibregl.NavigationControl(), 'top-right');
+    map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
+
+    // Sync viewport to URL
+    map.on('moveend', () => {
+      const center = map.getCenter();
+      const z = map.getZoom();
+      const params = new URLSearchParams(window.location.search);
+      params.set('lat', center.lat.toFixed(4));
+      params.set('lon', center.lng.toFixed(4));
+      params.set('zoom', z.toFixed(1));
+      window.history.replaceState(null, '', `?${params}`);
+    });
+
+    // Add deck.gl overlay
+    const deckOverlay = new MapboxOverlay({
+      interleaved: false,
+      layers: [],
+    });
+    map.addControl(deckOverlay as unknown as maplibregl.IControl);
+    deckOverlayRef.current = deckOverlay;
+    mapRef.current = map;
 
     return () => {
-      mousePositionControl.remove();
+      map.remove();
+      mapRef.current = null;
+      deckOverlayRef.current = null;
     };
-  }, [map]);
+  }, []);
 
-  return null;
-}
-
-function RasterTileLayer() {
-  const { state } = useAppContext();
-  const [tileUrl, setTileUrl] = useState<string | null>(null);
-
+  // Switch basemap tiles
   useEffect(() => {
-    if (!state.currentDataset || !state.datasetInfo[state.currentDataset]) {
+    const map = mapRef.current;
+    if (!map) return;
+    const basemap = BASEMAPS[pointBasemap];
+    const source = map.getSource('basemap') as maplibregl.RasterTileSource | undefined;
+    if (source) {
+      source.setTiles([basemap.url]);
+    }
+  }, [pointBasemap]);
+
+  // Fit map to data bounds from point layer or raster dataset
+  // Skip if URL already specifies a viewport (shared link)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const url = parseUrlState();
+    if (url.lat && url.lon && url.zoom) return; // URL has viewport, skip fitBounds
+
+    // Try point layers first (from manifest loaded via state)
+    if (state.pointLayerBounds) {
+      const [west, south, east, north] = state.pointLayerBounds;
+      map.fitBounds([[west, south], [east, north]], { padding: 50 });
       return;
     }
 
-    const controller = new AbortController();
-    const signal = controller.signal;
+    // Fallback to raster dataset bounds
+    if (state.currentDataset && state.datasetInfo[state.currentDataset]) {
+      const bounds = state.datasetInfo[state.currentDataset].latlon_bounds;
+      map.fitBounds([[bounds[0], bounds[1]], [bounds[2], bounds[3]]], { padding: 50 });
+    }
+  }, [state.pointLayerBounds, state.currentDataset, state.datasetInfo]);
 
-    const updateTileLayer = async () => {
-      const currentDatasetInfo = state.datasetInfo[state.currentDataset];
+  // Load points when point layer is available
+  useEffect(() => {
+    if (!state.activePointLayer) return;
 
-      // Use ONLY state — DO NOT read localStorage here
-      const colormap = state.colormap;
-      const vmin = state.vmin;
-      const vmax = state.vmax;
-
-      // Ensure time index is within bounds
-      const maxIdx = currentDatasetInfo.x_values.length - 1;
-      const timeIdx = Math.max(0, Math.min(state.currentTimeIndex, maxIdx));
-
-      // Build parameters
-      const params: Record<string, string> = {
-        variable: state.currentDataset,
-        time_idx: timeIdx.toString(),
-        rescale: `${vmin},${vmax}`,
-        colormap_name: colormap,
-      };
-
-      // Add algorithm if needed
-      if (currentDatasetInfo.algorithm) {
-        params.algorithm = currentDatasetInfo.algorithm;
-      }
-
-      // Add shift for reference point if available
-      if (state.refValues[state.currentDataset] && currentDatasetInfo.algorithm === 'shift') {
-        const shift = state.refValues[state.currentDataset][timeIdx];
-        if (shift !== undefined) {
-          params.algorithm_params = JSON.stringify({ shift });
-        }
-      }
-
-      // Add URL parameter for COG mode
-      if (state.dataMode === 'cog') {
-        const url = currentDatasetInfo.file_list[timeIdx];
-        const maskUrl = currentDatasetInfo.mask_file_list[timeIdx];
-        const maskMinValue = currentDatasetInfo.mask_min_value;
-
-        params.url = url;
-        if (maskUrl) params.mask = encodeURIComponent(maskUrl);
-        if (maskMinValue !== undefined) params.mask_min_value = maskMinValue.toString();
-      }
-
-      const urlParams = new URLSearchParams(params).toString();
-      const endpoint = state.dataMode === 'md'
-        ? `/md/WebMercatorQuad/tilejson.json?${urlParams}`
-        : `/cog/WebMercatorQuad/tilejson.json?${urlParams}`;
-
+    const loadPoints = async () => {
       try {
-        const response = await fetch(endpoint, { signal });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const tileInfo = await response.json();
-        // Only set if not aborted
-        if (!signal.aborted) setTileUrl(tileInfo.tiles[0]);
-      } catch (err) {
-        if ((err as any).name !== 'AbortError') {
-          console.error('Error fetching tile info:', err);
+        const data = await fetchPoints(state.activePointLayer!, {
+          colorBy,
+          filter: pointFilter || undefined,
+          maxPoints: 200000,
+        });
+        setPointData(data);
+        setPointCount(data.count);
+
+        // Compute histogram for controls panel
+        if (data.count > 0) {
+          const vals = data.colorValues;
+          const min = vals.reduce((a, b) => Math.min(a, b), Infinity);
+          const max = vals.reduce((a, b) => Math.max(a, b), -Infinity);
+          const nBins = 40;
+          const binWidth = (max - min) / nBins || 1;
+          const counts = new Array(nBins).fill(0);
+          const edges = Array.from({ length: nBins + 1 }, (_, i) => min + i * binWidth);
+          for (const v of vals) {
+            const idx = Math.min(Math.floor((v - min) / binWidth), nBins - 1);
+            counts[idx]++;
+          }
+          dispatch({ type: 'SET_POINT_HISTOGRAM', payload: { edges, counts } });
         }
+      } catch (err) {
+        console.error('Error loading points:', err);
       }
     };
 
-    updateTileLayer();
-    return () => controller.abort();
-  }, [
-    state.currentDataset,
-    state.currentTimeIndex,
-    state.datasetInfo,
-    state.dataMode,
-    state.refValues,
-    state.refMarkerPosition,
-    state.colormap,
-    state.vmin,
-    state.vmax
-  ]);
+    loadPoints();
+  }, [state.activePointLayer, colorBy, pointFilter, fetchPoints]);
 
-  if (!tileUrl) return null;
+  // Track which point IDs are currently displayed in the chart
+  const clickedPointIds = new Set(state.clickedPoints.map(p => p.pointId));
 
-  return (
-    <TileLayer
-      key={tileUrl}  // force refresh if URL changes
-      url={tileUrl}
-      opacity={state.opacity}
-      maxZoom={19}
-    />
-  );
-}
+  // Handle point click → fetch timeseries
+  // shiftKey=true adds to selection, ctrlKey=true sets reference point
+  const onPointClick = useCallback(async (pointId: number, shiftKey: boolean, ctrlKey: boolean) => {
+    if (!state.activePointLayer) return;
+    setSelectedPointId(pointId);
 
-function MarkerEventHandlers() {
-  const { state, dispatch } = useAppContext();
-  const { fetchPointTimeSeries } = useApi();
-  const map = useMap();
+    try {
+      const ts = await fetchPointTimeseries(state.activePointLayer, pointId);
 
-  const handleMarkerClick = (position: [number, number], pointName?: string) => {
-    const [lat, lng] = position;
-    const content = pointName
-      ? `${pointName} (lon, lat):\n(${lng.toFixed(6)}, ${lat.toFixed(6)})`
-      : `Reference (lon, lat):\n(${lng.toFixed(6)}, ${lat.toFixed(6)})`;
-    L.popup()
-      .setLatLng([lat, lng])
-      .setContent(content)
-      .openOn(map);
-  };
-
-  const handleTsMarkerDragEnd = (pointId: string) => (e: L.DragEndEvent) => {
-    const marker = e.target;
-    const position = marker.getLatLng();
-    dispatch({
-      type: 'UPDATE_TIME_SERIES_POINT',
-      payload: {
-        id: pointId,
-        updates: { position: [position.lat, position.lng] }
+      if (ctrlKey) {
+        // Ctrl+click → set as reference point
+        dispatch({ type: 'SET_REFERENCE_POINT', payload: { pointId, timeseries: ts } });
+        return;
       }
-    });
-  };
 
-  const handleRefMarkerDragEnd = async (e: L.DragEndEvent) => {
-    const marker = e.target;
-    const position = marker.getLatLng();
-    const lat = position.lat;
-    const lng = position.lng;
-    // 1) update position in state
-    dispatch({ type: 'SET_REF_MARKER_POSITION', payload: [lat, lng] });
+      // If not shift-clicking, clear previous selections first
+      if (!shiftKey) {
+        dispatch({ type: 'CLEAR_CLICKED_POINTS' });
+      }
 
-    // 2) if current dataset uses the "shift" algo, recompute ref values
-    const ds = state.currentDataset;
-    const info = ds ? state.datasetInfo[ds] : null;
-    if (ds && info?.algorithm === 'shift') {
-      try {
-        const values = await fetchPointTimeSeries(lng, lat, ds);
-        if (values) {
-          dispatch({
-            type: 'SET_REF_VALUES',
-            payload: { dataset: ds, values },
-          });
+      dispatch({
+        type: 'SET_CLICKED_POINT_TIMESERIES',
+        payload: { pointId, timeseries: ts },
+      });
+    } catch (err) {
+      console.error('Error fetching timeseries:', err);
+    }
+  }, [state.activePointLayer, fetchPointTimeseries, dispatch]);
+
+  // Update deck.gl layers whenever point data changes
+  useEffect(() => {
+    const overlay = deckOverlayRef.current;
+    if (!overlay) return;
+
+    // If no point data or points layer hidden, clear deck.gl layers
+    if (!pointData || !state.pointLayerVisible) {
+      overlay.setProps({ layers: [] });
+      return;
+    }
+
+    const positions = new Float64Array(pointData.count * 2);
+    for (let i = 0; i < pointData.count; i++) {
+      positions[i * 2] = pointData.lon[i];
+      positions[i * 2 + 1] = pointData.lat[i];
+    }
+
+    const layer = new ScatterplotLayer({
+      id: 'point-cloud',
+      data: {
+        length: pointData.count,
+        attributes: {
+          getPosition: { value: positions, size: 2 },
+        },
+      },
+      getPosition: (_, { index }) => [pointData.lon[index], pointData.lat[index]],
+      opacity: state.pointOpacity,
+      getFillColor: (_, { index }) => {
+        const pid = pointData.point_id[index];
+        if (pid === state.referencePointId) {
+          return [0, 255, 128, 255]; // Green for reference point
         }
-      } catch (err) {
-        console.error('Error updating reference values after drag:', err);
+        if (clickedPointIds.has(pid)) {
+          return [255, 255, 0, 255]; // Yellow for selected/clicked
+        }
+        const v = pointData.colorValues[index];
+        return valueToColor(v, pointVmin, pointVmax, pointColormap);
+      },
+      getRadius: (_, { index }) => {
+        const pid = pointData.point_id[index];
+        if (pid === state.referencePointId) return 7;
+        if (clickedPointIds.has(pid)) return 5;
+        return 3;
+      },
+      radiusMinPixels: 2,
+      radiusMaxPixels: 14,
+      pickable: true,
+      onClick: (info, event) => {
+        if (info.index >= 0) {
+          const srcEvent = (event as unknown as { srcEvent?: MouseEvent }).srcEvent;
+          const shiftKey = srcEvent?.shiftKey ?? false;
+          const ctrlKey = srcEvent?.ctrlKey ?? srcEvent?.metaKey ?? false;
+          onPointClick(pointData.point_id[info.index], shiftKey, ctrlKey);
+        }
+      },
+      updateTriggers: {
+        getFillColor: [pointVmin, pointVmax, pointColormap, state.referencePointId, ...clickedPointIds],
+        getRadius: [state.referencePointId, ...clickedPointIds],
+      },
+    });
+
+    overlay.setProps({ layers: [layer] });
+  }, [pointData, pointVmin, pointVmax, pointColormap, selectedPointId, onPointClick,
+      state.pointLayerVisible, state.pointOpacity]);
+
+  // Raster tile layer visibility toggle
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const layer = map.getLayer('raster-layer');
+    if (layer) {
+      map.setLayoutProperty('raster-layer', 'visibility',
+        state.rasterLayerVisible ? 'visible' : 'none');
+    }
+  }, [state.rasterLayerVisible]);
+
+  // Raster tile layer for V1 datasets
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !state.currentDataset || !state.datasetInfo[state.currentDataset]) return;
+
+    const currentDatasetInfo = state.datasetInfo[state.currentDataset];
+    const maxIdx = currentDatasetInfo.x_values.length - 1;
+    const timeIdx = Math.max(0, Math.min(state.currentTimeIndex, maxIdx));
+
+    const params: Record<string, string> = {
+      variable: state.currentDataset,
+      time_idx: timeIdx.toString(),
+      rescale: `${state.vmin},${state.vmax}`,
+      colormap_name: state.colormap,
+    };
+
+    if (currentDatasetInfo.algorithm) {
+      params.algorithm = currentDatasetInfo.algorithm;
+    }
+
+    if (state.refValues[state.currentDataset] && currentDatasetInfo.algorithm === 'shift') {
+      const shift = state.refValues[state.currentDataset][timeIdx];
+      if (shift !== undefined) {
+        params.algorithm_params = JSON.stringify({ shift });
       }
     }
-  };
 
-  const handleTsMarkerDoubleClick = (pointId: string) => () => {
-    // Double-click to remove point
-    dispatch({ type: 'REMOVE_TIME_SERIES_POINT', payload: pointId });
-  };
-
-  // Create custom colored icons for each point
-  const createColoredIcon = (color: string, isSelected: boolean = false) => {
-    const iconSize = isSelected ? 25 : 20;
-    return L.divIcon({
-      html: `<div style="
-        width: ${iconSize}px;
-        height: ${iconSize}px;
-        background-color: ${color};
-        border: ${isSelected ? '3px solid white' : '2px solid white'};
-        border-radius: 50%;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-      "></div>`,
-      iconSize: [iconSize, iconSize],
-      className: 'custom-colored-marker'
-    });
-  };
-
-  return (
-    <>
-      {/* Time Series Points */}
-      {state.timeSeriesPoints.filter(p => p.visible).map((point) => (
-        <Marker
-          key={point.id}
-          position={point.position}
-          icon={createColoredIcon(point.color, state.selectedPointId === point.id)}
-          draggable
-          title={`${point.name} - Double-click to remove`}
-          eventHandlers={{
-            click: () => {
-              handleMarkerClick(point.position, point.name);
-              dispatch({ type: 'SET_SELECTED_POINT', payload: point.id });
-            },
-            dragend: handleTsMarkerDragEnd(point.id),
-            dblclick: handleTsMarkerDoubleClick(point.id),
-          }}
-        />
-      ))}
-
-      {/* Reference Marker */}
-      <Marker
-        position={state.refMarkerPosition}
-        icon={fontAwesomeIcon}
-        draggable
-        title="Reference Location"
-        eventHandlers={{
-          click: () => handleMarkerClick(state.refMarkerPosition),
-          dragend: handleRefMarkerDragEnd,
-        }}
-      />
-    </>
-  );
-}
-
-export default function MapContainer() {
-  const { state } = useAppContext();
-
-  // Calculate initial center from first dataset bounds
-  const getInitialCenter = (): [number, number] => {
-    if (state.currentDataset && state.datasetInfo[state.currentDataset]) {
-      const bounds = state.datasetInfo[state.currentDataset].latlon_bounds;
-      const centerLat = (bounds[1] + bounds[3]) / 2;
-      const centerLng = (bounds[0] + bounds[2]) / 2;
-      return [centerLat, centerLng];
+    if (state.dataMode === 'cog') {
+      params.url = currentDatasetInfo.file_list[timeIdx];
+      const maskUrl = currentDatasetInfo.mask_file_list[timeIdx];
+      if (maskUrl) params.mask = encodeURIComponent(maskUrl);
+      if (currentDatasetInfo.mask_min_value !== undefined) {
+        params.mask_min_value = currentDatasetInfo.mask_min_value.toString();
+      }
     }
 
-    // If no current dataset, try to get bounds from any available dataset
-    const datasets = Object.values(state.datasetInfo);
-    if (datasets.length > 0) {
-      const bounds = datasets[0].latlon_bounds;
-      const centerLat = (bounds[1] + bounds[3]) / 2;
-      const centerLng = (bounds[0] + bounds[2]) / 2;
-      return [centerLat, centerLng];
+    const urlParams = new URLSearchParams(params).toString();
+    const endpoint = state.dataMode === 'md' ? 'md' : 'cog';
+    const tileUrl = `/${endpoint}/WebMercatorQuad/tiles/{z}/{x}/{y}.png?${urlParams}`;
+
+    // Add or update raster source
+    if (map.getSource('raster-tiles')) {
+      (map.getSource('raster-tiles') as maplibregl.RasterTileSource).setTiles([tileUrl]);
+    } else {
+      map.addSource('raster-tiles', {
+        type: 'raster',
+        tiles: [tileUrl],
+        tileSize: 256,
+      });
+      map.addLayer({
+        id: 'raster-layer',
+        type: 'raster',
+        source: 'raster-tiles',
+        paint: { 'raster-opacity': state.opacity },
+      }, map.getLayer('basemap') ? undefined : undefined);
     }
 
-    return [0, 0];
-  };
-
-  const selectedBasemap = baseMaps[state.selectedBasemap] || baseMaps.esriSatellite;
-
-  const center = getInitialCenter();
-  const hasDatasets = Object.keys(state.datasetInfo).length > 0;
+    // Update opacity
+    if (map.getLayer('raster-layer')) {
+      map.setPaintProperty('raster-layer', 'raster-opacity', state.opacity);
+    }
+  }, [state.currentDataset, state.currentTimeIndex, state.datasetInfo, state.dataMode,
+      state.refValues, state.colormap, state.vmin, state.vmax, state.opacity]);
 
   return (
-    <LeafletMapContainer
-      key={hasDatasets ? 'with-data' : 'no-data'} // Force re-render when data loads
-      center={center}
-      zoom={9}
-      style={{ height: '100%', width: '100%' }}
-      doubleClickZoom={false}
-    >
-      <TileLayer
-        url={selectedBasemap.url}
-        attribution={selectedBasemap.attribution}
-        maxZoom={19}
-      />
-      <RasterTileLayer />
-      <MarkerEventHandlers />
-      <MapEvents />
-      <MousePosition />
-    </LeafletMapContainer>
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      <div ref={mapContainerRef} style={{ width: '100%', height: '100%' }} />
+
+      {/* Stats overlay */}
+      {pointCount > 0 && (
+        <div style={{
+          position: 'absolute', bottom: 30, left: 10,
+          background: 'rgba(0,0,0,0.7)', color: '#fff',
+          padding: '6px 10px', borderRadius: 4, fontSize: 12,
+          zIndex: 10, fontFamily: 'monospace',
+        }}>
+          {pointCount.toLocaleString()} points | color: {colorBy}
+          | [{pointVmin.toFixed(1)}, {pointVmax.toFixed(1)}]
+          {state.clickedPoints.length > 0 && ` | ${state.clickedPoints.length} selected`}
+          {state.referencePointId != null && ` | ref: ${state.referencePointId}`}
+          {state.clickedPoints.length === 0 && ' | click: TS, shift: compare, ctrl: ref'}
+        </div>
+      )}
+    </div>
   );
 }

@@ -144,15 +144,38 @@ class RasterGroup(BaseModel):
     @computed_field
     def x_values(self) -> list[str | int]:
         """Vales to use for the x axis of a time series plot."""
-        # if len(self.file_list) == 1:
         dates = self._reader.dates
-        if not dates or any(d is None for d in dates):
-            # otherwise, use indexes
-            x_values = np.arange(len(self.file_list)).tolist()
-        else:
-            x_values = [_format_dates(*k) for k in dates]  # type: ignore[misc]
+        # Check if all dates are valid and non-empty
+        if not dates or any((d is None or not d) for d in dates):
+            return np.arange(len(self.file_list)).tolist()
+
+        # For time series plotting, use the last date (secondary/end date)
+        x_values = [k[-1].strftime("%Y-%m-%d") for k in dates]  # type: ignore[index]
+
+        # If secondary dates have duplicates (e.g., interferograms with varying
+        # reference dates), use full "ref_secondary" date pair labels instead.
+        # The frontend renders these with a category scale.
+        if len(set(x_values)) != len(x_values):
+            return [
+                "_".join(d.strftime("%Y-%m-%d") for d in k)  # type: ignore[union-attr]
+                for k in dates
+            ]
 
         return x_values
+
+    @computed_field
+    def reference_date(self) -> str | None:
+        """Common reference date if all files share the same first date."""  # noqa: D401
+        dates = self._reader.dates
+        if not dates or any(not d for d in dates):
+            return None
+        # Check for multi-date filenames (e.g., interferograms)
+        if not all(len(d) > 1 for d in dates):  # type: ignore[arg-type]
+            return None
+        first_dates = {d[0] for d in dates}  # type: ignore[index]
+        if len(first_dates) == 1:
+            return first_dates.pop().strftime("%Y-%m-%d")
+        return None
 
     @classmethod
     def from_glob(
@@ -188,10 +211,6 @@ def _find_files(glob_str: str) -> list[str]:
     else:
         file_list = sorted(glob(glob_str))
     return file_list
-
-
-def _format_dates(*dates, fmt="%Y%m%d") -> str:
-    return "_".join(f"{d.strftime(fmt)}" for d in dates)
 
 
 # https://github.com/developmentseed/titiler/blob/0fddd7ed268557e82a5e1520cdd7fdf084afa1b8/src/titiler/core/titiler/core/resources/responses.py#L15

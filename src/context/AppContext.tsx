@@ -34,6 +34,23 @@ const initialState: AppState = {
   showChart: false,
   selectedPointId: null,
   showTrends: false,
+  activePointLayer: null,
+  pointLayerBounds: null,
+  clickedPoints: [],
+  pointColorBy: 'velocity',
+  pointVmin: -10,
+  pointVmax: 10,
+  pointAttributes: {},
+  pointFilter: '',
+  pointBasemap: 'satellite',
+  pointColormap: 'rdbu_r',
+  referencePointId: null,
+  referenceTimeseries: [],
+  chartTheme: 'dark',
+  pointHistogram: null,
+  rasterLayerVisible: true,
+  pointLayerVisible: true,
+  pointOpacity: 1,
 };
 
 function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppState {
@@ -175,6 +192,61 @@ function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppSt
       return { ...state, opacity: action.payload };
     case 'TOGGLE_CHART':
       return { ...state, showChart: !state.showChart };
+
+    // V2 point layer actions
+    case 'SET_ACTIVE_POINT_LAYER':
+      return { ...state, activePointLayer: action.payload };
+    case 'SET_POINT_LAYER_BOUNDS':
+      return { ...state, pointLayerBounds: action.payload };
+    case 'SET_CLICKED_POINT_TIMESERIES':
+      return {
+        ...state,
+        showChart: true,
+        clickedPoints: [
+          ...state.clickedPoints.filter(p => p.pointId !== action.payload.pointId),
+          action.payload,
+        ],
+      };
+    case 'CLEAR_CLICKED_POINTS':
+      return { ...state, clickedPoints: [] };
+    case 'REMOVE_CLICKED_POINT':
+      return {
+        ...state,
+        clickedPoints: state.clickedPoints.filter(p => p.pointId !== action.payload),
+      };
+    case 'SET_POINT_COLOR_BY':
+      return { ...state, pointColorBy: action.payload };
+    case 'SET_POINT_VMIN':
+      return { ...state, pointVmin: action.payload };
+    case 'SET_POINT_VMAX':
+      return { ...state, pointVmax: action.payload };
+    case 'SET_POINT_ATTRIBUTES':
+      return { ...state, pointAttributes: action.payload };
+    case 'SET_POINT_FILTER':
+      return { ...state, pointFilter: action.payload };
+    case 'SET_POINT_BASEMAP':
+      return { ...state, pointBasemap: action.payload };
+    case 'SET_POINT_COLORMAP':
+      return { ...state, pointColormap: action.payload };
+    case 'SET_REFERENCE_POINT':
+      return {
+        ...state,
+        referencePointId: action.payload.pointId,
+        referenceTimeseries: action.payload.timeseries,
+      };
+    case 'CLEAR_REFERENCE_POINT':
+      return { ...state, referencePointId: null, referenceTimeseries: [] };
+    case 'SET_CHART_THEME':
+      return { ...state, chartTheme: action.payload };
+    case 'SET_POINT_HISTOGRAM':
+      return { ...state, pointHistogram: action.payload };
+    case 'SET_RASTER_LAYER_VISIBLE':
+      return { ...state, rasterLayerVisible: action.payload };
+    case 'SET_POINT_LAYER_VISIBLE':
+      return { ...state, pointLayerVisible: action.payload };
+    case 'SET_POINT_OPACITY':
+      return { ...state, pointOpacity: action.payload };
+
     default:
       return state;
   }

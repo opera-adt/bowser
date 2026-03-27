@@ -23,6 +23,7 @@ from titiler.core.errors import DEFAULT_STATUS_CODES, add_exception_handlers
 from titiler.core.factory import TilerFactory
 
 from .config import settings
+from .manifest import DatasetManifest
 from .readers import CustomReader
 from .titiler import Amplitude, JSONResponse, Phase, RasterGroup, Rewrap, Shift
 from .utils import calculate_trend, desensitize_mpl_case, generate_colorbar
@@ -61,47 +62,93 @@ app = FastAPI(
 
 
 def load_data_sources():
-    """Load data sources and determine which mode to use (MD or COG)."""
-    # Check for xarray stack file first (MD mode)
-    if settings.BOWSER_STACK_DATA_FILE:
-        stack_file = os.environ["BOWSER_STACK_DATA_FILE"]
-        logger.info(f"Loading xarray dataset from {stack_file} (MD mode)")
-        ds = (
-            xr.open_zarr(stack_file)
-            if stack_file.endswith(".zarr")
-            else xr.open_dataset(stack_file)
-        )
-        crs = CRS.from_wkt(ds.spatial_ref.crs_wkt)
-        ds.rio.write_crs(crs, inplace=True)
-        transformer = Transformer.from_crs(4326, ds.rio.crs, always_xy=True)
-        return "md", ds, None, transformer
+    """Load data sources and determine which mode to use (MD or COG).
 
-    # Check for RasterGroup JSON config (COG mode)
-    elif Path(settings.BOWSER_DATASET_CONFIG_FILE).exists():
-        logger.info(
-            f"Loading RasterGroups from {settings.BOWSER_DATASET_CONFIG_FILE} (COG)"
-        )
-        data_js_list = json.loads(Path(settings.BOWSER_DATASET_CONFIG_FILE).read_text())
-        raster_groups = {}
-        for d in data_js_list:
-            rg = RasterGroup.model_validate(d)
-            raster_groups[rg.name] = rg
-        logger.info(
-            (
-                f"Found {len(raster_groups)} RasterGroup configs:"
-                " {list(raster_groups.keys())}"
+    When a manifest is provided, point layers are loaded from it. Raster
+    sources are loaded from the manifest's raster layers OR from the
+    traditional BOWSER_STACK_DATA_FILE / BOWSER_DATASET_CONFIG_FILE env
+    vars, enabling both raster and point layers to coexist.
+    """
+    manifest = None
+    data_mode = "points"
+    xarray_dataset = None
+    raster_groups = None
+    transformer = None
+
+    # 1) Load manifest (point layers + optional raster layers)
+    manifest_file = os.environ.get("BOWSER_MANIFEST_FILE", "")
+    if manifest_file and Path(manifest_file).exists():
+        logger.info(f"Loading V2 manifest from {manifest_file}")
+        manifest = DatasetManifest.load(manifest_file)
+
+        # Initialize point layers if any
+        point_layers = manifest.get_point_layers()
+        if point_layers:
+            from .points import init_point_layers
+
+            init_point_layers(point_layers)
+            logger.info(f"Loaded {len(point_layers)} point layer(s)")
+
+        # Load raster layers from manifest if any
+        raster_layer_configs = manifest.get_raster_layers()
+        if raster_layer_configs:
+            raster_groups = {}
+            for name, rl in raster_layer_configs.items():
+                rg = RasterGroup(name=name, file_list=[rl.source])
+                raster_groups[name] = rg
+            data_mode = "cog"
+
+    # 2) Load traditional raster sources (if no rasters loaded yet)
+    if raster_groups is None:
+        if settings.BOWSER_STACK_DATA_FILE:
+            stack_file = os.environ["BOWSER_STACK_DATA_FILE"]
+            logger.info(f"Loading xarray dataset from {stack_file} (MD mode)")
+            ds = (
+                xr.open_zarr(stack_file)
+                if stack_file.endswith(".zarr")
+                else xr.open_dataset(stack_file)
             )
-        )
-        return "cog", None, raster_groups, None
+            crs = CRS.from_wkt(ds.spatial_ref.crs_wkt)
+            ds.rio.write_crs(crs, inplace=True)
+            transformer = Transformer.from_crs(4326, ds.rio.crs, always_xy=True)
+            xarray_dataset = ds
+            data_mode = "md"
 
-    else:
+        elif Path(settings.BOWSER_DATASET_CONFIG_FILE).exists():
+            logger.info(
+                f"Loading RasterGroups from"
+                f" {settings.BOWSER_DATASET_CONFIG_FILE} (COG)"
+            )
+            data_js_list = json.loads(
+                Path(settings.BOWSER_DATASET_CONFIG_FILE).read_text()
+            )
+            raster_groups = {}
+            for d in data_js_list:
+                rg = RasterGroup.model_validate(d)
+                raster_groups[rg.name] = rg
+            logger.info(
+                f"Found {len(raster_groups)} RasterGroup configs:"
+                f" {list(raster_groups.keys())}"
+            )
+            data_mode = "cog"
+
+    if not manifest and not xarray_dataset and not raster_groups:
         raise ValueError(
-            "No data files specified - need either stack file or JSON config"
+            "No data files specified - need either manifest, stack file,"
+            " or JSON config"
         )
+
+    return data_mode, xarray_dataset, raster_groups, transformer, manifest
 
 
 # Global data sources - load once at startup
-DATA_MODE, XARRAY_DATASET, RASTER_GROUPS, transformer_from_lonlat = load_data_sources()
+(
+    DATA_MODE,
+    XARRAY_DATASET,
+    RASTER_GROUPS,
+    transformer_from_lonlat,
+    MANIFEST,
+) = load_data_sources()
 print(f"Data loading complete in {time.time() - t0:.1f} sec. Mode: {DATA_MODE}")
 
 
@@ -169,6 +216,7 @@ def create_rastergroup_dataset_info(raster_groups: dict) -> dict:
             "bounds": list(rg.bounds),
             "latlon_bounds": list(rg.latlon_bounds),
             "x_values": rg.x_values,
+            "reference_date": rg.reference_date,
         }
     return dataset_info
 
@@ -178,8 +226,10 @@ async def datasets():
     """Return the JSON describing all available datasets."""
     if DATA_MODE == "md":
         return create_xarray_dataset_info(XARRAY_DATASET)
-    else:  # cog mode
+    elif RASTER_GROUPS:
         return create_rastergroup_dataset_info(RASTER_GROUPS)
+    else:
+        return {}
 
 
 @app.get("/mode")
@@ -345,7 +395,9 @@ async def multi_point(
 
         try:
             # Get values at the point
-            values = await _get_point_values(dataset_name, float(lon), float(lat))
+            _lon: float = float(lon)  # type: ignore[arg-type]
+            _lat: float = float(lat)  # type: ignore[arg-type]
+            values = await _get_point_values(dataset_name, _lon, _lat)
 
             # Apply reference subtraction if provided
             if ref_values is not None:
@@ -576,6 +628,13 @@ md_endpoints = TilerFactory(
 )
 app.include_router(md_endpoints.router, prefix="/md", tags=["Xarray Multi Dimensional"])
 logger.info("Configured MD endpoints at /md/*")
+
+# Add point layer endpoints if available
+if MANIFEST and MANIFEST.get_point_layers():
+    from .points import router as points_router
+
+    app.include_router(points_router)
+    logger.info("Configured point layer endpoints at /points/*")
 
 # Add exception handlers
 add_exception_handlers(app, DEFAULT_STATUS_CODES)

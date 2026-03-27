@@ -26,6 +26,7 @@ from numpy.typing import ArrayLike
 from opera_utils import get_dates
 from pyproj import Transformer
 from rasterio.crs import CRS
+from rasterio.dtypes import dtype_fwd
 from rio_tiler.constants import WEB_MERCATOR_TMS, WGS84_CRS
 from rio_tiler.io import BaseReader, Reader
 from rio_tiler.models import BandStatistics, ImageData, Info, PointData
@@ -33,6 +34,26 @@ from rio_tiler.types import BBox, Indexes
 from tqdm.contrib.concurrent import thread_map
 
 PathOrStr = Path | str
+
+# GDAL 3.11+ interprets NBITS=16 on float32 GeoTIFFs as native Float16
+# (datatype code 15). Rasterio builds that lack a mapping for code 15
+# raise KeyError on open. Patch the mapping so these files can be read.
+_GDAL_FLOAT16_CODE = 15
+if _GDAL_FLOAT16_CODE not in dtype_fwd:
+    dtype_fwd[_GDAL_FLOAT16_CODE] = "float32"
+
+
+def _can_use_nbits16() -> bool:
+    """Check whether NBITS=16 can be used safely with the current GDAL/rasterio.
+
+    Returns False when GDAL >= 3.11 would reinterpret NBITS=16 float32 as
+    Float16 but rasterio has no native Float16 support.  Callers that create
+    GeoTIFFs should skip the NBITS=16 creation option when this returns False.
+    """
+    return (
+        _GDAL_FLOAT16_CODE in dtype_fwd and dtype_fwd[_GDAL_FLOAT16_CODE] != "float32"
+    )
+
 
 __all__ = [
     "DatasetReader",

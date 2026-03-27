@@ -20,6 +20,11 @@ dependencies = [
   "rioxarray",
   "matplotlib",
   "pydantic-settings",
+  # V2: point cloud support
+  "geopandas",
+  "pyarrow",
+  "duckdb",
+  "shapely>=2",
 ]
 
 classifiers = [
@@ -50,7 +55,7 @@ widget = [
   "ipyleaflet",
   "bqplot>=0.12",
 ]
-test = ["pytest", "httpx", "ipython", "types-python-dateutil"]
+test = ["pytest", "httpx", "ipython", "types-python-dateutil", "pytest-playwright"]
 
 # [project.urls]
 # Homepage = "https://github.com/opera-adt/bowser"
@@ -144,4 +149,8 @@ plugins = ["pydantic.mypy"]
 
 [tool.pytest.ini_options]
 addopts = "-W ignore::PendingDeprecationWarning "
-filterwarnings = ["error"]
+filterwarnings = [
+  "error",
+  "default::DeprecationWarning:shapely",
+  "default::DeprecationWarning:geopandas",
+]

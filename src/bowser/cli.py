@@ -24,6 +24,13 @@ def cli_app():
     help="Name of JSON file from `bowser set-data`.",
 )
 @click.option(
+    "-m",
+    "--manifest",
+    "manifest_file",
+    default=None,
+    help="Path to bowser_manifest.json (V2 mode with point layer support).",
+)
+@click.option(
     "--port",
     "-p",
     default=None,
@@ -75,6 +82,7 @@ def cli_app():
 def run(
     stack_file,
     rasters_file,
+    manifest_file,
     port,
     reload,
     workers,
@@ -89,7 +97,9 @@ def run(
     if port is None:
         port = _find_available_port(8000)
     _setup_gdal_env(ignore_sidecar_files)
-    if stack_file:
+    if manifest_file:
+        os.environ["BOWSER_MANIFEST_FILE"] = manifest_file
+    elif stack_file:
         os.environ["BOWSER_STACK_DATA_FILE"] = stack_file
     else:
         os.environ["BOWSER_DATASET_CONFIG_FILE"] = rasters_file
@@ -263,20 +273,34 @@ def setup_dolphin(dolphin_work_dir, timeseries_mask, output, include_ifgs: bool 
 
     dolphin_outputs = [
         {
-            "name": "time series",
+            "name": "Time series",
             "file_list": _glob(f"{wd}/timeseries/2*[0-9].tif"),
             "uses_spatial_ref": True,
             "algorithm": Algorithm.SHIFT.value,
         },
         {
-            "name": "velocity",
+            "name": "Velocity",
             "file_list": [f"{wd}/timeseries/velocity.tif"],
             "uses_spatial_ref": True,
             "algorithm": Algorithm.SHIFT.value,
         },
         {
+            "name": "Velocity Std. Err.",
+            "file_list": [f"{wd}/timeseries/velocity_stderr.tif"],
+        },
+        {
+            "name": "Velocity Confidence Interval Margin",
+            "file_list": [f"{wd}/timeseries/velocity_ci_margin.tif"],
+        },
+        {
             "name": "Filtered time series",
             "file_list": _glob(f"{wd}/filtered_timeseries*/2*[0-9].tif"),
+        },
+        {
+            "name": "Filtered time series (deramped)",
+            "file_list": _glob(f"{wd}/filtered_timeseries*/2*[0-9]_deramped.tif"),
+            "uses_spatial_ref": True,
+            "algorithm": Algorithm.SHIFT.value,
         },
         {
             "name": "Filtered velocity",
@@ -296,6 +320,10 @@ def setup_dolphin(dolphin_work_dir, timeseries_mask, output, include_ifgs: bool 
         {
             "name": "Nonzero connected component counts",
             "file_list": _glob(f"{wd}/timeseries/nonzero_conncomp_count_*.tif"),
+        },
+        {
+            "name": "Multi-looked coherence",
+            "file_list": _glob(f"{wd}/interferograms/multilooked_coh*.tif"),
         },
         {
             "name": "Re-wrapped phase",
@@ -351,6 +379,14 @@ def setup_dolphin(dolphin_work_dir, timeseries_mask, output, include_ifgs: bool 
         {
             "name": "Time series residuals",
             "file_list": _glob(f"{wd}/timeseries/residuals_2*[0-9].tif"),
+        },
+        {
+            "name": "Point height correction",
+            "file_list": _glob(f"{wd}/timeseries/point_height_correction.tif"),
+        },
+        {
+            "name": "Point height correction std. err.",
+            "file_list": _glob(f"{wd}/timeseries/point_height_correction_stderr.tif"),
         },
         {
             "name": "Time series residuals (total sum)",
@@ -657,3 +693,139 @@ def setup_nisar_gunw(nisar_dir: str, output: str):
         raster_groups.append(rg)
 
     _dump_raster_groups(raster_groups, output=output)
+
+
+@cli_app.command("generate-testdata")
+@click.option(
+    "-o",
+    "--output-dir",
+    required=True,
+    help="Directory to write output GeoParquet and manifest files.",
+)
+@click.option(
+    "-n",
+    "--n-points",
+    default=50_000,
+    type=int,
+    show_default=True,
+    help="Number of synthetic measurement points.",
+)
+@click.option(
+    "--n-dates",
+    default=20,
+    type=int,
+    show_default=True,
+    help="Number of SAR acquisition dates.",
+)
+@click.option("--center-lon", default=-99.13, type=float, show_default=True)
+@click.option("--center-lat", default=19.43, type=float, show_default=True)
+@click.option(
+    "--spread",
+    default=0.15,
+    type=float,
+    show_default=True,
+    help="Approximate AOI radius in degrees.",
+)
+@click.option("--seed", default=42, type=int, show_default=True)
+def generate_testdata(
+    output_dir, n_points, n_dates, center_lon, center_lat, spread, seed
+):
+    """Generate synthetic point cloud data for testing.
+
+    Creates realistic clustered point distributions with velocity trends,
+    suitable for testing the V2 point cloud viewer.
+    """
+    from ._generate_testdata import generate_testdata as _gen
+
+    _gen(
+        output_dir=output_dir,
+        n_points=n_points,
+        n_dates=n_dates,
+        center_lon=center_lon,
+        center_lat=center_lat,
+        spread_deg=spread,
+        seed=seed,
+    )
+
+
+@cli_app.group()
+def convert():
+    """Convert InSAR data to GeoParquet point cloud format."""
+
+
+@convert.command()
+@click.argument(
+    "dolphin_work_dir",
+    type=click.Path(exists=True, file_okay=False, dir_okay=True),
+)
+@click.option(
+    "-o",
+    "--output-dir",
+    required=True,
+    help="Directory to write output GeoParquet and manifest files.",
+)
+@click.option(
+    "--coherence-threshold",
+    default=0.5,
+    type=float,
+    show_default=True,
+    help="Minimum temporal coherence to include a pixel.",
+)
+@click.option(
+    "--amplitude-dispersion-threshold",
+    default=None,
+    type=float,
+    help="Maximum amplitude dispersion to include a pixel (lower = more stable).",
+)
+def dolphin(
+    dolphin_work_dir, output_dir, coherence_threshold, amplitude_dispersion_threshold
+):
+    """Convert dolphin workflow outputs to GeoParquet point cloud.
+
+    Reads raster time series and quality layers from DOLPHIN_WORK_DIR,
+    masks by quality thresholds, and writes points.parquet +
+    timeseries.parquet + bowser_manifest.json to OUTPUT_DIR.
+    """
+    from ._convert_dolphin import convert_dolphin
+
+    manifest_path = convert_dolphin(
+        work_dir=dolphin_work_dir,
+        output_dir=output_dir,
+        coherence_threshold=coherence_threshold,
+        amplitude_dispersion_threshold=amplitude_dispersion_threshold,
+    )
+    click.echo(f"\nDone! To view:\n  bowser run --manifest {manifest_path}")
+
+
+@convert.command()
+@click.argument(
+    "input_file",
+    type=click.Path(exists=True, file_okay=True, dir_okay=False),
+)
+@click.option(
+    "-o",
+    "--output-dir",
+    required=True,
+    help="Directory to write output GeoParquet and manifest files.",
+)
+@click.option(
+    "--layer-name",
+    default="ps_points",
+    show_default=True,
+    help="Name for the point layer in the manifest.",
+)
+def wide_parquet(input_file, output_dir, layer_name):
+    """Convert a wide-form point cloud parquet to Bowser V2 format.
+
+    Handles parquet files where displacement time series are stored as
+    date-named columns (e.g., '20240626_20240629'). Splits into separate
+    points.parquet + timeseries.parquet files.
+    """
+    from ._convert_wide_parquet import convert_wide_parquet
+
+    manifest_path = convert_wide_parquet(
+        input_file=input_file,
+        output_dir=output_dir,
+        layer_name=layer_name,
+    )
+    click.echo(f"\nDone! To view:\n  bowser run --manifest {manifest_path}")
