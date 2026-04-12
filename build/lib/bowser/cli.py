@@ -72,11 +72,6 @@ def cli_app():
     is_flag=True,
     help="Don't use recommended mask for `displacement` ",
 )
-@click.option(
-    "--title",
-    default="",
-    help="Title to display on the map.",
-)
 def run(
     stack_file,
     rasters_file,
@@ -87,7 +82,6 @@ def run(
     ignore_sidecar_files,
     no_spatial_reference,
     no_recommended_mask,
-    title,
 ):
     """Run the web server."""
     import uvicorn
@@ -103,8 +97,6 @@ def run(
         "NO" if no_spatial_reference else "YES"
     )
     os.environ["BOWSER_USE_RECOMMENDED_MASK"] = "NO" if no_recommended_mask else "YES"
-    if title:
-        os.environ["BOWSER_TITLE"] = title
 
     print(f"Setting up on http://localhost:{port}")
     uvicorn.run(
@@ -262,37 +254,12 @@ def setup_dolphin(dolphin_work_dir, timeseries_mask, output, include_ifgs: bool 
     from .titiler import Algorithm, RasterGroup, _find_files
 
     def _glob(g):
-        import rasterio
-
         try:
-            files = _find_files(g.replace("'", "").replace('"', ""))
-        except (RuntimeError, Exception):
+            return _find_files(g.replace("'", "").replace('"', ""))
+        except RuntimeError:
             return []
-        readable = []
-        for f in files:
-            if not Path(f).exists():
-                continue
-            try:
-                with rasterio.open(f):
-                    pass
-                readable.append(f)
-            except KeyError:
-                # rasterio doesn't recognise the GDAL dtype (e.g. Float16 = type 15)
-                # but the file is still valid — include it
-                readable.append(f)
-            except Exception:
-                pass
-        return readable
 
-    def _glob_first(*patterns):
-        """Return result of first pattern that finds any files."""
-        for p in patterns:
-            result = _glob(p)
-            if result:
-                return result
-        return []
-
-    wd = str(Path(dolphin_work_dir).resolve())
+    wd = dolphin_work_dir.rstrip("/")
 
     dolphin_outputs = [
         {
@@ -303,7 +270,7 @@ def setup_dolphin(dolphin_work_dir, timeseries_mask, output, include_ifgs: bool 
         },
         {
             "name": "velocity",
-            "file_list": _glob(f"{wd}/timeseries/velocity.tif"),
+            "file_list": [f"{wd}/timeseries/velocity.tif"],
             "uses_spatial_ref": True,
             "algorithm": Algorithm.SHIFT.value,
         },
@@ -313,7 +280,7 @@ def setup_dolphin(dolphin_work_dir, timeseries_mask, output, include_ifgs: bool 
         },
         {
             "name": "Filtered velocity",
-            "file_list": _glob(f"{wd}/filtered_timeseries*/velocity.tif"),
+            "file_list": [f"{wd}/filtered_timeseries*/velocity.tif"],
         },
         {
             "name": "unwrapped",
@@ -331,10 +298,6 @@ def setup_dolphin(dolphin_work_dir, timeseries_mask, output, include_ifgs: bool 
             "file_list": _glob(f"{wd}/timeseries/nonzero_conncomp_count_*.tif"),
         },
         {
-            "name": "Multi-looked coherence",
-            "file_list": _glob(f"{wd}/interferograms/multilooked_coh*.tif"),
-        },
-        {
             "name": "Re-wrapped phase",
             "file_list": _glob(f"{wd}/unwrapped/2*[0-9].unw.tif"),
             "algorithm": Algorithm.REWRAP.value,
@@ -349,10 +312,7 @@ def setup_dolphin(dolphin_work_dir, timeseries_mask, output, include_ifgs: bool 
         },
         {
             "name": "Temporal coherence",
-            "file_list": _glob_first(
-                f"{wd}/interferograms/temporal_coherence_[0-9]*.tif",
-                f"{wd}/interferograms/temporal_coherence*.tif",
-            ),
+            "file_list": _glob(f"{wd}/interferograms/temporal_coherence_[0-9]*.tif"),
         },
         {
             "name": "Average temporal coherence",
@@ -360,10 +320,7 @@ def setup_dolphin(dolphin_work_dir, timeseries_mask, output, include_ifgs: bool 
         },
         {
             "name": "Phase cosine similarity",
-            "file_list": _glob_first(
-                f"{wd}/interferograms/similarity_[0-9]*.tif",
-                f"{wd}/interferograms/similarity*.tif",
-            ),
+            "file_list": _glob(f"{wd}/interferograms/similarity_[0-9]*.tif"),
         },
         {
             "name": "Phase cosine similarity (full)",
@@ -386,15 +343,6 @@ def setup_dolphin(dolphin_work_dir, timeseries_mask, output, include_ifgs: bool 
         {
             "name": "Amplitude dispersion",
             "file_list": _glob(f"{wd}/interferograms/amp_dispersion_looked*.tif"),
-            "algorithm": Algorithm.AMPLITUDE.value,
-        },
-        {
-            "name": "Amplitude mean",
-            "file_list": _glob_first(
-                f"{wd}/interferograms/amp_mean_looked*.tif",
-                f"{wd}/interferograms/amp_mean*.tif",
-            ),
-            "algorithm": Algorithm.AMPLITUDE.value,
         },
         {
             "name": "SHP counts",
@@ -417,16 +365,6 @@ def setup_dolphin(dolphin_work_dir, timeseries_mask, output, include_ifgs: bool 
                 "algorithm": Algorithm.PHASE.value,
             }
         )
-    # NOTE would be interesting to load amplitude timeseries
-    amplitude_files = _glob(f"{wd}/amplitude_db/2*_amp_db.tif")
-    if amplitude_files:
-        dolphin_outputs.append(
-            {
-                "name": "Amplitude",
-                "file_list": amplitude_files,
-                "algorithm": Algorithm.AMPLITUDE.value,
-            }
-        )
     if timeseries_mask is not None:
         # Timeseries
         dolphin_outputs[0]["mask_file_list"] = timeseries_mask
@@ -434,8 +372,6 @@ def setup_dolphin(dolphin_work_dir, timeseries_mask, output, include_ifgs: bool 
         dolphin_outputs[1]["mask_file_list"] = timeseries_mask
     raster_groups = []
     for group in dolphin_outputs:
-        if not group.get("file_list"):
-            continue
         try:
             rg = RasterGroup(**group)
         except Exception as e:
@@ -480,18 +416,12 @@ def _find_available_port(port_request: int = 8000):
 def prepare_disp_s1(input_files, output_dir, corrections: bool):
     """Process NetCDF files to create VRT files with overviews.
 
-    INPUT_FILES: Paths to input NetCDF files or directories containing .nc files.
+    INPUT_FILES: Paths to input NetCDF files.
     """
     from bowser._prepare_disp_s1 import CORE_DATASETS, CORRECTION_DATASETS
     from bowser._prepare_utils import process_netcdf_files
 
-    input_paths = []
-    for f in input_files:
-        p = Path(f)
-        if p.is_dir():
-            input_paths.extend(sorted(p.glob("*.nc")))
-        else:
-            input_paths.append(p)
+    input_paths = list(input_files)
 
     datasets_to_process = (
         CORE_DATASETS + CORRECTION_DATASETS if corrections else CORE_DATASETS
@@ -594,142 +524,6 @@ def setup_aligned_disp_s1(disp_s1_dir: str, output: str):
         raster_groups.append(rg)
 
     _dump_raster_groups(raster_groups, output=output)
-
-
-@cli_app.command()
-@click.argument(
-    "slc_files",
-    nargs=-1,
-    required=True,
-)
-@click.option(
-    "-o",
-    "--output-dir",
-    required=True,
-    type=click.Path(writable=True),
-    help="Directory where amplitude dB COG files will be written.",
-)
-@click.option(
-    "--overwrite",
-    is_flag=True,
-    default=False,
-    help="Overwrite existing output files.",
-)
-@click.option(
-    "-m",
-    "--mask",
-    "mask_path",
-    type=click.Path(exists=True, dir_okay=False),
-    default=None,
-    help="Mask GeoTIFF (e.g. combined_mask.tif). Pixels where mask == 0 are set to NaN.",
-)
-@click.option(
-    "-j",
-    "--workers",
-    default=4,
-    show_default=True,
-    help="Number of files to process in parallel.",
-)
-def prepare_amplitude(slc_files, output_dir, overwrite, mask_path, workers):
-    """Convert complex SLC GeoTIFFs to amplitude-in-dB COG files.
-
-    Computes 20·log10(|z|) for each complex pixel and writes a
-    Cloud-Optimised GeoTIFF (float32, DEFLATE, tiled 512×512).
-
-    SLC_FILES: one or more paths to complex GeoTIFF files (e.g. linked_phase/*.slc.tif).
-    Pixels where |z|==0 or outside the mask are written as nodata (NaN).
-    """
-    import numpy as np
-    import rasterio
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-
-    out_dir = Path(output_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    cog_profile = {
-        "driver": "GTiff",
-        "dtype": "float32",
-        "count": 1,
-        "tiled": True,
-        "blockxsize": 512,
-        "blockysize": 512,
-        "compress": "deflate",
-        "predictor": 2,
-        "nodata": float("nan"),
-        "BIGTIFF": "IF_SAFER",
-    }
-
-    # Load mask fully into memory once — avoids repeated disk reads per file/window.
-    mask_arr: "np.ndarray | None" = None
-    if mask_path:
-        with rasterio.open(mask_path) as m:
-            mask_arr = m.read(1)  # shape (H, W), dtype uint8/bool
-        click.echo(f"  mask loaded: {Path(mask_path).name} {mask_arr.shape}")
-
-    def _process_one(slc_path: str) -> str:
-        src_path = Path(slc_path)
-        name = src_path.stem.split(".")[0]
-        out_path = out_dir / f"{name}_amp_db.tif"
-
-        if out_path.exists() and not overwrite:
-            return f"skip  {out_path.name}"
-
-        tmp_path = out_path.with_suffix(".tmp.tif")
-        with rasterio.open(src_path) as src:
-            profile = cog_profile.copy()
-            profile.update(
-                width=src.width,
-                height=src.height,
-                crs=src.crs,
-                transform=src.transform,
-            )
-            with rasterio.open(tmp_path, "w", **profile) as dst:
-                for _, window in src.block_windows(1):
-                    data = src.read(1, window=window)
-                    amp = np.abs(data).astype(np.float32)
-                    with np.errstate(divide="ignore", invalid="ignore"):
-                        db = np.where(amp > 0, 20.0 * np.log10(amp), np.nan)
-                    if mask_arr is not None:
-                        r, c = window.row_off, window.col_off
-                        h, w = window.height, window.width
-                        db = np.where(mask_arr[r:r + h, c:c + w] != 0, db, np.nan)
-                    dst.write(db.astype(np.float32), 1, window=window)
-
-        _make_cog(tmp_path, out_path)
-        tmp_path.unlink(missing_ok=True)
-        return f"done  {out_path.name}"
-
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(_process_one, p): p for p in slc_files}
-        for fut in as_completed(futures):
-            try:
-                click.echo(f"  {fut.result()}")
-            except Exception as exc:
-                click.echo(f"  ERROR {Path(futures[fut]).name}: {exc}")
-
-
-def _make_cog(src_path: Path, dst_path: Path) -> None:
-    """Add overviews to src_path and copy to dst_path as a COG."""
-    import rasterio
-    from rasterio.enums import Resampling
-    from rasterio.shutil import copy as rio_copy
-
-    overview_levels = [2, 4, 8, 16, 32]
-    with rasterio.open(src_path, "r+") as ds:
-        ds.build_overviews(overview_levels, Resampling.average)
-        ds.update_tags(ns="rio_overview", resampling="average")
-
-    copy_profile = {
-        "driver": "GTiff",
-        "tiled": True,
-        "blockxsize": 512,
-        "blockysize": 512,
-        "compress": "deflate",
-        "predictor": 2,
-        "copy_src_overviews": True,
-        "BIGTIFF": "IF_SAFER",
-    }
-    rio_copy(str(src_path), str(dst_path), **copy_profile)
 
 
 @cli_app.command()

@@ -8,6 +8,9 @@ export interface RasterGroup {
   algorithm: string | null;
   latlon_bounds: [number, number, number, number];
   x_values: Array<number | string>;
+  available_mask_vars: string[];
+  label?: string;
+  unit?: string;
 }
 
 export interface TimeSeriesPoint {
@@ -42,6 +45,13 @@ export interface BaseMapItem {
   attribution: string;
 }
 
+export interface LayerMask {
+  id: string;
+  dataset: string;
+  threshold: number;
+  mode: 'min' | 'max';  // 'min' = keep pixels >= threshold; 'max' = keep pixels <= threshold
+}
+
 export interface AppState {
   datasetInfo: { [key: string]: RasterGroup };
   timeSeriesPoints: TimeSeriesPoint[];
@@ -58,6 +68,19 @@ export interface AppState {
   showChart: boolean;
   selectedPointId: string | null;
   showTrends: boolean;
+  showResiduals: boolean;
+  layerMasks: LayerMask[];
+  customMaskPath: string | null;
+  bufferEnabled: boolean;
+  bufferRadius: number;
+  bufferSamples: number;
+  pickingEnabled: boolean;
+  refEnabled: boolean;
+  refBufferEnabled: boolean;
+  refBufferRadius: number;
+  showRefChart: boolean;
+  isPlaying: boolean;
+  animationSpeed: number;
 }
 
 export type AppAction =
@@ -79,7 +102,23 @@ export type AppAction =
   | { type: 'SET_OPACITY'; payload: number }
   | { type: 'TOGGLE_CHART' }
   | { type: 'SET_SELECTED_POINT'; payload: string | null }
-  | { type: 'TOGGLE_TRENDS' };
+  | { type: 'TOGGLE_TRENDS' }
+  | { type: 'TOGGLE_RESIDUALS' }
+  | { type: 'ADD_LAYER_MASK'; payload: LayerMask }
+  | { type: 'REMOVE_LAYER_MASK'; payload: string }
+  | { type: 'UPDATE_LAYER_MASK'; payload: { id: string; updates: Partial<LayerMask> } }
+  | { type: 'SET_CUSTOM_MASK_PATH'; payload: string | null }
+  | { type: 'TOGGLE_BUFFER' }
+  | { type: 'SET_BUFFER_RADIUS'; payload: number }
+  | { type: 'SET_BUFFER_SAMPLES'; payload: number }
+  | { type: 'TOGGLE_PICKING' }
+  | { type: 'TOGGLE_REF_ENABLED' }
+  | { type: 'TOGGLE_REF_BUFFER' }
+  | { type: 'SET_REF_BUFFER_RADIUS'; payload: number }
+  | { type: 'TOGGLE_REF_CHART' }
+  | { type: 'TOGGLE_PLAYING' }
+  | { type: 'SET_PLAYING'; payload: boolean }
+  | { type: 'SET_ANIMATION_SPEED'; payload: number };
 
 // Backward compatibility
 export type LegacyAppAction = { type: 'SET_TS_MARKER_POSITION'; payload: [number, number] };

@@ -34,19 +34,6 @@ const initialState: AppState = {
   showChart: false,
   selectedPointId: null,
   showTrends: false,
-  showResiduals: false,
-  layerMasks: [],
-  customMaskPath: null,
-  bufferEnabled: false,
-  bufferRadius: 500,
-  bufferSamples: 10,
-  pickingEnabled: false,
-  refEnabled: true,
-  refBufferEnabled: false,
-  refBufferRadius: 500,
-  showRefChart: false,
-  isPlaying: false,
-  animationSpeed: 500,
 };
 
 function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppState {
@@ -186,43 +173,6 @@ function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppSt
       return { ...state, vmax: action.payload };
     case 'SET_OPACITY':
       return { ...state, opacity: action.payload };
-    case 'TOGGLE_RESIDUALS':
-      return { ...state, showResiduals: !state.showResiduals };
-    case 'ADD_LAYER_MASK':
-      return { ...state, layerMasks: [...state.layerMasks, action.payload] };
-    case 'REMOVE_LAYER_MASK':
-      return { ...state, layerMasks: state.layerMasks.filter(m => m.id !== action.payload) };
-    case 'UPDATE_LAYER_MASK':
-      return {
-        ...state,
-        layerMasks: state.layerMasks.map(m =>
-          m.id === action.payload.id ? { ...m, ...action.payload.updates } : m
-        ),
-      };
-    case 'SET_CUSTOM_MASK_PATH':
-      return { ...state, customMaskPath: action.payload };
-    case 'TOGGLE_BUFFER':
-      return { ...state, bufferEnabled: !state.bufferEnabled };
-    case 'SET_BUFFER_RADIUS':
-      return { ...state, bufferRadius: action.payload };
-    case 'SET_BUFFER_SAMPLES':
-      return { ...state, bufferSamples: action.payload };
-    case 'TOGGLE_PICKING':
-      return { ...state, pickingEnabled: !state.pickingEnabled };
-    case 'TOGGLE_REF_ENABLED':
-      return { ...state, refEnabled: !state.refEnabled };
-    case 'TOGGLE_REF_BUFFER':
-      return { ...state, refBufferEnabled: !state.refBufferEnabled };
-    case 'SET_REF_BUFFER_RADIUS':
-      return { ...state, refBufferRadius: action.payload };
-    case 'TOGGLE_REF_CHART':
-      return { ...state, showRefChart: !state.showRefChart };
-    case 'TOGGLE_PLAYING':
-      return { ...state, isPlaying: !state.isPlaying };
-    case 'SET_PLAYING':
-      return { ...state, isPlaying: action.payload };
-    case 'SET_ANIMATION_SPEED':
-      return { ...state, animationSpeed: action.payload };
     case 'TOGGLE_CHART':
       return { ...state, showChart: !state.showChart };
     default:

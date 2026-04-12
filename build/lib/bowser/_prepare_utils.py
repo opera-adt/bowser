@@ -10,6 +10,7 @@ from opera_utils.disp import open_h5
 from osgeo import gdal
 from tqdm.contrib.concurrent import process_map
 
+from bowser.add_overviews import add_overviews
 
 logger = logging.getLogger("bowser")
 
@@ -132,23 +133,12 @@ def process_single_file(
 
         vrt_path = cur_output_dir / vrt_filename
 
-        # Create VRT file (use absolute path so VRT is portable across working dirs).
-        # S3 paths must not go through Path.resolve() — that would mangle the
-        # double-slash in s3://.  Map them directly to /vsis3/ for GDAL.
-        nc_str = str(netcdf_file)
-        if nc_str.startswith("s3://"):
-            gdal_netcdf = nc_str.replace("s3://", "/vsis3/", 1)
-        else:
-            gdal_netcdf = str(Path(netcdf_file).resolve())
+        # Create VRT file
         gdal.Translate(
             str(vrt_path),
-            f"netcdf:{gdal_netcdf}:{in_dataset}",
-            outputType=gdal.GDT_Float32,  # Float64 breaks PNG tile rendering in titiler
+            f"netcdf:{netcdf_file.replace('s3://', '/vsis3/')}:{in_dataset}",
             callback=gdal.TermProgress_nocb,
         )
 
-        # Build overviews
-        ds = gdal.Open(str(vrt_path))
-        if ds is not None:
-            ds.BuildOverviews("NEAREST", [2, 4, 8, 16, 32])
-            ds = None
+        # Build overviews using GDAL function with compression
+        add_overviews(vrt_path, external=True)

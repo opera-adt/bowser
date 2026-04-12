@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { MultiPointTimeSeriesData, LayerMask } from '../types';
+import { MultiPointTimeSeriesData } from '../types';
 
 export function useApi() {
   const fetchDatasets = useCallback(async () => {
@@ -11,11 +11,6 @@ export function useApi() {
     const response = await fetch('/mode');
     const data = await response.json();
     return data.mode;
-  }, []);
-
-  const fetchConfig = useCallback(async (): Promise<{ title: string }> => {
-    const response = await fetch('/config');
-    return await response.json();
   }, []);
 
   const fetchPointTimeSeries = useCallback(async (lon: number, lat: number, datasetName: string) => {
@@ -68,9 +63,7 @@ export function useApi() {
     datasetName: string,
     refLon?: number,
     refLat?: number,
-    calculateTrends: boolean = false,
-    layerMasks: LayerMask[] = [],
-    refBufferM: number = 0,
+    calculateTrends: boolean = false
   ): Promise<MultiPointTimeSeriesData | undefined> => {
     const payload = {
       points,
@@ -78,8 +71,6 @@ export function useApi() {
       ref_lon: refLon,
       ref_lat: refLat,
       calculate_trends: calculateTrends,
-      layer_masks: layerMasks.map(m => ({ dataset: m.dataset, threshold: m.threshold, mode: m.mode })),
-      ref_buffer_m: refBufferM,
     };
 
     try {
@@ -135,49 +126,13 @@ export function useApi() {
     }
   }, []);
 
-  const fetchBufferTimeSeries = useCallback(async (
-    lon: number,
-    lat: number,
-    datasetName: string,
-    bufferM: number,
-    nSamples: number,
-    refLon?: number,
-    refLat?: number,
-    layerMasks: LayerMask[] = [],
-    refBufferM: number = 0,
-  ) => {
-    try {
-      const response = await fetch('/buffer_timeseries', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          lon, lat,
-          dataset_name: datasetName,
-          buffer_m: bufferM,
-          n_samples: nSamples,
-          ref_lon: refLon ?? null,
-          ref_lat: refLat ?? null,
-          layer_masks: layerMasks.map(m => ({ dataset: m.dataset, threshold: m.threshold, mode: m.mode })),
-          ref_buffer_m: refBufferM,
-        }),
-      });
-      if (!response.ok) return undefined;
-      return await response.json();
-    } catch (error) {
-      console.error('Error fetching buffer time series:', error);
-      return undefined;
-    }
-  }, []);
-
   return {
     fetchDatasets,
     fetchDataMode,
-    fetchConfig,
     fetchPointTimeSeries,
     fetchChartTimeSeries,
     fetchMultiPointTimeSeries,
     fetchTrendAnalysis,
     fetchTimeBounds,
-    fetchBufferTimeSeries,
   };
 }

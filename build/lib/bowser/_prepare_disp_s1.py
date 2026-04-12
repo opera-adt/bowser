@@ -24,7 +24,7 @@ CORRECTION_DATASETS = [
 
 def get_disp_s1_outputs(disp_s1_dir: Path | str):
     def _glob(pattern: str, subdir: str) -> list[str]:
-        return [str(p.resolve()) for p in sorted((Path(disp_s1_dir) / subdir).glob(pattern))]
+        return [str(p) for p in sorted((Path(disp_s1_dir) / subdir).glob(pattern))]
 
     return [
         {

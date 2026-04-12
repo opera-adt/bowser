@@ -1,3 +1,4 @@
+/* ── Design tokens ─────────────────────────────────────────── */
 :root {
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
@@ -6,31 +7,73 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  --color-dark: rgb(0, 0, 8);
-  --background-light: #e0dbdb;
-  --border-dark: #2e1111;
-  --border-mid: #464141;
-  --link-color: #646cff;
-  --link-hover-color: #53f2ed;
 
-  color: var(--color-dark);
-  background-color: var(--background-light);
+  /* Sidebar palette */
+  --sb-bg:        #13151f;
+  --sb-surface:   #1c1f2e;
+  --sb-surface2:  #242840;
+  --sb-border:    #2c2f4a;
+  --sb-text:      #dde0f0;
+  --sb-muted:     #7880a8;
+  --sb-accent:    #4d9de0;
+  --sb-accent2:   #6aaee8;
+  --sb-green:     #3ec97a;
+  --sb-red:       #e05d6a;
+
+  color: var(--sb-text);
+  background-color: var(--sb-bg);
 }
 
-a {
-  font-weight: 500;
-  color: var(--link-color);
-  text-decoration: inherit;
+/* ── Theme toggle button ───────────────────────────────────── */
+.sidebar-title {
+  padding: 8px 12px 4px;
+  font-size: 0.95em;
+  font-weight: 600;
+  color: var(--sb-text);
+  text-align: center;
+  word-break: break-word;
 }
 
-a:hover {
-  color: var(--link-hover-color);
+.sidebar-theme-toggle {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 10px 0;
 }
 
-h1 {
-  font-size: 2.2em;
-  line-height: 1.1;
+.theme-toggle-btn {
+  background: none;
+  border: 1px solid var(--sb-border);
+  border-radius: 6px;
+  color: var(--sb-muted);
+  cursor: pointer;
+  padding: 4px 8px;
+  font-size: 0.85em;
+  transition: color 0.15s, border-color 0.15s;
 }
+
+.theme-toggle-btn:hover {
+  color: var(--sb-text);
+  border-color: var(--sb-accent);
+}
+
+/* ── Light theme ───────────────────────────────────────────── */
+[data-theme="light"] {
+  --sb-bg:        #f0f2f8;
+  --sb-surface:   #ffffff;
+  --sb-surface2:  #e4e7f0;
+  --sb-border:    #c8cce0;
+  --sb-text:      #1a1d2e;
+  --sb-muted:     #6068a0;
+  --sb-accent:    #2478c8;
+  --sb-accent2:   #1a5fa0;
+  --sb-green:     #1e8f50;
+  --sb-red:       #c0303e;
+  color: var(--sb-text);
+  background-color: var(--sb-bg);
+}
+
+a { font-weight: 500; color: var(--sb-accent); text-decoration: none; }
+a:hover { color: var(--sb-accent2); }
 
 body {
   margin: 0;
@@ -45,59 +88,316 @@ body {
   width: 100vw;
 }
 
+/* ── Layout ─────────────────────────────────────────────────── */
 .app-container {
   display: grid;
   grid-template-areas: "menu map";
-  grid-template-columns: 20em auto;
+  grid-template-columns: 22em auto;
   height: 100vh;
   width: 100vw;
 }
 
-
+/* ── Sidebar ────────────────────────────────────────────────── */
 #menu {
   grid-area: menu;
-  border: 1px solid var(--border-dark);
+  background: var(--sb-bg);
+  border-right: 1px solid var(--sb-border);
   display: flex;
   flex-direction: column;
-  margin: 1em;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--sb-border) transparent;
 }
 
-
-.menu-group {
+.sidebar-section {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--sb-border);
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: space-between;
+  gap: 8px;
 }
 
-
-#menu-content .menu-group>div,
-#menu-content .select-container {
-  /* This ensures that the divs inside the menu group take full width */
-  width: 100%;
-  /* Space out between menu items a little */
-  margin-bottom: 1em;
+.sidebar-section-label {
+  font-size: 0.68em;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--sb-muted);
+  margin-bottom: 2px;
 }
 
-#menu-content select,
-#menu-content input[type="range"],
-#menu-content input[type="text"] {
+.sidebar-section-label i {
+  margin-right: 5px;
+  opacity: 0.8;
+}
+
+/* ── Form controls ──────────────────────────────────────────── */
+.sidebar-select {
   width: 100%;
-  /* This makes sure that all form elements take up the full width available */
+  background: var(--sb-surface2);
+  color: var(--sb-text);
+  border: 1px solid var(--sb-border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 0.85em;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%237880a8' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 28px;
+  transition: border-color 0.15s;
+}
+
+.sidebar-select:hover,
+.sidebar-select:focus {
+  border-color: var(--sb-accent);
+  outline: none;
+}
+
+.sidebar-input {
+  width: 100%;
   box-sizing: border-box;
-  /* This ensures padding and borders are included in the width */
+  background: var(--sb-surface2);
+  color: var(--sb-text);
+  border: 1px solid var(--sb-border);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 0.85em;
+  text-align: center;
+  transition: border-color 0.15s;
+}
+
+.sidebar-input:focus {
+  outline: none;
+  border-color: var(--sb-accent);
+}
+
+/* Range slider */
+.sidebar-range {
+  width: 100%;
+  accent-color: var(--sb-accent);
+  cursor: pointer;
+  height: 4px;
+  border-radius: 2px;
+}
+
+.slider-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.slider-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8em;
+  color: var(--sb-muted);
+}
+
+.slider-value {
+  color: var(--sb-text);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.9em;
+  word-break: break-all;
+  max-width: 60%;
+  text-align: right;
+}
+
+/* Min/Max row */
+.minmax-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.minmax-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.minmax-label {
+  font-size: 0.72em;
+  color: var(--sb-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Colormap row with invert button */
+.colormap-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.colormap-row .sidebar-select {
+  flex: 1;
+}
+
+.invert-btn {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  background: var(--sb-surface2);
+  color: var(--sb-muted);
+  border: 1px solid var(--sb-border);
+  border-radius: 6px;
+  font-size: 1em;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.invert-btn:hover {
+  border-color: var(--sb-accent);
+  color: var(--sb-accent);
+}
+
+.invert-btn.active {
+  background: var(--sb-accent);
+  color: white;
+  border-color: var(--sb-accent);
+}
+
+/* Colorbar */
+.colorbar-img {
+  width: 100%;
+  height: auto;
+  border-radius: 4px;
+  display: block;
+}
+
+/* ── Histogram ──────────────────────────────────────────────── */
+.histogram-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.histogram-chart-area {
+  height: 64px;
+  background: var(--sb-surface);
+  border-radius: 6px;
+  overflow: hidden;
+  padding: 2px;
+}
+
+.histogram-range {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72em;
+  color: var(--sb-muted);
+  padding: 0 2px;
+}
+
+.histogram-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.hist-btn {
+  flex: 1;
+  background: var(--sb-surface2);
+  color: var(--sb-accent);
+  border: 1px solid var(--sb-border);
+  border-radius: 6px;
+  padding: 5px 6px;
+  font-size: 0.78em;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.hist-btn:hover {
+  background: var(--sb-accent);
+  color: white;
+  border-color: var(--sb-accent);
+}
+
+.histogram-loading {
+  height: 20px;
+  font-size: 0.8em;
+  color: var(--sb-muted);
   text-align: center;
 }
 
-#layer-slider-value {
-  /* Allow text to wrap */
-  /* Break long words if necessary */
-  word-break: break-all;
-  background: rgb(250, 250, 250);
+/* ── Masking section ────────────────────────────────────────── */
+.layer-mask-row {
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  background: rgba(255,255,255,0.03);
 }
 
-/* ********** */
-/* Map styles */
+.custom-mask-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.custom-mask-controls {
+  display: flex;
+  gap: 6px;
+}
+
+/* ── Toggle pill ────────────────────────────────────────────── */
+.toggle-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.toggle-pill {
+  background: var(--sb-surface2);
+  color: var(--sb-muted);
+  border: 1px solid var(--sb-border);
+  border-radius: 12px;
+  padding: 3px 12px;
+  font-size: 0.75em;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  letter-spacing: 0.05em;
+}
+
+.toggle-pill.active {
+  background: var(--sb-accent);
+  color: white;
+  border-color: var(--sb-accent);
+}
+
+/* ── Sidebar footer ─────────────────────────────────────────── */
+.sidebar-footer {
+  padding: 14px 16px;
+  margin-top: auto;
+  border-top: 1px solid var(--sb-border);
+}
+
+.chart-toggle-btn {
+  width: 100%;
+  background: var(--sb-accent);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 9px 14px;
+  font-size: 0.88em;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.chart-toggle-btn:hover {
+  background: var(--sb-accent2);
+}
+
+/* ── Map ────────────────────────────────────────────────────── */
 .map-container {
   grid-area: map;
   position: relative;
@@ -110,50 +410,69 @@ body {
   height: 100%;
 }
 
-/* https://stackoverflow.com/questions/23567203/leaflet-changing-marker-color */
-img.huechange {
-  filter: hue-rotate(120deg);
-}
+img.huechange { filter: hue-rotate(120deg); }
 
-/* chart styles */
+/* ── Time Series Chart ──────────────────────────────────────── */
 #chart-container {
-  width: 35vw;
-  max-width: 500px;
-  height: 400px;
-  /* Make the chart fixed to the bottom right corner of the screen */
+  width: 38vw;
+  max-width: 560px;
+  min-width: 320px;
+  height: 420px;
   position: fixed;
   bottom: 20px;
   right: 20px;
-  /* But also give it some padding */
-  padding: 1rem;
-  /* Make the chart have a white background */
-  background-color: white;
-  /* Have it on top of the leaflet map but below point manager */
+  padding: 14px;
+  background: var(--sb-surface);
+  backdrop-filter: blur(8px);
   z-index: 3000;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--sb-border);
   display: flex;
   flex-direction: column;
+  color: var(--sb-text);
 }
 
 .chart-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 1rem;
-  padding-bottom: 0.5rem;
-  border-bottom: 1px solid #eee;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--sb-border);
 }
 
 .chart-header h4 {
   margin: 0;
-  font-size: 1.1em;
+  font-size: 0.95em;
   font-weight: 600;
+  color: var(--sb-text);
+  letter-spacing: 0.02em;
 }
 
 .chart-controls {
   display: flex;
-  gap: 8px;
+  gap: 6px;
+}
+
+.chart-btn {
+  background: var(--sb-surface2);
+  color: var(--sb-accent);
+  border: 1px solid var(--sb-border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 0.78em;
+  cursor: pointer;
+  transition: background 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.chart-btn:hover {
+  background: var(--sb-accent);
+  color: white;
+  border-color: var(--sb-accent);
 }
 
 .chart-content {
@@ -168,28 +487,73 @@ img.huechange {
   justify-content: center;
   align-items: center;
   height: 300px;
-  color: #666;
+  color: var(--sb-muted);
   text-align: center;
+  gap: 6px;
 }
 
 .chart-help {
-  margin-top: 0.5rem;
-  padding-top: 0.5rem;
-  border-top: 1px solid #eee;
-  color: #666;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--sb-border);
+  color: var(--sb-muted);
   text-align: center;
+  font-size: 0.75em;
 }
 
+/* ── Animation controls (chart bottom + sidebar) ─────────────── */
+.chart-animation-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--sb-border);
+  flex-wrap: wrap;
+}
+
+.chart-anim-speed {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 120px;
+  font-size: 0.78em;
+  color: var(--sb-muted);
+}
+
+.chart-anim-speed input[type="range"] {
+  flex: 1;
+}
+
+.chart-anim-speed span:last-child {
+  min-width: 28px;
+  text-align: right;
+  color: var(--sb-text);
+}
+
+.anim-controls {
+  margin-top: 6px;
+}
+
+.anim-play-btn {
+  width: 100%;
+  justify-content: center;
+  margin-bottom: 2px;
+}
+
+/* ── Mouse position control ─────────────────────────────────── */
 .leaflet-control-mouseposition {
-  background-color: rgba(255, 255, 255, 0.7);
-  box-shadow: 0 0 5px #bbb;
-  padding: 0 5px;
-  margin: 0;
-  color: #333;
-  font: 11px/1.5 "Helvetica Neue", Arial, Helvetica, sans-serif;
+  background-color: var(--sb-surface);
+  box-shadow: 0 0 5px rgba(0,0,0,0.3);
+  padding: 2px 6px;
+  color: var(--sb-text);
+  font: 11px/1.5 "Inter", "Helvetica Neue", Arial, sans-serif;
+  border-radius: 4px;
+  border: 1px solid var(--sb-border);
 }
 
-/* Point Manager Panel Styles */
+/* ── Point Manager Panel ────────────────────────────────────── */
 .point-manager-toggle {
   position: fixed;
   top: 20px;
@@ -203,14 +567,15 @@ img.huechange {
   right: 20px;
   width: 300px;
   max-height: 60vh;
-  background-color: white;
-  border: 1px solid var(--border-dark);
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  background: rgba(255, 255, 255, 0.97);
+  border: 1px solid var(--sb-border);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
   z-index: 4000;
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  color: var(--sb-text);
 }
 
 .point-manager-header {
@@ -218,72 +583,71 @@ img.huechange {
   justify-content: space-between;
   align-items: center;
   padding: 12px 16px;
-  background-color: #f5f5f5;
-  border-bottom: 1px solid var(--border-mid);
+  background: var(--sb-surface);
+  border-bottom: 1px solid var(--sb-border);
 }
 
 .point-manager-header h3 {
   margin: 0;
-  font-size: 1em;
+  font-size: 0.9em;
   font-weight: 600;
 }
 
 .point-manager-controls {
-  padding: 12px 16px;
-  border-bottom: 1px solid #eee;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--sb-border);
   display: flex;
-  gap: 8px;
+  gap: 6px;
 }
 
 .point-list {
   flex: 1;
   overflow-y: auto;
   max-height: 400px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--sb-border) transparent;
 }
 
 .no-points {
   padding: 20px;
   text-align: center;
-  color: #666;
+  color: var(--sb-muted);
 }
 
 .point-item {
-  padding: 12px 16px;
-  border-bottom: 1px solid #eee;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--sb-border);
   cursor: pointer;
-  transition: background-color 0.2s;
+  transition: background 0.15s;
 }
 
-.point-item:hover {
-  background-color: #f8f9fa;
-}
-
+.point-item:hover { background: var(--sb-surface); }
 .point-item.selected {
-  background-color: #e3f2fd;
-  border-left: 4px solid #2196f3;
+  background: rgba(77, 157, 224, 0.12);
+  border-left: 3px solid var(--sb-accent);
 }
 
 .point-item-header {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 .point-color-indicator {
-  width: 12px;
-  height: 12px;
+  width: 11px;
+  height: 11px;
   border-radius: 50%;
-  border: 2px solid white;
-  box-shadow: 0 0 3px rgba(0, 0, 0, 0.3);
+  border: 2px solid rgba(255,255,255,0.3);
   flex-shrink: 0;
 }
 
 .point-name-input {
   border: none;
   background: transparent;
+  color: var(--sb-text);
   font-weight: 500;
-  font-size: 0.9em;
+  font-size: 0.88em;
   padding: 2px 4px;
   border-radius: 3px;
   flex: 1;
@@ -291,22 +655,18 @@ img.huechange {
 
 .point-name-input:focus {
   outline: none;
-  background-color: white;
-  border: 1px solid #ccc;
-}
-
-.point-item-info {
-  margin-bottom: 8px;
+  background: var(--sb-surface2);
+  border: 1px solid var(--sb-border);
 }
 
 .point-coordinates {
-  color: #666;
-  font-size: 0.8em;
+  color: var(--sb-muted);
+  font-size: 0.78em;
 }
 
 .point-trend-info {
-  color: #2196f3;
-  font-size: 0.8em;
+  color: var(--sb-accent);
+  font-size: 0.78em;
   font-weight: 500;
 }
 
@@ -314,44 +674,142 @@ img.huechange {
   display: flex;
   gap: 4px;
   justify-content: flex-end;
+  margin-top: 4px;
 }
 
 .point-item-controls button {
-  padding: 4px 8px;
-  font-size: 0.8em;
-  min-width: auto;
+  padding: 3px 8px;
+  font-size: 0.76em;
+  background: var(--sb-surface2);
+  color: var(--sb-muted);
+  border: 1px solid var(--sb-border);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.point-item-controls button:hover {
+  background: var(--sb-surface);
+  color: var(--sb-text);
 }
 
 .point-manager-help {
-  padding: 12px 16px;
-  background-color: #f8f9fa;
-  border-top: 1px solid #eee;
-  color: #666;
-  font-size: 0.8em;
-  line-height: 1.4;
+  padding: 10px 14px;
+  background: var(--sb-surface);
+  border-top: 1px solid var(--sb-border);
+  color: var(--sb-muted);
+  font-size: 0.76em;
+  line-height: 1.5;
 }
 
-/* Custom colored marker styles */
+/* ── Custom marker ──────────────────────────────────────────── */
 .custom-colored-marker {
   background: transparent !important;
   border: none !important;
 }
 
-/* Button utility classes */
-.button-warning {
-  background-color: #ff9800;
+/* ── Utility ────────────────────────────────────────────────── */
+.button-warning { background: var(--sb-green); color: #fff; border: none; border-radius: 5px; }
+.button-error   { background: var(--sb-red);   color: #fff; border: none; border-radius: 5px; }
+
+/* Override Pure CSS defaults for dark theme */
+.pure-button {
+  background: var(--sb-surface2);
+  color: var(--sb-accent);
+  border: 1px solid var(--sb-border);
+  border-radius: 6px;
+}
+
+.pure-button:hover {
+  background: var(--sb-accent);
   color: white;
 }
 
-.button-warning:hover {
-  background-color: #f57c00;
-}
-
-.button-error {
-  background-color: #f44336;
+.pure-button-primary {
+  background: var(--sb-accent);
   color: white;
+  border-color: var(--sb-accent);
 }
 
-.button-error:hover {
-  background-color: #d32f2f;
+.pure-button-primary:hover {
+  background: var(--sb-accent2);
+}
+
+/* ── Map toolbar ────────────────────────────────────────────── */
+.map-toolbar {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2000;
+  display: flex;
+  gap: 6px;
+  background: rgba(19, 21, 31, 0.9);
+  border: 1px solid var(--sb-border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  backdrop-filter: blur(6px);
+}
+
+.map-tool-btn {
+  background: var(--sb-surface2);
+  color: var(--sb-muted);
+  border: 1px solid var(--sb-border);
+  border-radius: 6px;
+  width: 32px;
+  height: 32px;
+  font-size: 0.9em;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+
+.map-tool-btn:hover,
+.map-tool-btn.active {
+  background: var(--sb-accent);
+  color: white;
+  border-color: var(--sb-accent);
+}
+
+/* ── Profile panel ──────────────────────────────────────────── */
+.profile-panel {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 540px;
+  max-width: 92vw;
+  background: var(--sb-surface);
+  border: 1px solid var(--sb-border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  z-index: 3500;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  backdrop-filter: blur(8px);
+  color: var(--sb-text);
+}
+
+.profile-radius-control {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 4px;
+}
+
+.profile-radius-input {
+  width: 70px;
+  background: var(--sb-surface2);
+  border: 1px solid var(--sb-border);
+  border-radius: 5px;
+  color: var(--sb-text);
+  font-size: 0.8em;
+  padding: 2px 5px;
+  text-align: right;
+}
+
+.profile-radius-input:focus {
+  outline: none;
+  border-color: var(--sb-accent);
 }

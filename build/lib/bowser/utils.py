@@ -240,60 +240,6 @@ def generate_colorbar(cmap_name: str) -> bytes:
     return buf.read()
 
 
-def register_custom_colormaps() -> None:
-    """Register cfastie, rplumbo, schwarzwald reversed variants in rio_tiler and matplotlib.
-
-    rio_tiler ships cfastie/rplumbo/schwarzwald but not their ``_r`` (reversed)
-    counterparts.  This function reads each from rio_tiler's registry, reverses
-    the 256-entry RGBA table, and registers the result so that ``colormap_name``
-    values like ``cfastie_r`` are accepted by the titiler tile endpoint.
-
-    The same reversed colormaps are also registered in matplotlib (used for the
-    ``/colorbar/`` endpoint).
-    """
-    import matplotlib as mpl
-    import numpy as np
-    from matplotlib.colors import LinearSegmentedColormap
-
-    try:
-        from rio_tiler.colormap import cmap as rt_cmap
-    except ImportError:
-        return
-
-    _NAMES = ("cfastie", "rplumbo", "schwarzwald")
-
-    for name in _NAMES:
-        rev_name = f"{name}_r"
-        if rev_name in rt_cmap.list():
-            continue  # already present
-
-        try:
-            fwd: dict[int, tuple] = rt_cmap.get(name)
-        except Exception:
-            continue
-
-        # Build reversed 256-entry dict: value at index i → value at index 255-i
-        rev: dict[int, tuple] = {i: fwd[255 - i] for i in range(256)}
-        # rio_tiler's ColorMaps.register() returns a new object; mutate .data directly
-        rt_cmap.data[rev_name] = rev
-
-        # Also register in matplotlib for the /colorbar/ endpoint
-        rgba = np.array([list(rev[i]) for i in range(256)], dtype=np.uint8)
-        mpl_cmap = LinearSegmentedColormap.from_list(
-            rev_name, rgba[:, :3] / 255.0
-        )
-        if rev_name not in mpl.colormaps:
-            mpl.colormaps.register(mpl_cmap, name=rev_name)
-
-        # Register the forward matplotlib cmap too (in case it's missing)
-        fwd_rgba = np.array([list(fwd[i]) for i in range(256)], dtype=np.uint8)
-        mpl_fwd = LinearSegmentedColormap.from_list(
-            name, fwd_rgba[:, :3] / 255.0
-        )
-        if name not in mpl.colormaps:
-            mpl.colormaps.register(mpl_fwd, name=name)
-
-
 def desensitize_mpl_case():
     """Make `cmap` case insensitive by registering repeated cmap names."""
     import matplotlib as mpl

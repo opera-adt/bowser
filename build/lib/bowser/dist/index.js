@@ -7042,20 +7042,7 @@ const initialState = {
   opacity: 1,
   showChart: false,
   selectedPointId: null,
-  showTrends: false,
-  showResiduals: false,
-  layerMasks: [],
-  customMaskPath: null,
-  bufferEnabled: false,
-  bufferRadius: 500,
-  bufferSamples: 10,
-  pickingEnabled: false,
-  refEnabled: true,
-  refBufferEnabled: false,
-  refBufferRadius: 500,
-  showRefChart: false,
-  isPlaying: false,
-  animationSpeed: 500
+  showTrends: false
 };
 function appReducer(state, action) {
   switch (action.type) {
@@ -7177,43 +7164,6 @@ function appReducer(state, action) {
       return { ...state, vmax: action.payload };
     case "SET_OPACITY":
       return { ...state, opacity: action.payload };
-    case "TOGGLE_RESIDUALS":
-      return { ...state, showResiduals: !state.showResiduals };
-    case "ADD_LAYER_MASK":
-      return { ...state, layerMasks: [...state.layerMasks, action.payload] };
-    case "REMOVE_LAYER_MASK":
-      return { ...state, layerMasks: state.layerMasks.filter((m2) => m2.id !== action.payload) };
-    case "UPDATE_LAYER_MASK":
-      return {
-        ...state,
-        layerMasks: state.layerMasks.map(
-          (m2) => m2.id === action.payload.id ? { ...m2, ...action.payload.updates } : m2
-        )
-      };
-    case "SET_CUSTOM_MASK_PATH":
-      return { ...state, customMaskPath: action.payload };
-    case "TOGGLE_BUFFER":
-      return { ...state, bufferEnabled: !state.bufferEnabled };
-    case "SET_BUFFER_RADIUS":
-      return { ...state, bufferRadius: action.payload };
-    case "SET_BUFFER_SAMPLES":
-      return { ...state, bufferSamples: action.payload };
-    case "TOGGLE_PICKING":
-      return { ...state, pickingEnabled: !state.pickingEnabled };
-    case "TOGGLE_REF_ENABLED":
-      return { ...state, refEnabled: !state.refEnabled };
-    case "TOGGLE_REF_BUFFER":
-      return { ...state, refBufferEnabled: !state.refBufferEnabled };
-    case "SET_REF_BUFFER_RADIUS":
-      return { ...state, refBufferRadius: action.payload };
-    case "TOGGLE_REF_CHART":
-      return { ...state, showRefChart: !state.showRefChart };
-    case "TOGGLE_PLAYING":
-      return { ...state, isPlaying: !state.isPlaying };
-    case "SET_PLAYING":
-      return { ...state, isPlaying: action.payload };
-    case "SET_ANIMATION_SPEED":
-      return { ...state, animationSpeed: action.payload };
     case "TOGGLE_CHART":
       return { ...state, showChart: !state.showChart };
     default:
@@ -7241,10 +7191,6 @@ function useApi() {
     const response = await fetch("/mode");
     const data = await response.json();
     return data.mode;
-  }, []);
-  const fetchConfig = reactExports.useCallback(async () => {
-    const response = await fetch("/config");
-    return await response.json();
   }, []);
   const fetchPointTimeSeries = reactExports.useCallback(async (lon, lat, datasetName) => {
     const params = new URLSearchParams({
@@ -7279,15 +7225,13 @@ function useApi() {
       return void 0;
     }
   }, []);
-  const fetchMultiPointTimeSeries = reactExports.useCallback(async (points, datasetName, refLon, refLat, calculateTrends = false, layerMasks = [], refBufferM = 0) => {
+  const fetchMultiPointTimeSeries = reactExports.useCallback(async (points, datasetName, refLon, refLat, calculateTrends = false) => {
     const payload = {
       points,
       dataset_name: datasetName,
       ref_lon: refLon,
       ref_lat: refLat,
-      calculate_trends: calculateTrends,
-      layer_masks: layerMasks.map((m2) => ({ dataset: m2.dataset, threshold: m2.threshold, mode: m2.mode })),
-      ref_buffer_m: refBufferM
+      calculate_trends: calculateTrends
     };
     try {
       const response = await fetch("/multi_point", {
@@ -7330,40 +7274,14 @@ function useApi() {
       return void 0;
     }
   }, []);
-  const fetchBufferTimeSeries = reactExports.useCallback(async (lon, lat, datasetName, bufferM, nSamples, refLon, refLat, layerMasks = [], refBufferM = 0) => {
-    try {
-      const response = await fetch("/buffer_timeseries", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          lon,
-          lat,
-          dataset_name: datasetName,
-          buffer_m: bufferM,
-          n_samples: nSamples,
-          ref_lon: refLon ?? null,
-          ref_lat: refLat ?? null,
-          layer_masks: layerMasks.map((m2) => ({ dataset: m2.dataset, threshold: m2.threshold, mode: m2.mode })),
-          ref_buffer_m: refBufferM
-        })
-      });
-      if (!response.ok) return void 0;
-      return await response.json();
-    } catch (error) {
-      console.error("Error fetching buffer time series:", error);
-      return void 0;
-    }
-  }, []);
   return {
     fetchDatasets,
     fetchDataMode,
-    fetchConfig,
     fetchPointTimeSeries,
     fetchChartTimeSeries,
     fetchMultiPointTimeSeries,
     fetchTrendAnalysis,
-    fetchTimeBounds,
-    fetchBufferTimeSeries
+    fetchTimeBounds
   };
 }
 function useAttribution(map2, attribution) {
@@ -8463,15 +8381,15 @@ var leafletSrc = { exports: {} };
     var CRS = {
       // @method latLngToPoint(latlng: LatLng, zoom: Number): Point
       // Projects geographical coordinates into pixel coordinates for a given zoom.
-      latLngToPoint: function(latlng, zoom3) {
-        var projectedPoint = this.projection.project(latlng), scale2 = this.scale(zoom3);
+      latLngToPoint: function(latlng, zoom2) {
+        var projectedPoint = this.projection.project(latlng), scale2 = this.scale(zoom2);
         return this.transformation._transform(projectedPoint, scale2);
       },
       // @method pointToLatLng(point: Point, zoom: Number): LatLng
       // The inverse of `latLngToPoint`. Projects pixel coordinates on a given
       // zoom into geographical coordinates.
-      pointToLatLng: function(point, zoom3) {
-        var scale2 = this.scale(zoom3), untransformedPoint = this.transformation.untransform(point, scale2);
+      pointToLatLng: function(point, zoom2) {
+        var scale2 = this.scale(zoom2), untransformedPoint = this.transformation.untransform(point, scale2);
         return this.projection.unproject(untransformedPoint);
       },
       // @method project(latlng: LatLng): Point
@@ -8490,8 +8408,8 @@ var leafletSrc = { exports: {} };
       // Returns the scale used when transforming projected coordinates into
       // pixel coordinates for a particular zoom. For example, it returns
       // `256 * 2^zoom` for Mercator-based CRS.
-      scale: function(zoom3) {
-        return 256 * Math.pow(2, zoom3);
+      scale: function(zoom2) {
+        return 256 * Math.pow(2, zoom2);
       },
       // @method zoom(scale: Number): Number
       // Inverse of `scale()`, returns the zoom level corresponding to a scale
@@ -8501,11 +8419,11 @@ var leafletSrc = { exports: {} };
       },
       // @method getProjectedBounds(zoom: Number): Bounds
       // Returns the projection's bounds scaled and transformed for the provided `zoom`.
-      getProjectedBounds: function(zoom3) {
+      getProjectedBounds: function(zoom2) {
         if (this.infinite) {
           return null;
         }
-        var b = this.projection.bounds, s = this.scale(zoom3), min = this.transformation.transform(b.min, s), max = this.transformation.transform(b.max, s);
+        var b = this.projection.bounds, s = this.scale(zoom2), min = this.transformation.transform(b.min, s), max = this.transformation.transform(b.max, s);
         return new Bounds(min, max);
       },
       // @method distance(latlng1: LatLng, latlng2: LatLng): Number
@@ -9501,9 +9419,9 @@ var leafletSrc = { exports: {} };
       // @method setView(center: LatLng, zoom: Number, options?: Zoom/pan options): this
       // Sets the view of the map (geographical center and zoom) with the given
       // animation options.
-      setView: function(center, zoom3, options) {
-        zoom3 = zoom3 === void 0 ? this._zoom : this._limitZoom(zoom3);
-        center = this._limitCenter(toLatLng(center), zoom3, this.options.maxBounds);
+      setView: function(center, zoom2, options) {
+        zoom2 = zoom2 === void 0 ? this._zoom : this._limitZoom(zoom2);
+        center = this._limitCenter(toLatLng(center), zoom2, this.options.maxBounds);
         options = options || {};
         this._stop();
         if (this._loaded && !options.reset && options !== true) {
@@ -9511,23 +9429,23 @@ var leafletSrc = { exports: {} };
             options.zoom = extend({ animate: options.animate }, options.zoom);
             options.pan = extend({ animate: options.animate, duration: options.duration }, options.pan);
           }
-          var moved = this._zoom !== zoom3 ? this._tryAnimatedZoom && this._tryAnimatedZoom(center, zoom3, options.zoom) : this._tryAnimatedPan(center, options.pan);
+          var moved = this._zoom !== zoom2 ? this._tryAnimatedZoom && this._tryAnimatedZoom(center, zoom2, options.zoom) : this._tryAnimatedPan(center, options.pan);
           if (moved) {
             clearTimeout(this._sizeTimer);
             return this;
           }
         }
-        this._resetView(center, zoom3, options.pan && options.pan.noMoveStart);
+        this._resetView(center, zoom2, options.pan && options.pan.noMoveStart);
         return this;
       },
       // @method setZoom(zoom: Number, options?: Zoom/pan options): this
       // Sets the zoom of the map.
-      setZoom: function(zoom3, options) {
+      setZoom: function(zoom2, options) {
         if (!this._loaded) {
-          this._zoom = zoom3;
+          this._zoom = zoom2;
           return this;
         }
-        return this.setView(this.getCenter(), zoom3, { zoom: options });
+        return this.setView(this.getCenter(), zoom2, { zoom: options });
       },
       // @method zoomIn(delta?: Number, options?: Zoom options): this
       // Increases the zoom of the map by `delta` ([`zoomDelta`](#map-zoomdelta) by default).
@@ -9547,25 +9465,25 @@ var leafletSrc = { exports: {} };
       // @alternative
       // @method setZoomAround(offset: Point, zoom: Number, options: Zoom options): this
       // Zooms the map while keeping a specified pixel on the map (relative to the top-left corner) stationary.
-      setZoomAround: function(latlng, zoom3, options) {
-        var scale2 = this.getZoomScale(zoom3), viewHalf = this.getSize().divideBy(2), containerPoint = latlng instanceof Point ? latlng : this.latLngToContainerPoint(latlng), centerOffset = containerPoint.subtract(viewHalf).multiplyBy(1 - 1 / scale2), newCenter = this.containerPointToLatLng(viewHalf.add(centerOffset));
-        return this.setView(newCenter, zoom3, { zoom: options });
+      setZoomAround: function(latlng, zoom2, options) {
+        var scale2 = this.getZoomScale(zoom2), viewHalf = this.getSize().divideBy(2), containerPoint = latlng instanceof Point ? latlng : this.latLngToContainerPoint(latlng), centerOffset = containerPoint.subtract(viewHalf).multiplyBy(1 - 1 / scale2), newCenter = this.containerPointToLatLng(viewHalf.add(centerOffset));
+        return this.setView(newCenter, zoom2, { zoom: options });
       },
       _getBoundsCenterZoom: function(bounds, options) {
         options = options || {};
         bounds = bounds.getBounds ? bounds.getBounds() : toLatLngBounds(bounds);
-        var paddingTL = toPoint(options.paddingTopLeft || options.padding || [0, 0]), paddingBR = toPoint(options.paddingBottomRight || options.padding || [0, 0]), zoom3 = this.getBoundsZoom(bounds, false, paddingTL.add(paddingBR));
-        zoom3 = typeof options.maxZoom === "number" ? Math.min(options.maxZoom, zoom3) : zoom3;
-        if (zoom3 === Infinity) {
+        var paddingTL = toPoint(options.paddingTopLeft || options.padding || [0, 0]), paddingBR = toPoint(options.paddingBottomRight || options.padding || [0, 0]), zoom2 = this.getBoundsZoom(bounds, false, paddingTL.add(paddingBR));
+        zoom2 = typeof options.maxZoom === "number" ? Math.min(options.maxZoom, zoom2) : zoom2;
+        if (zoom2 === Infinity) {
           return {
             center: bounds.getCenter(),
-            zoom: zoom3
+            zoom: zoom2
           };
         }
-        var paddingOffset = paddingBR.subtract(paddingTL).divideBy(2), swPoint = this.project(bounds.getSouthWest(), zoom3), nePoint = this.project(bounds.getNorthEast(), zoom3), center = this.unproject(swPoint.add(nePoint).divideBy(2).add(paddingOffset), zoom3);
+        var paddingOffset = paddingBR.subtract(paddingTL).divideBy(2), swPoint = this.project(bounds.getSouthWest(), zoom2), nePoint = this.project(bounds.getNorthEast(), zoom2), center = this.unproject(swPoint.add(nePoint).divideBy(2).add(paddingOffset), zoom2);
         return {
           center,
-          zoom: zoom3
+          zoom: zoom2
         };
       },
       // @method fitBounds(bounds: LatLngBounds, options?: fitBounds options): this
@@ -9703,26 +9621,26 @@ var leafletSrc = { exports: {} };
       },
       // @method setMinZoom(zoom: Number): this
       // Sets the lower limit for the available zoom levels (see the [minZoom](#map-minzoom) option).
-      setMinZoom: function(zoom3) {
+      setMinZoom: function(zoom2) {
         var oldZoom = this.options.minZoom;
-        this.options.minZoom = zoom3;
-        if (this._loaded && oldZoom !== zoom3) {
+        this.options.minZoom = zoom2;
+        if (this._loaded && oldZoom !== zoom2) {
           this.fire("zoomlevelschange");
           if (this.getZoom() < this.options.minZoom) {
-            return this.setZoom(zoom3);
+            return this.setZoom(zoom2);
           }
         }
         return this;
       },
       // @method setMaxZoom(zoom: Number): this
       // Sets the upper limit for the available zoom levels (see the [maxZoom](#map-maxzoom) option).
-      setMaxZoom: function(zoom3) {
+      setMaxZoom: function(zoom2) {
         var oldZoom = this.options.maxZoom;
-        this.options.maxZoom = zoom3;
-        if (this._loaded && oldZoom !== zoom3) {
+        this.options.maxZoom = zoom2;
+        if (this._loaded && oldZoom !== zoom2) {
           this.fire("zoomlevelschange");
           if (this.getZoom() > this.options.maxZoom) {
-            return this.setZoom(zoom3);
+            return this.setZoom(zoom2);
           }
         }
         return this;
@@ -9878,8 +9796,8 @@ var leafletSrc = { exports: {} };
         }
         var lat = pos.coords.latitude, lng = pos.coords.longitude, latlng = new LatLng(lat, lng), bounds = latlng.toBounds(pos.coords.accuracy * 2), options = this._locateOptions;
         if (options.setView) {
-          var zoom3 = this.getBoundsZoom(bounds);
-          this.setView(latlng, options.maxZoom ? Math.min(zoom3, options.maxZoom) : zoom3);
+          var zoom2 = this.getBoundsZoom(bounds);
+          this.setView(latlng, options.maxZoom ? Math.min(zoom2, options.maxZoom) : zoom2);
         }
         var data = {
           latlng,
@@ -10005,13 +9923,13 @@ var leafletSrc = { exports: {} };
       getBoundsZoom: function(bounds, inside, padding) {
         bounds = toLatLngBounds(bounds);
         padding = toPoint(padding || [0, 0]);
-        var zoom3 = this.getZoom() || 0, min = this.getMinZoom(), max = this.getMaxZoom(), nw = bounds.getNorthWest(), se2 = bounds.getSouthEast(), size = this.getSize().subtract(padding), boundsSize = toBounds(this.project(se2, zoom3), this.project(nw, zoom3)).getSize(), snap = Browser.any3d ? this.options.zoomSnap : 1, scalex = size.x / boundsSize.x, scaley = size.y / boundsSize.y, scale2 = inside ? Math.max(scalex, scaley) : Math.min(scalex, scaley);
-        zoom3 = this.getScaleZoom(scale2, zoom3);
+        var zoom2 = this.getZoom() || 0, min = this.getMinZoom(), max = this.getMaxZoom(), nw = bounds.getNorthWest(), se2 = bounds.getSouthEast(), size = this.getSize().subtract(padding), boundsSize = toBounds(this.project(se2, zoom2), this.project(nw, zoom2)).getSize(), snap = Browser.any3d ? this.options.zoomSnap : 1, scalex = size.x / boundsSize.x, scaley = size.y / boundsSize.y, scale2 = inside ? Math.max(scalex, scaley) : Math.min(scalex, scaley);
+        zoom2 = this.getScaleZoom(scale2, zoom2);
         if (snap) {
-          zoom3 = Math.round(zoom3 / (snap / 100)) * (snap / 100);
-          zoom3 = inside ? Math.ceil(zoom3 / snap) * snap : Math.floor(zoom3 / snap) * snap;
+          zoom2 = Math.round(zoom2 / (snap / 100)) * (snap / 100);
+          zoom2 = inside ? Math.ceil(zoom2 / snap) * snap : Math.floor(zoom2 / snap) * snap;
         }
-        return Math.max(min, Math.min(max, zoom3));
+        return Math.max(min, Math.min(max, zoom2));
       },
       // @method getSize(): Point
       // Returns the current size of the map container (in pixels).
@@ -10028,8 +9946,8 @@ var leafletSrc = { exports: {} };
       // @method getPixelBounds(): Bounds
       // Returns the bounds of the current map view in projected pixel
       // coordinates (sometimes useful in layer and overlay implementations).
-      getPixelBounds: function(center, zoom3) {
-        var topLeftPoint = this._getTopLeftPoint(center, zoom3);
+      getPixelBounds: function(center, zoom2) {
+        var topLeftPoint = this._getTopLeftPoint(center, zoom2);
         return new Bounds(topLeftPoint, topLeftPoint.add(this.getSize()));
       },
       // TODO: Check semantics - isn't the pixel origin the 0,0 coord relative to
@@ -10045,8 +9963,8 @@ var leafletSrc = { exports: {} };
       // @method getPixelWorldBounds(zoom?: Number): Bounds
       // Returns the world's bounds in pixel coordinates for zoom level `zoom`.
       // If `zoom` is omitted, the map's current zoom level is used.
-      getPixelWorldBounds: function(zoom3) {
-        return this.options.crs.getProjectedBounds(zoom3 === void 0 ? this.getZoom() : zoom3);
+      getPixelWorldBounds: function(zoom2) {
+        return this.options.crs.getProjectedBounds(zoom2 === void 0 ? this.getZoom() : zoom2);
       },
       // @section Other Methods
       // @method getPane(pane: String|HTMLElement): HTMLElement
@@ -10081,23 +9999,23 @@ var leafletSrc = { exports: {} };
       getScaleZoom: function(scale2, fromZoom) {
         var crs = this.options.crs;
         fromZoom = fromZoom === void 0 ? this._zoom : fromZoom;
-        var zoom3 = crs.zoom(scale2 * crs.scale(fromZoom));
-        return isNaN(zoom3) ? Infinity : zoom3;
+        var zoom2 = crs.zoom(scale2 * crs.scale(fromZoom));
+        return isNaN(zoom2) ? Infinity : zoom2;
       },
       // @method project(latlng: LatLng, zoom: Number): Point
       // Projects a geographical coordinate `LatLng` according to the projection
       // of the map's CRS, then scales it according to `zoom` and the CRS's
       // `Transformation`. The result is pixel coordinate relative to
       // the CRS origin.
-      project: function(latlng, zoom3) {
-        zoom3 = zoom3 === void 0 ? this._zoom : zoom3;
-        return this.options.crs.latLngToPoint(toLatLng(latlng), zoom3);
+      project: function(latlng, zoom2) {
+        zoom2 = zoom2 === void 0 ? this._zoom : zoom2;
+        return this.options.crs.latLngToPoint(toLatLng(latlng), zoom2);
       },
       // @method unproject(point: Point, zoom: Number): LatLng
       // Inverse of [`project`](#map-project).
-      unproject: function(point, zoom3) {
-        zoom3 = zoom3 === void 0 ? this._zoom : zoom3;
-        return this.options.crs.pointToLatLng(toPoint(point), zoom3);
+      unproject: function(point, zoom2) {
+        zoom2 = zoom2 === void 0 ? this._zoom : zoom2;
+        return this.options.crs.pointToLatLng(toPoint(point), zoom2);
       },
       // @method layerPointToLatLng(point: Point): LatLng
       // Given a pixel coordinate relative to the [origin pixel](#map-getpixelorigin),
@@ -10222,14 +10140,14 @@ var leafletSrc = { exports: {} };
       },
       // private methods that modify map state
       // @section Map state change events
-      _resetView: function(center, zoom3, noMoveStart) {
+      _resetView: function(center, zoom2, noMoveStart) {
         setPosition(this._mapPane, new Point(0, 0));
         var loading = !this._loaded;
         this._loaded = true;
-        zoom3 = this._limitZoom(zoom3);
+        zoom2 = this._limitZoom(zoom2);
         this.fire("viewprereset");
-        var zoomChanged = this._zoom !== zoom3;
-        this._moveStart(zoomChanged, noMoveStart)._move(center, zoom3)._moveEnd(zoomChanged);
+        var zoomChanged = this._zoom !== zoom2;
+        this._moveStart(zoomChanged, noMoveStart)._move(center, zoom2)._moveEnd(zoomChanged);
         this.fire("viewreset");
         if (loading) {
           this.fire("load");
@@ -10244,12 +10162,12 @@ var leafletSrc = { exports: {} };
         }
         return this;
       },
-      _move: function(center, zoom3, data, supressEvent) {
-        if (zoom3 === void 0) {
-          zoom3 = this._zoom;
+      _move: function(center, zoom2, data, supressEvent) {
+        if (zoom2 === void 0) {
+          zoom2 = this._zoom;
         }
-        var zoomChanged = this._zoom !== zoom3;
-        this._zoom = zoom3;
+        var zoomChanged = this._zoom !== zoom2;
+        this._zoom = zoom2;
         this._lastCenter = center;
         this._pixelOrigin = this._getNewPixelOrigin(center);
         if (!supressEvent) {
@@ -10440,25 +10358,25 @@ var leafletSrc = { exports: {} };
         var pos = this._getMapPanePos();
         return pos && !pos.equals([0, 0]);
       },
-      _getTopLeftPoint: function(center, zoom3) {
-        var pixelOrigin = center && zoom3 !== void 0 ? this._getNewPixelOrigin(center, zoom3) : this.getPixelOrigin();
+      _getTopLeftPoint: function(center, zoom2) {
+        var pixelOrigin = center && zoom2 !== void 0 ? this._getNewPixelOrigin(center, zoom2) : this.getPixelOrigin();
         return pixelOrigin.subtract(this._getMapPanePos());
       },
-      _getNewPixelOrigin: function(center, zoom3) {
+      _getNewPixelOrigin: function(center, zoom2) {
         var viewHalf = this.getSize()._divideBy(2);
-        return this.project(center, zoom3)._subtract(viewHalf)._add(this._getMapPanePos())._round();
+        return this.project(center, zoom2)._subtract(viewHalf)._add(this._getMapPanePos())._round();
       },
-      _latLngToNewLayerPoint: function(latlng, zoom3, center) {
-        var topLeft = this._getNewPixelOrigin(center, zoom3);
-        return this.project(latlng, zoom3)._subtract(topLeft);
+      _latLngToNewLayerPoint: function(latlng, zoom2, center) {
+        var topLeft = this._getNewPixelOrigin(center, zoom2);
+        return this.project(latlng, zoom2)._subtract(topLeft);
       },
-      _latLngBoundsToNewLayerBounds: function(latLngBounds, zoom3, center) {
-        var topLeft = this._getNewPixelOrigin(center, zoom3);
+      _latLngBoundsToNewLayerBounds: function(latLngBounds, zoom2, center) {
+        var topLeft = this._getNewPixelOrigin(center, zoom2);
         return toBounds([
-          this.project(latLngBounds.getSouthWest(), zoom3)._subtract(topLeft),
-          this.project(latLngBounds.getNorthWest(), zoom3)._subtract(topLeft),
-          this.project(latLngBounds.getSouthEast(), zoom3)._subtract(topLeft),
-          this.project(latLngBounds.getNorthEast(), zoom3)._subtract(topLeft)
+          this.project(latLngBounds.getSouthWest(), zoom2)._subtract(topLeft),
+          this.project(latLngBounds.getNorthWest(), zoom2)._subtract(topLeft),
+          this.project(latLngBounds.getSouthEast(), zoom2)._subtract(topLeft),
+          this.project(latLngBounds.getNorthEast(), zoom2)._subtract(topLeft)
         ]);
       },
       // layer point of the current center
@@ -10470,15 +10388,15 @@ var leafletSrc = { exports: {} };
         return this.latLngToLayerPoint(latlng).subtract(this._getCenterLayerPoint());
       },
       // adjust center for view to get inside bounds
-      _limitCenter: function(center, zoom3, bounds) {
+      _limitCenter: function(center, zoom2, bounds) {
         if (!bounds) {
           return center;
         }
-        var centerPoint = this.project(center, zoom3), viewHalf = this.getSize().divideBy(2), viewBounds = new Bounds(centerPoint.subtract(viewHalf), centerPoint.add(viewHalf)), offset = this._getBoundsOffset(viewBounds, bounds, zoom3);
+        var centerPoint = this.project(center, zoom2), viewHalf = this.getSize().divideBy(2), viewBounds = new Bounds(centerPoint.subtract(viewHalf), centerPoint.add(viewHalf)), offset = this._getBoundsOffset(viewBounds, bounds, zoom2);
         if (Math.abs(offset.x) <= 1 && Math.abs(offset.y) <= 1) {
           return center;
         }
-        return this.unproject(centerPoint.add(offset), zoom3);
+        return this.unproject(centerPoint.add(offset), zoom2);
       },
       // adjust offset for view to get inside bounds
       _limitOffset: function(offset, bounds) {
@@ -10489,22 +10407,22 @@ var leafletSrc = { exports: {} };
         return offset.add(this._getBoundsOffset(newBounds, bounds));
       },
       // returns offset needed for pxBounds to get inside maxBounds at a specified zoom
-      _getBoundsOffset: function(pxBounds, maxBounds, zoom3) {
+      _getBoundsOffset: function(pxBounds, maxBounds, zoom2) {
         var projectedMaxBounds = toBounds(
-          this.project(maxBounds.getNorthEast(), zoom3),
-          this.project(maxBounds.getSouthWest(), zoom3)
+          this.project(maxBounds.getNorthEast(), zoom2),
+          this.project(maxBounds.getSouthWest(), zoom2)
         ), minOffset = projectedMaxBounds.min.subtract(pxBounds.min), maxOffset = projectedMaxBounds.max.subtract(pxBounds.max), dx = this._rebound(minOffset.x, -maxOffset.x), dy = this._rebound(minOffset.y, -maxOffset.y);
         return new Point(dx, dy);
       },
       _rebound: function(left, right) {
         return left + right > 0 ? Math.round(left - right) / 2 : Math.max(0, Math.ceil(left)) - Math.max(0, Math.floor(right));
       },
-      _limitZoom: function(zoom3) {
+      _limitZoom: function(zoom2) {
         var min = this.getMinZoom(), max = this.getMaxZoom(), snap = Browser.any3d ? this.options.zoomSnap : 1;
         if (snap) {
-          zoom3 = Math.round(zoom3 / snap) * snap;
+          zoom2 = Math.round(zoom2 / snap) * snap;
         }
-        return Math.max(min, Math.min(max, zoom3));
+        return Math.max(min, Math.min(max, zoom2));
       },
       _onPanTransitionStep: function() {
         this.fire("move");
@@ -10551,36 +10469,36 @@ var leafletSrc = { exports: {} };
       _nothingToAnimate: function() {
         return !this._container.getElementsByClassName("leaflet-zoom-animated").length;
       },
-      _tryAnimatedZoom: function(center, zoom3, options) {
+      _tryAnimatedZoom: function(center, zoom2, options) {
         if (this._animatingZoom) {
           return true;
         }
         options = options || {};
-        if (!this._zoomAnimated || options.animate === false || this._nothingToAnimate() || Math.abs(zoom3 - this._zoom) > this.options.zoomAnimationThreshold) {
+        if (!this._zoomAnimated || options.animate === false || this._nothingToAnimate() || Math.abs(zoom2 - this._zoom) > this.options.zoomAnimationThreshold) {
           return false;
         }
-        var scale2 = this.getZoomScale(zoom3), offset = this._getCenterOffset(center)._divideBy(1 - 1 / scale2);
+        var scale2 = this.getZoomScale(zoom2), offset = this._getCenterOffset(center)._divideBy(1 - 1 / scale2);
         if (options.animate !== true && !this.getSize().contains(offset)) {
           return false;
         }
         requestAnimFrame2(function() {
-          this._moveStart(true, options.noMoveStart || false)._animateZoom(center, zoom3, true);
+          this._moveStart(true, options.noMoveStart || false)._animateZoom(center, zoom2, true);
         }, this);
         return true;
       },
-      _animateZoom: function(center, zoom3, startAnim, noUpdate) {
+      _animateZoom: function(center, zoom2, startAnim, noUpdate) {
         if (!this._mapPane) {
           return;
         }
         if (startAnim) {
           this._animatingZoom = true;
           this._animateToCenter = center;
-          this._animateToZoom = zoom3;
+          this._animateToZoom = zoom2;
           addClass(this._mapPane, "leaflet-zoom-anim");
         }
         this.fire("zoomanim", {
           center,
-          zoom: zoom3,
+          zoom: zoom2,
           noUpdate
         });
         if (!this._tempFireZoomEvent) {
@@ -10981,11 +10899,11 @@ var leafletSrc = { exports: {} };
         this._refocusOnMap();
       },
       _checkDisabledLayers: function() {
-        var inputs = this._layerControlInputs, input, layer, zoom3 = this._map.getZoom();
+        var inputs = this._layerControlInputs, input, layer, zoom2 = this._map.getZoom();
         for (var i = inputs.length - 1; i >= 0; i--) {
           input = inputs[i];
           layer = this._getLayer(input.layerId).layer;
-          input.disabled = layer.options.minZoom !== void 0 && zoom3 < layer.options.minZoom || layer.options.maxZoom !== void 0 && zoom3 > layer.options.maxZoom;
+          input.disabled = layer.options.minZoom !== void 0 && zoom2 < layer.options.minZoom || layer.options.maxZoom !== void 0 && zoom2 > layer.options.maxZoom;
         }
       },
       _expandIfNotCollapsed: function() {
@@ -11108,7 +11026,7 @@ var leafletSrc = { exports: {} };
         this.addControl(this.zoomControl);
       }
     });
-    var zoom2 = function(options) {
+    var zoom = function(options) {
       return new Zoom(options);
     };
     var Scale2 = Control.extend({
@@ -11296,7 +11214,7 @@ var leafletSrc = { exports: {} };
     Control.Scale = Scale2;
     Control.Attribution = Attribution;
     control.layers = layers;
-    control.zoom = zoom2;
+    control.zoom = zoom;
     control.scale = scale;
     control.attribution = attribution;
     var Handler = Class.extend({
@@ -11811,8 +11729,8 @@ var leafletSrc = { exports: {} };
     var Simple = extend({}, CRS, {
       projection: LonLat,
       transformation: toTransformation(1, 0, -1, 0),
-      scale: function(zoom3) {
-        return Math.pow(2, zoom3);
+      scale: function(zoom2) {
+        return Math.pow(2, zoom2);
       },
       zoom: function(scale2) {
         return Math.log(scale2) / Math.LN2;
@@ -14908,14 +14826,14 @@ var leafletSrc = { exports: {} };
         this.getPane().appendChild(this._container);
       },
       _updateLevels: function() {
-        var zoom3 = this._tileZoom, maxZoom = this.options.maxZoom;
-        if (zoom3 === void 0) {
+        var zoom2 = this._tileZoom, maxZoom = this.options.maxZoom;
+        if (zoom2 === void 0) {
           return void 0;
         }
         for (var z2 in this._levels) {
           z2 = Number(z2);
-          if (this._levels[z2].el.children.length || z2 === zoom3) {
-            this._levels[z2].el.style.zIndex = maxZoom - Math.abs(zoom3 - z2);
+          if (this._levels[z2].el.children.length || z2 === zoom2) {
+            this._levels[z2].el.style.zIndex = maxZoom - Math.abs(zoom2 - z2);
             this._onUpdateLevel(z2);
           } else {
             remove(this._levels[z2].el);
@@ -14924,13 +14842,13 @@ var leafletSrc = { exports: {} };
             delete this._levels[z2];
           }
         }
-        var level = this._levels[zoom3], map2 = this._map;
+        var level = this._levels[zoom2], map2 = this._map;
         if (!level) {
-          level = this._levels[zoom3] = {};
+          level = this._levels[zoom2] = {};
           level.el = create$1("div", "leaflet-tile-container leaflet-zoom-animated", this._container);
           level.el.style.zIndex = maxZoom;
-          level.origin = map2.project(map2.unproject(map2.getPixelOrigin()), zoom3).round();
-          level.zoom = zoom3;
+          level.origin = map2.project(map2.unproject(map2.getPixelOrigin()), zoom2).round();
+          level.zoom = zoom2;
           this._setZoomTransform(level, map2.getCenter(), map2.getZoom());
           falseFn(level.el.offsetWidth);
           this._onCreateLevel(level);
@@ -14946,8 +14864,8 @@ var leafletSrc = { exports: {} };
           return;
         }
         var key, tile;
-        var zoom3 = this._map.getZoom();
-        if (zoom3 > this.options.maxZoom || zoom3 < this.options.minZoom) {
+        var zoom2 = this._map.getZoom();
+        if (zoom2 > this.options.maxZoom || zoom2 < this.options.minZoom) {
           this._removeAllTiles();
           return;
         }
@@ -14970,9 +14888,9 @@ var leafletSrc = { exports: {} };
           }
         }
       },
-      _removeTilesAtZoom: function(zoom3) {
+      _removeTilesAtZoom: function(zoom2) {
         for (var key in this._tiles) {
-          if (this._tiles[key].coords.z !== zoom3) {
+          if (this._tiles[key].coords.z !== zoom2) {
             continue;
           }
           this._removeTile(key);
@@ -15032,18 +14950,18 @@ var leafletSrc = { exports: {} };
       _animateZoom: function(e) {
         this._setView(e.center, e.zoom, true, e.noUpdate);
       },
-      _clampZoom: function(zoom3) {
+      _clampZoom: function(zoom2) {
         var options = this.options;
-        if (void 0 !== options.minNativeZoom && zoom3 < options.minNativeZoom) {
+        if (void 0 !== options.minNativeZoom && zoom2 < options.minNativeZoom) {
           return options.minNativeZoom;
         }
-        if (void 0 !== options.maxNativeZoom && options.maxNativeZoom < zoom3) {
+        if (void 0 !== options.maxNativeZoom && options.maxNativeZoom < zoom2) {
           return options.maxNativeZoom;
         }
-        return zoom3;
+        return zoom2;
       },
-      _setView: function(center, zoom3, noPrune, noUpdate) {
-        var tileZoom = Math.round(zoom3);
+      _setView: function(center, zoom2, noPrune, noUpdate) {
+        var tileZoom = Math.round(zoom2);
         if (this.options.maxZoom !== void 0 && tileZoom > this.options.maxZoom || this.options.minZoom !== void 0 && tileZoom < this.options.minZoom) {
           tileZoom = void 0;
         } else {
@@ -15065,15 +14983,15 @@ var leafletSrc = { exports: {} };
           }
           this._noPrune = !!noPrune;
         }
-        this._setZoomTransforms(center, zoom3);
+        this._setZoomTransforms(center, zoom2);
       },
-      _setZoomTransforms: function(center, zoom3) {
+      _setZoomTransforms: function(center, zoom2) {
         for (var i in this._levels) {
-          this._setZoomTransform(this._levels[i], center, zoom3);
+          this._setZoomTransform(this._levels[i], center, zoom2);
         }
       },
-      _setZoomTransform: function(level, center, zoom3) {
-        var scale2 = this._map.getZoomScale(zoom3, level.zoom), translate = level.origin.multiplyBy(scale2).subtract(this._map._getNewPixelOrigin(center, zoom3)).round();
+      _setZoomTransform: function(level, center, zoom2) {
+        var scale2 = this._map.getZoomScale(zoom2, level.zoom), translate = level.origin.multiplyBy(scale2).subtract(this._map._getNewPixelOrigin(center, zoom2)).round();
         if (Browser.any3d) {
           setTransform(level.el, translate, scale2);
         } else {
@@ -15111,7 +15029,7 @@ var leafletSrc = { exports: {} };
         if (!map2) {
           return;
         }
-        var zoom3 = this._clampZoom(map2.getZoom());
+        var zoom2 = this._clampZoom(map2.getZoom());
         if (center === void 0) {
           center = map2.getCenter();
         }
@@ -15131,8 +15049,8 @@ var leafletSrc = { exports: {} };
             this._tiles[key].current = false;
           }
         }
-        if (Math.abs(zoom3 - this._tileZoom) > 1) {
-          this._setView(center, zoom3);
+        if (Math.abs(zoom2 - this._tileZoom) > 1) {
+          this._setView(center, zoom2);
           return;
         }
         for (var j = tileRange.min.y; j <= tileRange.max.y; j++) {
@@ -15452,11 +15370,11 @@ var leafletSrc = { exports: {} };
         e.tile.onload = null;
       },
       _getZoomForUrl: function() {
-        var zoom3 = this._tileZoom, maxZoom = this.options.maxZoom, zoomReverse = this.options.zoomReverse, zoomOffset = this.options.zoomOffset;
+        var zoom2 = this._tileZoom, maxZoom = this.options.maxZoom, zoomReverse = this.options.zoomReverse, zoomOffset = this.options.zoomOffset;
         if (zoomReverse) {
-          zoom3 = maxZoom - zoom3;
+          zoom2 = maxZoom - zoom2;
         }
-        return zoom3 + zoomOffset;
+        return zoom2 + zoomOffset;
       },
       _getSubdomain: function(tilePoint) {
         var index2 = Math.abs(tilePoint.x + tilePoint.y) % this.options.subdomains.length;
@@ -15621,8 +15539,8 @@ var leafletSrc = { exports: {} };
       _onZoom: function() {
         this._updateTransform(this._map.getCenter(), this._map.getZoom());
       },
-      _updateTransform: function(center, zoom3) {
-        var scale2 = this._map.getZoomScale(zoom3, this._zoom), viewHalf = this._map.getSize().multiplyBy(0.5 + this.options.padding), currentCenterPoint = this._map.project(this._center, zoom3), topLeftOffset = viewHalf.multiplyBy(-scale2).add(currentCenterPoint).subtract(this._map._getNewPixelOrigin(center, zoom3));
+      _updateTransform: function(center, zoom2) {
+        var scale2 = this._map.getZoomScale(zoom2, this._zoom), viewHalf = this._map.getSize().multiplyBy(0.5 + this.options.padding), currentCenterPoint = this._map.project(this._center, zoom2), topLeftOffset = viewHalf.multiplyBy(-scale2).add(currentCenterPoint).subtract(this._map._getNewPixelOrigin(center, zoom2));
         if (Browser.any3d) {
           setTransform(this._container, topLeftOffset, scale2);
         } else {
@@ -16394,11 +16312,11 @@ var leafletSrc = { exports: {} };
         this._map.off("dblclick", this._onDoubleClick, this);
       },
       _onDoubleClick: function(e) {
-        var map2 = this._map, oldZoom = map2.getZoom(), delta = map2.options.zoomDelta, zoom3 = e.originalEvent.shiftKey ? oldZoom - delta : oldZoom + delta;
+        var map2 = this._map, oldZoom = map2.getZoom(), delta = map2.options.zoomDelta, zoom2 = e.originalEvent.shiftKey ? oldZoom - delta : oldZoom + delta;
         if (map2.options.doubleClickZoom === "center") {
-          map2.setZoom(zoom3);
+          map2.setZoom(zoom2);
         } else {
-          map2.setZoomAround(e.containerPoint, zoom3);
+          map2.setZoomAround(e.containerPoint, zoom2);
         }
       }
     });
@@ -16644,13 +16562,13 @@ var leafletSrc = { exports: {} };
           keys[codes.up[i]] = [0, -1 * panDelta];
         }
       },
-      _setZoomDelta: function(zoomDelta2) {
+      _setZoomDelta: function(zoomDelta) {
         var keys = this._zoomKeys = {}, codes = this.keyCodes, i, len;
         for (i = 0, len = codes.zoomIn.length; i < len; i++) {
-          keys[codes.zoomIn[i]] = zoomDelta2;
+          keys[codes.zoomIn[i]] = zoomDelta;
         }
         for (i = 0, len = codes.zoomOut.length; i < len; i++) {
-          keys[codes.zoomOut[i]] = -zoomDelta2;
+          keys[codes.zoomOut[i]] = -zoomDelta;
         }
       },
       _addHooks: function() {
@@ -16729,18 +16647,18 @@ var leafletSrc = { exports: {} };
         stop(e);
       },
       _performZoom: function() {
-        var map2 = this._map, zoom3 = map2.getZoom(), snap = this._map.options.zoomSnap || 0;
+        var map2 = this._map, zoom2 = map2.getZoom(), snap = this._map.options.zoomSnap || 0;
         map2._stop();
-        var d2 = this._delta / (this._map.options.wheelPxPerZoomLevel * 4), d3 = 4 * Math.log(2 / (1 + Math.exp(-Math.abs(d2)))) / Math.LN2, d4 = snap ? Math.ceil(d3 / snap) * snap : d3, delta = map2._limitZoom(zoom3 + (this._delta > 0 ? d4 : -d4)) - zoom3;
+        var d2 = this._delta / (this._map.options.wheelPxPerZoomLevel * 4), d3 = 4 * Math.log(2 / (1 + Math.exp(-Math.abs(d2)))) / Math.LN2, d4 = snap ? Math.ceil(d3 / snap) * snap : d3, delta = map2._limitZoom(zoom2 + (this._delta > 0 ? d4 : -d4)) - zoom2;
         this._delta = 0;
         this._startTime = null;
         if (!delta) {
           return;
         }
         if (map2.options.scrollWheelZoom === "center") {
-          map2.setZoom(zoom3 + delta);
+          map2.setZoom(zoom2 + delta);
         } else {
-          map2.setZoomAround(this._lastMousePos, zoom3 + delta);
+          map2.setZoomAround(this._lastMousePos, zoom2 + delta);
         }
       }
     });
@@ -17106,7 +17024,7 @@ function _extends() {
   };
   return _extends.apply(this, arguments);
 }
-function MapContainerComponent({ bounds, boundsOptions, center, children, className, id: id2, placeholder, style, whenReady, zoom: zoom2, ...options }, forwardedRef) {
+function MapContainerComponent({ bounds, boundsOptions, center, children, className, id: id2, placeholder, style, whenReady, zoom, ...options }, forwardedRef) {
   const [props] = reactExports.useState({
     className,
     id: id2,
@@ -17119,8 +17037,8 @@ function MapContainerComponent({ bounds, boundsOptions, center, children, classN
   const mapRef = reactExports.useCallback((node) => {
     if (node !== null && context === null) {
       const map2 = new leafletSrcExports.Map(node, options);
-      if (center != null && zoom2 != null) {
-        map2.setView(center, zoom2);
+      if (center != null && zoom != null) {
+        map2.setView(center, zoom);
       } else if (bounds != null) {
         map2.fitBounds(bounds, boundsOptions);
       }
@@ -17244,67 +17162,484 @@ L$1.control.mousePosition = function(options) {
   return new MousePositionControl(options);
 };
 L$1.control.mousePosition;
-function MeasureTool({ active, onDeactivate }) {
+delete L$1.Icon.Default.prototype._getIconUrl;
+L$1.Icon.Default.mergeOptions({
+  iconRetinaUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png",
+  iconUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
+  shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png"
+});
+const fontAwesomeIcon = L$1.divIcon({
+  html: '<i class="fa-solid fa-location-dot fa-3x"></i>',
+  iconSize: [20, 20],
+  className: "myDivIcon"
+});
+function MapEvents() {
+  const { dispatch } = useAppContext();
+  useMapEvents({
+    click: (e) => {
+      dispatch({
+        type: "ADD_TIME_SERIES_POINT",
+        payload: {
+          position: [e.latlng.lat, e.latlng.lng],
+          name: `Point ${Date.now().toString().slice(-4)}`
+          // Short unique name
+        }
+      });
+    }
+  });
+  return null;
+}
+function MousePosition() {
   const map2 = useMap();
-  const pointsRef = reactExports.useRef([]);
-  const linesRef = reactExports.useRef([]);
-  const markersRef = reactExports.useRef([]);
-  const labelRef = reactExports.useRef(null);
-  const fmtDist = (m2) => m2 >= 1e3 ? `${(m2 / 1e3).toFixed(2)} km` : `${m2.toFixed(0)} m`;
-  const clearAll = () => {
-    linesRef.current.forEach((l2) => l2.remove());
-    markersRef.current.forEach((m2) => m2.remove());
-    if (labelRef.current) labelRef.current.remove();
-    pointsRef.current = [];
-    linesRef.current = [];
-    markersRef.current = [];
-    labelRef.current = null;
-  };
   reactExports.useEffect(() => {
-    if (!active) {
-      clearAll();
+    const mousePositionControl = new MousePositionControl();
+    mousePositionControl.addTo(map2);
+    return () => {
+      mousePositionControl.remove();
+    };
+  }, [map2]);
+  return null;
+}
+function RasterTileLayer() {
+  const { state } = useAppContext();
+  const [tileUrl, setTileUrl] = reactExports.useState(null);
+  reactExports.useEffect(() => {
+    if (!state.currentDataset || !state.datasetInfo[state.currentDataset]) {
       return;
     }
-    map2.getContainer().style.cursor = "crosshair";
-    const onClick = (e) => {
-      const pts = pointsRef.current;
-      pts.push(e.latlng);
-      const dot = L$1.circleMarker(e.latlng, {
-        radius: 4,
-        color: "#4d9de0",
-        fillColor: "#4d9de0",
-        fillOpacity: 1,
-        weight: 2
-      }).addTo(map2);
-      markersRef.current.push(dot);
-      if (pts.length > 1) {
-        const seg = L$1.polyline([pts[pts.length - 2], pts[pts.length - 1]], {
-          color: "#4d9de0",
-          weight: 2,
-          dashArray: "6 4"
-        }).addTo(map2);
-        linesRef.current.push(seg);
-        const total = pts.reduce((acc, p2, i) => i === 0 ? 0 : acc + pts[i - 1].distanceTo(p2), 0);
-        if (labelRef.current) labelRef.current.remove();
-        labelRef.current = L$1.popup({ closeButton: false, autoClose: false, closeOnClick: false }).setLatLng(e.latlng).setContent(`<b>${fmtDist(total)}</b>`).openOn(map2);
+    const controller = new AbortController();
+    const signal = controller.signal;
+    const updateTileLayer2 = async () => {
+      const currentDatasetInfo = state.datasetInfo[state.currentDataset];
+      const colormap = state.colormap;
+      const vmin = state.vmin;
+      const vmax = state.vmax;
+      const maxIdx = currentDatasetInfo.x_values.length - 1;
+      const timeIdx = Math.max(0, Math.min(state.currentTimeIndex, maxIdx));
+      const params = {
+        variable: state.currentDataset,
+        time_idx: timeIdx.toString(),
+        rescale: `${vmin},${vmax}`,
+        colormap_name: colormap
+      };
+      if (currentDatasetInfo.algorithm) {
+        params.algorithm = currentDatasetInfo.algorithm;
+      }
+      if (state.refValues[state.currentDataset] && currentDatasetInfo.algorithm === "shift") {
+        const shift = state.refValues[state.currentDataset][timeIdx];
+        if (shift !== void 0) {
+          params.algorithm_params = JSON.stringify({ shift });
+        }
+      }
+      if (state.dataMode === "cog") {
+        const url = currentDatasetInfo.file_list[timeIdx];
+        const maskUrl = currentDatasetInfo.mask_file_list[timeIdx];
+        const maskMinValue = currentDatasetInfo.mask_min_value;
+        params.url = url;
+        if (maskUrl) params.mask = encodeURIComponent(maskUrl);
+        if (maskMinValue !== void 0) params.mask_min_value = maskMinValue.toString();
+      }
+      const urlParams = new URLSearchParams(params).toString();
+      const endpoint = state.dataMode === "md" ? `/md/WebMercatorQuad/tilejson.json?${urlParams}` : `/cog/WebMercatorQuad/tilejson.json?${urlParams}`;
+      try {
+        const response = await fetch(endpoint, { signal });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const tileInfo = await response.json();
+        if (!signal.aborted) setTileUrl(tileInfo.tiles[0]);
+      } catch (err) {
+        if (err.name !== "AbortError") {
+          console.error("Error fetching tile info:", err);
+        }
       }
     };
-    const onDblClick = (e) => {
-      L$1.DomEvent.stop(e);
-      onDeactivate();
-    };
-    map2.on("click", onClick);
-    map2.on("dblclick", onDblClick);
-    map2.doubleClickZoom.disable();
-    return () => {
-      map2.off("click", onClick);
-      map2.off("dblclick", onDblClick);
-      map2.doubleClickZoom.enable();
-      map2.getContainer().style.cursor = "";
-      clearAll();
-    };
-  }, [active, map2]);
-  return null;
+    updateTileLayer2();
+    return () => controller.abort();
+  }, [
+    state.currentDataset,
+    state.currentTimeIndex,
+    state.datasetInfo,
+    state.dataMode,
+    state.refValues,
+    state.refMarkerPosition,
+    state.colormap,
+    state.vmin,
+    state.vmax
+  ]);
+  if (!tileUrl) return null;
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(
+    TileLayer,
+    {
+      url: tileUrl,
+      opacity: state.opacity,
+      maxZoom: 19
+    },
+    tileUrl
+  );
+}
+function MarkerEventHandlers() {
+  const { state, dispatch } = useAppContext();
+  const { fetchPointTimeSeries } = useApi();
+  const map2 = useMap();
+  const handleMarkerClick = (position, pointName) => {
+    const [lat, lng] = position;
+    const content = pointName ? `${pointName} (lon, lat):
+(${lng.toFixed(6)}, ${lat.toFixed(6)})` : `Reference (lon, lat):
+(${lng.toFixed(6)}, ${lat.toFixed(6)})`;
+    L$1.popup().setLatLng([lat, lng]).setContent(content).openOn(map2);
+  };
+  const handleTsMarkerDragEnd = (pointId) => (e) => {
+    const marker = e.target;
+    const position = marker.getLatLng();
+    dispatch({
+      type: "UPDATE_TIME_SERIES_POINT",
+      payload: {
+        id: pointId,
+        updates: { position: [position.lat, position.lng] }
+      }
+    });
+  };
+  const handleRefMarkerDragEnd = async (e) => {
+    const marker = e.target;
+    const position = marker.getLatLng();
+    const lat = position.lat;
+    const lng = position.lng;
+    dispatch({ type: "SET_REF_MARKER_POSITION", payload: [lat, lng] });
+    const ds = state.currentDataset;
+    const info = ds ? state.datasetInfo[ds] : null;
+    if (ds && (info == null ? void 0 : info.algorithm) === "shift") {
+      try {
+        const values = await fetchPointTimeSeries(lng, lat, ds);
+        if (values) {
+          dispatch({
+            type: "SET_REF_VALUES",
+            payload: { dataset: ds, values }
+          });
+        }
+      } catch (err) {
+        console.error("Error updating reference values after drag:", err);
+      }
+    }
+  };
+  const handleTsMarkerDoubleClick = (pointId) => () => {
+    dispatch({ type: "REMOVE_TIME_SERIES_POINT", payload: pointId });
+  };
+  const createColoredIcon = (color2, isSelected = false) => {
+    const iconSize = isSelected ? 25 : 20;
+    return L$1.divIcon({
+      html: `<div style="
+        width: ${iconSize}px;
+        height: ${iconSize}px;
+        background-color: ${color2};
+        border: ${isSelected ? "3px solid white" : "2px solid white"};
+        border-radius: 50%;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+      "></div>`,
+      iconSize: [iconSize, iconSize],
+      className: "custom-colored-marker"
+    });
+  };
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+    state.timeSeriesPoints.filter((p2) => p2.visible).map((point) => /* @__PURE__ */ jsxRuntimeExports.jsx(
+      Marker,
+      {
+        position: point.position,
+        icon: createColoredIcon(point.color, state.selectedPointId === point.id),
+        draggable: true,
+        title: `${point.name} - Double-click to remove`,
+        eventHandlers: {
+          click: () => {
+            handleMarkerClick(point.position, point.name);
+            dispatch({ type: "SET_SELECTED_POINT", payload: point.id });
+          },
+          dragend: handleTsMarkerDragEnd(point.id),
+          dblclick: handleTsMarkerDoubleClick(point.id)
+        }
+      },
+      point.id
+    )),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      Marker,
+      {
+        position: state.refMarkerPosition,
+        icon: fontAwesomeIcon,
+        draggable: true,
+        title: "Reference Location",
+        eventHandlers: {
+          click: () => handleMarkerClick(state.refMarkerPosition),
+          dragend: handleRefMarkerDragEnd
+        }
+      }
+    )
+  ] });
+}
+function MapContainer() {
+  const { state } = useAppContext();
+  const getInitialCenter = () => {
+    if (state.currentDataset && state.datasetInfo[state.currentDataset]) {
+      const bounds = state.datasetInfo[state.currentDataset].latlon_bounds;
+      const centerLat = (bounds[1] + bounds[3]) / 2;
+      const centerLng = (bounds[0] + bounds[2]) / 2;
+      return [centerLat, centerLng];
+    }
+    const datasets = Object.values(state.datasetInfo);
+    if (datasets.length > 0) {
+      const bounds = datasets[0].latlon_bounds;
+      const centerLat = (bounds[1] + bounds[3]) / 2;
+      const centerLng = (bounds[0] + bounds[2]) / 2;
+      return [centerLat, centerLng];
+    }
+    return [0, 0];
+  };
+  const selectedBasemap = baseMaps[state.selectedBasemap] || baseMaps.esriSatellite;
+  const center = getInitialCenter();
+  const hasDatasets = Object.keys(state.datasetInfo).length > 0;
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    MapContainer$1,
+    {
+      center,
+      zoom: 9,
+      style: { height: "100%", width: "100%" },
+      doubleClickZoom: false,
+      children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          TileLayer,
+          {
+            url: selectedBasemap.url,
+            attribution: selectedBasemap.attribution,
+            maxZoom: 19
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(RasterTileLayer, {}),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(MarkerEventHandlers, {}),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(MapEvents, {}),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(MousePosition, {})
+      ]
+    },
+    hasDatasets ? "with-data" : "no-data"
+  );
+}
+const colormapOptions = [
+  { value: "rdbu_r", label: "Blue-Red" },
+  { value: "twilight", label: "Twilight (cyclic)" },
+  { value: "cfastie", label: "CFastie" },
+  { value: "rplumbo", label: "RPlumbo" },
+  { value: "schwarzwald", label: "Schwarzwald (elevation)" },
+  { value: "viridis", label: "Viridis" },
+  { value: "bugn", label: "Blue-Green" },
+  { value: "ylgn", label: "Yellow-Green" },
+  { value: "magma", label: "Magma" },
+  { value: "gist_earth", label: "Earth" },
+  { value: "ocean", label: "Ocean" },
+  { value: "terrain", label: "Terrain" }
+];
+function ControlPanel() {
+  const { state, dispatch } = useAppContext();
+  const { fetchPointTimeSeries } = useApi();
+  const [draftVmin, setDraftVmin] = reactExports.useState(String(state.vmin));
+  const [draftVmax, setDraftVmax] = reactExports.useState(String(state.vmax));
+  reactExports.useEffect(() => setDraftVmin(String(state.vmin)), [state.vmin]);
+  reactExports.useEffect(() => setDraftVmax(String(state.vmax)), [state.vmax]);
+  reactExports.useEffect(() => {
+    const datasetName = state.currentDataset;
+    if (!datasetName) return;
+    const safeNumToString = (x2) => Object.is(x2, -0) ? "-0" : String(x2);
+    localStorage.setItem(`${datasetName}-colormap_name`, state.colormap);
+    localStorage.setItem(`${datasetName}-vmin`, safeNumToString(state.vmin));
+    localStorage.setItem(`${datasetName}-vmax`, safeNumToString(state.vmax));
+  }, [state.currentDataset, state.colormap, state.vmin, state.vmax]);
+  reactExports.useEffect(() => {
+    const datasetName = state.currentDataset;
+    if (!datasetName) return;
+    const colormap = localStorage.getItem(`${datasetName}-colormap_name`);
+    const vminStr = localStorage.getItem(`${datasetName}-vmin`);
+    const vmaxStr = localStorage.getItem(`${datasetName}-vmax`);
+    if (colormap) dispatch({ type: "SET_COLORMAP", payload: colormap });
+    if (vminStr !== null) {
+      const v2 = Number(vminStr);
+      if (!Number.isNaN(v2)) dispatch({ type: "SET_VMIN", payload: v2 });
+    }
+    if (vmaxStr !== null) {
+      const v2 = Number(vmaxStr);
+      if (!Number.isNaN(v2)) dispatch({ type: "SET_VMAX", payload: v2 });
+    }
+  }, [state.currentDataset, dispatch]);
+  const handleDatasetChange = (datasetName) => {
+    dispatch({ type: "SET_CURRENT_DATASET", payload: datasetName });
+    const currentDatasetInfo2 = state.datasetInfo[datasetName];
+    if ((currentDatasetInfo2 == null ? void 0 : currentDatasetInfo2.uses_spatial_ref) && !state.refValues[datasetName]) {
+      setRefValues(datasetName);
+    }
+  };
+  const handleTimeIndexChange = (newIndex) => {
+    dispatch({ type: "SET_TIME_INDEX", payload: newIndex });
+  };
+  const handleColormapChange = (colormap) => {
+    dispatch({ type: "SET_COLORMAP", payload: colormap });
+  };
+  const commitVmin = reactExports.useCallback(() => {
+    const v2 = Number(draftVmin);
+    if (!Number.isNaN(v2)) {
+      dispatch({ type: "SET_VMIN", payload: v2 });
+    }
+  }, [draftVmin, dispatch]);
+  const commitVmax = reactExports.useCallback(() => {
+    const v2 = Number(draftVmax);
+    if (!Number.isNaN(v2)) {
+      dispatch({ type: "SET_VMAX", payload: v2 });
+    }
+  }, [draftVmax, dispatch]);
+  const handleOpacityChange = (opacity) => {
+    dispatch({ type: "SET_OPACITY", payload: opacity });
+  };
+  const handleBasemapChange = (basemapKey) => {
+    dispatch({ type: "SET_BASEMAP", payload: basemapKey });
+  };
+  const toggleChart = () => {
+    dispatch({ type: "TOGGLE_CHART" });
+  };
+  const setRefValues = async (datasetName) => {
+    const [lat, lng] = state.refMarkerPosition;
+    try {
+      const values = await fetchPointTimeSeries(lng, lat, datasetName);
+      if (values) {
+        dispatch({
+          type: "SET_REF_VALUES",
+          payload: { dataset: datasetName, values }
+        });
+      }
+    } catch (error) {
+      console.error("Error setting reference values:", error);
+    }
+  };
+  const currentDatasetInfo = state.currentDataset ? state.datasetInfo[state.currentDataset] : null;
+  const currentTimeValue = currentDatasetInfo ? currentDatasetInfo.x_values[state.currentTimeIndex] : "";
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { id: "menu", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { id: "menu-content", className: "pure-form", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "menu-group", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("i", { className: "fa-solid fa-layer-group" }),
+          " Layers"
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "select-container", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "select",
+          {
+            value: state.currentDataset,
+            onChange: (e) => handleDatasetChange(e.target.value),
+            children: Object.keys(state.datasetInfo).map((datasetName) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: datasetName, children: datasetName }, datasetName))
+          }
+        ) })
+      ] }),
+      currentDatasetInfo && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "menu-group", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { htmlFor: "layer-slider", children: [
+          "Viewing Image: ",
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { id: "layer-slider-value", children: currentTimeValue })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "input",
+          {
+            id: "layer-slider",
+            className: "input",
+            type: "range",
+            min: "0",
+            max: currentDatasetInfo.x_values.length - 1,
+            step: "1",
+            value: state.currentTimeIndex,
+            onChange: (e) => handleTimeIndexChange(parseInt(e.target.value))
+          }
+        )
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "menu-group", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { id: "colormap-section", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("i", { className: "fa-solid fa-palette" }),
+            " Color Map"
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "select-container", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "select",
+            {
+              value: state.colormap,
+              onChange: (e) => handleColormapChange(e.target.value),
+              children: colormapOptions.map((option) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: option.value, children: option.label }, option.value))
+            }
+          ) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "img",
+            {
+              id: "colormap-img",
+              src: `/colorbar/${state.colormap}`,
+              style: { maxWidth: "100%", height: "auto" },
+              alt: "Colormap"
+            }
+          )
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { id: "minmax-data", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { children: "Rescale color limits" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "input",
+            {
+              className: "input",
+              type: "text",
+              inputMode: "decimal",
+              value: draftVmin,
+              onChange: (e) => setDraftVmin(e.target.value),
+              onBlur: commitVmin,
+              onKeyDown: (e) => e.key === "Enter" && commitVmin()
+            }
+          ) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "input",
+            {
+              className: "input",
+              type: "text",
+              inputMode: "decimal",
+              value: draftVmax,
+              onChange: (e) => setDraftVmax(e.target.value),
+              onBlur: commitVmax,
+              onKeyDown: (e) => e.key === "Enter" && commitVmax()
+            }
+          ) })
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "menu-group pure-form", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { id: "opacity-slider-container", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { htmlFor: "opacity-slider", children: [
+          "Opacity: ",
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { id: "opacity-slider-value", children: state.opacity })
+        ] }) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "input",
+          {
+            id: "opacity-slider",
+            className: "input",
+            type: "range",
+            min: "0",
+            max: "1",
+            step: "0.01",
+            value: state.opacity,
+            onChange: (e) => handleOpacityChange(parseFloat(e.target.value))
+          }
+        )
+      ] }) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "select-container", children: [
+        "Basemap:",
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "select",
+          {
+            value: state.selectedBasemap,
+            onChange: (e) => handleBasemapChange(e.target.value),
+            children: Object.entries(baseMaps).map(([key]) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: key, children: key }, key))
+          }
+        )
+      ] })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "menu-group", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { id: "menu-chart", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "button",
+      {
+        className: "pure-button pure-button-primary",
+        onClick: toggleChart,
+        children: state.showChart ? "Hide time series" : "Show time series"
+      }
+    ) }) })
+  ] });
 }
 /*!
  * @kurkle/color v0.3.4
@@ -18309,7 +18644,7 @@ function throttled(fn, thisArg) {
     }
   };
 }
-function debounce$1(fn, delay) {
+function debounce(fn, delay) {
   let timeout;
   return function(...args) {
     if (delay) {
@@ -19627,9 +19962,9 @@ function parseMaxStyle(styleValue, node, parentProperty) {
   }
   return valueInPixels;
 }
-const getComputedStyle$1 = (element) => element.ownerDocument.defaultView.getComputedStyle(element, null);
+const getComputedStyle = (element) => element.ownerDocument.defaultView.getComputedStyle(element, null);
 function getStyle(el2, property) {
-  return getComputedStyle$1(el2).getPropertyValue(property);
+  return getComputedStyle(el2).getPropertyValue(property);
 }
 const positions = [
   "top",
@@ -19675,7 +20010,7 @@ function getRelativePosition(event, chart) {
     return event;
   }
   const { canvas, currentDevicePixelRatio } = chart;
-  const style = getComputedStyle$1(canvas);
+  const style = getComputedStyle(canvas);
   const borderBox = style.boxSizing === "border-box";
   const paddings = getPositionedStyle(style, "padding");
   const borders = getPositionedStyle(style, "border", "width");
@@ -19701,7 +20036,7 @@ function getContainerSize(canvas, width, height) {
       height = canvas.clientHeight;
     } else {
       const rect = container.getBoundingClientRect();
-      const containerStyle = getComputedStyle$1(container);
+      const containerStyle = getComputedStyle(container);
       const containerBorder = getPositionedStyle(containerStyle, "border", "width");
       const containerPadding = getPositionedStyle(containerStyle, "padding");
       width = rect.width - containerPadding.width - containerBorder.width;
@@ -19719,7 +20054,7 @@ function getContainerSize(canvas, width, height) {
 }
 const round1 = (v2) => Math.round(v2 * 10) / 10;
 function getMaximumSize(canvas, bbWidth, bbHeight, aspectRatio) {
-  const style = getComputedStyle$1(canvas);
+  const style = getComputedStyle(canvas);
   const margins = getPositionedStyle(style, "margin");
   const maxWidth = parseMaxStyle(style.maxWidth, canvas, "clientWidth") || INFINITY;
   const maxHeight = parseMaxStyle(style.maxHeight, canvas, "clientHeight") || INFINITY;
@@ -21359,481 +21694,6 @@ class DatasetController {
 __publicField(DatasetController, "defaults", {});
 __publicField(DatasetController, "datasetElementType", null);
 __publicField(DatasetController, "dataElementType", null);
-function getAllScaleValues(scale, type) {
-  if (!scale._cache.$bar) {
-    const visibleMetas = scale.getMatchingVisibleMetas(type);
-    let values = [];
-    for (let i = 0, ilen = visibleMetas.length; i < ilen; i++) {
-      values = values.concat(visibleMetas[i].controller.getAllParsedValues(scale));
-    }
-    scale._cache.$bar = _arrayUnique(values.sort((a, b) => a - b));
-  }
-  return scale._cache.$bar;
-}
-function computeMinSampleSize(meta) {
-  const scale = meta.iScale;
-  const values = getAllScaleValues(scale, meta.type);
-  let min = scale._length;
-  let i, ilen, curr, prev;
-  const updateMinAndPrev = () => {
-    if (curr === 32767 || curr === -32768) {
-      return;
-    }
-    if (defined(prev)) {
-      min = Math.min(min, Math.abs(curr - prev) || min);
-    }
-    prev = curr;
-  };
-  for (i = 0, ilen = values.length; i < ilen; ++i) {
-    curr = scale.getPixelForValue(values[i]);
-    updateMinAndPrev();
-  }
-  prev = void 0;
-  for (i = 0, ilen = scale.ticks.length; i < ilen; ++i) {
-    curr = scale.getPixelForTick(i);
-    updateMinAndPrev();
-  }
-  return min;
-}
-function computeFitCategoryTraits(index, ruler, options, stackCount) {
-  const thickness = options.barThickness;
-  let size, ratio;
-  if (isNullOrUndef(thickness)) {
-    size = ruler.min * options.categoryPercentage;
-    ratio = options.barPercentage;
-  } else {
-    size = thickness * stackCount;
-    ratio = 1;
-  }
-  return {
-    chunk: size / stackCount,
-    ratio,
-    start: ruler.pixels[index] - size / 2
-  };
-}
-function computeFlexCategoryTraits(index, ruler, options, stackCount) {
-  const pixels = ruler.pixels;
-  const curr = pixels[index];
-  let prev = index > 0 ? pixels[index - 1] : null;
-  let next = index < pixels.length - 1 ? pixels[index + 1] : null;
-  const percent = options.categoryPercentage;
-  if (prev === null) {
-    prev = curr - (next === null ? ruler.end - ruler.start : next - curr);
-  }
-  if (next === null) {
-    next = curr + curr - prev;
-  }
-  const start = curr - (curr - Math.min(prev, next)) / 2 * percent;
-  const size = Math.abs(next - prev) / 2 * percent;
-  return {
-    chunk: size / stackCount,
-    ratio: options.barPercentage,
-    start
-  };
-}
-function parseFloatBar(entry, item, vScale, i) {
-  const startValue = vScale.parse(entry[0], i);
-  const endValue = vScale.parse(entry[1], i);
-  const min = Math.min(startValue, endValue);
-  const max = Math.max(startValue, endValue);
-  let barStart = min;
-  let barEnd = max;
-  if (Math.abs(min) > Math.abs(max)) {
-    barStart = max;
-    barEnd = min;
-  }
-  item[vScale.axis] = barEnd;
-  item._custom = {
-    barStart,
-    barEnd,
-    start: startValue,
-    end: endValue,
-    min,
-    max
-  };
-}
-function parseValue(entry, item, vScale, i) {
-  if (isArray(entry)) {
-    parseFloatBar(entry, item, vScale, i);
-  } else {
-    item[vScale.axis] = vScale.parse(entry, i);
-  }
-  return item;
-}
-function parseArrayOrPrimitive(meta, data, start, count) {
-  const iScale = meta.iScale;
-  const vScale = meta.vScale;
-  const labels = iScale.getLabels();
-  const singleScale = iScale === vScale;
-  const parsed = [];
-  let i, ilen, item, entry;
-  for (i = start, ilen = start + count; i < ilen; ++i) {
-    entry = data[i];
-    item = {};
-    item[iScale.axis] = singleScale || iScale.parse(labels[i], i);
-    parsed.push(parseValue(entry, item, vScale, i));
-  }
-  return parsed;
-}
-function isFloatBar(custom) {
-  return custom && custom.barStart !== void 0 && custom.barEnd !== void 0;
-}
-function barSign(size, vScale, actualBase) {
-  if (size !== 0) {
-    return sign(size);
-  }
-  return (vScale.isHorizontal() ? 1 : -1) * (vScale.min >= actualBase ? 1 : -1);
-}
-function borderProps(properties) {
-  let reverse, start, end, top, bottom;
-  if (properties.horizontal) {
-    reverse = properties.base > properties.x;
-    start = "left";
-    end = "right";
-  } else {
-    reverse = properties.base < properties.y;
-    start = "bottom";
-    end = "top";
-  }
-  if (reverse) {
-    top = "end";
-    bottom = "start";
-  } else {
-    top = "start";
-    bottom = "end";
-  }
-  return {
-    start,
-    end,
-    reverse,
-    top,
-    bottom
-  };
-}
-function setBorderSkipped(properties, options, stack, index) {
-  let edge = options.borderSkipped;
-  const res = {};
-  if (!edge) {
-    properties.borderSkipped = res;
-    return;
-  }
-  if (edge === true) {
-    properties.borderSkipped = {
-      top: true,
-      right: true,
-      bottom: true,
-      left: true
-    };
-    return;
-  }
-  const { start, end, reverse, top, bottom } = borderProps(properties);
-  if (edge === "middle" && stack) {
-    properties.enableBorderRadius = true;
-    if ((stack._top || 0) === index) {
-      edge = top;
-    } else if ((stack._bottom || 0) === index) {
-      edge = bottom;
-    } else {
-      res[parseEdge(bottom, start, end, reverse)] = true;
-      edge = top;
-    }
-  }
-  res[parseEdge(edge, start, end, reverse)] = true;
-  properties.borderSkipped = res;
-}
-function parseEdge(edge, a, b, reverse) {
-  if (reverse) {
-    edge = swap(edge, a, b);
-    edge = startEnd(edge, b, a);
-  } else {
-    edge = startEnd(edge, a, b);
-  }
-  return edge;
-}
-function swap(orig, v1, v2) {
-  return orig === v1 ? v2 : orig === v2 ? v1 : orig;
-}
-function startEnd(v2, start, end) {
-  return v2 === "start" ? start : v2 === "end" ? end : v2;
-}
-function setInflateAmount(properties, { inflateAmount }, ratio) {
-  properties.inflateAmount = inflateAmount === "auto" ? ratio === 1 ? 0.33 : 0 : inflateAmount;
-}
-class BarController extends DatasetController {
-  parsePrimitiveData(meta, data, start, count) {
-    return parseArrayOrPrimitive(meta, data, start, count);
-  }
-  parseArrayData(meta, data, start, count) {
-    return parseArrayOrPrimitive(meta, data, start, count);
-  }
-  parseObjectData(meta, data, start, count) {
-    const { iScale, vScale } = meta;
-    const { xAxisKey = "x", yAxisKey = "y" } = this._parsing;
-    const iAxisKey = iScale.axis === "x" ? xAxisKey : yAxisKey;
-    const vAxisKey = vScale.axis === "x" ? xAxisKey : yAxisKey;
-    const parsed = [];
-    let i, ilen, item, obj;
-    for (i = start, ilen = start + count; i < ilen; ++i) {
-      obj = data[i];
-      item = {};
-      item[iScale.axis] = iScale.parse(resolveObjectKey(obj, iAxisKey), i);
-      parsed.push(parseValue(resolveObjectKey(obj, vAxisKey), item, vScale, i));
-    }
-    return parsed;
-  }
-  updateRangeFromParsed(range, scale, parsed, stack) {
-    super.updateRangeFromParsed(range, scale, parsed, stack);
-    const custom = parsed._custom;
-    if (custom && scale === this._cachedMeta.vScale) {
-      range.min = Math.min(range.min, custom.min);
-      range.max = Math.max(range.max, custom.max);
-    }
-  }
-  getMaxOverflow() {
-    return 0;
-  }
-  getLabelAndValue(index) {
-    const meta = this._cachedMeta;
-    const { iScale, vScale } = meta;
-    const parsed = this.getParsed(index);
-    const custom = parsed._custom;
-    const value = isFloatBar(custom) ? "[" + custom.start + ", " + custom.end + "]" : "" + vScale.getLabelForValue(parsed[vScale.axis]);
-    return {
-      label: "" + iScale.getLabelForValue(parsed[iScale.axis]),
-      value
-    };
-  }
-  initialize() {
-    this.enableOptionSharing = true;
-    super.initialize();
-    const meta = this._cachedMeta;
-    meta.stack = this.getDataset().stack;
-  }
-  update(mode) {
-    const meta = this._cachedMeta;
-    this.updateElements(meta.data, 0, meta.data.length, mode);
-  }
-  updateElements(bars, start, count, mode) {
-    const reset = mode === "reset";
-    const { index, _cachedMeta: { vScale } } = this;
-    const base = vScale.getBasePixel();
-    const horizontal = vScale.isHorizontal();
-    const ruler = this._getRuler();
-    const { sharedOptions, includeOptions } = this._getSharedOptions(start, mode);
-    for (let i = start; i < start + count; i++) {
-      const parsed = this.getParsed(i);
-      const vpixels = reset || isNullOrUndef(parsed[vScale.axis]) ? {
-        base,
-        head: base
-      } : this._calculateBarValuePixels(i);
-      const ipixels = this._calculateBarIndexPixels(i, ruler);
-      const stack = (parsed._stacks || {})[vScale.axis];
-      const properties = {
-        horizontal,
-        base: vpixels.base,
-        enableBorderRadius: !stack || isFloatBar(parsed._custom) || index === stack._top || index === stack._bottom,
-        x: horizontal ? vpixels.head : ipixels.center,
-        y: horizontal ? ipixels.center : vpixels.head,
-        height: horizontal ? ipixels.size : Math.abs(vpixels.size),
-        width: horizontal ? Math.abs(vpixels.size) : ipixels.size
-      };
-      if (includeOptions) {
-        properties.options = sharedOptions || this.resolveDataElementOptions(i, bars[i].active ? "active" : mode);
-      }
-      const options = properties.options || bars[i].options;
-      setBorderSkipped(properties, options, stack, index);
-      setInflateAmount(properties, options, ruler.ratio);
-      this.updateElement(bars[i], i, properties, mode);
-    }
-  }
-  _getStacks(last, dataIndex) {
-    const { iScale } = this._cachedMeta;
-    const metasets = iScale.getMatchingVisibleMetas(this._type).filter((meta) => meta.controller.options.grouped);
-    const stacked = iScale.options.stacked;
-    const stacks = [];
-    const currentParsed = this._cachedMeta.controller.getParsed(dataIndex);
-    const iScaleValue = currentParsed && currentParsed[iScale.axis];
-    const skipNull = (meta) => {
-      const parsed = meta._parsed.find((item) => item[iScale.axis] === iScaleValue);
-      const val = parsed && parsed[meta.vScale.axis];
-      if (isNullOrUndef(val) || isNaN(val)) {
-        return true;
-      }
-    };
-    for (const meta of metasets) {
-      if (dataIndex !== void 0 && skipNull(meta)) {
-        continue;
-      }
-      if (stacked === false || stacks.indexOf(meta.stack) === -1 || stacked === void 0 && meta.stack === void 0) {
-        stacks.push(meta.stack);
-      }
-      if (meta.index === last) {
-        break;
-      }
-    }
-    if (!stacks.length) {
-      stacks.push(void 0);
-    }
-    return stacks;
-  }
-  _getStackCount(index) {
-    return this._getStacks(void 0, index).length;
-  }
-  _getStackIndex(datasetIndex, name, dataIndex) {
-    const stacks = this._getStacks(datasetIndex, dataIndex);
-    const index = name !== void 0 ? stacks.indexOf(name) : -1;
-    return index === -1 ? stacks.length - 1 : index;
-  }
-  _getRuler() {
-    const opts = this.options;
-    const meta = this._cachedMeta;
-    const iScale = meta.iScale;
-    const pixels = [];
-    let i, ilen;
-    for (i = 0, ilen = meta.data.length; i < ilen; ++i) {
-      pixels.push(iScale.getPixelForValue(this.getParsed(i)[iScale.axis], i));
-    }
-    const barThickness = opts.barThickness;
-    const min = barThickness || computeMinSampleSize(meta);
-    return {
-      min,
-      pixels,
-      start: iScale._startPixel,
-      end: iScale._endPixel,
-      stackCount: this._getStackCount(),
-      scale: iScale,
-      grouped: opts.grouped,
-      ratio: barThickness ? 1 : opts.categoryPercentage * opts.barPercentage
-    };
-  }
-  _calculateBarValuePixels(index) {
-    const { _cachedMeta: { vScale, _stacked, index: datasetIndex }, options: { base: baseValue, minBarLength } } = this;
-    const actualBase = baseValue || 0;
-    const parsed = this.getParsed(index);
-    const custom = parsed._custom;
-    const floating = isFloatBar(custom);
-    let value = parsed[vScale.axis];
-    let start = 0;
-    let length = _stacked ? this.applyStack(vScale, parsed, _stacked) : value;
-    let head, size;
-    if (length !== value) {
-      start = length - value;
-      length = value;
-    }
-    if (floating) {
-      value = custom.barStart;
-      length = custom.barEnd - custom.barStart;
-      if (value !== 0 && sign(value) !== sign(custom.barEnd)) {
-        start = 0;
-      }
-      start += value;
-    }
-    const startValue = !isNullOrUndef(baseValue) && !floating ? baseValue : start;
-    let base = vScale.getPixelForValue(startValue);
-    if (this.chart.getDataVisibility(index)) {
-      head = vScale.getPixelForValue(start + length);
-    } else {
-      head = base;
-    }
-    size = head - base;
-    if (Math.abs(size) < minBarLength) {
-      size = barSign(size, vScale, actualBase) * minBarLength;
-      if (value === actualBase) {
-        base -= size / 2;
-      }
-      const startPixel = vScale.getPixelForDecimal(0);
-      const endPixel = vScale.getPixelForDecimal(1);
-      const min = Math.min(startPixel, endPixel);
-      const max = Math.max(startPixel, endPixel);
-      base = Math.max(Math.min(base, max), min);
-      head = base + size;
-      if (_stacked && !floating) {
-        parsed._stacks[vScale.axis]._visualValues[datasetIndex] = vScale.getValueForPixel(head) - vScale.getValueForPixel(base);
-      }
-    }
-    if (base === vScale.getPixelForValue(actualBase)) {
-      const halfGrid = sign(size) * vScale.getLineWidthForValue(actualBase) / 2;
-      base += halfGrid;
-      size -= halfGrid;
-    }
-    return {
-      size,
-      base,
-      head,
-      center: head + size / 2
-    };
-  }
-  _calculateBarIndexPixels(index, ruler) {
-    const scale = ruler.scale;
-    const options = this.options;
-    const skipNull = options.skipNull;
-    const maxBarThickness = valueOrDefault(options.maxBarThickness, Infinity);
-    let center, size;
-    if (ruler.grouped) {
-      const stackCount = skipNull ? this._getStackCount(index) : ruler.stackCount;
-      const range = options.barThickness === "flex" ? computeFlexCategoryTraits(index, ruler, options, stackCount) : computeFitCategoryTraits(index, ruler, options, stackCount);
-      const stackIndex = this._getStackIndex(this.index, this._cachedMeta.stack, skipNull ? index : void 0);
-      center = range.start + range.chunk * stackIndex + range.chunk / 2;
-      size = Math.min(maxBarThickness, range.chunk * range.ratio);
-    } else {
-      center = scale.getPixelForValue(this.getParsed(index)[scale.axis], index);
-      size = Math.min(maxBarThickness, ruler.min * ruler.ratio);
-    }
-    return {
-      base: center - size / 2,
-      head: center + size / 2,
-      center,
-      size
-    };
-  }
-  draw() {
-    const meta = this._cachedMeta;
-    const vScale = meta.vScale;
-    const rects = meta.data;
-    const ilen = rects.length;
-    let i = 0;
-    for (; i < ilen; ++i) {
-      if (this.getParsed(i)[vScale.axis] !== null && !rects[i].hidden) {
-        rects[i].draw(this._ctx);
-      }
-    }
-  }
-}
-__publicField(BarController, "id", "bar");
-__publicField(BarController, "defaults", {
-  datasetElementType: false,
-  dataElementType: "bar",
-  categoryPercentage: 0.8,
-  barPercentage: 0.9,
-  grouped: true,
-  animations: {
-    numbers: {
-      type: "number",
-      properties: [
-        "x",
-        "y",
-        "base",
-        "width",
-        "height"
-      ]
-    }
-  }
-});
-__publicField(BarController, "overrides", {
-  scales: {
-    _index_: {
-      type: "category",
-      offset: true,
-      grid: {
-        offset: true
-      }
-    },
-    _value_: {
-      type: "linear",
-      beginAtZero: true
-    }
-  }
-});
 class LineController extends DatasetController {
   initialize() {
     this.enableOptionSharing = true;
@@ -22093,13 +21953,13 @@ function getNearestCartesianItems(chart, position, axis, intersect, useFinalPosi
   const distanceMetric = getDistanceMetricForAxis(axis);
   let minDistance = Number.POSITIVE_INFINITY;
   function evaluationFunc(element, datasetIndex, index) {
-    const inRange2 = element.inRange(position.x, position.y, useFinalPosition);
-    if (intersect && !inRange2) {
+    const inRange = element.inRange(position.x, position.y, useFinalPosition);
+    if (intersect && !inRange) {
       return;
     }
     const center = element.getCenterPoint(useFinalPosition);
     const pointInArea = !!includeInvisible || chart.isPointInArea(center);
-    if (!pointInArea && !inRange2) {
+    if (!pointInArea && !inRange) {
       return;
     }
     const distance = distanceMetric(position, center);
@@ -22996,11 +22856,11 @@ function sample(arr, numItems) {
 }
 function getPixelForGridLine(scale, index, offsetGridLines) {
   const length = scale.ticks.length;
-  const validIndex2 = Math.min(index, length - 1);
+  const validIndex = Math.min(index, length - 1);
   const start = scale._startPixel;
   const end = scale._endPixel;
   const epsilon = 1e-6;
-  let lineValue = scale.getPixelForTick(validIndex2);
+  let lineValue = scale.getPixelForTick(validIndex);
   let offset;
   if (offsetGridLines) {
     if (length === 1) {
@@ -23008,9 +22868,9 @@ function getPixelForGridLine(scale, index, offsetGridLines) {
     } else if (index === 0) {
       offset = (scale.getPixelForTick(1) - lineValue) / 2;
     } else {
-      offset = (lineValue - scale.getPixelForTick(validIndex2 - 1)) / 2;
+      offset = (lineValue - scale.getPixelForTick(validIndex - 1)) / 2;
     }
-    lineValue += validIndex2 < index ? offset : -offset;
+    lineValue += validIndex < index ? offset : -offset;
     if (lineValue < start - epsilon || lineValue > end + epsilon) {
       return;
     }
@@ -24448,14 +24308,14 @@ class PluginService {
   _notify(descriptors2, chart, hook, args) {
     args = args || {};
     for (const descriptor of descriptors2) {
-      const plugin2 = descriptor.plugin;
-      const method = plugin2[hook];
+      const plugin = descriptor.plugin;
+      const method = plugin[hook];
       const params = [
         chart,
         args,
         descriptor.options
       ];
-      if (callback(method, params, plugin2) === false && args.cancelable) {
+      if (callback(method, params, plugin) === false && args.cancelable) {
         return false;
       }
     }
@@ -24498,10 +24358,10 @@ function allPlugins(config) {
   }
   const local = config.plugins || [];
   for (let i = 0; i < local.length; i++) {
-    const plugin2 = local[i];
-    if (plugins.indexOf(plugin2) === -1) {
-      plugins.push(plugin2);
-      localIds[plugin2.id] = true;
+    const plugin = local[i];
+    if (plugins.indexOf(plugin) === -1) {
+      plugins.push(plugin);
+      localIds[plugin.id] = true;
     }
   }
   return {
@@ -24521,27 +24381,27 @@ function getOpts(options, all) {
 function createDescriptors(chart, { plugins, localIds }, options, all) {
   const result = [];
   const context = chart.getContext();
-  for (const plugin2 of plugins) {
-    const id2 = plugin2.id;
+  for (const plugin of plugins) {
+    const id2 = plugin.id;
     const opts = getOpts(options[id2], all);
     if (opts === null) {
       continue;
     }
     result.push({
-      plugin: plugin2,
+      plugin,
       options: pluginOpts(chart.config, {
-        plugin: plugin2,
+        plugin,
         local: localIds[id2]
       }, opts, context)
     });
   }
   return result;
 }
-function pluginOpts(config, { plugin: plugin2, local }, opts, context) {
-  const keys = config.pluginScopeKeys(plugin2);
+function pluginOpts(config, { plugin, local }, opts, context) {
+  const keys = config.pluginScopeKeys(plugin);
   const scopes = config.getOptionScopes(opts, keys);
-  if (local && plugin2.defaults) {
-    scopes.push(plugin2.defaults);
+  if (local && plugin.defaults) {
+    scopes.push(plugin.defaults);
   }
   return config.createResolver(scopes, context, [
     ""
@@ -24766,13 +24626,13 @@ class Config {
       ]
     ]);
   }
-  pluginScopeKeys(plugin2) {
-    const id2 = plugin2.id;
+  pluginScopeKeys(plugin) {
+    const id2 = plugin.id;
     const type = this.type;
     return cachedKeys(`${type}-plugin-${id2}`, () => [
       [
         `plugins.${id2}`,
-        ...plugin2.additionalOptionScopes || []
+        ...plugin.additionalOptionScopes || []
       ]
     ]);
   }
@@ -24882,7 +24742,7 @@ function needContext(proxy, names2) {
   }
   return false;
 }
-var version$1 = "4.4.9";
+var version = "4.4.9";
 const KNOWN_POSITIONS = [
   "top",
   "bottom",
@@ -24999,7 +24859,7 @@ let Chart$1 = (_b = class {
     this.attached = false;
     this._animationsDisabled = void 0;
     this.$context = void 0;
-    this._doResize = debounce$1((mode) => this.update(mode), options.resizeDelay || 0);
+    this._doResize = debounce((mode) => this.update(mode), options.resizeDelay || 0);
     this._dataChanges = [];
     instances[this.id] = this;
     if (!context || !canvas) {
@@ -25713,7 +25573,7 @@ let Chart$1 = (_b = class {
       cancelable: true,
       inChartArea: this.isPointInArea(e)
     };
-    const eventFilter = (plugin2) => (plugin2.options.events || this.options.events).includes(e.native.type);
+    const eventFilter = (plugin) => (plugin.options.events || this.options.events).includes(e.native.type);
     if (this.notifyPlugins("beforeEvent", args, eventFilter) === false) {
       return;
     }
@@ -25764,7 +25624,7 @@ let Chart$1 = (_b = class {
     const hoverOptions = this.options.hover;
     return this.getElementsAtEventForMode(e, hoverOptions.mode, hoverOptions, useFinalPosition);
   }
-}, __publicField(_b, "defaults", defaults), __publicField(_b, "instances", instances), __publicField(_b, "overrides", overrides), __publicField(_b, "registry", registry), __publicField(_b, "version", version$1), __publicField(_b, "getChart", getChart), _b);
+}, __publicField(_b, "defaults", defaults), __publicField(_b, "instances", instances), __publicField(_b, "overrides", overrides), __publicField(_b, "registry", registry), __publicField(_b, "version", version), __publicField(_b, "getChart", getChart), _b);
 function invalidatePlugins() {
   return each(Chart$1.instances, (chart) => chart._plugins.invalidate());
 }
@@ -25913,7 +25773,7 @@ function strokePathDirect(ctx, line, start, count) {
   }
 }
 const usePath2D = typeof Path2D === "function";
-function draw$1(ctx, line, start, count) {
+function draw(ctx, line, start, count) {
   if (usePath2D && !line.options.segment) {
     strokePathWithCache(ctx, line, start, count);
   } else {
@@ -26022,7 +25882,7 @@ class LineElement extends Element$1 {
     const points = this.points || [];
     if (points.length && options.borderWidth) {
       ctx.save();
-      draw$1(ctx, this, start, count);
+      draw(ctx, this, start, count);
       ctx.restore();
     }
     if (this.animated) {
@@ -26137,188 +25997,6 @@ __publicField(PointElement, "defaults", {
 * @type {any}
 */
 __publicField(PointElement, "defaultRoutes", {
-  backgroundColor: "backgroundColor",
-  borderColor: "borderColor"
-});
-function getBarBounds(bar, useFinalPosition) {
-  const { x: x2, y: y2, base, width, height } = bar.getProps([
-    "x",
-    "y",
-    "base",
-    "width",
-    "height"
-  ], useFinalPosition);
-  let left, right, top, bottom, half;
-  if (bar.horizontal) {
-    half = height / 2;
-    left = Math.min(x2, base);
-    right = Math.max(x2, base);
-    top = y2 - half;
-    bottom = y2 + half;
-  } else {
-    half = width / 2;
-    left = x2 - half;
-    right = x2 + half;
-    top = Math.min(y2, base);
-    bottom = Math.max(y2, base);
-  }
-  return {
-    left,
-    top,
-    right,
-    bottom
-  };
-}
-function skipOrLimit(skip2, value, min, max) {
-  return skip2 ? 0 : _limitValue(value, min, max);
-}
-function parseBorderWidth(bar, maxW, maxH) {
-  const value = bar.options.borderWidth;
-  const skip2 = bar.borderSkipped;
-  const o = toTRBL(value);
-  return {
-    t: skipOrLimit(skip2.top, o.top, 0, maxH),
-    r: skipOrLimit(skip2.right, o.right, 0, maxW),
-    b: skipOrLimit(skip2.bottom, o.bottom, 0, maxH),
-    l: skipOrLimit(skip2.left, o.left, 0, maxW)
-  };
-}
-function parseBorderRadius(bar, maxW, maxH) {
-  const { enableBorderRadius } = bar.getProps([
-    "enableBorderRadius"
-  ]);
-  const value = bar.options.borderRadius;
-  const o = toTRBLCorners(value);
-  const maxR = Math.min(maxW, maxH);
-  const skip2 = bar.borderSkipped;
-  const enableBorder = enableBorderRadius || isObject(value);
-  return {
-    topLeft: skipOrLimit(!enableBorder || skip2.top || skip2.left, o.topLeft, 0, maxR),
-    topRight: skipOrLimit(!enableBorder || skip2.top || skip2.right, o.topRight, 0, maxR),
-    bottomLeft: skipOrLimit(!enableBorder || skip2.bottom || skip2.left, o.bottomLeft, 0, maxR),
-    bottomRight: skipOrLimit(!enableBorder || skip2.bottom || skip2.right, o.bottomRight, 0, maxR)
-  };
-}
-function boundingRects(bar) {
-  const bounds = getBarBounds(bar);
-  const width = bounds.right - bounds.left;
-  const height = bounds.bottom - bounds.top;
-  const border = parseBorderWidth(bar, width / 2, height / 2);
-  const radius = parseBorderRadius(bar, width / 2, height / 2);
-  return {
-    outer: {
-      x: bounds.left,
-      y: bounds.top,
-      w: width,
-      h: height,
-      radius
-    },
-    inner: {
-      x: bounds.left + border.l,
-      y: bounds.top + border.t,
-      w: width - border.l - border.r,
-      h: height - border.t - border.b,
-      radius: {
-        topLeft: Math.max(0, radius.topLeft - Math.max(border.t, border.l)),
-        topRight: Math.max(0, radius.topRight - Math.max(border.t, border.r)),
-        bottomLeft: Math.max(0, radius.bottomLeft - Math.max(border.b, border.l)),
-        bottomRight: Math.max(0, radius.bottomRight - Math.max(border.b, border.r))
-      }
-    }
-  };
-}
-function inRange(bar, x2, y2, useFinalPosition) {
-  const skipX = x2 === null;
-  const skipY = y2 === null;
-  const skipBoth = skipX && skipY;
-  const bounds = bar && !skipBoth && getBarBounds(bar, useFinalPosition);
-  return bounds && (skipX || _isBetween(x2, bounds.left, bounds.right)) && (skipY || _isBetween(y2, bounds.top, bounds.bottom));
-}
-function hasRadius(radius) {
-  return radius.topLeft || radius.topRight || radius.bottomLeft || radius.bottomRight;
-}
-function addNormalRectPath(ctx, rect) {
-  ctx.rect(rect.x, rect.y, rect.w, rect.h);
-}
-function inflateRect(rect, amount, refRect = {}) {
-  const x2 = rect.x !== refRect.x ? -amount : 0;
-  const y2 = rect.y !== refRect.y ? -amount : 0;
-  const w2 = (rect.x + rect.w !== refRect.x + refRect.w ? amount : 0) - x2;
-  const h = (rect.y + rect.h !== refRect.y + refRect.h ? amount : 0) - y2;
-  return {
-    x: rect.x + x2,
-    y: rect.y + y2,
-    w: rect.w + w2,
-    h: rect.h + h,
-    radius: rect.radius
-  };
-}
-class BarElement extends Element$1 {
-  constructor(cfg) {
-    super();
-    this.options = void 0;
-    this.horizontal = void 0;
-    this.base = void 0;
-    this.width = void 0;
-    this.height = void 0;
-    this.inflateAmount = void 0;
-    if (cfg) {
-      Object.assign(this, cfg);
-    }
-  }
-  draw(ctx) {
-    const { inflateAmount, options: { borderColor, backgroundColor } } = this;
-    const { inner, outer } = boundingRects(this);
-    const addRectPath = hasRadius(outer.radius) ? addRoundedRectPath : addNormalRectPath;
-    ctx.save();
-    if (outer.w !== inner.w || outer.h !== inner.h) {
-      ctx.beginPath();
-      addRectPath(ctx, inflateRect(outer, inflateAmount, inner));
-      ctx.clip();
-      addRectPath(ctx, inflateRect(inner, -inflateAmount, outer));
-      ctx.fillStyle = borderColor;
-      ctx.fill("evenodd");
-    }
-    ctx.beginPath();
-    addRectPath(ctx, inflateRect(inner, inflateAmount));
-    ctx.fillStyle = backgroundColor;
-    ctx.fill();
-    ctx.restore();
-  }
-  inRange(mouseX, mouseY, useFinalPosition) {
-    return inRange(this, mouseX, mouseY, useFinalPosition);
-  }
-  inXRange(mouseX, useFinalPosition) {
-    return inRange(this, mouseX, null, useFinalPosition);
-  }
-  inYRange(mouseY, useFinalPosition) {
-    return inRange(this, null, mouseY, useFinalPosition);
-  }
-  getCenterPoint(useFinalPosition) {
-    const { x: x2, y: y2, base, horizontal } = this.getProps([
-      "x",
-      "y",
-      "base",
-      "horizontal"
-    ], useFinalPosition);
-    return {
-      x: horizontal ? (x2 + base) / 2 : x2,
-      y: horizontal ? y2 : (y2 + base) / 2
-    };
-  }
-  getRange(axis) {
-    return axis === "x" ? this.width / 2 : this.height / 2;
-  }
-}
-__publicField(BarElement, "id", "bar");
-__publicField(BarElement, "defaults", {
-  borderSkipped: "start",
-  borderWidth: 0,
-  borderRadius: 0,
-  inflateAmount: "auto",
-  pointStyle: void 0
-});
-__publicField(BarElement, "defaultRoutes", {
   backgroundColor: "backgroundColor",
   borderColor: "borderColor"
 });
@@ -27990,127 +27668,6 @@ var plugin_tooltip = {
     "interaction"
   ]
 };
-const addIfString = (labels, raw, index, addedLabels) => {
-  if (typeof raw === "string") {
-    index = labels.push(raw) - 1;
-    addedLabels.unshift({
-      index,
-      label: raw
-    });
-  } else if (isNaN(raw)) {
-    index = null;
-  }
-  return index;
-};
-function findOrAddLabel(labels, raw, index, addedLabels) {
-  const first = labels.indexOf(raw);
-  if (first === -1) {
-    return addIfString(labels, raw, index, addedLabels);
-  }
-  const last = labels.lastIndexOf(raw);
-  return first !== last ? index : first;
-}
-const validIndex = (index, max) => index === null ? null : _limitValue(Math.round(index), 0, max);
-function _getLabelForValue(value) {
-  const labels = this.getLabels();
-  if (value >= 0 && value < labels.length) {
-    return labels[value];
-  }
-  return value;
-}
-class CategoryScale extends Scale {
-  constructor(cfg) {
-    super(cfg);
-    this._startValue = void 0;
-    this._valueRange = 0;
-    this._addedLabels = [];
-  }
-  init(scaleOptions) {
-    const added = this._addedLabels;
-    if (added.length) {
-      const labels = this.getLabels();
-      for (const { index, label } of added) {
-        if (labels[index] === label) {
-          labels.splice(index, 1);
-        }
-      }
-      this._addedLabels = [];
-    }
-    super.init(scaleOptions);
-  }
-  parse(raw, index) {
-    if (isNullOrUndef(raw)) {
-      return null;
-    }
-    const labels = this.getLabels();
-    index = isFinite(index) && labels[index] === raw ? index : findOrAddLabel(labels, raw, valueOrDefault(index, raw), this._addedLabels);
-    return validIndex(index, labels.length - 1);
-  }
-  determineDataLimits() {
-    const { minDefined, maxDefined } = this.getUserBounds();
-    let { min, max } = this.getMinMax(true);
-    if (this.options.bounds === "ticks") {
-      if (!minDefined) {
-        min = 0;
-      }
-      if (!maxDefined) {
-        max = this.getLabels().length - 1;
-      }
-    }
-    this.min = min;
-    this.max = max;
-  }
-  buildTicks() {
-    const min = this.min;
-    const max = this.max;
-    const offset = this.options.offset;
-    const ticks = [];
-    let labels = this.getLabels();
-    labels = min === 0 && max === labels.length - 1 ? labels : labels.slice(min, max + 1);
-    this._valueRange = Math.max(labels.length - (offset ? 0 : 1), 1);
-    this._startValue = this.min - (offset ? 0.5 : 0);
-    for (let value = min; value <= max; value++) {
-      ticks.push({
-        value
-      });
-    }
-    return ticks;
-  }
-  getLabelForValue(value) {
-    return _getLabelForValue.call(this, value);
-  }
-  configure() {
-    super.configure();
-    if (!this.isHorizontal()) {
-      this._reversePixels = !this._reversePixels;
-    }
-  }
-  getPixelForValue(value) {
-    if (typeof value !== "number") {
-      value = this.parse(value);
-    }
-    return value === null ? NaN : this.getPixelForDecimal((value - this._startValue) / this._valueRange);
-  }
-  getPixelForTick(index) {
-    const ticks = this.ticks;
-    if (index < 0 || index > ticks.length - 1) {
-      return null;
-    }
-    return this.getPixelForValue(ticks[index].value);
-  }
-  getValueForPixel(pixel) {
-    return Math.round(this._startValue + this.getDecimalForPixel(pixel) * this._valueRange);
-  }
-  getBasePixel() {
-    return this.bottom;
-  }
-}
-__publicField(CategoryScale, "id", "category");
-__publicField(CategoryScale, "defaults", {
-  ticks: {
-    callback: _getLabelForValue
-  }
-});
 function generateTicks$1(generationOptions, dataRange) {
   const ticks = [];
   const MIN_SPACING = 1e-14;
@@ -29024,1612 +28581,6 @@ function createTypedChart(type, registerables) {
   }));
 }
 const Line = /* @__PURE__ */ createTypedChart("line", LineController);
-const Bar = /* @__PURE__ */ createTypedChart("bar", BarController);
-const VERTEX_ICON = L$1.divIcon({
-  className: "",
-  html: '<div style="width:12px;height:12px;border-radius:50%;background:#f0a500;border:2px solid white;box-sizing:border-box;margin-left:-6px;margin-top:-6px;cursor:grab"></div>',
-  iconSize: [0, 0]
-});
-function cssVar$1(name, fallback) {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
-}
-function ProfileTool({ active, onDeactivate: _onDeactivate }) {
-  const map2 = useMap();
-  const { state } = useAppContext();
-  const polyRef = reactExports.useRef(null);
-  const previewRef = reactExports.useRef(null);
-  const markersRef = reactExports.useRef([]);
-  const ptsRef = reactExports.useRef([]);
-  const modeRef = reactExports.useRef("idle");
-  const [profileData, setProfileData] = reactExports.useState(null);
-  const [loading, setLoading] = reactExports.useState(false);
-  const [radius, setRadius] = reactExports.useState(0);
-  const fetchFn = reactExports.useCallback(async (pts, r2) => {
-    if (pts.length < 2 || !state.currentDataset) return;
-    setLoading(true);
-    try {
-      const res = await fetch("/profile", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          coords: pts.map((p2) => [p2.lng, p2.lat]),
-          dataset_name: state.currentDataset,
-          time_index: state.currentTimeIndex,
-          n_samples: 200,
-          radius: r2,
-          n_random: 5
-        })
-      });
-      if (!res.ok) return;
-      const json = await res.json();
-      if (Array.isArray(json)) {
-        setProfileData({ centre: json, median: null, samples: [] });
-      } else {
-        setProfileData({
-          centre: json.centre ?? [],
-          median: json.median ?? null,
-          samples: json.samples ?? []
-        });
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, [state.currentDataset, state.currentTimeIndex]);
-  const fetchRef = reactExports.useRef(fetchFn);
-  reactExports.useEffect(() => {
-    fetchRef.current = fetchFn;
-  }, [fetchFn]);
-  const radiusRef = reactExports.useRef(radius);
-  reactExports.useEffect(() => {
-    radiusRef.current = radius;
-  }, [radius]);
-  const updatePoly = (pts) => {
-    if (polyRef.current) {
-      polyRef.current.setLatLngs(pts);
-    } else {
-      polyRef.current = L$1.polyline(pts, { color: "#f0a500", weight: 2.5 }).addTo(map2);
-    }
-  };
-  const rebuildMarkers = (pts) => {
-    markersRef.current.forEach((m2) => m2.remove());
-    markersRef.current = pts.map((pt, idx) => {
-      const m2 = L$1.marker(pt, { icon: VERTEX_ICON, draggable: true }).addTo(map2);
-      m2.on("drag", () => {
-        ptsRef.current[idx] = m2.getLatLng();
-        updatePoly(ptsRef.current);
-      });
-      m2.on("dragend", () => {
-        ptsRef.current[idx] = m2.getLatLng();
-        fetchRef.current(ptsRef.current, radiusRef.current);
-      });
-      return m2;
-    });
-  };
-  const clearAll = reactExports.useCallback(() => {
-    var _a2, _b2;
-    (_a2 = polyRef.current) == null ? void 0 : _a2.remove();
-    polyRef.current = null;
-    (_b2 = previewRef.current) == null ? void 0 : _b2.remove();
-    previewRef.current = null;
-    markersRef.current.forEach((m2) => m2.remove());
-    markersRef.current = [];
-    ptsRef.current = [];
-    modeRef.current = "idle";
-    setProfileData(null);
-  }, []);
-  reactExports.useEffect(() => {
-    if (active && modeRef.current === "ready" && ptsRef.current.length >= 2) {
-      fetchRef.current(ptsRef.current, radiusRef.current);
-    }
-  }, [state.currentTimeIndex, active]);
-  reactExports.useEffect(() => {
-    if (active && modeRef.current === "ready" && ptsRef.current.length >= 2) {
-      fetchRef.current(ptsRef.current, radius);
-    }
-  }, [radius, active]);
-  reactExports.useEffect(() => {
-    if (!active || radius <= 0 || ptsRef.current.length < 2) return;
-    const pts = ptsRef.current;
-    const offsetPoints = [[], []];
-    for (let i = 0; i < pts.length; i++) {
-      let bearingRad;
-      if (i < pts.length - 1) {
-        const dx = pts[i + 1].lng - pts[i].lng;
-        const dy = pts[i + 1].lat - pts[i].lat;
-        bearingRad = Math.atan2(dx, dy);
-      } else {
-        const dx = pts[i].lng - pts[i - 1].lng;
-        const dy = pts[i].lat - pts[i - 1].lat;
-        bearingRad = Math.atan2(dx, dy);
-      }
-      const lat = pts[i].lat;
-      const metersPerDegLat = 111320;
-      const metersPerDegLng = 111320 * Math.cos(lat * Math.PI / 180);
-      const perpBearing = bearingRad + Math.PI / 2;
-      const dLat = radius / metersPerDegLat * Math.cos(perpBearing);
-      const dLng = radius / metersPerDegLng * Math.sin(perpBearing);
-      offsetPoints[0].push(L$1.latLng(pts[i].lat + dLat, pts[i].lng + dLng));
-      offsetPoints[1].push(L$1.latLng(pts[i].lat - dLat, pts[i].lng - dLng));
-    }
-    const poly = L$1.polygon([...offsetPoints[0], ...offsetPoints[1].reverse()], {
-      color: "#f0a500",
-      fillColor: "#f0a500",
-      fillOpacity: 0.12,
-      weight: 1,
-      dashArray: "4 3"
-    }).addTo(map2);
-    return () => {
-      poly.remove();
-    };
-  }, [
-    active,
-    radius,
-    map2,
-    // re-run when pts change (after drawing / dragging)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    profileData
-  ]);
-  reactExports.useEffect(() => {
-    if (!active) {
-      clearAll();
-      map2.getContainer().style.cursor = "";
-      return;
-    }
-    map2.getContainer().style.cursor = "crosshair";
-    const onClick = (e) => {
-      if (modeRef.current === "ready") {
-        clearAll();
-        modeRef.current = "drawing";
-        map2.getContainer().style.cursor = "crosshair";
-      }
-      modeRef.current = "drawing";
-      ptsRef.current = [...ptsRef.current, e.latlng];
-      updatePoly(ptsRef.current);
-    };
-    const onMouseMove = (e) => {
-      if (modeRef.current !== "drawing" || ptsRef.current.length === 0) return;
-      const preview = [...ptsRef.current, e.latlng];
-      if (previewRef.current) {
-        previewRef.current.setLatLngs(preview);
-      } else {
-        previewRef.current = L$1.polyline(preview, {
-          color: "#f0a500",
-          weight: 2,
-          dashArray: "6 4"
-        }).addTo(map2);
-      }
-    };
-    const onDblClick = (e) => {
-      var _a2;
-      L$1.DomEvent.stop(e);
-      if (modeRef.current !== "drawing" || ptsRef.current.length < 2) return;
-      (_a2 = previewRef.current) == null ? void 0 : _a2.remove();
-      previewRef.current = null;
-      updatePoly(ptsRef.current);
-      modeRef.current = "ready";
-      map2.getContainer().style.cursor = "default";
-      rebuildMarkers(ptsRef.current);
-      fetchRef.current(ptsRef.current, radiusRef.current);
-    };
-    map2.on("click", onClick);
-    map2.on("mousemove", onMouseMove);
-    map2.on("dblclick", onDblClick);
-    map2.doubleClickZoom.disable();
-    return () => {
-      map2.off("click", onClick);
-      map2.off("mousemove", onMouseMove);
-      map2.off("dblclick", onDblClick);
-      map2.doubleClickZoom.enable();
-      map2.getContainer().style.cursor = "";
-    };
-  }, [active, map2, clearAll]);
-  if (!active) return null;
-  if (loading) {
-    return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "profile-panel", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "chart-placeholder", children: /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: "Extracting profile…" }) }) });
-  }
-  const textColor = cssVar$1("--sb-text", "#dde0f0");
-  const mutedColor = cssVar$1("--sb-muted", "#7880a8");
-  const gridColor = cssVar$1("--sb-border", "#2c2f4a");
-  const hasData = profileData && (profileData.centre.length > 0 || profileData.median && profileData.median.length > 0);
-  const datasets = [];
-  if (hasData) {
-    const useBuffer = radius > 0 && profileData.median && profileData.median.length > 0;
-    if (useBuffer) {
-      profileData.samples.forEach((s, i) => {
-        datasets.push({
-          label: `sample ${i}`,
-          data: s.map((p2) => p2.value),
-          labels: s.map((p2) => p2.dist.toFixed(0)),
-          borderColor: "#4d9de028",
-          backgroundColor: "transparent",
-          borderWidth: 1,
-          pointRadius: 0,
-          fill: false,
-          tension: 0.2
-        });
-      });
-    }
-    const centre = profileData.centre;
-    datasets.push({
-      label: useBuffer ? "centre" : state.currentDataset,
-      data: centre.map((p2) => p2.value),
-      borderColor: useBuffer ? "#4d9de088" : "#4d9de0",
-      backgroundColor: useBuffer ? "transparent" : "rgba(77,157,224,0.15)",
-      borderWidth: useBuffer ? 1 : 1.5,
-      pointRadius: 0,
-      fill: !useBuffer,
-      tension: 0.2
-    });
-    if (useBuffer && profileData.median) {
-      datasets.push({
-        label: "median",
-        data: profileData.median.map((p2) => p2.value),
-        borderColor: "#4d9de0",
-        backgroundColor: "transparent",
-        borderWidth: 2.5,
-        pointRadius: 0,
-        fill: false,
-        tension: 0.2
-      });
-    }
-  }
-  const xLabels = profileData ? (profileData.centre.length > 0 ? profileData.centre : profileData.median ?? []).map((p2) => p2.dist.toFixed(0)) : [];
-  const chartData = { labels: xLabels, datasets };
-  const options = {
-    responsive: true,
-    maintainAspectRatio: false,
-    animation: { duration: 0 },
-    plugins: {
-      legend: {
-        display: radius > 0,
-        labels: {
-          color: textColor,
-          filter: (item) => !item.text.startsWith("sample")
-        }
-      }
-    },
-    scales: {
-      x: {
-        title: { display: true, text: "Distance (m)", color: mutedColor },
-        ticks: { color: mutedColor, maxTicksLimit: 8 },
-        grid: { color: gridColor }
-      },
-      y: {
-        title: { display: true, text: state.currentDataset, color: mutedColor },
-        ticks: { color: mutedColor },
-        grid: { color: gridColor }
-      }
-    }
-  };
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "profile-panel", children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "chart-header", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("h4", { children: [
-        "Profile — ",
-        state.currentDataset
-      ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "profile-radius-control", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("label", { htmlFor: "profile-radius", style: { color: mutedColor, fontSize: "0.8em", marginRight: 4 }, children: "Radius (m):" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx(
-          "input",
-          {
-            id: "profile-radius",
-            type: "number",
-            min: 0,
-            step: 100,
-            value: radius,
-            onChange: (e) => setRadius(Math.max(0, Number(e.target.value))),
-            className: "profile-radius-input"
-          }
-        )
-      ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "chart-btn", onClick: clearAll, title: "Clear profile", children: /* @__PURE__ */ jsxRuntimeExports.jsx("i", { className: "fa-solid fa-xmark" }) })
-    ] }),
-    hasData && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { height: 180, position: "relative" }, children: /* @__PURE__ */ jsxRuntimeExports.jsx(Line, { data: chartData, options }) })
-  ] });
-}
-function RefPointChart() {
-  var _a2;
-  const { state } = useAppContext();
-  const { fetchBufferTimeSeries } = useApi();
-  const [bufferData, setBufferData] = reactExports.useState(null);
-  const [loading, setLoading] = reactExports.useState(false);
-  const abortRef = reactExports.useRef(null);
-  reactExports.useEffect(() => {
-    var _a3;
-    if (!state.refBufferEnabled || !state.showRefChart || !state.currentDataset) {
-      setBufferData(null);
-      return;
-    }
-    (_a3 = abortRef.current) == null ? void 0 : _a3.abort();
-    const ctrl = new AbortController();
-    abortRef.current = ctrl;
-    const [lat, lng] = state.refMarkerPosition;
-    setLoading(true);
-    fetchBufferTimeSeries(lng, lat, state.currentDataset, state.refBufferRadius, 20).then((data) => {
-      if (!ctrl.signal.aborted && data) setBufferData(data);
-    }).finally(() => {
-      if (!ctrl.signal.aborted) setLoading(false);
-    });
-    return () => ctrl.abort();
-  }, [
-    state.refBufferEnabled,
-    state.showRefChart,
-    state.currentDataset,
-    state.refMarkerPosition,
-    state.refBufferRadius
-  ]);
-  if (!state.refBufferEnabled || !state.showRefChart) return null;
-  if (loading) {
-    return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "profile-panel", style: { left: "50%", transform: "translateX(-50%)", bottom: 0, right: "auto", width: 500 }, children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "chart-placeholder", children: /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: "Loading reference buffer…" }) }) });
-  }
-  if (!bufferData || bufferData.labels.length === 0) return null;
-  const { median, samples } = bufferData;
-  const rawLabels = (((_a2 = state.datasetInfo[state.currentDataset]) == null ? void 0 : _a2.x_values) ?? bufferData.labels).map(String);
-  const n2 = rawLabels.length;
-  const toDisplay = (l2) => {
-    const parts = l2.split("_");
-    if (parts.length === 2 && /^\d{8}$/.test(parts[1])) {
-      const d = parts[1];
-      return `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`;
-    }
-    return l2.slice(0, 10);
-  };
-  const displayLabels = rawLabels.map(toDisplay);
-  const mean = Array(n2).fill(0);
-  const std = Array(n2).fill(0);
-  if (samples.length > 0) {
-    for (let t2 = 0; t2 < n2; t2++) {
-      const vals = samples.map((s) => s[t2]).filter((v2) => isFinite(v2));
-      if (vals.length === 0) {
-        mean[t2] = NaN;
-        std[t2] = NaN;
-        continue;
-      }
-      const m2 = vals.reduce((a, b) => a + b, 0) / vals.length;
-      mean[t2] = m2;
-      std[t2] = Math.sqrt(vals.reduce((a, b) => a + (b - m2) ** 2, 0) / vals.length);
-    }
-  }
-  const meanPlusStd = mean.map((m2, i) => isFinite(m2) ? m2 + std[i] : NaN);
-  const meanMinusStd = mean.map((m2, i) => isFinite(m2) ? m2 - std[i] : NaN);
-  const sampleDatasets = samples.slice(0, 8).map((s, i) => ({
-    label: `sample ${i + 1}`,
-    data: s,
-    borderColor: "rgba(150,180,220,0.18)",
-    backgroundColor: "transparent",
-    borderWidth: 1,
-    pointRadius: 0,
-    tension: 0.15
-  }));
-  const chartData = {
-    labels: displayLabels,
-    datasets: [
-      // +1σ bound — fills toward -1σ (dataset index 1)
-      {
-        label: "+1σ",
-        data: meanPlusStd,
-        borderColor: "rgba(77,157,224,0.4)",
-        backgroundColor: "rgba(77,157,224,0.12)",
-        borderWidth: 1,
-        borderDash: [3, 3],
-        pointRadius: 0,
-        fill: { target: 1, above: "rgba(77,157,224,0.12)" },
-        tension: 0.2
-      },
-      // -1σ bound
-      {
-        label: "-1σ",
-        data: meanMinusStd,
-        borderColor: "rgba(77,157,224,0.4)",
-        backgroundColor: "transparent",
-        borderWidth: 1,
-        borderDash: [3, 3],
-        pointRadius: 0,
-        fill: false,
-        tension: 0.2
-      },
-      // Mean
-      {
-        label: "Mean",
-        data: mean,
-        borderColor: "#4d9de0",
-        backgroundColor: "transparent",
-        borderWidth: 2,
-        pointRadius: 0,
-        tension: 0.2
-      },
-      // Median
-      {
-        label: "Median",
-        data: median,
-        borderColor: "#3ec97a",
-        backgroundColor: "transparent",
-        borderWidth: 2,
-        borderDash: [6, 4],
-        pointRadius: 0,
-        fill: false,
-        tension: 0.2
-      },
-      // Individual samples (faint, behind main lines)
-      ...sampleDatasets
-    ]
-  };
-  const options = {
-    responsive: true,
-    maintainAspectRatio: false,
-    animation: { duration: 0 },
-    plugins: {
-      legend: {
-        display: true,
-        labels: {
-          color: "#aaa",
-          filter: (item) => ["Mean", "Median", "+1σ"].includes(item.text),
-          boxWidth: 20,
-          font: { size: 11 }
-        }
-      },
-      tooltip: { mode: "index", intersect: false }
-    },
-    scales: {
-      x: {
-        ticks: { color: "#aaa", maxTicksLimit: 8, maxRotation: 45 },
-        grid: { color: "rgba(255,255,255,0.08)" }
-      },
-      y: {
-        title: { display: true, text: state.currentDataset, color: "#aaa" },
-        ticks: { color: "#aaa" },
-        grid: { color: "rgba(255,255,255,0.08)" }
-      }
-    }
-  };
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "profile-panel", style: { right: 16, left: "auto", width: 520 }, children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "chart-header", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("h4", { children: [
-      "Ref Buffer — ",
-      bufferData.n_pixels,
-      " px, r=",
-      state.refBufferRadius,
-      " m"
-    ] }) }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { height: 200, position: "relative" }, children: /* @__PURE__ */ jsxRuntimeExports.jsx(Line, { data: chartData, options }) })
-  ] });
-}
-delete L$1.Icon.Default.prototype._getIconUrl;
-L$1.Icon.Default.mergeOptions({
-  iconRetinaUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png",
-  iconUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png",
-  shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png"
-});
-const fontAwesomeIcon = L$1.divIcon({
-  html: '<i class="fa-solid fa-location-dot fa-3x" style="color:#111; text-shadow: 0 0 4px white, 0 0 4px white;"></i>',
-  iconSize: [20, 20],
-  className: "myDivIcon"
-});
-function MapEvents() {
-  const { state, dispatch } = useAppContext();
-  useMapEvents({
-    click: (e) => {
-      if (!state.pickingEnabled) return;
-      dispatch({
-        type: "ADD_TIME_SERIES_POINT",
-        payload: {
-          position: [e.latlng.lat, e.latlng.lng],
-          name: `Point ${Date.now().toString().slice(-4)}`
-        }
-      });
-    }
-  });
-  return null;
-}
-function MousePosition() {
-  const map2 = useMap();
-  reactExports.useEffect(() => {
-    const mousePositionControl = new MousePositionControl();
-    mousePositionControl.addTo(map2);
-    return () => {
-      mousePositionControl.remove();
-    };
-  }, [map2]);
-  return null;
-}
-function ScaleBar() {
-  const map2 = useMap();
-  reactExports.useEffect(() => {
-    const scale = L$1.control.scale({ position: "bottomleft", imperial: true, metric: true, maxWidth: 150 });
-    scale.addTo(map2);
-    return () => {
-      scale.remove();
-    };
-  }, [map2]);
-  return null;
-}
-function RasterTileLayer() {
-  const { state } = useAppContext();
-  const [tileUrl, setTileUrl] = reactExports.useState(null);
-  reactExports.useEffect(() => {
-    if (!state.currentDataset || !state.datasetInfo[state.currentDataset] || !state.dataMode) {
-      return;
-    }
-    if (state.dataMode !== "md" && state.dataMode !== "cog") {
-      return;
-    }
-    const controller = new AbortController();
-    const signal = controller.signal;
-    const updateTileLayer2 = async () => {
-      const currentDatasetInfo = state.datasetInfo[state.currentDataset];
-      const colormap = state.colormap;
-      const vmin = state.vmin;
-      const vmax = state.vmax;
-      const maxIdx = currentDatasetInfo.x_values.length - 1;
-      const timeIdx = Math.max(0, Math.min(state.currentTimeIndex, maxIdx));
-      const params = {
-        variable: state.currentDataset,
-        time_idx: timeIdx.toString(),
-        rescale: `${vmin},${vmax}`,
-        colormap_name: colormap
-      };
-      if (currentDatasetInfo.algorithm) {
-        params.algorithm = currentDatasetInfo.algorithm;
-      }
-      if (state.refEnabled && state.refValues[state.currentDataset] && currentDatasetInfo.algorithm === "shift") {
-        const refArr = state.refValues[state.currentDataset];
-        const shift = refArr[timeIdx] ?? refArr[0];
-        if (shift !== void 0) {
-          params.algorithm_params = JSON.stringify({ shift });
-        }
-      }
-      if (state.dataMode === "cog") {
-        const url = currentDatasetInfo.file_list[timeIdx];
-        const maskUrl = currentDatasetInfo.mask_file_list[timeIdx];
-        const maskMinValue = currentDatasetInfo.mask_min_value;
-        params.url = url;
-        if (maskUrl) params.mask = maskUrl;
-        if (maskMinValue !== void 0) params.mask_min_value = maskMinValue.toString();
-        if (state.customMaskPath) params.custom_mask = state.customMaskPath;
-        params.time_idx = timeIdx.toString();
-      }
-      if (state.layerMasks.length > 0) {
-        params.layer_masks = JSON.stringify(
-          state.layerMasks.map((m2) => ({ dataset: m2.dataset, threshold: m2.threshold, mode: m2.mode }))
-        );
-      }
-      if (state.dataMode === "md") {
-        if (state.customMaskPath) params.custom_mask_path = state.customMaskPath;
-      }
-      const urlParams = new URLSearchParams(params).toString();
-      const endpoint = state.dataMode === "md" ? `/md/WebMercatorQuad/tilejson.json?${urlParams}` : `/cog/WebMercatorQuad/tilejson.json?${urlParams}`;
-      try {
-        const response = await fetch(endpoint, { signal });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const tileInfo = await response.json();
-        if (!signal.aborted) setTileUrl(tileInfo.tiles[0]);
-      } catch (err) {
-        if (err.name !== "AbortError") {
-          console.error("Error fetching tile info:", err);
-        }
-      }
-    };
-    const debounceTimer = setTimeout(() => updateTileLayer2(), 80);
-    return () => {
-      clearTimeout(debounceTimer);
-      controller.abort();
-    };
-  }, [
-    state.currentDataset,
-    state.currentTimeIndex,
-    state.datasetInfo,
-    state.dataMode,
-    state.refValues,
-    state.refMarkerPosition,
-    state.refEnabled,
-    state.colormap,
-    state.vmin,
-    state.vmax,
-    state.layerMasks,
-    state.customMaskPath
-  ]);
-  if (!tileUrl) return null;
-  return /* @__PURE__ */ jsxRuntimeExports.jsx(
-    TileLayer,
-    {
-      url: tileUrl,
-      opacity: state.opacity,
-      maxZoom: 19
-    },
-    tileUrl
-  );
-}
-function RadiusCircles() {
-  const { state } = useAppContext();
-  const map2 = useMap();
-  reactExports.useEffect(() => {
-    const circles = [];
-    if (state.bufferEnabled && state.bufferRadius > 0) {
-      state.timeSeriesPoints.filter((p2) => p2.visible).forEach((point) => {
-        circles.push(L$1.circle([point.position[0], point.position[1]], {
-          radius: state.bufferRadius,
-          color: point.color,
-          fillColor: point.color,
-          fillOpacity: 0.08,
-          weight: 1.5,
-          dashArray: "4 3"
-        }).addTo(map2));
-      });
-    }
-    if (state.refEnabled && state.refBufferEnabled && state.refBufferRadius > 0) {
-      const [lat, lng] = state.refMarkerPosition;
-      circles.push(L$1.circle([lat, lng], {
-        radius: state.refBufferRadius,
-        color: "#e05d6a",
-        fillColor: "#e05d6a",
-        fillOpacity: 0.08,
-        weight: 1.5,
-        dashArray: "4 3"
-      }).addTo(map2));
-    }
-    return () => {
-      circles.forEach((c) => c.remove());
-    };
-  }, [
-    map2,
-    state.bufferEnabled,
-    state.bufferRadius,
-    state.refEnabled,
-    state.refBufferEnabled,
-    state.refBufferRadius,
-    state.refMarkerPosition,
-    JSON.stringify(state.timeSeriesPoints.map((p2) => ({ id: p2.id, pos: p2.position, vis: p2.visible })))
-  ]);
-  return null;
-}
-function MarkerEventHandlers() {
-  const { state, dispatch } = useAppContext();
-  const { fetchPointTimeSeries, fetchBufferTimeSeries } = useApi();
-  const map2 = useMap();
-  const handleMarkerClick = (position, pointName) => {
-    const [lat, lng] = position;
-    const content = pointName ? `${pointName} (lon, lat):
-(${lng.toFixed(6)}, ${lat.toFixed(6)})` : `Reference (lon, lat):
-(${lng.toFixed(6)}, ${lat.toFixed(6)})`;
-    L$1.popup().setLatLng([lat, lng]).setContent(content).openOn(map2);
-  };
-  const handleTsMarkerDragEnd = (pointId) => (e) => {
-    const marker = e.target;
-    const position = marker.getLatLng();
-    dispatch({
-      type: "UPDATE_TIME_SERIES_POINT",
-      payload: {
-        id: pointId,
-        updates: { position: [position.lat, position.lng] }
-      }
-    });
-  };
-  const handleRefMarkerDragEnd = async (e) => {
-    var _a2, _b2, _c;
-    const marker = e.target;
-    const position = marker.getLatLng();
-    const lat = position.lat;
-    const lng = position.lng;
-    dispatch({ type: "SET_REF_MARKER_POSITION", payload: [lat, lng] });
-    const ds = state.currentDataset;
-    const info = ds ? state.datasetInfo[ds] : null;
-    if (ds && (info == null ? void 0 : info.algorithm) === "shift") {
-      try {
-        let values;
-        if (state.refBufferEnabled && state.refBufferRadius > 0) {
-          const result = await fetchBufferTimeSeries(lng, lat, ds, state.refBufferRadius, 0);
-          if (result == null ? void 0 : result.median) {
-            const xValues = ((_b2 = (_a2 = state.datasetInfo[ds]) == null ? void 0 : _a2.x_values) == null ? void 0 : _b2.map(String)) ?? ((_c = result.labels) == null ? void 0 : _c.map(String)) ?? [];
-            const byX = Object.fromEntries(result.median.map((pt) => [String(pt.x), pt.y]));
-            values = xValues.map((x2) => byX[x2] ?? NaN);
-          }
-        }
-        if (!values) {
-          values = await fetchPointTimeSeries(lng, lat, ds);
-        }
-        if (values) {
-          dispatch({ type: "SET_REF_VALUES", payload: { dataset: ds, values } });
-        }
-      } catch (err) {
-        console.error("Error updating reference values after drag:", err);
-      }
-    }
-  };
-  const handleTsMarkerDoubleClick = (pointId) => () => {
-    dispatch({ type: "REMOVE_TIME_SERIES_POINT", payload: pointId });
-  };
-  const createColoredIcon = (color2, isSelected = false) => {
-    const iconSize = isSelected ? 25 : 20;
-    return L$1.divIcon({
-      html: `<div style="
-        width: ${iconSize}px;
-        height: ${iconSize}px;
-        background-color: ${color2};
-        border: ${isSelected ? "3px solid white" : "2px solid white"};
-        border-radius: 50%;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-      "></div>`,
-      iconSize: [iconSize, iconSize],
-      className: "custom-colored-marker"
-    });
-  };
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-    state.timeSeriesPoints.filter((p2) => p2.visible).map((point) => /* @__PURE__ */ jsxRuntimeExports.jsx(
-      Marker,
-      {
-        position: point.position,
-        icon: createColoredIcon(point.color, state.selectedPointId === point.id),
-        draggable: true,
-        title: `${point.name} - Double-click to remove`,
-        eventHandlers: {
-          click: () => {
-            handleMarkerClick(point.position, point.name);
-            dispatch({ type: "SET_SELECTED_POINT", payload: point.id });
-          },
-          dragend: handleTsMarkerDragEnd(point.id),
-          dblclick: handleTsMarkerDoubleClick(point.id)
-        }
-      },
-      point.id
-    )),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(
-      Marker,
-      {
-        position: state.refMarkerPosition,
-        icon: fontAwesomeIcon,
-        draggable: true,
-        title: "Reference Location",
-        eventHandlers: {
-          click: () => handleMarkerClick(state.refMarkerPosition),
-          dragend: handleRefMarkerDragEnd
-        }
-      }
-    )
-  ] });
-}
-function MapContainer() {
-  const { state } = useAppContext();
-  const getInitialCenter = () => {
-    if (state.currentDataset && state.datasetInfo[state.currentDataset]) {
-      const bounds = state.datasetInfo[state.currentDataset].latlon_bounds;
-      const centerLat = (bounds[1] + bounds[3]) / 2;
-      const centerLng = (bounds[0] + bounds[2]) / 2;
-      return [centerLat, centerLng];
-    }
-    const datasets = Object.values(state.datasetInfo);
-    if (datasets.length > 0) {
-      const bounds = datasets[0].latlon_bounds;
-      const centerLat = (bounds[1] + bounds[3]) / 2;
-      const centerLng = (bounds[0] + bounds[2]) / 2;
-      return [centerLat, centerLng];
-    }
-    return [0, 0];
-  };
-  const selectedBasemap = baseMaps[state.selectedBasemap] || baseMaps.esriSatellite;
-  const center = getInitialCenter();
-  const hasDatasets = Object.keys(state.datasetInfo).length > 0;
-  const [measureActive, setMeasureActive] = reactExports.useState(false);
-  const [profileActive, setProfileActive] = reactExports.useState(false);
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "map-container", children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "map-toolbar", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx(
-        "button",
-        {
-          className: `map-tool-btn${measureActive ? " active" : ""}`,
-          title: "Measure distance (click points, double-click to finish)",
-          onClick: () => {
-            setMeasureActive((v2) => !v2);
-            setProfileActive(false);
-          },
-          children: /* @__PURE__ */ jsxRuntimeExports.jsx("i", { className: "fa-solid fa-ruler" })
-        }
-      ),
-      /* @__PURE__ */ jsxRuntimeExports.jsx(
-        "button",
-        {
-          className: `map-tool-btn${profileActive ? " active" : ""}`,
-          title: "Draw profile line (click start, click end, double-click to extract)",
-          onClick: () => {
-            setProfileActive((v2) => !v2);
-            setMeasureActive(false);
-          },
-          children: /* @__PURE__ */ jsxRuntimeExports.jsx("i", { className: "fa-solid fa-chart-area" })
-        }
-      )
-    ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs(
-      MapContainer$1,
-      {
-        center,
-        zoom: 9,
-        style: { height: "100%", width: "100%" },
-        doubleClickZoom: false,
-        children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx(
-            TileLayer,
-            {
-              url: selectedBasemap.url,
-              attribution: selectedBasemap.attribution,
-              maxZoom: 19
-            }
-          ),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(RasterTileLayer, {}),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(RadiusCircles, {}),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(MarkerEventHandlers, {}),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(MapEvents, {}),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(MousePosition, {}),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(ScaleBar, {}),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(MeasureTool, { active: measureActive, onDeactivate: () => setMeasureActive(false) }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(ProfileTool, { active: profileActive, onDeactivate: () => setProfileActive(false) }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(RefPointChart, {})
-        ]
-      },
-      hasDatasets ? "with-data" : "no-data"
-    )
-  ] });
-}
-Chart$1.register(CategoryScale, LinearScale, BarElement, plugin_tooltip);
-function Histogram() {
-  const { state, dispatch } = useAppContext();
-  const [histData, setHistData] = reactExports.useState(null);
-  const [loading, setLoading] = reactExports.useState(false);
-  const fetchHistogram = reactExports.useCallback(async () => {
-    if (!state.currentDataset || state.isPlaying) return;
-    setLoading(true);
-    try {
-      const params = new URLSearchParams({ time_index: String(state.currentTimeIndex) });
-      const res = await fetch(`/histogram/${encodeURIComponent(state.currentDataset)}?${params}`);
-      if (res.ok) {
-        const data = await res.json();
-        setHistData(data);
-      }
-    } catch (e) {
-      console.error("Error fetching histogram:", e);
-    } finally {
-      setLoading(false);
-    }
-  }, [state.currentDataset, state.currentTimeIndex, state.isPlaying]);
-  reactExports.useEffect(() => {
-    fetchHistogram();
-  }, [fetchHistogram]);
-  const handleAutoScale = () => {
-    if (!histData) return;
-    dispatch({ type: "SET_VMIN", payload: parseFloat(histData.p2.toFixed(4)) });
-    dispatch({ type: "SET_VMAX", payload: parseFloat(histData.p98.toFixed(4)) });
-  };
-  const handleFullScale = () => {
-    if (!histData) return;
-    dispatch({ type: "SET_VMIN", payload: parseFloat(histData.min.toFixed(4)) });
-    dispatch({ type: "SET_VMAX", payload: parseFloat(histData.max.toFixed(4)) });
-  };
-  const handleSigmaScale = () => {
-    if (!histData || histData.p16 == null || histData.p84 == null) return;
-    dispatch({ type: "SET_VMIN", payload: parseFloat(histData.p16.toFixed(4)) });
-    dispatch({ type: "SET_VMAX", payload: parseFloat(histData.p84.toFixed(4)) });
-  };
-  const handleTwoSigmaScale = () => {
-    if (!histData || histData.p23 == null || histData.p977 == null) return;
-    dispatch({ type: "SET_VMIN", payload: parseFloat(histData.p23.toFixed(4)) });
-    dispatch({ type: "SET_VMAX", payload: parseFloat(histData.p977.toFixed(4)) });
-  };
-  const handleCenterZero = () => {
-    const absMax = parseFloat(Math.max(Math.abs(state.vmin), Math.abs(state.vmax)).toFixed(4));
-    dispatch({ type: "SET_VMIN", payload: -absMax });
-    dispatch({ type: "SET_VMAX", payload: absMax });
-  };
-  if (!state.currentDataset || loading) {
-    return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "histogram-loading", children: loading ? "Computing…" : "" });
-  }
-  if (!histData || histData.bins.length < 2) return null;
-  const labels = histData.bins.slice(0, -1).map(
-    (b, i) => ((b + histData.bins[i + 1]) / 2).toFixed(4)
-  );
-  const bgColors = histData.bins.slice(0, -1).map((b, i) => {
-    const center = (b + histData.bins[i + 1]) / 2;
-    return center >= state.vmin && center <= state.vmax ? "rgba(77,157,224,0.85)" : "rgba(120,120,160,0.30)";
-  });
-  const chartData = {
-    labels,
-    datasets: [{ data: histData.counts, backgroundColor: bgColors, borderWidth: 0, borderRadius: 2 }]
-  };
-  const options = {
-    responsive: true,
-    maintainAspectRatio: false,
-    animation: { duration: 0 },
-    plugins: {
-      legend: { display: false },
-      tooltip: {
-        callbacks: {
-          title: (ctx) => `Value: ${ctx[0].label}`,
-          label: (ctx) => `Count: ${ctx.raw}`
-        }
-      }
-    },
-    scales: { x: { display: false }, y: { display: false } }
-  };
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "histogram-wrapper", children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "histogram-chart-area", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Bar, { data: chartData, options }) }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "histogram-range", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "hist-val", children: histData.min.toFixed(3) }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "hist-val", children: histData.max.toFixed(3) })
-    ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "histogram-buttons", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "hist-btn", onClick: handleAutoScale, title: "2nd–98th percentile", children: "2–98%" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "hist-btn", onClick: handleSigmaScale, title: "±1σ (16–84%)", children: "±1σ" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "hist-btn", onClick: handleTwoSigmaScale, title: "±2σ (2.3–97.7%)", children: "±2σ" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "hist-btn", onClick: handleFullScale, title: "Full range", children: "Full" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "hist-btn", onClick: handleCenterZero, title: "Symmetric around zero: ±max(|vmin|,|vmax|)", children: "±0" })
-    ] })
-  ] });
-}
-const colormapOptions = [
-  { value: "rdbu", label: "Blue–Red" },
-  { value: "twilight", label: "Twilight (cyclic)" },
-  { value: "cfastie", label: "CFastie" },
-  { value: "rplumbo", label: "RPlumbo" },
-  { value: "schwarzwald", label: "Schwarzwald" },
-  { value: "viridis", label: "Viridis" },
-  { value: "bugn", label: "Blue–Green" },
-  { value: "ylgn", label: "Yellow–Green" },
-  { value: "magma", label: "Magma" },
-  { value: "gist_earth", label: "Earth" },
-  { value: "ocean", label: "Ocean" },
-  { value: "terrain", label: "Terrain" },
-  { value: "gray", label: "Grays" },
-  { value: "jet", label: "Jet" }
-];
-function ControlPanel({ title }) {
-  var _a2;
-  const { state, dispatch } = useAppContext();
-  const { fetchPointTimeSeries, fetchBufferTimeSeries } = useApi();
-  const [draftVmin, setDraftVmin] = reactExports.useState(String(state.vmin));
-  const [draftVmax, setDraftVmax] = reactExports.useState(String(state.vmax));
-  const [lightTheme, setLightTheme] = reactExports.useState(false);
-  const [draftRefLat, setDraftRefLat] = reactExports.useState(String(state.refMarkerPosition[0]));
-  const [draftRefLon, setDraftRefLon] = reactExports.useState(String(state.refMarkerPosition[1]));
-  const [datasetRanges, setDatasetRanges] = reactExports.useState({});
-  reactExports.useEffect(() => {
-    const missing = state.layerMasks.map((m2) => m2.dataset).filter((ds) => ds && !(ds in datasetRanges));
-    const unique = [...new Set(missing)];
-    unique.forEach(async (ds) => {
-      try {
-        const res = await fetch(`/dataset_range/${encodeURIComponent(ds)}`);
-        if (res.ok) {
-          const data = await res.json();
-          setDatasetRanges((prev) => ({ ...prev, [ds]: data }));
-        }
-      } catch {
-      }
-    });
-  }, [state.layerMasks, datasetRanges]);
-  const toggleTheme = () => {
-    const next = !lightTheme;
-    setLightTheme(next);
-    document.documentElement.setAttribute("data-theme", next ? "light" : "dark");
-  };
-  reactExports.useEffect(() => setDraftVmin(String(state.vmin)), [state.vmin]);
-  reactExports.useEffect(() => setDraftVmax(String(state.vmax)), [state.vmax]);
-  reactExports.useEffect(() => {
-    setDraftRefLat(state.refMarkerPosition[0].toFixed(6));
-    setDraftRefLon(state.refMarkerPosition[1].toFixed(6));
-  }, [state.refMarkerPosition]);
-  reactExports.useEffect(() => {
-    const datasetName = state.currentDataset;
-    if (!datasetName) return;
-    const safeNumToString = (x2) => Object.is(x2, -0) ? "-0" : String(x2);
-    localStorage.setItem(`${datasetName}-colormap_name`, state.colormap);
-    localStorage.setItem(`${datasetName}-vmin`, safeNumToString(state.vmin));
-    localStorage.setItem(`${datasetName}-vmax`, safeNumToString(state.vmax));
-  }, [state.colormap, state.vmin, state.vmax]);
-  reactExports.useEffect(() => {
-    const ds = state.currentDataset;
-    if (!ds) return;
-    const info = state.datasetInfo[ds];
-    const isPhase = (info == null ? void 0 : info.algorithm) === "phase" || (info == null ? void 0 : info.algorithm) === "rewrap";
-    const colormap = localStorage.getItem(`${ds}-colormap_name`);
-    const vminStr = localStorage.getItem(`${ds}-vmin`);
-    const vmaxStr = localStorage.getItem(`${ds}-vmax`);
-    if (colormap) dispatch({ type: "SET_COLORMAP", payload: colormap });
-    if (vminStr !== null) {
-      const v2 = Number(vminStr);
-      if (!Number.isNaN(v2)) dispatch({ type: "SET_VMIN", payload: v2 });
-    } else if (isPhase) {
-      dispatch({ type: "SET_VMIN", payload: -Math.PI });
-    }
-    if (vmaxStr !== null) {
-      const v2 = Number(vmaxStr);
-      if (!Number.isNaN(v2)) dispatch({ type: "SET_VMAX", payload: v2 });
-    } else if (isPhase) {
-      dispatch({ type: "SET_VMAX", payload: Math.PI });
-    }
-  }, [state.currentDataset, dispatch]);
-  const handleDatasetChange = (ds) => {
-    dispatch({ type: "SET_CURRENT_DATASET", payload: ds });
-    const info = state.datasetInfo[ds];
-    if (info == null ? void 0 : info.uses_spatial_ref) setRefValues(ds);
-  };
-  reactExports.useEffect(() => {
-    const ds = state.currentDataset;
-    if (!ds) return;
-    const info = state.datasetInfo[ds];
-    if (!(info == null ? void 0 : info.uses_spatial_ref)) return;
-    setRefValues(ds);
-  }, [state.refBufferEnabled, state.refBufferRadius]);
-  const commitVmin = reactExports.useCallback(() => {
-    const v2 = Number(draftVmin);
-    if (!Number.isNaN(v2)) dispatch({ type: "SET_VMIN", payload: v2 });
-  }, [draftVmin, dispatch]);
-  const commitVmax = reactExports.useCallback(() => {
-    const v2 = Number(draftVmax);
-    if (!Number.isNaN(v2)) dispatch({ type: "SET_VMAX", payload: v2 });
-  }, [draftVmax, dispatch]);
-  const setRefValues = async (ds) => {
-    var _a3, _b2, _c;
-    const [lat, lng] = state.refMarkerPosition;
-    try {
-      let values;
-      if (state.refBufferEnabled && state.refBufferRadius > 0) {
-        const result = await fetchBufferTimeSeries(lng, lat, ds, state.refBufferRadius, 0);
-        if (result == null ? void 0 : result.median) {
-          const xValues = ((_b2 = (_a3 = state.datasetInfo[ds]) == null ? void 0 : _a3.x_values) == null ? void 0 : _b2.map(String)) ?? ((_c = result.labels) == null ? void 0 : _c.map(String)) ?? [];
-          const byX = Object.fromEntries(result.median.map((pt) => [String(pt.x), pt.y]));
-          values = xValues.map((x2) => byX[x2] ?? NaN);
-        }
-      }
-      if (!values) {
-        values = await fetchPointTimeSeries(lng, lat, ds);
-      }
-      if (values) dispatch({ type: "SET_REF_VALUES", payload: { dataset: ds, values } });
-    } catch (error) {
-      console.error("Error setting reference values:", error);
-    }
-  };
-  const commitRefPosition = reactExports.useCallback(() => {
-    var _a3;
-    const lat = parseFloat(draftRefLat);
-    const lon = parseFloat(draftRefLon);
-    if (isNaN(lat) || isNaN(lon)) return;
-    dispatch({ type: "SET_REF_MARKER_POSITION", payload: [lat, lon] });
-    const ds = state.currentDataset;
-    if (ds && ((_a3 = state.datasetInfo[ds]) == null ? void 0 : _a3.uses_spatial_ref)) setRefValues(ds);
-  }, [draftRefLat, draftRefLon, state.currentDataset, state.datasetInfo, dispatch]);
-  const currentDatasetInfo = state.currentDataset ? state.datasetInfo[state.currentDataset] : null;
-  const currentTimeValue = currentDatasetInfo ? currentDatasetInfo.x_values[state.currentTimeIndex] : "";
-  const nTimes = ((_a2 = currentDatasetInfo == null ? void 0 : currentDatasetInfo.x_values) == null ? void 0 : _a2.length) ?? 0;
-  const timeIndexRef = reactExports.useRef(state.currentTimeIndex);
-  timeIndexRef.current = state.currentTimeIndex;
-  const nTimesRef = reactExports.useRef(nTimes);
-  nTimesRef.current = nTimes;
-  reactExports.useEffect(() => {
-    if (!state.isPlaying || nTimes === 0) return;
-    const id2 = setInterval(() => {
-      dispatch({ type: "SET_TIME_INDEX", payload: (timeIndexRef.current + 1) % nTimesRef.current });
-    }, state.animationSpeed);
-    return () => clearInterval(id2);
-  }, [state.isPlaying, state.animationSpeed, nTimes, dispatch]);
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { id: "menu", children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "sidebar-theme-toggle", children: /* @__PURE__ */ jsxRuntimeExports.jsx("button", { className: "theme-toggle-btn", onClick: toggleTheme, title: lightTheme ? "Switch to dark theme" : "Switch to light theme", children: /* @__PURE__ */ jsxRuntimeExports.jsx("i", { className: `fa-solid ${lightTheme ? "fa-moon" : "fa-sun"}` }) }) }),
-    title && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "sidebar-title", children: title }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "sidebar-section", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "sidebar-section-label", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("i", { className: "fa-solid fa-layer-group" }),
-        " Layers"
-      ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx(
-        "select",
-        {
-          className: "sidebar-select",
-          value: state.currentDataset,
-          onChange: (e) => handleDatasetChange(e.target.value),
-          children: Object.keys(state.datasetInfo).map((name) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: name, children: name }, name))
-        }
-      ),
-      currentDatasetInfo && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "slider-group", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "slider-label", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "Time step" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "slider-value", children: currentTimeValue })
-        ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx(
-          "input",
-          {
-            type: "range",
-            className: "sidebar-range",
-            min: "0",
-            max: currentDatasetInfo.x_values.length - 1,
-            step: "1",
-            value: state.currentTimeIndex,
-            onChange: (e) => dispatch({ type: "SET_TIME_INDEX", payload: parseInt(e.target.value) })
-          }
-        ),
-        currentDatasetInfo.x_values.length > 1 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "anim-controls", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs(
-            "button",
-            {
-              className: `toggle-pill anim-play-btn${state.isPlaying ? " active" : ""}`,
-              onClick: () => dispatch({ type: "TOGGLE_PLAYING" }),
-              title: state.isPlaying ? "Pause animation" : "Play animation",
-              children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("i", { className: `fa-solid ${state.isPlaying ? "fa-pause" : "fa-play"}` }),
-                state.isPlaying ? "Pause" : "Play"
-              ]
-            }
-          ),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "slider-label", style: { marginTop: 4 }, children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "Speed" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "slider-value", children: [
-              (1e3 / state.animationSpeed).toFixed(1),
-              "×"
-            ] })
-          ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(
-            "input",
-            {
-              type: "range",
-              className: "sidebar-range",
-              min: "100",
-              max: "2000",
-              step: "100",
-              value: 2100 - state.animationSpeed,
-              onChange: (e) => dispatch({ type: "SET_ANIMATION_SPEED", payload: 2100 - parseInt(e.target.value) }),
-              title: "Animation speed"
-            }
-          )
-        ] })
-      ] })
-    ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "sidebar-section", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "sidebar-section-label", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("i", { className: "fa-solid fa-palette" }),
-        " Colormap"
-      ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "colormap-row", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx(
-          "select",
-          {
-            className: "sidebar-select",
-            value: state.colormap.endsWith("_r") ? state.colormap.slice(0, -2) : state.colormap,
-            onChange: (e) => {
-              const base = e.target.value;
-              const inverted = state.colormap.endsWith("_r");
-              dispatch({ type: "SET_COLORMAP", payload: inverted ? `${base}_r` : base });
-            },
-            children: colormapOptions.map((opt) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: opt.value, children: opt.label }, opt.value))
-          }
-        ),
-        /* @__PURE__ */ jsxRuntimeExports.jsx(
-          "button",
-          {
-            className: `invert-btn${state.colormap.endsWith("_r") ? " active" : ""}`,
-            title: "Invert colormap",
-            onClick: () => {
-              const cm = state.colormap;
-              dispatch({ type: "SET_COLORMAP", payload: cm.endsWith("_r") ? cm.slice(0, -2) : `${cm}_r` });
-            },
-            children: "⇅"
-          }
-        )
-      ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx(
-        "img",
-        {
-          src: `/colorbar/${state.colormap}`,
-          className: "colorbar-img",
-          alt: "Colormap"
-        }
-      ),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "minmax-row", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "minmax-field", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("label", { className: "minmax-label", children: "Min" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(
-            "input",
-            {
-              className: "sidebar-input",
-              type: "text",
-              inputMode: "decimal",
-              value: draftVmin,
-              onChange: (e) => setDraftVmin(e.target.value),
-              onBlur: commitVmin,
-              onKeyDown: (e) => e.key === "Enter" && commitVmin()
-            }
-          )
-        ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "minmax-field", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("label", { className: "minmax-label", children: "Max" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(
-            "input",
-            {
-              className: "sidebar-input",
-              type: "text",
-              inputMode: "decimal",
-              value: draftVmax,
-              onChange: (e) => setDraftVmax(e.target.value),
-              onBlur: commitVmax,
-              onKeyDown: (e) => e.key === "Enter" && commitVmax()
-            }
-          )
-        ] })
-      ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "slider-group", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "slider-label", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "Opacity" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "slider-value", children: [
-            Math.round(state.opacity * 100),
-            "%"
-          ] })
-        ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx(
-          "input",
-          {
-            type: "range",
-            className: "sidebar-range",
-            min: "0",
-            max: "1",
-            step: "0.01",
-            value: state.opacity,
-            onChange: (e) => dispatch({ type: "SET_OPACITY", payload: parseFloat(e.target.value) })
-          }
-        )
-      ] })
-    ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "sidebar-section", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "sidebar-section-label", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("i", { className: "fa-solid fa-map" }),
-        " Basemap"
-      ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx(
-        "select",
-        {
-          className: "sidebar-select",
-          value: state.selectedBasemap,
-          onChange: (e) => dispatch({ type: "SET_BASEMAP", payload: e.target.value }),
-          children: Object.keys(baseMaps).map((key) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: key, children: key }, key))
-        }
-      )
-    ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "sidebar-section", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "sidebar-section-label", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("i", { className: "fa-solid fa-chart-bar" }),
-        " Value Distribution"
-      ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx(Histogram, {})
-    ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "sidebar-section", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "sidebar-section-label", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("i", { className: "fa-solid fa-mask" }),
-        " Masking"
-      ] }),
-      state.layerMasks.map((mask) => {
-        const range = datasetRanges[mask.dataset];
-        const rMin = (range == null ? void 0 : range.p2) ?? (range == null ? void 0 : range.min) ?? 0;
-        const rMax = (range == null ? void 0 : range.p98) ?? (range == null ? void 0 : range.max) ?? 1;
-        const step = rMax - rMin > 0 ? parseFloat(((rMax - rMin) / 200).toPrecision(2)) : 0.01;
-        return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "layer-mask-row", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 4, marginBottom: 4 }, children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx(
-              "select",
-              {
-                className: "sidebar-select",
-                style: { flex: 1, fontSize: "0.78em" },
-                value: mask.dataset,
-                onChange: (e) => {
-                  const ds = e.target.value;
-                  const newRange = datasetRanges[ds];
-                  const defaultThreshold = newRange ? (mask.mode === "max" ? newRange.p98 ?? newRange.max : newRange.p2 ?? newRange.min) ?? 0.5 : 0.5;
-                  dispatch({ type: "UPDATE_LAYER_MASK", payload: { id: mask.id, updates: { dataset: ds, threshold: defaultThreshold } } });
-                },
-                children: Object.keys(state.datasetInfo).map((name) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: name, children: name }, name))
-              }
-            ),
-            /* @__PURE__ */ jsxRuntimeExports.jsxs(
-              "select",
-              {
-                className: "sidebar-select",
-                style: { width: 56, fontSize: "0.78em", padding: "2px 4px" },
-                value: mask.mode,
-                onChange: (e) => {
-                  const newMode = e.target.value;
-                  const r2 = datasetRanges[mask.dataset];
-                  const newThreshold = r2 ? (newMode === "max" ? r2.p98 ?? r2.max : r2.p2 ?? r2.min) ?? mask.threshold : mask.threshold;
-                  dispatch({ type: "UPDATE_LAYER_MASK", payload: { id: mask.id, updates: { mode: newMode, threshold: newThreshold } } });
-                },
-                children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "min", children: "≥" }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "max", children: "≤" })
-                ]
-              }
-            ),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(
-              "button",
-              {
-                className: "hist-btn",
-                style: { color: "var(--sb-red)", padding: "2px 6px", flexShrink: 0 },
-                onClick: () => dispatch({ type: "REMOVE_LAYER_MASK", payload: mask.id }),
-                title: "Remove mask",
-                children: /* @__PURE__ */ jsxRuntimeExports.jsx("i", { className: "fa-solid fa-xmark" })
-              }
-            )
-          ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "slider-label", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { style: { fontSize: "0.75em", color: "var(--sb-muted)" }, children: [
-              "Threshold",
-              range ? ` [${rMin.toPrecision(3)}, ${rMax.toPrecision(3)}]` : ""
-            ] }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(
-              "input",
-              {
-                type: "number",
-                style: { width: 72, fontSize: "0.75em", background: "var(--sb-surface2)", border: "1px solid var(--sb-border)", borderRadius: 4, color: "var(--sb-text)", padding: "1px 4px", textAlign: "right" },
-                step,
-                value: parseFloat(mask.threshold.toPrecision(4)),
-                onChange: (e) => {
-                  const v2 = parseFloat(e.target.value);
-                  if (!isNaN(v2)) dispatch({ type: "UPDATE_LAYER_MASK", payload: { id: mask.id, updates: { threshold: v2 } } });
-                }
-              }
-            )
-          ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(
-            "input",
-            {
-              type: "range",
-              className: "sidebar-range",
-              min: rMin,
-              max: rMax,
-              step,
-              value: mask.threshold,
-              onChange: (e) => dispatch({ type: "UPDATE_LAYER_MASK", payload: { id: mask.id, updates: { threshold: parseFloat(e.target.value) } } })
-            }
-          )
-        ] }, mask.id);
-      }),
-      Object.keys(state.datasetInfo).length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs(
-        "button",
-        {
-          className: "hist-btn",
-          style: { width: "100%", marginTop: 4 },
-          onClick: () => {
-            const firstDataset = Object.keys(state.datasetInfo)[0];
-            const range = datasetRanges[firstDataset];
-            const defaultThreshold = range ? range.p2 ?? range.min : 0.5;
-            dispatch({
-              type: "ADD_LAYER_MASK",
-              payload: {
-                id: `mask_${Date.now()}`,
-                dataset: firstDataset,
-                threshold: defaultThreshold,
-                mode: "min"
-              }
-            });
-          },
-          children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("i", { className: "fa-solid fa-plus", style: { marginRight: 5 } }),
-            "Add layer mask"
-          ]
-        }
-      ),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "custom-mask-row", style: { marginTop: 8 }, children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("label", { className: "minmax-label", style: { marginBottom: 4 }, children: "Custom mask (GeoTIFF)" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "custom-mask-controls", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "hist-btn", style: { cursor: "pointer", textAlign: "center" }, children: [
-            "Upload",
-            /* @__PURE__ */ jsxRuntimeExports.jsx(
-              "input",
-              {
-                type: "file",
-                accept: ".tif,.tiff",
-                style: { display: "none" },
-                onChange: async (e) => {
-                  var _a3;
-                  const f2 = (_a3 = e.target.files) == null ? void 0 : _a3[0];
-                  if (!f2) return;
-                  const form = new FormData();
-                  form.append("file", f2);
-                  const res = await fetch("/upload_mask", { method: "POST", body: form });
-                  if (res.ok) {
-                    const data = await res.json();
-                    dispatch({ type: "SET_CUSTOM_MASK_PATH", payload: data.path });
-                  }
-                }
-              }
-            )
-          ] }),
-          state.customMaskPath && /* @__PURE__ */ jsxRuntimeExports.jsx(
-            "button",
-            {
-              className: "hist-btn",
-              style: { color: "var(--sb-red)" },
-              onClick: () => dispatch({ type: "SET_CUSTOM_MASK_PATH", payload: null }),
-              children: "Clear"
-            }
-          )
-        ] }),
-        state.customMaskPath && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: "0.72em", color: "var(--sb-muted)", wordBreak: "break-all", marginTop: 2 }, children: state.customMaskPath.split("/").pop() })
-      ] })
-    ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "sidebar-section", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "sidebar-section-label", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("i", { className: "fa-solid fa-circle-dot" }),
-        " Point Buffer Sampling"
-      ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "toggle-row", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: "0.82em", color: "var(--sb-muted)" }, children: "Enable buffer mode" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx(
-          "button",
-          {
-            className: `toggle-pill${state.bufferEnabled ? " active" : ""}`,
-            onClick: () => dispatch({ type: "TOGGLE_BUFFER" }),
-            children: state.bufferEnabled ? "ON" : "OFF"
-          }
-        )
-      ] }),
-      state.bufferEnabled && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "slider-group", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "slider-label", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "Radius" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "slider-value", children: [
-              state.bufferRadius,
-              " m"
-            ] })
-          ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(
-            "input",
-            {
-              type: "range",
-              className: "sidebar-range",
-              min: "50",
-              max: "5000",
-              step: "50",
-              value: state.bufferRadius,
-              onChange: (e) => dispatch({ type: "SET_BUFFER_RADIUS", payload: parseInt(e.target.value) })
-            }
-          )
-        ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "slider-group", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "slider-label", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "Samples shown" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "slider-value", children: state.bufferSamples })
-          ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(
-            "input",
-            {
-              type: "range",
-              className: "sidebar-range",
-              min: "0",
-              max: "50",
-              step: "1",
-              value: state.bufferSamples,
-              onChange: (e) => dispatch({ type: "SET_BUFFER_SAMPLES", payload: parseInt(e.target.value) })
-            }
-          )
-        ] })
-      ] })
-    ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "sidebar-section", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "sidebar-section-label", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("i", { className: "fa-solid fa-crosshairs" }),
-        " Reference Point"
-      ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "minmax-row", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "minmax-field", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("label", { className: "minmax-label", children: "Lat" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(
-            "input",
-            {
-              className: "sidebar-input",
-              type: "text",
-              inputMode: "decimal",
-              value: draftRefLat,
-              onChange: (e) => setDraftRefLat(e.target.value),
-              onBlur: commitRefPosition,
-              onKeyDown: (e) => e.key === "Enter" && commitRefPosition()
-            }
-          )
-        ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "minmax-field", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("label", { className: "minmax-label", children: "Lon" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(
-            "input",
-            {
-              className: "sidebar-input",
-              type: "text",
-              inputMode: "decimal",
-              value: draftRefLon,
-              onChange: (e) => setDraftRefLon(e.target.value),
-              onBlur: commitRefPosition,
-              onKeyDown: (e) => e.key === "Enter" && commitRefPosition()
-            }
-          )
-        ] })
-      ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "toggle-row", style: { marginTop: 6 }, children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: "0.82em", color: "var(--sb-muted)" }, children: "Sample around ref marker" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx(
-          "button",
-          {
-            className: `toggle-pill${state.refBufferEnabled ? " active" : ""}`,
-            onClick: () => dispatch({ type: "TOGGLE_REF_BUFFER" }),
-            children: state.refBufferEnabled ? "ON" : "OFF"
-          }
-        )
-      ] }),
-      state.refBufferEnabled && /* @__PURE__ */ jsxRuntimeExports.jsx(jsxRuntimeExports.Fragment, { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "slider-group", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "slider-label", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "Radius" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "slider-value", children: [
-            state.refBufferRadius,
-            " m"
-          ] })
-        ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx(
-          "input",
-          {
-            type: "range",
-            className: "sidebar-range",
-            min: "50",
-            max: "5000",
-            step: "50",
-            value: state.refBufferRadius,
-            onChange: (e) => dispatch({ type: "SET_REF_BUFFER_RADIUS", payload: parseInt(e.target.value) })
-          }
-        )
-      ] }) })
-    ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "sidebar-footer", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsxs(
-        "button",
-        {
-          className: `toggle-pill${state.pickingEnabled ? " active" : ""}`,
-          style: { width: "100%", marginBottom: 6, justifyContent: "center" },
-          onClick: () => dispatch({ type: "TOGGLE_PICKING" }),
-          title: "Toggle map-click point picking",
-          children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("i", { className: "fa-solid fa-map-pin", style: { marginRight: 6 } }),
-            "Point Picking: ",
-            state.pickingEnabled ? "ON" : "OFF"
-          ]
-        }
-      ),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs(
-        "button",
-        {
-          className: `toggle-pill${state.refEnabled ? " active" : ""}`,
-          style: { width: "100%", marginBottom: 6, justifyContent: "center" },
-          onClick: () => dispatch({ type: "TOGGLE_REF_ENABLED" }),
-          title: "Toggle spatial re-referencing",
-          children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("i", { className: "fa-solid fa-crosshairs", style: { marginRight: 6 } }),
-            "Re-referencing: ",
-            state.refEnabled ? "ON" : "OFF"
-          ]
-        }
-      ),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs(
-        "button",
-        {
-          className: "chart-toggle-btn",
-          onClick: () => dispatch({ type: "TOGGLE_CHART" }),
-          children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("i", { className: `fa-solid ${state.showChart ? "fa-chart-line" : "fa-wave-square"}` }),
-            state.showChart ? "Hide" : "Show",
-            " Time Series"
-          ]
-        }
-      ),
-      state.refBufferEnabled && /* @__PURE__ */ jsxRuntimeExports.jsxs(
-        "button",
-        {
-          className: "chart-toggle-btn",
-          style: { marginTop: 4 },
-          onClick: () => dispatch({ type: "TOGGLE_REF_CHART" }),
-          children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("i", { className: "fa-solid fa-crosshairs" }),
-            state.showRefChart ? "Hide" : "Show",
-            " Ref Buffer Chart"
-          ]
-        }
-      )
-    ] })
-  ] });
-}
 const millisecondsInWeek = 6048e5;
 const millisecondsInDay = 864e5;
 const millisecondsInMinute = 6e4;
@@ -34325,2783 +32276,12 @@ adapters._date.override({
     }
   }
 });
-var hammer = { exports: {} };
-/*! Hammer.JS - v2.0.7 - 2016-04-22
- * http://hammerjs.github.io/
- *
- * Copyright (c) 2016 Jorik Tangelder;
- * Licensed under the MIT license */
-(function(module) {
-  (function(window2, document2, exportName, undefined$1) {
-    var VENDOR_PREFIXES = ["", "webkit", "Moz", "MS", "ms", "o"];
-    var TEST_ELEMENT = document2.createElement("div");
-    var TYPE_FUNCTION = "function";
-    var round2 = Math.round;
-    var abs = Math.abs;
-    var now = Date.now;
-    function setTimeoutContext(fn, timeout, context) {
-      return setTimeout(bindFn(fn, context), timeout);
-    }
-    function invokeArrayArg(arg, fn, context) {
-      if (Array.isArray(arg)) {
-        each2(arg, context[fn], context);
-        return true;
-      }
-      return false;
-    }
-    function each2(obj, iterator, context) {
-      var i;
-      if (!obj) {
-        return;
-      }
-      if (obj.forEach) {
-        obj.forEach(iterator, context);
-      } else if (obj.length !== undefined$1) {
-        i = 0;
-        while (i < obj.length) {
-          iterator.call(context, obj[i], i, obj);
-          i++;
-        }
-      } else {
-        for (i in obj) {
-          obj.hasOwnProperty(i) && iterator.call(context, obj[i], i, obj);
-        }
-      }
-    }
-    function deprecate(method, name, message2) {
-      var deprecationMessage = "DEPRECATED METHOD: " + name + "\n" + message2 + " AT \n";
-      return function() {
-        var e = new Error("get-stack-trace");
-        var stack = e && e.stack ? e.stack.replace(/^[^\(]+?[\n$]/gm, "").replace(/^\s+at\s+/gm, "").replace(/^Object.<anonymous>\s*\(/gm, "{anonymous}()@") : "Unknown Stack Trace";
-        var log = window2.console && (window2.console.warn || window2.console.log);
-        if (log) {
-          log.call(window2.console, deprecationMessage, stack);
-        }
-        return method.apply(this, arguments);
-      };
-    }
-    var assign;
-    if (typeof Object.assign !== "function") {
-      assign = function assign2(target) {
-        if (target === undefined$1 || target === null) {
-          throw new TypeError("Cannot convert undefined or null to object");
-        }
-        var output = Object(target);
-        for (var index = 1; index < arguments.length; index++) {
-          var source = arguments[index];
-          if (source !== undefined$1 && source !== null) {
-            for (var nextKey in source) {
-              if (source.hasOwnProperty(nextKey)) {
-                output[nextKey] = source[nextKey];
-              }
-            }
-          }
-        }
-        return output;
-      };
-    } else {
-      assign = Object.assign;
-    }
-    var extend = deprecate(function extend2(dest, src, merge3) {
-      var keys = Object.keys(src);
-      var i = 0;
-      while (i < keys.length) {
-        if (!merge3 || merge3 && dest[keys[i]] === undefined$1) {
-          dest[keys[i]] = src[keys[i]];
-        }
-        i++;
-      }
-      return dest;
-    }, "extend", "Use `assign`.");
-    var merge2 = deprecate(function merge3(dest, src) {
-      return extend(dest, src, true);
-    }, "merge", "Use `assign`.");
-    function inherit(child, base, properties) {
-      var baseP = base.prototype, childP;
-      childP = child.prototype = Object.create(baseP);
-      childP.constructor = child;
-      childP._super = baseP;
-      if (properties) {
-        assign(childP, properties);
-      }
-    }
-    function bindFn(fn, context) {
-      return function boundFn() {
-        return fn.apply(context, arguments);
-      };
-    }
-    function boolOrFn(val, args) {
-      if (typeof val == TYPE_FUNCTION) {
-        return val.apply(args ? args[0] || undefined$1 : undefined$1, args);
-      }
-      return val;
-    }
-    function ifUndefined(val1, val2) {
-      return val1 === undefined$1 ? val2 : val1;
-    }
-    function addEventListeners(target, types, handler) {
-      each2(splitStr(types), function(type) {
-        target.addEventListener(type, handler, false);
-      });
-    }
-    function removeEventListeners(target, types, handler) {
-      each2(splitStr(types), function(type) {
-        target.removeEventListener(type, handler, false);
-      });
-    }
-    function hasParent(node, parent) {
-      while (node) {
-        if (node == parent) {
-          return true;
-        }
-        node = node.parentNode;
-      }
-      return false;
-    }
-    function inStr(str, find) {
-      return str.indexOf(find) > -1;
-    }
-    function splitStr(str) {
-      return str.trim().split(/\s+/g);
-    }
-    function inArray(src, find, findByKey) {
-      if (src.indexOf && !findByKey) {
-        return src.indexOf(find);
-      } else {
-        var i = 0;
-        while (i < src.length) {
-          if (findByKey && src[i][findByKey] == find || !findByKey && src[i] === find) {
-            return i;
-          }
-          i++;
-        }
-        return -1;
-      }
-    }
-    function toArray(obj) {
-      return Array.prototype.slice.call(obj, 0);
-    }
-    function uniqueArray(src, key, sort) {
-      var results = [];
-      var values = [];
-      var i = 0;
-      while (i < src.length) {
-        var val = src[i][key];
-        if (inArray(values, val) < 0) {
-          results.push(src[i]);
-        }
-        values[i] = val;
-        i++;
-      }
-      {
-        {
-          results = results.sort(function sortUniqueArray(a, b) {
-            return a[key] > b[key];
-          });
-        }
-      }
-      return results;
-    }
-    function prefixed(obj, property) {
-      var prefix, prop;
-      var camelProp = property[0].toUpperCase() + property.slice(1);
-      var i = 0;
-      while (i < VENDOR_PREFIXES.length) {
-        prefix = VENDOR_PREFIXES[i];
-        prop = prefix ? prefix + camelProp : property;
-        if (prop in obj) {
-          return prop;
-        }
-        i++;
-      }
-      return undefined$1;
-    }
-    var _uniqueId = 1;
-    function uniqueId() {
-      return _uniqueId++;
-    }
-    function getWindowForElement(element) {
-      var doc = element.ownerDocument || element;
-      return doc.defaultView || doc.parentWindow || window2;
-    }
-    var MOBILE_REGEX = /mobile|tablet|ip(ad|hone|od)|android/i;
-    var SUPPORT_TOUCH = "ontouchstart" in window2;
-    var SUPPORT_POINTER_EVENTS = prefixed(window2, "PointerEvent") !== undefined$1;
-    var SUPPORT_ONLY_TOUCH = SUPPORT_TOUCH && MOBILE_REGEX.test(navigator.userAgent);
-    var INPUT_TYPE_TOUCH = "touch";
-    var INPUT_TYPE_PEN = "pen";
-    var INPUT_TYPE_MOUSE = "mouse";
-    var INPUT_TYPE_KINECT = "kinect";
-    var COMPUTE_INTERVAL = 25;
-    var INPUT_START = 1;
-    var INPUT_MOVE = 2;
-    var INPUT_END = 4;
-    var INPUT_CANCEL = 8;
-    var DIRECTION_NONE = 1;
-    var DIRECTION_LEFT = 2;
-    var DIRECTION_RIGHT = 4;
-    var DIRECTION_UP = 8;
-    var DIRECTION_DOWN = 16;
-    var DIRECTION_HORIZONTAL = DIRECTION_LEFT | DIRECTION_RIGHT;
-    var DIRECTION_VERTICAL = DIRECTION_UP | DIRECTION_DOWN;
-    var DIRECTION_ALL = DIRECTION_HORIZONTAL | DIRECTION_VERTICAL;
-    var PROPS_XY = ["x", "y"];
-    var PROPS_CLIENT_XY = ["clientX", "clientY"];
-    function Input(manager, callback2) {
-      var self2 = this;
-      this.manager = manager;
-      this.callback = callback2;
-      this.element = manager.element;
-      this.target = manager.options.inputTarget;
-      this.domHandler = function(ev) {
-        if (boolOrFn(manager.options.enable, [manager])) {
-          self2.handler(ev);
-        }
-      };
-      this.init();
-    }
-    Input.prototype = {
-      /**
-       * should handle the inputEvent data and trigger the callback
-       * @virtual
-       */
-      handler: function() {
-      },
-      /**
-       * bind the events
-       */
-      init: function() {
-        this.evEl && addEventListeners(this.element, this.evEl, this.domHandler);
-        this.evTarget && addEventListeners(this.target, this.evTarget, this.domHandler);
-        this.evWin && addEventListeners(getWindowForElement(this.element), this.evWin, this.domHandler);
-      },
-      /**
-       * unbind the events
-       */
-      destroy: function() {
-        this.evEl && removeEventListeners(this.element, this.evEl, this.domHandler);
-        this.evTarget && removeEventListeners(this.target, this.evTarget, this.domHandler);
-        this.evWin && removeEventListeners(getWindowForElement(this.element), this.evWin, this.domHandler);
-      }
-    };
-    function createInputInstance(manager) {
-      var Type;
-      var inputClass = manager.options.inputClass;
-      if (inputClass) {
-        Type = inputClass;
-      } else if (SUPPORT_POINTER_EVENTS) {
-        Type = PointerEventInput;
-      } else if (SUPPORT_ONLY_TOUCH) {
-        Type = TouchInput;
-      } else if (!SUPPORT_TOUCH) {
-        Type = MouseInput;
-      } else {
-        Type = TouchMouseInput;
-      }
-      return new Type(manager, inputHandler);
-    }
-    function inputHandler(manager, eventType, input) {
-      var pointersLen = input.pointers.length;
-      var changedPointersLen = input.changedPointers.length;
-      var isFirst = eventType & INPUT_START && pointersLen - changedPointersLen === 0;
-      var isFinal = eventType & (INPUT_END | INPUT_CANCEL) && pointersLen - changedPointersLen === 0;
-      input.isFirst = !!isFirst;
-      input.isFinal = !!isFinal;
-      if (isFirst) {
-        manager.session = {};
-      }
-      input.eventType = eventType;
-      computeInputData(manager, input);
-      manager.emit("hammer.input", input);
-      manager.recognize(input);
-      manager.session.prevInput = input;
-    }
-    function computeInputData(manager, input) {
-      var session = manager.session;
-      var pointers = input.pointers;
-      var pointersLength = pointers.length;
-      if (!session.firstInput) {
-        session.firstInput = simpleCloneInputData(input);
-      }
-      if (pointersLength > 1 && !session.firstMultiple) {
-        session.firstMultiple = simpleCloneInputData(input);
-      } else if (pointersLength === 1) {
-        session.firstMultiple = false;
-      }
-      var firstInput = session.firstInput;
-      var firstMultiple = session.firstMultiple;
-      var offsetCenter = firstMultiple ? firstMultiple.center : firstInput.center;
-      var center = input.center = getCenter2(pointers);
-      input.timeStamp = now();
-      input.deltaTime = input.timeStamp - firstInput.timeStamp;
-      input.angle = getAngle(offsetCenter, center);
-      input.distance = getDistance(offsetCenter, center);
-      computeDeltaXY(session, input);
-      input.offsetDirection = getDirection(input.deltaX, input.deltaY);
-      var overallVelocity = getVelocity(input.deltaTime, input.deltaX, input.deltaY);
-      input.overallVelocityX = overallVelocity.x;
-      input.overallVelocityY = overallVelocity.y;
-      input.overallVelocity = abs(overallVelocity.x) > abs(overallVelocity.y) ? overallVelocity.x : overallVelocity.y;
-      input.scale = firstMultiple ? getScale(firstMultiple.pointers, pointers) : 1;
-      input.rotation = firstMultiple ? getRotation(firstMultiple.pointers, pointers) : 0;
-      input.maxPointers = !session.prevInput ? input.pointers.length : input.pointers.length > session.prevInput.maxPointers ? input.pointers.length : session.prevInput.maxPointers;
-      computeIntervalInputData(session, input);
-      var target = manager.element;
-      if (hasParent(input.srcEvent.target, target)) {
-        target = input.srcEvent.target;
-      }
-      input.target = target;
-    }
-    function computeDeltaXY(session, input) {
-      var center = input.center;
-      var offset = session.offsetDelta || {};
-      var prevDelta = session.prevDelta || {};
-      var prevInput = session.prevInput || {};
-      if (input.eventType === INPUT_START || prevInput.eventType === INPUT_END) {
-        prevDelta = session.prevDelta = {
-          x: prevInput.deltaX || 0,
-          y: prevInput.deltaY || 0
-        };
-        offset = session.offsetDelta = {
-          x: center.x,
-          y: center.y
-        };
-      }
-      input.deltaX = prevDelta.x + (center.x - offset.x);
-      input.deltaY = prevDelta.y + (center.y - offset.y);
-    }
-    function computeIntervalInputData(session, input) {
-      var last = session.lastInterval || input, deltaTime = input.timeStamp - last.timeStamp, velocity, velocityX, velocityY, direction;
-      if (input.eventType != INPUT_CANCEL && (deltaTime > COMPUTE_INTERVAL || last.velocity === undefined$1)) {
-        var deltaX = input.deltaX - last.deltaX;
-        var deltaY = input.deltaY - last.deltaY;
-        var v2 = getVelocity(deltaTime, deltaX, deltaY);
-        velocityX = v2.x;
-        velocityY = v2.y;
-        velocity = abs(v2.x) > abs(v2.y) ? v2.x : v2.y;
-        direction = getDirection(deltaX, deltaY);
-        session.lastInterval = input;
-      } else {
-        velocity = last.velocity;
-        velocityX = last.velocityX;
-        velocityY = last.velocityY;
-        direction = last.direction;
-      }
-      input.velocity = velocity;
-      input.velocityX = velocityX;
-      input.velocityY = velocityY;
-      input.direction = direction;
-    }
-    function simpleCloneInputData(input) {
-      var pointers = [];
-      var i = 0;
-      while (i < input.pointers.length) {
-        pointers[i] = {
-          clientX: round2(input.pointers[i].clientX),
-          clientY: round2(input.pointers[i].clientY)
-        };
-        i++;
-      }
-      return {
-        timeStamp: now(),
-        pointers,
-        center: getCenter2(pointers),
-        deltaX: input.deltaX,
-        deltaY: input.deltaY
-      };
-    }
-    function getCenter2(pointers) {
-      var pointersLength = pointers.length;
-      if (pointersLength === 1) {
-        return {
-          x: round2(pointers[0].clientX),
-          y: round2(pointers[0].clientY)
-        };
-      }
-      var x2 = 0, y2 = 0, i = 0;
-      while (i < pointersLength) {
-        x2 += pointers[i].clientX;
-        y2 += pointers[i].clientY;
-        i++;
-      }
-      return {
-        x: round2(x2 / pointersLength),
-        y: round2(y2 / pointersLength)
-      };
-    }
-    function getVelocity(deltaTime, x2, y2) {
-      return {
-        x: x2 / deltaTime || 0,
-        y: y2 / deltaTime || 0
-      };
-    }
-    function getDirection(x2, y2) {
-      if (x2 === y2) {
-        return DIRECTION_NONE;
-      }
-      if (abs(x2) >= abs(y2)) {
-        return x2 < 0 ? DIRECTION_LEFT : DIRECTION_RIGHT;
-      }
-      return y2 < 0 ? DIRECTION_UP : DIRECTION_DOWN;
-    }
-    function getDistance(p1, p2, props) {
-      if (!props) {
-        props = PROPS_XY;
-      }
-      var x2 = p2[props[0]] - p1[props[0]], y2 = p2[props[1]] - p1[props[1]];
-      return Math.sqrt(x2 * x2 + y2 * y2);
-    }
-    function getAngle(p1, p2, props) {
-      if (!props) {
-        props = PROPS_XY;
-      }
-      var x2 = p2[props[0]] - p1[props[0]], y2 = p2[props[1]] - p1[props[1]];
-      return Math.atan2(y2, x2) * 180 / Math.PI;
-    }
-    function getRotation(start, end) {
-      return getAngle(end[1], end[0], PROPS_CLIENT_XY) + getAngle(start[1], start[0], PROPS_CLIENT_XY);
-    }
-    function getScale(start, end) {
-      return getDistance(end[0], end[1], PROPS_CLIENT_XY) / getDistance(start[0], start[1], PROPS_CLIENT_XY);
-    }
-    var MOUSE_INPUT_MAP = {
-      mousedown: INPUT_START,
-      mousemove: INPUT_MOVE,
-      mouseup: INPUT_END
-    };
-    var MOUSE_ELEMENT_EVENTS = "mousedown";
-    var MOUSE_WINDOW_EVENTS = "mousemove mouseup";
-    function MouseInput() {
-      this.evEl = MOUSE_ELEMENT_EVENTS;
-      this.evWin = MOUSE_WINDOW_EVENTS;
-      this.pressed = false;
-      Input.apply(this, arguments);
-    }
-    inherit(MouseInput, Input, {
-      /**
-       * handle mouse events
-       * @param {Object} ev
-       */
-      handler: function MEhandler(ev) {
-        var eventType = MOUSE_INPUT_MAP[ev.type];
-        if (eventType & INPUT_START && ev.button === 0) {
-          this.pressed = true;
-        }
-        if (eventType & INPUT_MOVE && ev.which !== 1) {
-          eventType = INPUT_END;
-        }
-        if (!this.pressed) {
-          return;
-        }
-        if (eventType & INPUT_END) {
-          this.pressed = false;
-        }
-        this.callback(this.manager, eventType, {
-          pointers: [ev],
-          changedPointers: [ev],
-          pointerType: INPUT_TYPE_MOUSE,
-          srcEvent: ev
-        });
-      }
-    });
-    var POINTER_INPUT_MAP = {
-      pointerdown: INPUT_START,
-      pointermove: INPUT_MOVE,
-      pointerup: INPUT_END,
-      pointercancel: INPUT_CANCEL,
-      pointerout: INPUT_CANCEL
-    };
-    var IE10_POINTER_TYPE_ENUM = {
-      2: INPUT_TYPE_TOUCH,
-      3: INPUT_TYPE_PEN,
-      4: INPUT_TYPE_MOUSE,
-      5: INPUT_TYPE_KINECT
-      // see https://twitter.com/jacobrossi/status/480596438489890816
-    };
-    var POINTER_ELEMENT_EVENTS = "pointerdown";
-    var POINTER_WINDOW_EVENTS = "pointermove pointerup pointercancel";
-    if (window2.MSPointerEvent && !window2.PointerEvent) {
-      POINTER_ELEMENT_EVENTS = "MSPointerDown";
-      POINTER_WINDOW_EVENTS = "MSPointerMove MSPointerUp MSPointerCancel";
-    }
-    function PointerEventInput() {
-      this.evEl = POINTER_ELEMENT_EVENTS;
-      this.evWin = POINTER_WINDOW_EVENTS;
-      Input.apply(this, arguments);
-      this.store = this.manager.session.pointerEvents = [];
-    }
-    inherit(PointerEventInput, Input, {
-      /**
-       * handle mouse events
-       * @param {Object} ev
-       */
-      handler: function PEhandler(ev) {
-        var store = this.store;
-        var removePointer = false;
-        var eventTypeNormalized = ev.type.toLowerCase().replace("ms", "");
-        var eventType = POINTER_INPUT_MAP[eventTypeNormalized];
-        var pointerType = IE10_POINTER_TYPE_ENUM[ev.pointerType] || ev.pointerType;
-        var isTouch = pointerType == INPUT_TYPE_TOUCH;
-        var storeIndex = inArray(store, ev.pointerId, "pointerId");
-        if (eventType & INPUT_START && (ev.button === 0 || isTouch)) {
-          if (storeIndex < 0) {
-            store.push(ev);
-            storeIndex = store.length - 1;
-          }
-        } else if (eventType & (INPUT_END | INPUT_CANCEL)) {
-          removePointer = true;
-        }
-        if (storeIndex < 0) {
-          return;
-        }
-        store[storeIndex] = ev;
-        this.callback(this.manager, eventType, {
-          pointers: store,
-          changedPointers: [ev],
-          pointerType,
-          srcEvent: ev
-        });
-        if (removePointer) {
-          store.splice(storeIndex, 1);
-        }
-      }
-    });
-    var SINGLE_TOUCH_INPUT_MAP = {
-      touchstart: INPUT_START,
-      touchmove: INPUT_MOVE,
-      touchend: INPUT_END,
-      touchcancel: INPUT_CANCEL
-    };
-    var SINGLE_TOUCH_TARGET_EVENTS = "touchstart";
-    var SINGLE_TOUCH_WINDOW_EVENTS = "touchstart touchmove touchend touchcancel";
-    function SingleTouchInput() {
-      this.evTarget = SINGLE_TOUCH_TARGET_EVENTS;
-      this.evWin = SINGLE_TOUCH_WINDOW_EVENTS;
-      this.started = false;
-      Input.apply(this, arguments);
-    }
-    inherit(SingleTouchInput, Input, {
-      handler: function TEhandler(ev) {
-        var type = SINGLE_TOUCH_INPUT_MAP[ev.type];
-        if (type === INPUT_START) {
-          this.started = true;
-        }
-        if (!this.started) {
-          return;
-        }
-        var touches = normalizeSingleTouches.call(this, ev, type);
-        if (type & (INPUT_END | INPUT_CANCEL) && touches[0].length - touches[1].length === 0) {
-          this.started = false;
-        }
-        this.callback(this.manager, type, {
-          pointers: touches[0],
-          changedPointers: touches[1],
-          pointerType: INPUT_TYPE_TOUCH,
-          srcEvent: ev
-        });
-      }
-    });
-    function normalizeSingleTouches(ev, type) {
-      var all = toArray(ev.touches);
-      var changed = toArray(ev.changedTouches);
-      if (type & (INPUT_END | INPUT_CANCEL)) {
-        all = uniqueArray(all.concat(changed), "identifier");
-      }
-      return [all, changed];
-    }
-    var TOUCH_INPUT_MAP = {
-      touchstart: INPUT_START,
-      touchmove: INPUT_MOVE,
-      touchend: INPUT_END,
-      touchcancel: INPUT_CANCEL
-    };
-    var TOUCH_TARGET_EVENTS = "touchstart touchmove touchend touchcancel";
-    function TouchInput() {
-      this.evTarget = TOUCH_TARGET_EVENTS;
-      this.targetIds = {};
-      Input.apply(this, arguments);
-    }
-    inherit(TouchInput, Input, {
-      handler: function MTEhandler(ev) {
-        var type = TOUCH_INPUT_MAP[ev.type];
-        var touches = getTouches.call(this, ev, type);
-        if (!touches) {
-          return;
-        }
-        this.callback(this.manager, type, {
-          pointers: touches[0],
-          changedPointers: touches[1],
-          pointerType: INPUT_TYPE_TOUCH,
-          srcEvent: ev
-        });
-      }
-    });
-    function getTouches(ev, type) {
-      var allTouches = toArray(ev.touches);
-      var targetIds = this.targetIds;
-      if (type & (INPUT_START | INPUT_MOVE) && allTouches.length === 1) {
-        targetIds[allTouches[0].identifier] = true;
-        return [allTouches, allTouches];
-      }
-      var i, targetTouches, changedTouches = toArray(ev.changedTouches), changedTargetTouches = [], target = this.target;
-      targetTouches = allTouches.filter(function(touch) {
-        return hasParent(touch.target, target);
-      });
-      if (type === INPUT_START) {
-        i = 0;
-        while (i < targetTouches.length) {
-          targetIds[targetTouches[i].identifier] = true;
-          i++;
-        }
-      }
-      i = 0;
-      while (i < changedTouches.length) {
-        if (targetIds[changedTouches[i].identifier]) {
-          changedTargetTouches.push(changedTouches[i]);
-        }
-        if (type & (INPUT_END | INPUT_CANCEL)) {
-          delete targetIds[changedTouches[i].identifier];
-        }
-        i++;
-      }
-      if (!changedTargetTouches.length) {
-        return;
-      }
-      return [
-        // merge targetTouches with changedTargetTouches so it contains ALL touches, including 'end' and 'cancel'
-        uniqueArray(targetTouches.concat(changedTargetTouches), "identifier"),
-        changedTargetTouches
-      ];
-    }
-    var DEDUP_TIMEOUT = 2500;
-    var DEDUP_DISTANCE = 25;
-    function TouchMouseInput() {
-      Input.apply(this, arguments);
-      var handler = bindFn(this.handler, this);
-      this.touch = new TouchInput(this.manager, handler);
-      this.mouse = new MouseInput(this.manager, handler);
-      this.primaryTouch = null;
-      this.lastTouches = [];
-    }
-    inherit(TouchMouseInput, Input, {
-      /**
-       * handle mouse and touch events
-       * @param {Hammer} manager
-       * @param {String} inputEvent
-       * @param {Object} inputData
-       */
-      handler: function TMEhandler(manager, inputEvent, inputData) {
-        var isTouch = inputData.pointerType == INPUT_TYPE_TOUCH, isMouse = inputData.pointerType == INPUT_TYPE_MOUSE;
-        if (isMouse && inputData.sourceCapabilities && inputData.sourceCapabilities.firesTouchEvents) {
-          return;
-        }
-        if (isTouch) {
-          recordTouches.call(this, inputEvent, inputData);
-        } else if (isMouse && isSyntheticEvent.call(this, inputData)) {
-          return;
-        }
-        this.callback(manager, inputEvent, inputData);
-      },
-      /**
-       * remove the event listeners
-       */
-      destroy: function destroy() {
-        this.touch.destroy();
-        this.mouse.destroy();
-      }
-    });
-    function recordTouches(eventType, eventData) {
-      if (eventType & INPUT_START) {
-        this.primaryTouch = eventData.changedPointers[0].identifier;
-        setLastTouch.call(this, eventData);
-      } else if (eventType & (INPUT_END | INPUT_CANCEL)) {
-        setLastTouch.call(this, eventData);
-      }
-    }
-    function setLastTouch(eventData) {
-      var touch = eventData.changedPointers[0];
-      if (touch.identifier === this.primaryTouch) {
-        var lastTouch = { x: touch.clientX, y: touch.clientY };
-        this.lastTouches.push(lastTouch);
-        var lts = this.lastTouches;
-        var removeLastTouch = function() {
-          var i = lts.indexOf(lastTouch);
-          if (i > -1) {
-            lts.splice(i, 1);
-          }
-        };
-        setTimeout(removeLastTouch, DEDUP_TIMEOUT);
-      }
-    }
-    function isSyntheticEvent(eventData) {
-      var x2 = eventData.srcEvent.clientX, y2 = eventData.srcEvent.clientY;
-      for (var i = 0; i < this.lastTouches.length; i++) {
-        var t2 = this.lastTouches[i];
-        var dx = Math.abs(x2 - t2.x), dy = Math.abs(y2 - t2.y);
-        if (dx <= DEDUP_DISTANCE && dy <= DEDUP_DISTANCE) {
-          return true;
-        }
-      }
-      return false;
-    }
-    var PREFIXED_TOUCH_ACTION = prefixed(TEST_ELEMENT.style, "touchAction");
-    var NATIVE_TOUCH_ACTION = PREFIXED_TOUCH_ACTION !== undefined$1;
-    var TOUCH_ACTION_COMPUTE = "compute";
-    var TOUCH_ACTION_AUTO = "auto";
-    var TOUCH_ACTION_MANIPULATION = "manipulation";
-    var TOUCH_ACTION_NONE = "none";
-    var TOUCH_ACTION_PAN_X = "pan-x";
-    var TOUCH_ACTION_PAN_Y = "pan-y";
-    var TOUCH_ACTION_MAP = getTouchActionProps();
-    function TouchAction(manager, value) {
-      this.manager = manager;
-      this.set(value);
-    }
-    TouchAction.prototype = {
-      /**
-       * set the touchAction value on the element or enable the polyfill
-       * @param {String} value
-       */
-      set: function(value) {
-        if (value == TOUCH_ACTION_COMPUTE) {
-          value = this.compute();
-        }
-        if (NATIVE_TOUCH_ACTION && this.manager.element.style && TOUCH_ACTION_MAP[value]) {
-          this.manager.element.style[PREFIXED_TOUCH_ACTION] = value;
-        }
-        this.actions = value.toLowerCase().trim();
-      },
-      /**
-       * just re-set the touchAction value
-       */
-      update: function() {
-        this.set(this.manager.options.touchAction);
-      },
-      /**
-       * compute the value for the touchAction property based on the recognizer's settings
-       * @returns {String} value
-       */
-      compute: function() {
-        var actions = [];
-        each2(this.manager.recognizers, function(recognizer) {
-          if (boolOrFn(recognizer.options.enable, [recognizer])) {
-            actions = actions.concat(recognizer.getTouchAction());
-          }
-        });
-        return cleanTouchActions(actions.join(" "));
-      },
-      /**
-       * this method is called on each input cycle and provides the preventing of the browser behavior
-       * @param {Object} input
-       */
-      preventDefaults: function(input) {
-        var srcEvent = input.srcEvent;
-        var direction = input.offsetDirection;
-        if (this.manager.session.prevented) {
-          srcEvent.preventDefault();
-          return;
-        }
-        var actions = this.actions;
-        var hasNone = inStr(actions, TOUCH_ACTION_NONE) && !TOUCH_ACTION_MAP[TOUCH_ACTION_NONE];
-        var hasPanY = inStr(actions, TOUCH_ACTION_PAN_Y) && !TOUCH_ACTION_MAP[TOUCH_ACTION_PAN_Y];
-        var hasPanX = inStr(actions, TOUCH_ACTION_PAN_X) && !TOUCH_ACTION_MAP[TOUCH_ACTION_PAN_X];
-        if (hasNone) {
-          var isTapPointer = input.pointers.length === 1;
-          var isTapMovement = input.distance < 2;
-          var isTapTouchTime = input.deltaTime < 250;
-          if (isTapPointer && isTapMovement && isTapTouchTime) {
-            return;
-          }
-        }
-        if (hasPanX && hasPanY) {
-          return;
-        }
-        if (hasNone || hasPanY && direction & DIRECTION_HORIZONTAL || hasPanX && direction & DIRECTION_VERTICAL) {
-          return this.preventSrc(srcEvent);
-        }
-      },
-      /**
-       * call preventDefault to prevent the browser's default behavior (scrolling in most cases)
-       * @param {Object} srcEvent
-       */
-      preventSrc: function(srcEvent) {
-        this.manager.session.prevented = true;
-        srcEvent.preventDefault();
-      }
-    };
-    function cleanTouchActions(actions) {
-      if (inStr(actions, TOUCH_ACTION_NONE)) {
-        return TOUCH_ACTION_NONE;
-      }
-      var hasPanX = inStr(actions, TOUCH_ACTION_PAN_X);
-      var hasPanY = inStr(actions, TOUCH_ACTION_PAN_Y);
-      if (hasPanX && hasPanY) {
-        return TOUCH_ACTION_NONE;
-      }
-      if (hasPanX || hasPanY) {
-        return hasPanX ? TOUCH_ACTION_PAN_X : TOUCH_ACTION_PAN_Y;
-      }
-      if (inStr(actions, TOUCH_ACTION_MANIPULATION)) {
-        return TOUCH_ACTION_MANIPULATION;
-      }
-      return TOUCH_ACTION_AUTO;
-    }
-    function getTouchActionProps() {
-      if (!NATIVE_TOUCH_ACTION) {
-        return false;
-      }
-      var touchMap = {};
-      var cssSupports = window2.CSS && window2.CSS.supports;
-      ["auto", "manipulation", "pan-y", "pan-x", "pan-x pan-y", "none"].forEach(function(val) {
-        touchMap[val] = cssSupports ? window2.CSS.supports("touch-action", val) : true;
-      });
-      return touchMap;
-    }
-    var STATE_POSSIBLE = 1;
-    var STATE_BEGAN = 2;
-    var STATE_CHANGED = 4;
-    var STATE_ENDED = 8;
-    var STATE_RECOGNIZED = STATE_ENDED;
-    var STATE_CANCELLED = 16;
-    var STATE_FAILED = 32;
-    function Recognizer(options) {
-      this.options = assign({}, this.defaults, options || {});
-      this.id = uniqueId();
-      this.manager = null;
-      this.options.enable = ifUndefined(this.options.enable, true);
-      this.state = STATE_POSSIBLE;
-      this.simultaneous = {};
-      this.requireFail = [];
-    }
-    Recognizer.prototype = {
-      /**
-       * @virtual
-       * @type {Object}
-       */
-      defaults: {},
-      /**
-       * set options
-       * @param {Object} options
-       * @return {Recognizer}
-       */
-      set: function(options) {
-        assign(this.options, options);
-        this.manager && this.manager.touchAction.update();
-        return this;
-      },
-      /**
-       * recognize simultaneous with an other recognizer.
-       * @param {Recognizer} otherRecognizer
-       * @returns {Recognizer} this
-       */
-      recognizeWith: function(otherRecognizer) {
-        if (invokeArrayArg(otherRecognizer, "recognizeWith", this)) {
-          return this;
-        }
-        var simultaneous = this.simultaneous;
-        otherRecognizer = getRecognizerByNameIfManager(otherRecognizer, this);
-        if (!simultaneous[otherRecognizer.id]) {
-          simultaneous[otherRecognizer.id] = otherRecognizer;
-          otherRecognizer.recognizeWith(this);
-        }
-        return this;
-      },
-      /**
-       * drop the simultaneous link. it doesnt remove the link on the other recognizer.
-       * @param {Recognizer} otherRecognizer
-       * @returns {Recognizer} this
-       */
-      dropRecognizeWith: function(otherRecognizer) {
-        if (invokeArrayArg(otherRecognizer, "dropRecognizeWith", this)) {
-          return this;
-        }
-        otherRecognizer = getRecognizerByNameIfManager(otherRecognizer, this);
-        delete this.simultaneous[otherRecognizer.id];
-        return this;
-      },
-      /**
-       * recognizer can only run when an other is failing
-       * @param {Recognizer} otherRecognizer
-       * @returns {Recognizer} this
-       */
-      requireFailure: function(otherRecognizer) {
-        if (invokeArrayArg(otherRecognizer, "requireFailure", this)) {
-          return this;
-        }
-        var requireFail = this.requireFail;
-        otherRecognizer = getRecognizerByNameIfManager(otherRecognizer, this);
-        if (inArray(requireFail, otherRecognizer) === -1) {
-          requireFail.push(otherRecognizer);
-          otherRecognizer.requireFailure(this);
-        }
-        return this;
-      },
-      /**
-       * drop the requireFailure link. it does not remove the link on the other recognizer.
-       * @param {Recognizer} otherRecognizer
-       * @returns {Recognizer} this
-       */
-      dropRequireFailure: function(otherRecognizer) {
-        if (invokeArrayArg(otherRecognizer, "dropRequireFailure", this)) {
-          return this;
-        }
-        otherRecognizer = getRecognizerByNameIfManager(otherRecognizer, this);
-        var index = inArray(this.requireFail, otherRecognizer);
-        if (index > -1) {
-          this.requireFail.splice(index, 1);
-        }
-        return this;
-      },
-      /**
-       * has require failures boolean
-       * @returns {boolean}
-       */
-      hasRequireFailures: function() {
-        return this.requireFail.length > 0;
-      },
-      /**
-       * if the recognizer can recognize simultaneous with an other recognizer
-       * @param {Recognizer} otherRecognizer
-       * @returns {Boolean}
-       */
-      canRecognizeWith: function(otherRecognizer) {
-        return !!this.simultaneous[otherRecognizer.id];
-      },
-      /**
-       * You should use `tryEmit` instead of `emit` directly to check
-       * that all the needed recognizers has failed before emitting.
-       * @param {Object} input
-       */
-      emit: function(input) {
-        var self2 = this;
-        var state = this.state;
-        function emit(event) {
-          self2.manager.emit(event, input);
-        }
-        if (state < STATE_ENDED) {
-          emit(self2.options.event + stateStr(state));
-        }
-        emit(self2.options.event);
-        if (input.additionalEvent) {
-          emit(input.additionalEvent);
-        }
-        if (state >= STATE_ENDED) {
-          emit(self2.options.event + stateStr(state));
-        }
-      },
-      /**
-       * Check that all the require failure recognizers has failed,
-       * if true, it emits a gesture event,
-       * otherwise, setup the state to FAILED.
-       * @param {Object} input
-       */
-      tryEmit: function(input) {
-        if (this.canEmit()) {
-          return this.emit(input);
-        }
-        this.state = STATE_FAILED;
-      },
-      /**
-       * can we emit?
-       * @returns {boolean}
-       */
-      canEmit: function() {
-        var i = 0;
-        while (i < this.requireFail.length) {
-          if (!(this.requireFail[i].state & (STATE_FAILED | STATE_POSSIBLE))) {
-            return false;
-          }
-          i++;
-        }
-        return true;
-      },
-      /**
-       * update the recognizer
-       * @param {Object} inputData
-       */
-      recognize: function(inputData) {
-        var inputDataClone = assign({}, inputData);
-        if (!boolOrFn(this.options.enable, [this, inputDataClone])) {
-          this.reset();
-          this.state = STATE_FAILED;
-          return;
-        }
-        if (this.state & (STATE_RECOGNIZED | STATE_CANCELLED | STATE_FAILED)) {
-          this.state = STATE_POSSIBLE;
-        }
-        this.state = this.process(inputDataClone);
-        if (this.state & (STATE_BEGAN | STATE_CHANGED | STATE_ENDED | STATE_CANCELLED)) {
-          this.tryEmit(inputDataClone);
-        }
-      },
-      /**
-       * return the state of the recognizer
-       * the actual recognizing happens in this method
-       * @virtual
-       * @param {Object} inputData
-       * @returns {Const} STATE
-       */
-      process: function(inputData) {
-      },
-      // jshint ignore:line
-      /**
-       * return the preferred touch-action
-       * @virtual
-       * @returns {Array}
-       */
-      getTouchAction: function() {
-      },
-      /**
-       * called when the gesture isn't allowed to recognize
-       * like when another is being recognized or it is disabled
-       * @virtual
-       */
-      reset: function() {
-      }
-    };
-    function stateStr(state) {
-      if (state & STATE_CANCELLED) {
-        return "cancel";
-      } else if (state & STATE_ENDED) {
-        return "end";
-      } else if (state & STATE_CHANGED) {
-        return "move";
-      } else if (state & STATE_BEGAN) {
-        return "start";
-      }
-      return "";
-    }
-    function directionStr(direction) {
-      if (direction == DIRECTION_DOWN) {
-        return "down";
-      } else if (direction == DIRECTION_UP) {
-        return "up";
-      } else if (direction == DIRECTION_LEFT) {
-        return "left";
-      } else if (direction == DIRECTION_RIGHT) {
-        return "right";
-      }
-      return "";
-    }
-    function getRecognizerByNameIfManager(otherRecognizer, recognizer) {
-      var manager = recognizer.manager;
-      if (manager) {
-        return manager.get(otherRecognizer);
-      }
-      return otherRecognizer;
-    }
-    function AttrRecognizer() {
-      Recognizer.apply(this, arguments);
-    }
-    inherit(AttrRecognizer, Recognizer, {
-      /**
-       * @namespace
-       * @memberof AttrRecognizer
-       */
-      defaults: {
-        /**
-         * @type {Number}
-         * @default 1
-         */
-        pointers: 1
-      },
-      /**
-       * Used to check if it the recognizer receives valid input, like input.distance > 10.
-       * @memberof AttrRecognizer
-       * @param {Object} input
-       * @returns {Boolean} recognized
-       */
-      attrTest: function(input) {
-        var optionPointers = this.options.pointers;
-        return optionPointers === 0 || input.pointers.length === optionPointers;
-      },
-      /**
-       * Process the input and return the state for the recognizer
-       * @memberof AttrRecognizer
-       * @param {Object} input
-       * @returns {*} State
-       */
-      process: function(input) {
-        var state = this.state;
-        var eventType = input.eventType;
-        var isRecognized = state & (STATE_BEGAN | STATE_CHANGED);
-        var isValid2 = this.attrTest(input);
-        if (isRecognized && (eventType & INPUT_CANCEL || !isValid2)) {
-          return state | STATE_CANCELLED;
-        } else if (isRecognized || isValid2) {
-          if (eventType & INPUT_END) {
-            return state | STATE_ENDED;
-          } else if (!(state & STATE_BEGAN)) {
-            return STATE_BEGAN;
-          }
-          return state | STATE_CHANGED;
-        }
-        return STATE_FAILED;
-      }
-    });
-    function PanRecognizer() {
-      AttrRecognizer.apply(this, arguments);
-      this.pX = null;
-      this.pY = null;
-    }
-    inherit(PanRecognizer, AttrRecognizer, {
-      /**
-       * @namespace
-       * @memberof PanRecognizer
-       */
-      defaults: {
-        event: "pan",
-        threshold: 10,
-        pointers: 1,
-        direction: DIRECTION_ALL
-      },
-      getTouchAction: function() {
-        var direction = this.options.direction;
-        var actions = [];
-        if (direction & DIRECTION_HORIZONTAL) {
-          actions.push(TOUCH_ACTION_PAN_Y);
-        }
-        if (direction & DIRECTION_VERTICAL) {
-          actions.push(TOUCH_ACTION_PAN_X);
-        }
-        return actions;
-      },
-      directionTest: function(input) {
-        var options = this.options;
-        var hasMoved = true;
-        var distance = input.distance;
-        var direction = input.direction;
-        var x2 = input.deltaX;
-        var y2 = input.deltaY;
-        if (!(direction & options.direction)) {
-          if (options.direction & DIRECTION_HORIZONTAL) {
-            direction = x2 === 0 ? DIRECTION_NONE : x2 < 0 ? DIRECTION_LEFT : DIRECTION_RIGHT;
-            hasMoved = x2 != this.pX;
-            distance = Math.abs(input.deltaX);
-          } else {
-            direction = y2 === 0 ? DIRECTION_NONE : y2 < 0 ? DIRECTION_UP : DIRECTION_DOWN;
-            hasMoved = y2 != this.pY;
-            distance = Math.abs(input.deltaY);
-          }
-        }
-        input.direction = direction;
-        return hasMoved && distance > options.threshold && direction & options.direction;
-      },
-      attrTest: function(input) {
-        return AttrRecognizer.prototype.attrTest.call(this, input) && (this.state & STATE_BEGAN || !(this.state & STATE_BEGAN) && this.directionTest(input));
-      },
-      emit: function(input) {
-        this.pX = input.deltaX;
-        this.pY = input.deltaY;
-        var direction = directionStr(input.direction);
-        if (direction) {
-          input.additionalEvent = this.options.event + direction;
-        }
-        this._super.emit.call(this, input);
-      }
-    });
-    function PinchRecognizer() {
-      AttrRecognizer.apply(this, arguments);
-    }
-    inherit(PinchRecognizer, AttrRecognizer, {
-      /**
-       * @namespace
-       * @memberof PinchRecognizer
-       */
-      defaults: {
-        event: "pinch",
-        threshold: 0,
-        pointers: 2
-      },
-      getTouchAction: function() {
-        return [TOUCH_ACTION_NONE];
-      },
-      attrTest: function(input) {
-        return this._super.attrTest.call(this, input) && (Math.abs(input.scale - 1) > this.options.threshold || this.state & STATE_BEGAN);
-      },
-      emit: function(input) {
-        if (input.scale !== 1) {
-          var inOut = input.scale < 1 ? "in" : "out";
-          input.additionalEvent = this.options.event + inOut;
-        }
-        this._super.emit.call(this, input);
-      }
-    });
-    function PressRecognizer() {
-      Recognizer.apply(this, arguments);
-      this._timer = null;
-      this._input = null;
-    }
-    inherit(PressRecognizer, Recognizer, {
-      /**
-       * @namespace
-       * @memberof PressRecognizer
-       */
-      defaults: {
-        event: "press",
-        pointers: 1,
-        time: 251,
-        // minimal time of the pointer to be pressed
-        threshold: 9
-        // a minimal movement is ok, but keep it low
-      },
-      getTouchAction: function() {
-        return [TOUCH_ACTION_AUTO];
-      },
-      process: function(input) {
-        var options = this.options;
-        var validPointers = input.pointers.length === options.pointers;
-        var validMovement = input.distance < options.threshold;
-        var validTime = input.deltaTime > options.time;
-        this._input = input;
-        if (!validMovement || !validPointers || input.eventType & (INPUT_END | INPUT_CANCEL) && !validTime) {
-          this.reset();
-        } else if (input.eventType & INPUT_START) {
-          this.reset();
-          this._timer = setTimeoutContext(function() {
-            this.state = STATE_RECOGNIZED;
-            this.tryEmit();
-          }, options.time, this);
-        } else if (input.eventType & INPUT_END) {
-          return STATE_RECOGNIZED;
-        }
-        return STATE_FAILED;
-      },
-      reset: function() {
-        clearTimeout(this._timer);
-      },
-      emit: function(input) {
-        if (this.state !== STATE_RECOGNIZED) {
-          return;
-        }
-        if (input && input.eventType & INPUT_END) {
-          this.manager.emit(this.options.event + "up", input);
-        } else {
-          this._input.timeStamp = now();
-          this.manager.emit(this.options.event, this._input);
-        }
-      }
-    });
-    function RotateRecognizer() {
-      AttrRecognizer.apply(this, arguments);
-    }
-    inherit(RotateRecognizer, AttrRecognizer, {
-      /**
-       * @namespace
-       * @memberof RotateRecognizer
-       */
-      defaults: {
-        event: "rotate",
-        threshold: 0,
-        pointers: 2
-      },
-      getTouchAction: function() {
-        return [TOUCH_ACTION_NONE];
-      },
-      attrTest: function(input) {
-        return this._super.attrTest.call(this, input) && (Math.abs(input.rotation) > this.options.threshold || this.state & STATE_BEGAN);
-      }
-    });
-    function SwipeRecognizer() {
-      AttrRecognizer.apply(this, arguments);
-    }
-    inherit(SwipeRecognizer, AttrRecognizer, {
-      /**
-       * @namespace
-       * @memberof SwipeRecognizer
-       */
-      defaults: {
-        event: "swipe",
-        threshold: 10,
-        velocity: 0.3,
-        direction: DIRECTION_HORIZONTAL | DIRECTION_VERTICAL,
-        pointers: 1
-      },
-      getTouchAction: function() {
-        return PanRecognizer.prototype.getTouchAction.call(this);
-      },
-      attrTest: function(input) {
-        var direction = this.options.direction;
-        var velocity;
-        if (direction & (DIRECTION_HORIZONTAL | DIRECTION_VERTICAL)) {
-          velocity = input.overallVelocity;
-        } else if (direction & DIRECTION_HORIZONTAL) {
-          velocity = input.overallVelocityX;
-        } else if (direction & DIRECTION_VERTICAL) {
-          velocity = input.overallVelocityY;
-        }
-        return this._super.attrTest.call(this, input) && direction & input.offsetDirection && input.distance > this.options.threshold && input.maxPointers == this.options.pointers && abs(velocity) > this.options.velocity && input.eventType & INPUT_END;
-      },
-      emit: function(input) {
-        var direction = directionStr(input.offsetDirection);
-        if (direction) {
-          this.manager.emit(this.options.event + direction, input);
-        }
-        this.manager.emit(this.options.event, input);
-      }
-    });
-    function TapRecognizer() {
-      Recognizer.apply(this, arguments);
-      this.pTime = false;
-      this.pCenter = false;
-      this._timer = null;
-      this._input = null;
-      this.count = 0;
-    }
-    inherit(TapRecognizer, Recognizer, {
-      /**
-       * @namespace
-       * @memberof PinchRecognizer
-       */
-      defaults: {
-        event: "tap",
-        pointers: 1,
-        taps: 1,
-        interval: 300,
-        // max time between the multi-tap taps
-        time: 250,
-        // max time of the pointer to be down (like finger on the screen)
-        threshold: 9,
-        // a minimal movement is ok, but keep it low
-        posThreshold: 10
-        // a multi-tap can be a bit off the initial position
-      },
-      getTouchAction: function() {
-        return [TOUCH_ACTION_MANIPULATION];
-      },
-      process: function(input) {
-        var options = this.options;
-        var validPointers = input.pointers.length === options.pointers;
-        var validMovement = input.distance < options.threshold;
-        var validTouchTime = input.deltaTime < options.time;
-        this.reset();
-        if (input.eventType & INPUT_START && this.count === 0) {
-          return this.failTimeout();
-        }
-        if (validMovement && validTouchTime && validPointers) {
-          if (input.eventType != INPUT_END) {
-            return this.failTimeout();
-          }
-          var validInterval = this.pTime ? input.timeStamp - this.pTime < options.interval : true;
-          var validMultiTap = !this.pCenter || getDistance(this.pCenter, input.center) < options.posThreshold;
-          this.pTime = input.timeStamp;
-          this.pCenter = input.center;
-          if (!validMultiTap || !validInterval) {
-            this.count = 1;
-          } else {
-            this.count += 1;
-          }
-          this._input = input;
-          var tapCount = this.count % options.taps;
-          if (tapCount === 0) {
-            if (!this.hasRequireFailures()) {
-              return STATE_RECOGNIZED;
-            } else {
-              this._timer = setTimeoutContext(function() {
-                this.state = STATE_RECOGNIZED;
-                this.tryEmit();
-              }, options.interval, this);
-              return STATE_BEGAN;
-            }
-          }
-        }
-        return STATE_FAILED;
-      },
-      failTimeout: function() {
-        this._timer = setTimeoutContext(function() {
-          this.state = STATE_FAILED;
-        }, this.options.interval, this);
-        return STATE_FAILED;
-      },
-      reset: function() {
-        clearTimeout(this._timer);
-      },
-      emit: function() {
-        if (this.state == STATE_RECOGNIZED) {
-          this._input.tapCount = this.count;
-          this.manager.emit(this.options.event, this._input);
-        }
-      }
-    });
-    function Hammer2(element, options) {
-      options = options || {};
-      options.recognizers = ifUndefined(options.recognizers, Hammer2.defaults.preset);
-      return new Manager(element, options);
-    }
-    Hammer2.VERSION = "2.0.7";
-    Hammer2.defaults = {
-      /**
-       * set if DOM events are being triggered.
-       * But this is slower and unused by simple implementations, so disabled by default.
-       * @type {Boolean}
-       * @default false
-       */
-      domEvents: false,
-      /**
-       * The value for the touchAction property/fallback.
-       * When set to `compute` it will magically set the correct value based on the added recognizers.
-       * @type {String}
-       * @default compute
-       */
-      touchAction: TOUCH_ACTION_COMPUTE,
-      /**
-       * @type {Boolean}
-       * @default true
-       */
-      enable: true,
-      /**
-       * EXPERIMENTAL FEATURE -- can be removed/changed
-       * Change the parent input target element.
-       * If Null, then it is being set the to main element.
-       * @type {Null|EventTarget}
-       * @default null
-       */
-      inputTarget: null,
-      /**
-       * force an input class
-       * @type {Null|Function}
-       * @default null
-       */
-      inputClass: null,
-      /**
-       * Default recognizer setup when calling `Hammer()`
-       * When creating a new Manager these will be skipped.
-       * @type {Array}
-       */
-      preset: [
-        // RecognizerClass, options, [recognizeWith, ...], [requireFailure, ...]
-        [RotateRecognizer, { enable: false }],
-        [PinchRecognizer, { enable: false }, ["rotate"]],
-        [SwipeRecognizer, { direction: DIRECTION_HORIZONTAL }],
-        [PanRecognizer, { direction: DIRECTION_HORIZONTAL }, ["swipe"]],
-        [TapRecognizer],
-        [TapRecognizer, { event: "doubletap", taps: 2 }, ["tap"]],
-        [PressRecognizer]
-      ],
-      /**
-       * Some CSS properties can be used to improve the working of Hammer.
-       * Add them to this method and they will be set when creating a new Manager.
-       * @namespace
-       */
-      cssProps: {
-        /**
-         * Disables text selection to improve the dragging gesture. Mainly for desktop browsers.
-         * @type {String}
-         * @default 'none'
-         */
-        userSelect: "none",
-        /**
-         * Disable the Windows Phone grippers when pressing an element.
-         * @type {String}
-         * @default 'none'
-         */
-        touchSelect: "none",
-        /**
-         * Disables the default callout shown when you touch and hold a touch target.
-         * On iOS, when you touch and hold a touch target such as a link, Safari displays
-         * a callout containing information about the link. This property allows you to disable that callout.
-         * @type {String}
-         * @default 'none'
-         */
-        touchCallout: "none",
-        /**
-         * Specifies whether zooming is enabled. Used by IE10>
-         * @type {String}
-         * @default 'none'
-         */
-        contentZooming: "none",
-        /**
-         * Specifies that an entire element should be draggable instead of its contents. Mainly for desktop browsers.
-         * @type {String}
-         * @default 'none'
-         */
-        userDrag: "none",
-        /**
-         * Overrides the highlight color shown when the user taps a link or a JavaScript
-         * clickable element in iOS. This property obeys the alpha value, if specified.
-         * @type {String}
-         * @default 'rgba(0,0,0,0)'
-         */
-        tapHighlightColor: "rgba(0,0,0,0)"
-      }
-    };
-    var STOP = 1;
-    var FORCED_STOP = 2;
-    function Manager(element, options) {
-      this.options = assign({}, Hammer2.defaults, options || {});
-      this.options.inputTarget = this.options.inputTarget || element;
-      this.handlers = {};
-      this.session = {};
-      this.recognizers = [];
-      this.oldCssProps = {};
-      this.element = element;
-      this.input = createInputInstance(this);
-      this.touchAction = new TouchAction(this, this.options.touchAction);
-      toggleCssProps(this, true);
-      each2(this.options.recognizers, function(item) {
-        var recognizer = this.add(new item[0](item[1]));
-        item[2] && recognizer.recognizeWith(item[2]);
-        item[3] && recognizer.requireFailure(item[3]);
-      }, this);
-    }
-    Manager.prototype = {
-      /**
-       * set options
-       * @param {Object} options
-       * @returns {Manager}
-       */
-      set: function(options) {
-        assign(this.options, options);
-        if (options.touchAction) {
-          this.touchAction.update();
-        }
-        if (options.inputTarget) {
-          this.input.destroy();
-          this.input.target = options.inputTarget;
-          this.input.init();
-        }
-        return this;
-      },
-      /**
-       * stop recognizing for this session.
-       * This session will be discarded, when a new [input]start event is fired.
-       * When forced, the recognizer cycle is stopped immediately.
-       * @param {Boolean} [force]
-       */
-      stop: function(force) {
-        this.session.stopped = force ? FORCED_STOP : STOP;
-      },
-      /**
-       * run the recognizers!
-       * called by the inputHandler function on every movement of the pointers (touches)
-       * it walks through all the recognizers and tries to detect the gesture that is being made
-       * @param {Object} inputData
-       */
-      recognize: function(inputData) {
-        var session = this.session;
-        if (session.stopped) {
-          return;
-        }
-        this.touchAction.preventDefaults(inputData);
-        var recognizer;
-        var recognizers = this.recognizers;
-        var curRecognizer = session.curRecognizer;
-        if (!curRecognizer || curRecognizer && curRecognizer.state & STATE_RECOGNIZED) {
-          curRecognizer = session.curRecognizer = null;
-        }
-        var i = 0;
-        while (i < recognizers.length) {
-          recognizer = recognizers[i];
-          if (session.stopped !== FORCED_STOP && // 1
-          (!curRecognizer || recognizer == curRecognizer || // 2
-          recognizer.canRecognizeWith(curRecognizer))) {
-            recognizer.recognize(inputData);
-          } else {
-            recognizer.reset();
-          }
-          if (!curRecognizer && recognizer.state & (STATE_BEGAN | STATE_CHANGED | STATE_ENDED)) {
-            curRecognizer = session.curRecognizer = recognizer;
-          }
-          i++;
-        }
-      },
-      /**
-       * get a recognizer by its event name.
-       * @param {Recognizer|String} recognizer
-       * @returns {Recognizer|Null}
-       */
-      get: function(recognizer) {
-        if (recognizer instanceof Recognizer) {
-          return recognizer;
-        }
-        var recognizers = this.recognizers;
-        for (var i = 0; i < recognizers.length; i++) {
-          if (recognizers[i].options.event == recognizer) {
-            return recognizers[i];
-          }
-        }
-        return null;
-      },
-      /**
-       * add a recognizer to the manager
-       * existing recognizers with the same event name will be removed
-       * @param {Recognizer} recognizer
-       * @returns {Recognizer|Manager}
-       */
-      add: function(recognizer) {
-        if (invokeArrayArg(recognizer, "add", this)) {
-          return this;
-        }
-        var existing = this.get(recognizer.options.event);
-        if (existing) {
-          this.remove(existing);
-        }
-        this.recognizers.push(recognizer);
-        recognizer.manager = this;
-        this.touchAction.update();
-        return recognizer;
-      },
-      /**
-       * remove a recognizer by name or instance
-       * @param {Recognizer|String} recognizer
-       * @returns {Manager}
-       */
-      remove: function(recognizer) {
-        if (invokeArrayArg(recognizer, "remove", this)) {
-          return this;
-        }
-        recognizer = this.get(recognizer);
-        if (recognizer) {
-          var recognizers = this.recognizers;
-          var index = inArray(recognizers, recognizer);
-          if (index !== -1) {
-            recognizers.splice(index, 1);
-            this.touchAction.update();
-          }
-        }
-        return this;
-      },
-      /**
-       * bind event
-       * @param {String} events
-       * @param {Function} handler
-       * @returns {EventEmitter} this
-       */
-      on: function(events, handler) {
-        if (events === undefined$1) {
-          return;
-        }
-        if (handler === undefined$1) {
-          return;
-        }
-        var handlers = this.handlers;
-        each2(splitStr(events), function(event) {
-          handlers[event] = handlers[event] || [];
-          handlers[event].push(handler);
-        });
-        return this;
-      },
-      /**
-       * unbind event, leave emit blank to remove all handlers
-       * @param {String} events
-       * @param {Function} [handler]
-       * @returns {EventEmitter} this
-       */
-      off: function(events, handler) {
-        if (events === undefined$1) {
-          return;
-        }
-        var handlers = this.handlers;
-        each2(splitStr(events), function(event) {
-          if (!handler) {
-            delete handlers[event];
-          } else {
-            handlers[event] && handlers[event].splice(inArray(handlers[event], handler), 1);
-          }
-        });
-        return this;
-      },
-      /**
-       * emit event to the listeners
-       * @param {String} event
-       * @param {Object} data
-       */
-      emit: function(event, data) {
-        if (this.options.domEvents) {
-          triggerDomEvent(event, data);
-        }
-        var handlers = this.handlers[event] && this.handlers[event].slice();
-        if (!handlers || !handlers.length) {
-          return;
-        }
-        data.type = event;
-        data.preventDefault = function() {
-          data.srcEvent.preventDefault();
-        };
-        var i = 0;
-        while (i < handlers.length) {
-          handlers[i](data);
-          i++;
-        }
-      },
-      /**
-       * destroy the manager and unbinds all events
-       * it doesn't unbind dom events, that is the user own responsibility
-       */
-      destroy: function() {
-        this.element && toggleCssProps(this, false);
-        this.handlers = {};
-        this.session = {};
-        this.input.destroy();
-        this.element = null;
-      }
-    };
-    function toggleCssProps(manager, add) {
-      var element = manager.element;
-      if (!element.style) {
-        return;
-      }
-      var prop;
-      each2(manager.options.cssProps, function(value, name) {
-        prop = prefixed(element.style, name);
-        if (add) {
-          manager.oldCssProps[prop] = element.style[prop];
-          element.style[prop] = value;
-        } else {
-          element.style[prop] = manager.oldCssProps[prop] || "";
-        }
-      });
-      if (!add) {
-        manager.oldCssProps = {};
-      }
-    }
-    function triggerDomEvent(event, data) {
-      var gestureEvent = document2.createEvent("Event");
-      gestureEvent.initEvent(event, true, true);
-      gestureEvent.gesture = data;
-      data.target.dispatchEvent(gestureEvent);
-    }
-    assign(Hammer2, {
-      INPUT_START,
-      INPUT_MOVE,
-      INPUT_END,
-      INPUT_CANCEL,
-      STATE_POSSIBLE,
-      STATE_BEGAN,
-      STATE_CHANGED,
-      STATE_ENDED,
-      STATE_RECOGNIZED,
-      STATE_CANCELLED,
-      STATE_FAILED,
-      DIRECTION_NONE,
-      DIRECTION_LEFT,
-      DIRECTION_RIGHT,
-      DIRECTION_UP,
-      DIRECTION_DOWN,
-      DIRECTION_HORIZONTAL,
-      DIRECTION_VERTICAL,
-      DIRECTION_ALL,
-      Manager,
-      Input,
-      TouchAction,
-      TouchInput,
-      MouseInput,
-      PointerEventInput,
-      TouchMouseInput,
-      SingleTouchInput,
-      Recognizer,
-      AttrRecognizer,
-      Tap: TapRecognizer,
-      Pan: PanRecognizer,
-      Swipe: SwipeRecognizer,
-      Pinch: PinchRecognizer,
-      Rotate: RotateRecognizer,
-      Press: PressRecognizer,
-      on: addEventListeners,
-      off: removeEventListeners,
-      each: each2,
-      merge: merge2,
-      extend,
-      assign,
-      inherit,
-      bindFn,
-      prefixed
-    });
-    var freeGlobal = typeof window2 !== "undefined" ? window2 : typeof self !== "undefined" ? self : {};
-    freeGlobal.Hammer = Hammer2;
-    if (module.exports) {
-      module.exports = Hammer2;
-    } else {
-      window2[exportName] = Hammer2;
-    }
-  })(window, document, "Hammer");
-})(hammer);
-var hammerExports = hammer.exports;
-const Hammer = /* @__PURE__ */ getDefaultExportFromCjs(hammerExports);
-/*!
-* chartjs-plugin-zoom v2.2.0
-* https://www.chartjs.org/chartjs-plugin-zoom/2.2.0/
- * (c) 2016-2024 chartjs-plugin-zoom Contributors
- * Released under the MIT License
- */
-const getModifierKey = (opts) => opts && opts.enabled && opts.modifierKey;
-const keyPressed = (key, event) => key && event[key + "Key"];
-const keyNotPressed = (key, event) => key && !event[key + "Key"];
-function directionEnabled(mode, dir, chart) {
-  if (mode === void 0) {
-    return true;
-  } else if (typeof mode === "string") {
-    return mode.indexOf(dir) !== -1;
-  } else if (typeof mode === "function") {
-    return mode({ chart }).indexOf(dir) !== -1;
-  }
-  return false;
-}
-function directionsEnabled(mode, chart) {
-  if (typeof mode === "function") {
-    mode = mode({ chart });
-  }
-  if (typeof mode === "string") {
-    return { x: mode.indexOf("x") !== -1, y: mode.indexOf("y") !== -1 };
-  }
-  return { x: false, y: false };
-}
-function debounce(fn, delay) {
-  let timeout;
-  return function() {
-    clearTimeout(timeout);
-    timeout = setTimeout(fn, delay);
-    return delay;
-  };
-}
-function getScaleUnderPoint({ x: x2, y: y2 }, chart) {
-  const scales = chart.scales;
-  const scaleIds = Object.keys(scales);
-  for (let i = 0; i < scaleIds.length; i++) {
-    const scale = scales[scaleIds[i]];
-    if (y2 >= scale.top && y2 <= scale.bottom && x2 >= scale.left && x2 <= scale.right) {
-      return scale;
-    }
-  }
-  return null;
-}
-function getEnabledScalesByPoint(options, point, chart) {
-  const { mode = "xy", scaleMode, overScaleMode } = options || {};
-  const scale = getScaleUnderPoint(point, chart);
-  const enabled = directionsEnabled(mode, chart);
-  const scaleEnabled = directionsEnabled(scaleMode, chart);
-  if (overScaleMode) {
-    const overScaleEnabled = directionsEnabled(overScaleMode, chart);
-    for (const axis of ["x", "y"]) {
-      if (overScaleEnabled[axis]) {
-        scaleEnabled[axis] = enabled[axis];
-        enabled[axis] = false;
-      }
-    }
-  }
-  if (scale && scaleEnabled[scale.axis]) {
-    return [scale];
-  }
-  const enabledScales = [];
-  each(chart.scales, function(scaleItem) {
-    if (enabled[scaleItem.axis]) {
-      enabledScales.push(scaleItem);
-    }
-  });
-  return enabledScales;
-}
-const chartStates = /* @__PURE__ */ new WeakMap();
-function getState(chart) {
-  let state = chartStates.get(chart);
-  if (!state) {
-    state = {
-      originalScaleLimits: {},
-      updatedScaleLimits: {},
-      handlers: {},
-      panDelta: {},
-      dragging: false,
-      panning: false
-    };
-    chartStates.set(chart, state);
-  }
-  return state;
-}
-function removeState(chart) {
-  chartStates.delete(chart);
-}
-function zoomDelta(val, min, range, newRange) {
-  const minPercent = Math.max(0, Math.min(1, (val - min) / range || 0));
-  const maxPercent = 1 - minPercent;
-  return {
-    min: newRange * minPercent,
-    max: newRange * maxPercent
-  };
-}
-function getValueAtPoint(scale, point) {
-  const pixel = scale.isHorizontal() ? point.x : point.y;
-  return scale.getValueForPixel(pixel);
-}
-function linearZoomDelta(scale, zoom2, center) {
-  const range = scale.max - scale.min;
-  const newRange = range * (zoom2 - 1);
-  const centerValue = getValueAtPoint(scale, center);
-  return zoomDelta(centerValue, scale.min, range, newRange);
-}
-function logarithmicZoomRange(scale, zoom2, center) {
-  const centerValue = getValueAtPoint(scale, center);
-  if (centerValue === void 0) {
-    return { min: scale.min, max: scale.max };
-  }
-  const logMin = Math.log10(scale.min);
-  const logMax = Math.log10(scale.max);
-  const logCenter = Math.log10(centerValue);
-  const logRange = logMax - logMin;
-  const newLogRange = logRange * (zoom2 - 1);
-  const delta = zoomDelta(logCenter, logMin, logRange, newLogRange);
-  return {
-    min: Math.pow(10, logMin + delta.min),
-    max: Math.pow(10, logMax - delta.max)
-  };
-}
-function getScaleLimits(scale, limits) {
-  return limits && (limits[scale.id] || limits[scale.axis]) || {};
-}
-function getLimit(state, scale, scaleLimits, prop, fallback) {
-  let limit = scaleLimits[prop];
-  if (limit === "original") {
-    const original = state.originalScaleLimits[scale.id][prop];
-    limit = valueOrDefault(original.options, original.scale);
-  }
-  return valueOrDefault(limit, fallback);
-}
-function linearRange(scale, pixel0, pixel1) {
-  const v0 = scale.getValueForPixel(pixel0);
-  const v1 = scale.getValueForPixel(pixel1);
-  return {
-    min: Math.min(v0, v1),
-    max: Math.max(v0, v1)
-  };
-}
-function fixRange(range, { min, max, minLimit, maxLimit }, originalLimits) {
-  const offset = (range - max + min) / 2;
-  min -= offset;
-  max += offset;
-  const origMin = originalLimits.min.options ?? originalLimits.min.scale;
-  const origMax = originalLimits.max.options ?? originalLimits.max.scale;
-  const epsilon = range / 1e6;
-  if (almostEquals(min, origMin, epsilon)) {
-    min = origMin;
-  }
-  if (almostEquals(max, origMax, epsilon)) {
-    max = origMax;
-  }
-  if (min < minLimit) {
-    min = minLimit;
-    max = Math.min(minLimit + range, maxLimit);
-  } else if (max > maxLimit) {
-    max = maxLimit;
-    min = Math.max(maxLimit - range, minLimit);
-  }
-  return { min, max };
-}
-function updateRange(scale, { min, max }, limits, zoom2 = false) {
-  const state = getState(scale.chart);
-  const { options: scaleOpts } = scale;
-  const scaleLimits = getScaleLimits(scale, limits);
-  const { minRange = 0 } = scaleLimits;
-  const minLimit = getLimit(state, scale, scaleLimits, "min", -Infinity);
-  const maxLimit = getLimit(state, scale, scaleLimits, "max", Infinity);
-  if (zoom2 === "pan" && (min < minLimit || max > maxLimit)) {
-    return true;
-  }
-  const scaleRange = scale.max - scale.min;
-  const range = zoom2 ? Math.max(max - min, minRange) : scaleRange;
-  if (zoom2 && range === minRange && scaleRange <= minRange) {
-    return true;
-  }
-  const newRange = fixRange(range, { min, max, minLimit, maxLimit }, state.originalScaleLimits[scale.id]);
-  scaleOpts.min = newRange.min;
-  scaleOpts.max = newRange.max;
-  state.updatedScaleLimits[scale.id] = newRange;
-  return scale.parse(newRange.min) !== scale.min || scale.parse(newRange.max) !== scale.max;
-}
-function zoomNumericalScale(scale, zoom2, center, limits) {
-  const delta = linearZoomDelta(scale, zoom2, center);
-  const newRange = { min: scale.min + delta.min, max: scale.max - delta.max };
-  return updateRange(scale, newRange, limits, true);
-}
-function zoomLogarithmicScale(scale, zoom2, center, limits) {
-  const newRange = logarithmicZoomRange(scale, zoom2, center);
-  return updateRange(scale, newRange, limits, true);
-}
-function zoomRectNumericalScale(scale, from2, to2, limits) {
-  updateRange(scale, linearRange(scale, from2, to2), limits, true);
-}
-const integerChange = (v2) => v2 === 0 || isNaN(v2) ? 0 : v2 < 0 ? Math.min(Math.round(v2), -1) : Math.max(Math.round(v2), 1);
-function existCategoryFromMaxZoom(scale) {
-  const labels = scale.getLabels();
-  const maxIndex = labels.length - 1;
-  if (scale.min > 0) {
-    scale.min -= 1;
-  }
-  if (scale.max < maxIndex) {
-    scale.max += 1;
-  }
-}
-function zoomCategoryScale(scale, zoom2, center, limits) {
-  const delta = linearZoomDelta(scale, zoom2, center);
-  if (scale.min === scale.max && zoom2 < 1) {
-    existCategoryFromMaxZoom(scale);
-  }
-  const newRange = { min: scale.min + integerChange(delta.min), max: scale.max - integerChange(delta.max) };
-  return updateRange(scale, newRange, limits, true);
-}
-function scaleLength(scale) {
-  return scale.isHorizontal() ? scale.width : scale.height;
-}
-function panCategoryScale(scale, delta, limits) {
-  const labels = scale.getLabels();
-  const lastLabelIndex = labels.length - 1;
-  let { min, max } = scale;
-  const range = Math.max(max - min, 1);
-  const stepDelta = Math.round(scaleLength(scale) / Math.max(range, 10));
-  const stepSize = Math.round(Math.abs(delta / stepDelta));
-  let applied;
-  if (delta < -stepDelta) {
-    max = Math.min(max + stepSize, lastLabelIndex);
-    min = range === 1 ? max : max - range;
-    applied = max === lastLabelIndex;
-  } else if (delta > stepDelta) {
-    min = Math.max(0, min - stepSize);
-    max = range === 1 ? min : min + range;
-    applied = min === 0;
-  }
-  return updateRange(scale, { min, max }, limits) || applied;
-}
-const OFFSETS = {
-  second: 500,
-  minute: 30 * 1e3,
-  hour: 30 * 60 * 1e3,
-  day: 12 * 60 * 60 * 1e3,
-  week: 3.5 * 24 * 60 * 60 * 1e3,
-  month: 15 * 24 * 60 * 60 * 1e3,
-  quarter: 60 * 24 * 60 * 60 * 1e3,
-  year: 182 * 24 * 60 * 60 * 1e3
-};
-function panNumericalScale(scale, delta, limits, pan2 = false) {
-  const { min: prevStart, max: prevEnd, options } = scale;
-  const round2 = options.time && options.time.round;
-  const offset = OFFSETS[round2] || 0;
-  const newMin = scale.getValueForPixel(scale.getPixelForValue(prevStart + offset) - delta);
-  const newMax = scale.getValueForPixel(scale.getPixelForValue(prevEnd + offset) - delta);
-  if (isNaN(newMin) || isNaN(newMax)) {
-    return true;
-  }
-  return updateRange(scale, { min: newMin, max: newMax }, limits, pan2 ? "pan" : false);
-}
-function panNonLinearScale(scale, delta, limits) {
-  return panNumericalScale(scale, delta, limits, true);
-}
-const zoomFunctions = {
-  category: zoomCategoryScale,
-  default: zoomNumericalScale,
-  logarithmic: zoomLogarithmicScale
-};
-const zoomRectFunctions = {
-  default: zoomRectNumericalScale
-};
-const panFunctions = {
-  category: panCategoryScale,
-  default: panNumericalScale,
-  logarithmic: panNonLinearScale,
-  timeseries: panNonLinearScale
-};
-function shouldUpdateScaleLimits(scale, originalScaleLimits, updatedScaleLimits) {
-  const { id: id2, options: { min, max } } = scale;
-  if (!originalScaleLimits[id2] || !updatedScaleLimits[id2]) {
-    return true;
-  }
-  const previous = updatedScaleLimits[id2];
-  return previous.min !== min || previous.max !== max;
-}
-function removeMissingScales(limits, scales) {
-  each(limits, (opt, key) => {
-    if (!scales[key]) {
-      delete limits[key];
-    }
-  });
-}
-function storeOriginalScaleLimits(chart, state) {
-  const { scales } = chart;
-  const { originalScaleLimits, updatedScaleLimits } = state;
-  each(scales, function(scale) {
-    if (shouldUpdateScaleLimits(scale, originalScaleLimits, updatedScaleLimits)) {
-      originalScaleLimits[scale.id] = {
-        min: { scale: scale.min, options: scale.options.min },
-        max: { scale: scale.max, options: scale.options.max }
-      };
-    }
-  });
-  removeMissingScales(originalScaleLimits, scales);
-  removeMissingScales(updatedScaleLimits, scales);
-  return originalScaleLimits;
-}
-function doZoom(scale, amount, center, limits) {
-  const fn = zoomFunctions[scale.type] || zoomFunctions.default;
-  callback(fn, [scale, amount, center, limits]);
-}
-function doZoomRect(scale, from2, to2, limits) {
-  const fn = zoomRectFunctions[scale.type] || zoomRectFunctions.default;
-  callback(fn, [scale, from2, to2, limits]);
-}
-function getCenter(chart) {
-  const ca2 = chart.chartArea;
-  return {
-    x: (ca2.left + ca2.right) / 2,
-    y: (ca2.top + ca2.bottom) / 2
-  };
-}
-function zoom(chart, amount, transition = "none", trigger = "api") {
-  const { x: x2 = 1, y: y2 = 1, focalPoint = getCenter(chart) } = typeof amount === "number" ? { x: amount, y: amount } : amount;
-  const state = getState(chart);
-  const { options: { limits, zoom: zoomOptions } } = state;
-  storeOriginalScaleLimits(chart, state);
-  const xEnabled = x2 !== 1;
-  const yEnabled = y2 !== 1;
-  const enabledScales = getEnabledScalesByPoint(zoomOptions, focalPoint, chart);
-  each(enabledScales || chart.scales, function(scale) {
-    if (scale.isHorizontal() && xEnabled) {
-      doZoom(scale, x2, focalPoint, limits);
-    } else if (!scale.isHorizontal() && yEnabled) {
-      doZoom(scale, y2, focalPoint, limits);
-    }
-  });
-  chart.update(transition);
-  callback(zoomOptions.onZoom, [{ chart, trigger }]);
-}
-function zoomRect(chart, p0, p1, transition = "none", trigger = "api") {
-  const state = getState(chart);
-  const { options: { limits, zoom: zoomOptions } } = state;
-  const { mode = "xy" } = zoomOptions;
-  storeOriginalScaleLimits(chart, state);
-  const xEnabled = directionEnabled(mode, "x", chart);
-  const yEnabled = directionEnabled(mode, "y", chart);
-  each(chart.scales, function(scale) {
-    if (scale.isHorizontal() && xEnabled) {
-      doZoomRect(scale, p0.x, p1.x, limits);
-    } else if (!scale.isHorizontal() && yEnabled) {
-      doZoomRect(scale, p0.y, p1.y, limits);
-    }
-  });
-  chart.update(transition);
-  callback(zoomOptions.onZoom, [{ chart, trigger }]);
-}
-function zoomScale(chart, scaleId, range, transition = "none", trigger = "api") {
-  var _a2;
-  const state = getState(chart);
-  storeOriginalScaleLimits(chart, state);
-  const scale = chart.scales[scaleId];
-  updateRange(scale, range, void 0, true);
-  chart.update(transition);
-  callback((_a2 = state.options.zoom) == null ? void 0 : _a2.onZoom, [{ chart, trigger }]);
-}
-function resetZoom(chart, transition = "default") {
-  const state = getState(chart);
-  const originalScaleLimits = storeOriginalScaleLimits(chart, state);
-  each(chart.scales, function(scale) {
-    const scaleOptions = scale.options;
-    if (originalScaleLimits[scale.id]) {
-      scaleOptions.min = originalScaleLimits[scale.id].min.options;
-      scaleOptions.max = originalScaleLimits[scale.id].max.options;
-    } else {
-      delete scaleOptions.min;
-      delete scaleOptions.max;
-    }
-    delete state.updatedScaleLimits[scale.id];
-  });
-  chart.update(transition);
-  callback(state.options.zoom.onZoomComplete, [{ chart }]);
-}
-function getOriginalRange(state, scaleId) {
-  const original = state.originalScaleLimits[scaleId];
-  if (!original) {
-    return;
-  }
-  const { min, max } = original;
-  return valueOrDefault(max.options, max.scale) - valueOrDefault(min.options, min.scale);
-}
-function getZoomLevel(chart) {
-  const state = getState(chart);
-  let min = 1;
-  let max = 1;
-  each(chart.scales, function(scale) {
-    const origRange = getOriginalRange(state, scale.id);
-    if (origRange) {
-      const level = Math.round(origRange / (scale.max - scale.min) * 100) / 100;
-      min = Math.min(min, level);
-      max = Math.max(max, level);
-    }
-  });
-  return min < 1 ? min : max;
-}
-function panScale(scale, delta, limits, state) {
-  const { panDelta } = state;
-  const storedDelta = panDelta[scale.id] || 0;
-  if (sign(storedDelta) === sign(delta)) {
-    delta += storedDelta;
-  }
-  const fn = panFunctions[scale.type] || panFunctions.default;
-  if (callback(fn, [scale, delta, limits])) {
-    panDelta[scale.id] = 0;
-  } else {
-    panDelta[scale.id] = delta;
-  }
-}
-function pan(chart, delta, enabledScales, transition = "none") {
-  const { x: x2 = 0, y: y2 = 0 } = typeof delta === "number" ? { x: delta, y: delta } : delta;
-  const state = getState(chart);
-  const { options: { pan: panOptions, limits } } = state;
-  const { onPan } = panOptions || {};
-  storeOriginalScaleLimits(chart, state);
-  const xEnabled = x2 !== 0;
-  const yEnabled = y2 !== 0;
-  each(enabledScales || chart.scales, function(scale) {
-    if (scale.isHorizontal() && xEnabled) {
-      panScale(scale, x2, limits, state);
-    } else if (!scale.isHorizontal() && yEnabled) {
-      panScale(scale, y2, limits, state);
-    }
-  });
-  chart.update(transition);
-  callback(onPan, [{ chart }]);
-}
-function getInitialScaleBounds(chart) {
-  const state = getState(chart);
-  storeOriginalScaleLimits(chart, state);
-  const scaleBounds = {};
-  for (const scaleId of Object.keys(chart.scales)) {
-    const { min, max } = state.originalScaleLimits[scaleId] || { min: {}, max: {} };
-    scaleBounds[scaleId] = { min: min.scale, max: max.scale };
-  }
-  return scaleBounds;
-}
-function getZoomedScaleBounds(chart) {
-  const state = getState(chart);
-  const scaleBounds = {};
-  for (const scaleId of Object.keys(chart.scales)) {
-    scaleBounds[scaleId] = state.updatedScaleLimits[scaleId];
-  }
-  return scaleBounds;
-}
-function isZoomedOrPanned(chart) {
-  const scaleBounds = getInitialScaleBounds(chart);
-  for (const scaleId of Object.keys(chart.scales)) {
-    const { min: originalMin, max: originalMax } = scaleBounds[scaleId];
-    if (originalMin !== void 0 && chart.scales[scaleId].min !== originalMin) {
-      return true;
-    }
-    if (originalMax !== void 0 && chart.scales[scaleId].max !== originalMax) {
-      return true;
-    }
-  }
-  return false;
-}
-function isZoomingOrPanning(chart) {
-  const state = getState(chart);
-  return state.panning || state.dragging;
-}
-const clamp = (x2, from2, to2) => Math.min(to2, Math.max(from2, x2));
-function removeHandler(chart, type) {
-  const { handlers } = getState(chart);
-  const handler = handlers[type];
-  if (handler && handler.target) {
-    handler.target.removeEventListener(type, handler);
-    delete handlers[type];
-  }
-}
-function addHandler(chart, target, type, handler) {
-  const { handlers, options } = getState(chart);
-  const oldHandler = handlers[type];
-  if (oldHandler && oldHandler.target === target) {
-    return;
-  }
-  removeHandler(chart, type);
-  handlers[type] = (event) => handler(chart, event, options);
-  handlers[type].target = target;
-  const passive = type === "wheel" ? false : void 0;
-  target.addEventListener(type, handlers[type], { passive });
-}
-function mouseMove(chart, event) {
-  const state = getState(chart);
-  if (state.dragStart) {
-    state.dragging = true;
-    state.dragEnd = event;
-    chart.update("none");
-  }
-}
-function keyDown(chart, event) {
-  const state = getState(chart);
-  if (!state.dragStart || event.key !== "Escape") {
-    return;
-  }
-  removeHandler(chart, "keydown");
-  state.dragging = false;
-  state.dragStart = state.dragEnd = null;
-  chart.update("none");
-}
-function getPointPosition(event, chart) {
-  if (event.target !== chart.canvas) {
-    const canvasArea = chart.canvas.getBoundingClientRect();
-    return {
-      x: event.clientX - canvasArea.left,
-      y: event.clientY - canvasArea.top
-    };
-  }
-  return getRelativePosition(event, chart);
-}
-function zoomStart(chart, event, zoomOptions) {
-  const { onZoomStart, onZoomRejected } = zoomOptions;
-  if (onZoomStart) {
-    const point = getPointPosition(event, chart);
-    if (callback(onZoomStart, [{ chart, event, point }]) === false) {
-      callback(onZoomRejected, [{ chart, event }]);
-      return false;
-    }
-  }
-}
-function mouseDown(chart, event) {
-  if (chart.legend) {
-    const point = getRelativePosition(event, chart);
-    if (_isPointInArea(point, chart.legend)) {
-      return;
-    }
-  }
-  const state = getState(chart);
-  const { pan: panOptions, zoom: zoomOptions = {} } = state.options;
-  if (event.button !== 0 || keyPressed(getModifierKey(panOptions), event) || keyNotPressed(getModifierKey(zoomOptions.drag), event)) {
-    return callback(zoomOptions.onZoomRejected, [{ chart, event }]);
-  }
-  if (zoomStart(chart, event, zoomOptions) === false) {
-    return;
-  }
-  state.dragStart = event;
-  addHandler(chart, chart.canvas.ownerDocument, "mousemove", mouseMove);
-  addHandler(chart, window.document, "keydown", keyDown);
-}
-function applyAspectRatio({ begin, end }, aspectRatio) {
-  let width = end.x - begin.x;
-  let height = end.y - begin.y;
-  const ratio = Math.abs(width / height);
-  if (ratio > aspectRatio) {
-    width = Math.sign(width) * Math.abs(height * aspectRatio);
-  } else if (ratio < aspectRatio) {
-    height = Math.sign(height) * Math.abs(width / aspectRatio);
-  }
-  end.x = begin.x + width;
-  end.y = begin.y + height;
-}
-function applyMinMaxProps(rect, chartArea, points, { min, max, prop }) {
-  rect[min] = clamp(Math.min(points.begin[prop], points.end[prop]), chartArea[min], chartArea[max]);
-  rect[max] = clamp(Math.max(points.begin[prop], points.end[prop]), chartArea[min], chartArea[max]);
-}
-function getRelativePoints(chart, pointEvents, maintainAspectRatio) {
-  const points = {
-    begin: getPointPosition(pointEvents.dragStart, chart),
-    end: getPointPosition(pointEvents.dragEnd, chart)
-  };
-  if (maintainAspectRatio) {
-    const aspectRatio = chart.chartArea.width / chart.chartArea.height;
-    applyAspectRatio(points, aspectRatio);
-  }
-  return points;
-}
-function computeDragRect(chart, mode, pointEvents, maintainAspectRatio) {
-  const xEnabled = directionEnabled(mode, "x", chart);
-  const yEnabled = directionEnabled(mode, "y", chart);
-  const { top, left, right, bottom, width: chartWidth, height: chartHeight } = chart.chartArea;
-  const rect = { top, left, right, bottom };
-  const points = getRelativePoints(chart, pointEvents, maintainAspectRatio && xEnabled && yEnabled);
-  if (xEnabled) {
-    applyMinMaxProps(rect, chart.chartArea, points, { min: "left", max: "right", prop: "x" });
-  }
-  if (yEnabled) {
-    applyMinMaxProps(rect, chart.chartArea, points, { min: "top", max: "bottom", prop: "y" });
-  }
-  const width = rect.right - rect.left;
-  const height = rect.bottom - rect.top;
-  return {
-    ...rect,
-    width,
-    height,
-    zoomX: xEnabled && width ? 1 + (chartWidth - width) / chartWidth : 1,
-    zoomY: yEnabled && height ? 1 + (chartHeight - height) / chartHeight : 1
-  };
-}
-function mouseUp(chart, event) {
-  const state = getState(chart);
-  if (!state.dragStart) {
-    return;
-  }
-  removeHandler(chart, "mousemove");
-  const { mode, onZoomComplete, drag: { threshold = 0, maintainAspectRatio } } = state.options.zoom;
-  const rect = computeDragRect(chart, mode, { dragStart: state.dragStart, dragEnd: event }, maintainAspectRatio);
-  const distanceX = directionEnabled(mode, "x", chart) ? rect.width : 0;
-  const distanceY = directionEnabled(mode, "y", chart) ? rect.height : 0;
-  const distance = Math.sqrt(distanceX * distanceX + distanceY * distanceY);
-  state.dragStart = state.dragEnd = null;
-  if (distance <= threshold) {
-    state.dragging = false;
-    chart.update("none");
-    return;
-  }
-  zoomRect(chart, { x: rect.left, y: rect.top }, { x: rect.right, y: rect.bottom }, "zoom", "drag");
-  state.dragging = false;
-  state.filterNextClick = true;
-  callback(onZoomComplete, [{ chart }]);
-}
-function wheelPreconditions(chart, event, zoomOptions) {
-  if (keyNotPressed(getModifierKey(zoomOptions.wheel), event)) {
-    callback(zoomOptions.onZoomRejected, [{ chart, event }]);
-    return;
-  }
-  if (zoomStart(chart, event, zoomOptions) === false) {
-    return;
-  }
-  if (event.cancelable) {
-    event.preventDefault();
-  }
-  if (event.deltaY === void 0) {
-    return;
-  }
-  return true;
-}
-function wheel(chart, event) {
-  const { handlers: { onZoomComplete }, options: { zoom: zoomOptions } } = getState(chart);
-  if (!wheelPreconditions(chart, event, zoomOptions)) {
-    return;
-  }
-  const rect = event.target.getBoundingClientRect();
-  const speed = zoomOptions.wheel.speed;
-  const percentage = event.deltaY >= 0 ? 2 - 1 / (1 - speed) : 1 + speed;
-  const amount = {
-    x: percentage,
-    y: percentage,
-    focalPoint: {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top
-    }
-  };
-  zoom(chart, amount, "zoom", "wheel");
-  callback(onZoomComplete, [{ chart }]);
-}
-function addDebouncedHandler(chart, name, handler, delay) {
-  if (handler) {
-    getState(chart).handlers[name] = debounce(() => callback(handler, [{ chart }]), delay);
-  }
-}
-function addListeners(chart, options) {
-  const canvas = chart.canvas;
-  const { wheel: wheelOptions, drag: dragOptions, onZoomComplete } = options.zoom;
-  if (wheelOptions.enabled) {
-    addHandler(chart, canvas, "wheel", wheel);
-    addDebouncedHandler(chart, "onZoomComplete", onZoomComplete, 250);
-  } else {
-    removeHandler(chart, "wheel");
-  }
-  if (dragOptions.enabled) {
-    addHandler(chart, canvas, "mousedown", mouseDown);
-    addHandler(chart, canvas.ownerDocument, "mouseup", mouseUp);
-  } else {
-    removeHandler(chart, "mousedown");
-    removeHandler(chart, "mousemove");
-    removeHandler(chart, "mouseup");
-    removeHandler(chart, "keydown");
-  }
-}
-function removeListeners(chart) {
-  removeHandler(chart, "mousedown");
-  removeHandler(chart, "mousemove");
-  removeHandler(chart, "mouseup");
-  removeHandler(chart, "wheel");
-  removeHandler(chart, "click");
-  removeHandler(chart, "keydown");
-}
-function createEnabler(chart, state) {
-  return function(recognizer, event) {
-    const { pan: panOptions, zoom: zoomOptions = {} } = state.options;
-    if (!panOptions || !panOptions.enabled) {
-      return false;
-    }
-    const srcEvent = event && event.srcEvent;
-    if (!srcEvent) {
-      return true;
-    }
-    if (!state.panning && event.pointerType === "mouse" && (keyNotPressed(getModifierKey(panOptions), srcEvent) || keyPressed(getModifierKey(zoomOptions.drag), srcEvent))) {
-      callback(panOptions.onPanRejected, [{ chart, event }]);
-      return false;
-    }
-    return true;
-  };
-}
-function pinchAxes(p0, p1) {
-  const pinchX = Math.abs(p0.clientX - p1.clientX);
-  const pinchY = Math.abs(p0.clientY - p1.clientY);
-  const p2 = pinchX / pinchY;
-  let x2, y2;
-  if (p2 > 0.3 && p2 < 1.7) {
-    x2 = y2 = true;
-  } else if (pinchX > pinchY) {
-    x2 = true;
-  } else {
-    y2 = true;
-  }
-  return { x: x2, y: y2 };
-}
-function handlePinch(chart, state, e) {
-  if (state.scale) {
-    const { center, pointers } = e;
-    const zoomPercent = 1 / state.scale * e.scale;
-    const rect = e.target.getBoundingClientRect();
-    const pinch = pinchAxes(pointers[0], pointers[1]);
-    const mode = state.options.zoom.mode;
-    const amount = {
-      x: pinch.x && directionEnabled(mode, "x", chart) ? zoomPercent : 1,
-      y: pinch.y && directionEnabled(mode, "y", chart) ? zoomPercent : 1,
-      focalPoint: {
-        x: center.x - rect.left,
-        y: center.y - rect.top
-      }
-    };
-    zoom(chart, amount, "zoom", "pinch");
-    state.scale = e.scale;
-  }
-}
-function startPinch(chart, state, event) {
-  if (state.options.zoom.pinch.enabled) {
-    const point = getRelativePosition(event, chart);
-    if (callback(state.options.zoom.onZoomStart, [{ chart, event, point }]) === false) {
-      state.scale = null;
-      callback(state.options.zoom.onZoomRejected, [{ chart, event }]);
-    } else {
-      state.scale = 1;
-    }
-  }
-}
-function endPinch(chart, state, e) {
-  if (state.scale) {
-    handlePinch(chart, state, e);
-    state.scale = null;
-    callback(state.options.zoom.onZoomComplete, [{ chart }]);
-  }
-}
-function handlePan(chart, state, e) {
-  const delta = state.delta;
-  if (delta) {
-    state.panning = true;
-    pan(chart, { x: e.deltaX - delta.x, y: e.deltaY - delta.y }, state.panScales);
-    state.delta = { x: e.deltaX, y: e.deltaY };
-  }
-}
-function startPan(chart, state, event) {
-  const { enabled, onPanStart, onPanRejected } = state.options.pan;
-  if (!enabled) {
-    return;
-  }
-  const rect = event.target.getBoundingClientRect();
-  const point = {
-    x: event.center.x - rect.left,
-    y: event.center.y - rect.top
-  };
-  if (callback(onPanStart, [{ chart, event, point }]) === false) {
-    return callback(onPanRejected, [{ chart, event }]);
-  }
-  state.panScales = getEnabledScalesByPoint(state.options.pan, point, chart);
-  state.delta = { x: 0, y: 0 };
-  handlePan(chart, state, event);
-}
-function endPan(chart, state) {
-  state.delta = null;
-  if (state.panning) {
-    state.panning = false;
-    state.filterNextClick = true;
-    callback(state.options.pan.onPanComplete, [{ chart }]);
-  }
-}
-const hammers = /* @__PURE__ */ new WeakMap();
-function startHammer(chart, options) {
-  const state = getState(chart);
-  const canvas = chart.canvas;
-  const { pan: panOptions, zoom: zoomOptions } = options;
-  const mc2 = new Hammer.Manager(canvas);
-  if (zoomOptions && zoomOptions.pinch.enabled) {
-    mc2.add(new Hammer.Pinch());
-    mc2.on("pinchstart", (e) => startPinch(chart, state, e));
-    mc2.on("pinch", (e) => handlePinch(chart, state, e));
-    mc2.on("pinchend", (e) => endPinch(chart, state, e));
-  }
-  if (panOptions && panOptions.enabled) {
-    mc2.add(new Hammer.Pan({
-      threshold: panOptions.threshold,
-      enable: createEnabler(chart, state)
-    }));
-    mc2.on("panstart", (e) => startPan(chart, state, e));
-    mc2.on("panmove", (e) => handlePan(chart, state, e));
-    mc2.on("panend", () => endPan(chart, state));
-  }
-  hammers.set(chart, mc2);
-}
-function stopHammer(chart) {
-  const mc2 = hammers.get(chart);
-  if (mc2) {
-    mc2.remove("pinchstart");
-    mc2.remove("pinch");
-    mc2.remove("pinchend");
-    mc2.remove("panstart");
-    mc2.remove("pan");
-    mc2.remove("panend");
-    mc2.destroy();
-    hammers.delete(chart);
-  }
-}
-function hammerOptionsChanged(oldOptions, newOptions) {
-  var _a2, _b2, _c, _d;
-  const { pan: oldPan, zoom: oldZoom } = oldOptions;
-  const { pan: newPan, zoom: newZoom } = newOptions;
-  if (((_b2 = (_a2 = oldZoom == null ? void 0 : oldZoom.zoom) == null ? void 0 : _a2.pinch) == null ? void 0 : _b2.enabled) !== ((_d = (_c = newZoom == null ? void 0 : newZoom.zoom) == null ? void 0 : _c.pinch) == null ? void 0 : _d.enabled)) {
-    return true;
-  }
-  if ((oldPan == null ? void 0 : oldPan.enabled) !== (newPan == null ? void 0 : newPan.enabled)) {
-    return true;
-  }
-  if ((oldPan == null ? void 0 : oldPan.threshold) !== (newPan == null ? void 0 : newPan.threshold)) {
-    return true;
-  }
-  return false;
-}
-var version = "2.2.0";
-function draw(chart, caller, options) {
-  const dragOptions = options.zoom.drag;
-  const { dragStart, dragEnd } = getState(chart);
-  if (dragOptions.drawTime !== caller || !dragEnd) {
-    return;
-  }
-  const { left, top, width, height } = computeDragRect(chart, options.zoom.mode, { dragStart, dragEnd }, dragOptions.maintainAspectRatio);
-  const ctx = chart.ctx;
-  ctx.save();
-  ctx.beginPath();
-  ctx.fillStyle = dragOptions.backgroundColor || "rgba(225,225,225,0.3)";
-  ctx.fillRect(left, top, width, height);
-  if (dragOptions.borderWidth > 0) {
-    ctx.lineWidth = dragOptions.borderWidth;
-    ctx.strokeStyle = dragOptions.borderColor || "rgba(225,225,225)";
-    ctx.strokeRect(left, top, width, height);
-  }
-  ctx.restore();
-}
-var plugin = {
-  id: "zoom",
-  version,
-  defaults: {
-    pan: {
-      enabled: false,
-      mode: "xy",
-      threshold: 10,
-      modifierKey: null
-    },
-    zoom: {
-      wheel: {
-        enabled: false,
-        speed: 0.1,
-        modifierKey: null
-      },
-      drag: {
-        enabled: false,
-        drawTime: "beforeDatasetsDraw",
-        modifierKey: null
-      },
-      pinch: {
-        enabled: false
-      },
-      mode: "xy"
-    }
-  },
-  start: function(chart, _args, options) {
-    const state = getState(chart);
-    state.options = options;
-    if (Object.prototype.hasOwnProperty.call(options.zoom, "enabled")) {
-      console.warn("The option `zoom.enabled` is no longer supported. Please use `zoom.wheel.enabled`, `zoom.drag.enabled`, or `zoom.pinch.enabled`.");
-    }
-    if (Object.prototype.hasOwnProperty.call(options.zoom, "overScaleMode") || Object.prototype.hasOwnProperty.call(options.pan, "overScaleMode")) {
-      console.warn("The option `overScaleMode` is deprecated. Please use `scaleMode` instead (and update `mode` as desired).");
-    }
-    if (Hammer) {
-      startHammer(chart, options);
-    }
-    chart.pan = (delta, panScales, transition) => pan(chart, delta, panScales, transition);
-    chart.zoom = (args, transition) => zoom(chart, args, transition);
-    chart.zoomRect = (p0, p1, transition) => zoomRect(chart, p0, p1, transition);
-    chart.zoomScale = (id2, range, transition) => zoomScale(chart, id2, range, transition);
-    chart.resetZoom = (transition) => resetZoom(chart, transition);
-    chart.getZoomLevel = () => getZoomLevel(chart);
-    chart.getInitialScaleBounds = () => getInitialScaleBounds(chart);
-    chart.getZoomedScaleBounds = () => getZoomedScaleBounds(chart);
-    chart.isZoomedOrPanned = () => isZoomedOrPanned(chart);
-    chart.isZoomingOrPanning = () => isZoomingOrPanning(chart);
-  },
-  beforeEvent(chart, { event }) {
-    if (isZoomingOrPanning(chart)) {
-      return false;
-    }
-    if (event.type === "click" || event.type === "mouseup") {
-      const state = getState(chart);
-      if (state.filterNextClick) {
-        state.filterNextClick = false;
-        return false;
-      }
-    }
-  },
-  beforeUpdate: function(chart, args, options) {
-    const state = getState(chart);
-    const previousOptions = state.options;
-    state.options = options;
-    if (hammerOptionsChanged(previousOptions, options)) {
-      stopHammer(chart);
-      startHammer(chart, options);
-    }
-    addListeners(chart, options);
-  },
-  beforeDatasetsDraw(chart, _args, options) {
-    draw(chart, "beforeDatasetsDraw", options);
-  },
-  afterDatasetsDraw(chart, _args, options) {
-    draw(chart, "afterDatasetsDraw", options);
-  },
-  beforeDraw(chart, _args, options) {
-    draw(chart, "beforeDraw", options);
-  },
-  afterDraw(chart, _args, options) {
-    draw(chart, "afterDraw", options);
-  },
-  stop: function(chart) {
-    removeListeners(chart);
-    if (Hammer) {
-      stopHammer(chart);
-    }
-    removeState(chart);
-  },
-  panFunctions,
-  zoomFunctions,
-  zoomRectFunctions
-};
-Chart$1.register(TimeScale, LinearScale, PointElement, LineElement, plugin_title, plugin_tooltip, plugin_legend, plugin);
-function cssVar(name, fallback) {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
-}
-function useThemeVersion() {
-  const [v2, setV] = reactExports.useState(0);
-  reactExports.useEffect(() => {
-    const obs = new MutationObserver(() => setV((n2) => n2 + 1));
-    obs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-    return () => obs.disconnect();
-  }, []);
-  return v2;
-}
-function toIsoDate(xVal) {
-  const dateStr = xVal.includes("_") ? xVal.split("_").pop() : xVal;
-  if (/^\d{8}$/.test(dateStr)) {
-    return `${dateStr.slice(0, 4)}-${dateStr.slice(4, 6)}-${dateStr.slice(6, 8)}`;
-  }
-  return xVal;
-}
+Chart$1.register(TimeScale, LinearScale, PointElement, LineElement, plugin_title, plugin_tooltip, plugin_legend);
 function TimeSeriesChart() {
   const { state, dispatch } = useAppContext();
-  const { fetchMultiPointTimeSeries, fetchBufferTimeSeries } = useApi();
-  const themeVersion = useThemeVersion();
+  const { fetchMultiPointTimeSeries } = useApi();
   const [chartData, setChartData] = reactExports.useState(null);
-  const [bufferData, setBufferData] = reactExports.useState({});
   const [isLoading, setIsLoading] = reactExports.useState(false);
-  const [isZoomed, setIsZoomed] = reactExports.useState(false);
-  const chartRef = reactExports.useRef(null);
   const updateChart = reactExports.useCallback(async () => {
     if (!state.showChart || !state.currentDataset || state.timeSeriesPoints.length === 0) {
       setChartData(null);
@@ -37124,7 +32304,7 @@ function TimeSeriesChart() {
         name: point.name
       }));
       let refLon, refLat;
-      if ((currentDatasetInfo == null ? void 0 : currentDatasetInfo.uses_spatial_ref) && state.refEnabled) {
+      if (currentDatasetInfo == null ? void 0 : currentDatasetInfo.uses_spatial_ref) {
         [refLat, refLon] = state.refMarkerPosition;
       }
       const tsData = await fetchMultiPointTimeSeries(
@@ -37132,9 +32312,7 @@ function TimeSeriesChart() {
         state.currentDataset,
         refLon,
         refLat,
-        state.showTrends,
-        state.layerMasks,
-        state.refEnabled && state.refBufferEnabled ? state.refBufferRadius : 0
+        state.showTrends
       );
       if (tsData) {
         setChartData(tsData);
@@ -37169,70 +32347,21 @@ function TimeSeriesChart() {
     state.showChart,
     state.currentDataset,
     JSON.stringify(state.timeSeriesPoints.map((p2) => ({ id: p2.id, position: p2.position, visible: p2.visible }))),
+    // Only track relevant point changes
     state.refMarkerPosition,
-    state.refEnabled,
     state.datasetInfo,
     state.showTrends,
-    state.layerMasks,
     fetchMultiPointTimeSeries
   ]);
   reactExports.useEffect(() => {
     updateChart();
-  }, [updateChart]);
-  reactExports.useEffect(() => {
-    if (!state.bufferEnabled || !state.showChart || !state.currentDataset) {
-      setBufferData({});
-      return;
-    }
-    const visiblePoints = state.timeSeriesPoints.filter((p2) => p2.visible);
-    if (visiblePoints.length === 0) {
-      setBufferData({});
-      return;
-    }
-    const currentDatasetInfo = state.datasetInfo[state.currentDataset];
-    let refLon, refLat;
-    if ((currentDatasetInfo == null ? void 0 : currentDatasetInfo.uses_spatial_ref) && state.refEnabled) {
-      [refLat, refLon] = state.refMarkerPosition;
-    }
-    Promise.all(
-      visiblePoints.map(async (p2) => {
-        const result = await fetchBufferTimeSeries(
-          p2.position[1],
-          p2.position[0],
-          state.currentDataset,
-          state.bufferRadius,
-          state.bufferSamples,
-          refLon,
-          refLat,
-          state.layerMasks,
-          state.refEnabled && state.refBufferEnabled ? state.refBufferRadius : 0
-        );
-        return { id: p2.id, result };
-      })
-    ).then((results) => {
-      const newData = {};
-      results.forEach(({ id: id2, result }) => {
-        if (result) newData[id2] = result;
-      });
-      setBufferData(newData);
-    });
   }, [
-    state.bufferEnabled,
-    state.showChart,
-    state.currentDataset,
-    state.bufferRadius,
-    state.bufferSamples,
-    state.refEnabled,
-    state.refBufferEnabled,
-    state.refBufferRadius,
-    state.layerMasks,
-    JSON.stringify(state.timeSeriesPoints.map((p2) => ({ id: p2.id, position: p2.position, visible: p2.visible }))),
-    state.refMarkerPosition,
-    fetchBufferTimeSeries
+    updateChart
   ]);
   const handleChartClick = reactExports.useCallback((_event, elements) => {
     if (elements.length === 0 || !chartData) return;
-    const dataIndex = elements[0].index;
+    const element = elements[0];
+    const dataIndex = element.index;
     if (dataIndex !== void 0 && dataIndex < chartData.labels.length) {
       dispatch({ type: "SET_TIME_INDEX", payload: dataIndex });
     }
@@ -37265,7 +32394,8 @@ function TimeSeriesChart() {
         }
       });
     }
-    const csvContent = [headers, ...rows, ...trendRows].map((r2) => r2.join(",")).join("\n");
+    const allRows = [headers, ...rows, ...trendRows];
+    const csvContent = allRows.map((row) => row.join(",")).join("\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
@@ -37277,206 +32407,117 @@ function TimeSeriesChart() {
     link.click();
     document.body.removeChild(link);
   }, [chartData, state.showTrends, state.currentDataset]);
-  const chartOptions = reactExports.useMemo(() => {
-    const textColor = cssVar("--sb-text", "#dde0f0");
-    const mutedColor = cssVar("--sb-muted", "#7880a8");
-    const gridColor = cssVar("--sb-border", "#2c2f4a");
-    const dsInfo = state.currentDataset ? state.datasetInfo[state.currentDataset] : null;
-    const yLabel = (dsInfo == null ? void 0 : dsInfo.label) && (dsInfo == null ? void 0 : dsInfo.unit) ? `${dsInfo.label} (${dsInfo.unit})` : (dsInfo == null ? void 0 : dsInfo.label) || (dsInfo == null ? void 0 : dsInfo.unit) || "Displacement (m)";
-    return {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: { duration: 300 },
-      interaction: { mode: "index", intersect: false },
-      plugins: {
-        legend: {
-          display: true,
-          position: "top",
-          labels: {
-            usePointStyle: true,
-            padding: 16,
-            color: textColor,
-            generateLabels: (chart) => {
-              if (!(chartData == null ? void 0 : chartData.datasets)) return [];
-              return chart.data.datasets.map((ds, index) => ({ ds, index })).filter(
-                ({ ds }) => !ds.label.endsWith(" trend") && !ds.label.endsWith(" residual") && !ds.label.includes(" sample ") && !ds.label.endsWith(" median")
-              ).map(({ ds, index }) => {
-                var _a2, _b2;
-                return {
-                  text: ds.label + (ds.label && ((_b2 = (_a2 = chartData.datasets.find((d) => d.label === ds.label)) == null ? void 0 : _a2.trend) == null ? void 0 : _b2.mmPerYear) !== void 0 ? ` (${chartData.datasets.find((d) => d.label === ds.label).trend.mmPerYear.toFixed(1)} mm/yr)` : ""),
-                  pointStyle: "circle",
-                  fillStyle: ds.borderColor,
-                  strokeStyle: ds.borderColor,
-                  fontColor: textColor,
-                  lineWidth: 2,
-                  datasetIndex: index
-                };
-              });
-            }
+  const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: {
+      duration: 300
+    },
+    interaction: {
+      mode: "index",
+      intersect: false
+    },
+    plugins: {
+      legend: {
+        display: true,
+        position: "top",
+        labels: {
+          usePointStyle: true,
+          padding: 20,
+          generateLabels: (_chart) => {
+            if (!(chartData == null ? void 0 : chartData.datasets)) return [];
+            return chartData.datasets.map((dataset, index) => ({
+              text: `${dataset.label}${dataset.trend && dataset.trend.mmPerYear !== void 0 ? ` (${dataset.trend.mmPerYear.toFixed(1)} mm/yr)` : ""}`,
+              pointStyle: "circle",
+              fillStyle: dataset.borderColor,
+              strokeStyle: dataset.borderColor,
+              lineWidth: 2,
+              datasetIndex: index
+            }));
           }
-        },
-        tooltip: {
-          callbacks: {
-            title: (context) => {
-              var _a2;
-              return `${((_a2 = context[0]) == null ? void 0 : _a2.label) || ""}`;
-            },
-            label: (context) => {
-              var _a2, _b2;
-              const dataset = (_a2 = chartData == null ? void 0 : chartData.datasets) == null ? void 0 : _a2[context.datasetIndex];
-              if (!dataset) return "";
-              const unit = (dsInfo == null ? void 0 : dsInfo.unit) || "m";
-              let label = `${dataset.label}: ${context.parsed.y.toFixed(4)} ${unit}`;
-              if (((_b2 = dataset.trend) == null ? void 0 : _b2.mmPerYear) !== void 0 && state.showTrends) {
-                label += ` (${dataset.trend.mmPerYear.toFixed(1)} mm/yr)`;
-              }
-              return label;
-            }
-          }
-        },
-        zoom: {
-          pan: {
-            enabled: true,
-            mode: "x",
-            onPanComplete: () => setIsZoomed(true)
+        }
+      },
+      tooltip: {
+        callbacks: {
+          title: (context) => {
+            var _a2;
+            return `Time: ${((_a2 = context[0]) == null ? void 0 : _a2.label) || ""}`;
           },
-          zoom: {
-            wheel: { enabled: true },
-            pinch: { enabled: true },
-            mode: "x",
-            onZoomComplete: () => setIsZoomed(true)
+          label: (context) => {
+            var _a2;
+            const dataset = (_a2 = chartData == null ? void 0 : chartData.datasets) == null ? void 0 : _a2[context.datasetIndex];
+            if (!dataset) return "";
+            let label = `${dataset.label}: ${context.parsed.y.toFixed(3)}`;
+            if (dataset.trend && dataset.trend.mmPerYear !== void 0 && state.showTrends) {
+              label += ` (${dataset.trend.mmPerYear.toFixed(1)} mm/yr)`;
+            }
+            return label;
           }
         }
-      },
-      scales: {
-        x: {
-          type: "time",
-          time: { displayFormats: { month: "MMM yyyy", day: "MMM d", year: "yyyy" } },
-          title: { display: true, text: "Date", color: mutedColor },
-          grid: { color: gridColor },
-          ticks: { color: mutedColor }
+      }
+    },
+    scales: {
+      x: {
+        type: "time",
+        time: {
+          displayFormats: {
+            month: "MMM yyyy",
+            year: "yyyy"
+          }
         },
-        y: {
-          title: { display: true, text: yLabel, color: mutedColor },
-          suggestedMin: state.vmin,
-          suggestedMax: state.vmax,
-          grid: { color: gridColor },
-          ticks: { color: mutedColor }
+        title: {
+          display: true,
+          text: "Time"
         }
       },
-      onClick: handleChartClick
-    };
-  }, [themeVersion, chartData, state.showTrends, state.vmin, state.vmax, state.currentDataset, state.datasetInfo, handleChartClick]);
-  if (!state.showChart) return null;
+      y: {
+        title: {
+          display: true,
+          text: "Displacement (m)"
+        },
+        suggestedMin: state.vmin,
+        suggestedMax: state.vmax
+      }
+    },
+    onClick: handleChartClick
+  };
+  if (!state.showChart) {
+    return null;
+  }
   if (state.timeSeriesPoints.length === 0) {
     return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { id: "chart-container", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "chart-placeholder", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: "No points selected." }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: "No time series points selected." }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: "Click on the map to add points." }) })
     ] }) });
   }
   if (isLoading) {
-    return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { id: "chart-container", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "chart-placeholder", children: /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: "Loading…" }) }) });
+    return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { id: "chart-container", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "chart-placeholder", children: /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: "Loading time series data..." }) }) });
   }
   if (!chartData || !chartData.datasets || chartData.datasets.length === 0) {
-    return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { id: "chart-container", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "chart-placeholder", children: /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: "No data for selected points." }) }) });
+    return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { id: "chart-container", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "chart-placeholder", children: /* @__PURE__ */ jsxRuntimeExports.jsx("p", { children: "No data available for selected points." }) }) });
   }
-  const isoLabels = chartData.labels.map(toIsoDate);
-  const day0 = isoLabels.length > 0 ? new Date(isoLabels[0]).getTime() / 864e5 : 0;
-  const isoToDay = (iso) => new Date(iso).getTime() / 864e5 - day0;
-  const datasetList = [];
-  chartData.datasets.forEach((dataset) => {
-    const isoData = dataset.data.map((pt) => ({ x: toIsoDate(pt.x), y: pt.y }));
-    datasetList.push({
+  const formattedChartData = {
+    labels: chartData.labels,
+    datasets: chartData.datasets.map((dataset) => ({
       label: dataset.label,
-      data: isoData,
+      data: dataset.data,
       borderColor: dataset.borderColor,
       backgroundColor: dataset.backgroundColor,
       borderWidth: 2,
-      pointRadius: 4,
-      pointHoverRadius: 6,
+      pointRadius: 3,
+      pointHoverRadius: 5,
       tension: 0.1,
       fill: false
-    });
-    if (state.showTrends && dataset.trend && isoData.length > 1) {
-      const { slope, intercept } = dataset.trend;
-      const trendData = isoData.map((pt) => ({
-        x: pt.x,
-        y: slope * isoToDay(pt.x) + intercept
-      }));
-      datasetList.push({
-        label: `${dataset.label} trend`,
-        data: trendData,
-        borderColor: dataset.borderColor,
-        backgroundColor: "transparent",
-        borderWidth: 1.5,
-        borderDash: [6, 4],
-        pointRadius: 0,
-        pointHoverRadius: 0,
-        tension: 0,
-        fill: false
-      });
-      if (state.showResiduals) {
-        const residualData = isoData.map((pt) => ({
-          x: pt.x,
-          y: pt.y - (slope * isoToDay(pt.x) + intercept)
-        }));
-        datasetList.push({
-          label: `${dataset.label} residual`,
-          data: residualData,
-          borderColor: dataset.borderColor,
-          backgroundColor: dataset.backgroundColor,
-          borderWidth: 1,
-          borderDash: [2, 3],
-          pointRadius: 2,
-          pointHoverRadius: 4,
-          tension: 0,
-          fill: false,
-          borderDashOffset: 0
-        });
-      }
-    }
-  });
-  if (state.bufferEnabled) {
-    chartData.datasets.forEach((dataset) => {
-      const buf = bufferData[dataset.pointId];
-      if (!buf) return;
-      const color2 = dataset.borderColor;
-      buf.samples.forEach((sample2, i) => {
-        datasetList.push({
-          label: `${dataset.label} sample ${i}`,
-          data: sample2.map((pt) => ({ x: toIsoDate(pt.x), y: pt.y })),
-          borderColor: color2 + "28",
-          backgroundColor: "transparent",
-          borderWidth: 1,
-          pointRadius: 0,
-          pointHoverRadius: 0,
-          tension: 0.1,
-          fill: false
-        });
-      });
-      datasetList.push({
-        label: `${dataset.label} median`,
-        data: buf.median.map((pt) => ({ x: toIsoDate(pt.x), y: pt.y })),
-        borderColor: color2,
-        backgroundColor: "transparent",
-        borderWidth: 3,
-        borderDash: [4, 3],
-        pointRadius: 0,
-        pointHoverRadius: 0,
-        tension: 0.1,
-        fill: false
-      });
-    });
-  }
-  const formattedChartData = { labels: isoLabels, datasets: datasetList };
+    }))
+  };
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { id: "chart-container", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "chart-header", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("h4", { children: "Time Series" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("h4", { children: "Time Series Analysis" }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "chart-controls", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs(
           "button",
           {
-            className: "chart-btn",
+            className: "pure-button",
             onClick: () => dispatch({ type: "TOGGLE_TRENDS" }),
             title: "Toggle trend analysis",
             children: [
@@ -37486,50 +32527,22 @@ function TimeSeriesChart() {
             ]
           }
         ),
-        state.showTrends && /* @__PURE__ */ jsxRuntimeExports.jsxs(
+        /* @__PURE__ */ jsxRuntimeExports.jsxs(
           "button",
           {
-            className: "chart-btn",
-            onClick: () => dispatch({ type: "TOGGLE_RESIDUALS" }),
-            title: "Show residuals (data minus trend)",
+            className: "pure-button",
+            onClick: handleExportToCSV,
+            title: "Export data to CSV",
             children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("i", { className: `fa-solid ${state.showResiduals ? "fa-wave-square" : "fa-chart-scatter"}` }),
-              state.showResiduals ? "Hide" : "Show",
-              " Residuals"
+              /* @__PURE__ */ jsxRuntimeExports.jsx("i", { className: "fa-solid fa-download" }),
+              "Export CSV"
             ]
           }
-        ),
-        isZoomed && /* @__PURE__ */ jsxRuntimeExports.jsxs(
-          "button",
-          {
-            className: "chart-btn",
-            onClick: () => {
-              var _a2;
-              (_a2 = chartRef.current) == null ? void 0 : _a2.resetZoom();
-              setIsZoomed(false);
-            },
-            title: "Reset zoom",
-            children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("i", { className: "fa-solid fa-magnifying-glass-minus" }),
-              " Reset"
-            ]
-          }
-        ),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { className: "chart-btn", onClick: handleExportToCSV, title: "Export data to CSV", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("i", { className: "fa-solid fa-download" }),
-          " CSV"
-        ] })
+        )
       ] })
     ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "chart-content", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Line, { ref: chartRef, data: formattedChartData, options: chartOptions }) }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "chart-help", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("small", { children: [
-      "Scroll to zoom · Drag to pan · Click points to sync map time",
-      state.bufferEnabled && Object.keys(bufferData).length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-        " · Buffer: ",
-        Object.values(bufferData).map((b) => b.n_pixels).join(", "),
-        " px"
-      ] })
-    ] }) })
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "chart-content", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Line, { data: formattedChartData, options: chartOptions }) }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "chart-help", children: /* @__PURE__ */ jsxRuntimeExports.jsx("small", { children: "Click on chart points to sync map time • Trends show mm/year rates" }) })
   ] });
 }
 function PointManagerPanel() {
@@ -37718,16 +32731,11 @@ function PointManagerPanel() {
 }
 function AppContent() {
   const { state, dispatch } = useAppContext();
-  const { fetchDatasets, fetchDataMode, fetchConfig } = useApi();
-  const [appTitle, setAppTitle] = reactExports.useState("");
+  const { fetchDatasets, fetchDataMode } = useApi();
   reactExports.useEffect(() => {
     const initializeApp = async () => {
       try {
-        const [config, mode] = await Promise.all([fetchConfig(), fetchDataMode()]);
-        if (config.title) {
-          setAppTitle(config.title);
-          document.title = config.title;
-        }
+        const mode = await fetchDataMode();
         dispatch({ type: "SET_DATA_MODE", payload: mode });
         const datasets = await fetchDatasets();
         dispatch({ type: "SET_DATASETS", payload: datasets });
@@ -37744,9 +32752,9 @@ function AppContent() {
       }
     };
     initializeApp();
-  }, [fetchDatasets, fetchDataMode, fetchConfig, dispatch]);
+  }, [fetchDatasets, fetchDataMode, dispatch]);
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "app-container", children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx(ControlPanel, { title: appTitle }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(ControlPanel, {}),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "map-container", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx(MapContainer, {}),
       /* @__PURE__ */ jsxRuntimeExports.jsx(PointManagerPanel, {}),

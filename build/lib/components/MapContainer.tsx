@@ -6,9 +6,6 @@ import { useApi } from '../hooks/useApi';
 import { useAppContext } from '../context/AppContext';
 import { baseMaps } from '../basemap';
 import { MousePositionControl } from '../mouse';
-import MeasureTool from './MeasureTool';
-import ProfileTool from './ProfileTool';
-import RefPointChart from './RefPointChart';
 
 // Fix for default markers in React Leaflet
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -19,22 +16,22 @@ L.Icon.Default.mergeOptions({
 });
 
 const fontAwesomeIcon = L.divIcon({
-  html: '<i class="fa-solid fa-location-dot fa-3x" style="color:#111; text-shadow: 0 0 4px white, 0 0 4px white;"></i>',
+  html: '<i class="fa-solid fa-location-dot fa-3x"></i>',
   iconSize: [20, 20],
   className: 'myDivIcon'
 });
 
 function MapEvents() {
-  const { state, dispatch } = useAppContext();
+  const { dispatch } = useAppContext();
 
   useMapEvents({
     click: (e) => {
-      if (!state.pickingEnabled) return;
+      // Add new time series point on map click
       dispatch({
         type: 'ADD_TIME_SERIES_POINT',
         payload: {
           position: [e.latlng.lat, e.latlng.lng],
-          name: `Point ${Date.now().toString().slice(-4)}`
+          name: `Point ${Date.now().toString().slice(-4)}` // Short unique name
         }
       });
     },
@@ -58,28 +55,12 @@ function MousePosition() {
   return null;
 }
 
-function ScaleBar() {
-  const map = useMap();
-
-  useEffect(() => {
-    const scale = L.control.scale({ position: 'bottomleft', imperial: true, metric: true, maxWidth: 150 });
-    scale.addTo(map);
-    return () => { scale.remove(); };
-  }, [map]);
-
-  return null;
-}
-
 function RasterTileLayer() {
   const { state } = useAppContext();
   const [tileUrl, setTileUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!state.currentDataset || !state.datasetInfo[state.currentDataset] || !state.dataMode) {
-      return;
-    }
-    // dataMode starts as 'md' default; wait until datasets are loaded (which confirms mode is set)
-    if (state.dataMode !== 'md' && state.dataMode !== 'cog') {
+    if (!state.currentDataset || !state.datasetInfo[state.currentDataset]) {
       return;
     }
 
@@ -111,11 +92,9 @@ function RasterTileLayer() {
         params.algorithm = currentDatasetInfo.algorithm;
       }
 
-      // Add shift for reference point if available and re-referencing is enabled
-      if (state.refEnabled && state.refValues[state.currentDataset] && currentDatasetInfo.algorithm === 'shift') {
-        const refArr = state.refValues[state.currentDataset];
-        // For 2D variables (no time dim) the ref array has only one element; fall back to index 0
-        const shift = refArr[timeIdx] ?? refArr[0];
+      // Add shift for reference point if available
+      if (state.refValues[state.currentDataset] && currentDatasetInfo.algorithm === 'shift') {
+        const shift = state.refValues[state.currentDataset][timeIdx];
         if (shift !== undefined) {
           params.algorithm_params = JSON.stringify({ shift });
         }
@@ -128,22 +107,8 @@ function RasterTileLayer() {
         const maskMinValue = currentDatasetInfo.mask_min_value;
 
         params.url = url;
-        if (maskUrl) params.mask = maskUrl;
+        if (maskUrl) params.mask = encodeURIComponent(maskUrl);
         if (maskMinValue !== undefined) params.mask_min_value = maskMinValue.toString();
-        if (state.customMaskPath) params.custom_mask = state.customMaskPath;
-        params.time_idx = timeIdx.toString();
-      }
-
-      // Layer masks (both modes)
-      if (state.layerMasks.length > 0) {
-        params.layer_masks = JSON.stringify(
-          state.layerMasks.map(m => ({ dataset: m.dataset, threshold: m.threshold, mode: m.mode }))
-        );
-      }
-
-      // MD mode: custom mask path
-      if (state.dataMode === 'md') {
-        if (state.customMaskPath) params.custom_mask_path = state.customMaskPath;
       }
 
       const urlParams = new URLSearchParams(params).toString();
@@ -164,10 +129,8 @@ function RasterTileLayer() {
       }
     };
 
-    // Debounce: collapse rapid state changes (histogram → rescale → ref point)
-    // into a single request to avoid transient 500s from concurrent opens.
-    const debounceTimer = setTimeout(() => updateTileLayer(), 80);
-    return () => { clearTimeout(debounceTimer); controller.abort(); };
+    updateTileLayer();
+    return () => controller.abort();
   }, [
     state.currentDataset,
     state.currentTimeIndex,
@@ -175,12 +138,9 @@ function RasterTileLayer() {
     state.dataMode,
     state.refValues,
     state.refMarkerPosition,
-    state.refEnabled,
     state.colormap,
     state.vmin,
-    state.vmax,
-    state.layerMasks,
-    state.customMaskPath,
+    state.vmax
   ]);
 
   if (!tileUrl) return null;
@@ -195,59 +155,9 @@ function RasterTileLayer() {
   );
 }
 
-/** Draw radius circles on the map for buffer-enabled points and reference marker. */
-function RadiusCircles() {
-  const { state } = useAppContext();
-  const map = useMap();
-
-  useEffect(() => {
-    const circles: L.Circle[] = [];
-
-    // Time-series point buffer circles
-    if (state.bufferEnabled && state.bufferRadius > 0) {
-      state.timeSeriesPoints.filter(p => p.visible).forEach(point => {
-        circles.push(L.circle([point.position[0], point.position[1]], {
-          radius: state.bufferRadius,
-          color: point.color,
-          fillColor: point.color,
-          fillOpacity: 0.08,
-          weight: 1.5,
-          dashArray: '4 3',
-        }).addTo(map));
-      });
-    }
-
-    // Reference marker buffer circle
-    if (state.refEnabled && state.refBufferEnabled && state.refBufferRadius > 0) {
-      const [lat, lng] = state.refMarkerPosition;
-      circles.push(L.circle([lat, lng], {
-        radius: state.refBufferRadius,
-        color: '#e05d6a',
-        fillColor: '#e05d6a',
-        fillOpacity: 0.08,
-        weight: 1.5,
-        dashArray: '4 3',
-      }).addTo(map));
-    }
-
-    return () => { circles.forEach(c => c.remove()); };
-  }, [
-    map,
-    state.bufferEnabled,
-    state.bufferRadius,
-    state.refEnabled,
-    state.refBufferEnabled,
-    state.refBufferRadius,
-    state.refMarkerPosition,
-    JSON.stringify(state.timeSeriesPoints.map(p => ({ id: p.id, pos: p.position, vis: p.visible }))),
-  ]);
-
-  return null;
-}
-
 function MarkerEventHandlers() {
   const { state, dispatch } = useAppContext();
-  const { fetchPointTimeSeries, fetchBufferTimeSeries } = useApi();
+  const { fetchPointTimeSeries } = useApi();
   const map = useMap();
 
   const handleMarkerClick = (position: [number, number], pointName?: string) => {
@@ -286,20 +196,12 @@ function MarkerEventHandlers() {
     const info = ds ? state.datasetInfo[ds] : null;
     if (ds && info?.algorithm === 'shift') {
       try {
-        let values: number[] | undefined;
-        if (state.refBufferEnabled && state.refBufferRadius > 0) {
-          const result = await fetchBufferTimeSeries(lng, lat, ds, state.refBufferRadius, 0);
-          if (result?.median) {
-            const xValues = state.datasetInfo[ds]?.x_values?.map(String) ?? result.labels?.map(String) ?? [];
-            const byX = Object.fromEntries(result.median.map((pt: { x: string; y: number }) => [String(pt.x), pt.y]));
-            values = xValues.map((x: string) => byX[x] ?? NaN);
-          }
-        }
-        if (!values) {
-          values = await fetchPointTimeSeries(lng, lat, ds);
-        }
+        const values = await fetchPointTimeSeries(lng, lat, ds);
         if (values) {
-          dispatch({ type: 'SET_REF_VALUES', payload: { dataset: ds, values } });
+          dispatch({
+            type: 'SET_REF_VALUES',
+            payload: { dataset: ds, values },
+          });
         }
       } catch (err) {
         console.error('Error updating reference values after drag:', err);
@@ -393,27 +295,8 @@ export default function MapContainer() {
 
   const center = getInitialCenter();
   const hasDatasets = Object.keys(state.datasetInfo).length > 0;
-  const [measureActive, setMeasureActive] = useState(false);
-  const [profileActive, setProfileActive] = useState(false);
 
   return (
-    <div className="map-container">
-      <div className="map-toolbar">
-        <button
-          className={`map-tool-btn${measureActive ? ' active' : ''}`}
-          title="Measure distance (click points, double-click to finish)"
-          onClick={() => { setMeasureActive(v => !v); setProfileActive(false); }}
-        >
-          <i className="fa-solid fa-ruler"></i>
-        </button>
-        <button
-          className={`map-tool-btn${profileActive ? ' active' : ''}`}
-          title="Draw profile line (click start, click end, double-click to extract)"
-          onClick={() => { setProfileActive(v => !v); setMeasureActive(false); }}
-        >
-          <i className="fa-solid fa-chart-area"></i>
-        </button>
-      </div>
     <LeafletMapContainer
       key={hasDatasets ? 'with-data' : 'no-data'} // Force re-render when data loads
       center={center}
@@ -427,15 +310,9 @@ export default function MapContainer() {
         maxZoom={19}
       />
       <RasterTileLayer />
-      <RadiusCircles />
       <MarkerEventHandlers />
       <MapEvents />
       <MousePosition />
-      <ScaleBar />
-      <MeasureTool active={measureActive} onDeactivate={() => setMeasureActive(false)} />
-      <ProfileTool active={profileActive} onDeactivate={() => setProfileActive(false)} />
-      <RefPointChart />
     </LeafletMapContainer>
-    </div>
   );
 }

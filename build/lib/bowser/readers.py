@@ -32,29 +32,6 @@ from rio_tiler.models import BandStatistics, ImageData, Info, PointData
 from rio_tiler.types import BBox, Indexes
 from tqdm.contrib.concurrent import thread_map
 
-
-def _patch_rasterio_float16() -> None:
-    """Register GDAL Float16 (type code 15) with rasterio if missing.
-
-    GDAL 3.11+ interprets NBITS=16 on float32 GeoTIFFs as native Float16
-    (datatype code 15). Rasterio builds that lack a mapping for code 15 raise
-    ``KeyError: 15`` on open. Patch the forward/reverse dtype dicts so rasterio
-    can open these files transparently.
-    """
-    try:
-        from osgeo import gdal
-        if not hasattr(gdal, "GDT_Float16"):
-            return
-        from rasterio.dtypes import dtype_fwd, dtype_rev
-        if 15 not in dtype_fwd:
-            dtype_fwd[15] = "float16"
-            dtype_rev["float16"] = 15
-    except Exception:
-        pass
-
-
-_patch_rasterio_float16()
-
 PathOrStr = Path | str
 
 __all__ = [
@@ -196,15 +173,8 @@ class RasterReader(DatasetReader):
         """Bounds of dataset in `crs` coordinates."""
         if self.keep_open:
             return self._src.bounds
-        try:
-            with rio.open(self.filename, "r") as src:
-                return src.bounds
-        except KeyError:
-            # GDAL dtype not known to rasterio (e.g. Float16); compute from transform+shape.
-            h, w = self.shape
-            tf = self.transform
-            from rasterio.transform import array_bounds  # noqa: PLC0415
-            return array_bounds(h, w, tf)
+        with rio.open(self.filename, "r") as src:
+            return src.bounds
 
     @property
     def latlon_bounds(self) -> tuple[float, float, float, float]:
@@ -228,39 +198,7 @@ class RasterReader(DatasetReader):
             dates = get_dates(filename, fmt=file_date_fmt)
         else:
             dates = None
-        try:
-            src_ctx = rio.open(filename, "r", **options)
-        except KeyError:
-            # rasterio doesn't know this GDAL dtype (e.g. Float16 = GDAL type 15).
-            # Fall back to GDAL directly to get shape/transform, treat as float32.
-            from osgeo import gdal  # noqa: PLC0415
-            gdal.UseExceptions()
-            ds = gdal.Open(str(filename))
-            if ds is None:
-                raise OSError(f"Cannot open {filename}")
-            gt = ds.GetGeoTransform()
-            from affine import Affine  # noqa: PLC0415
-            from rasterio.crs import CRS as RioCRS  # noqa: PLC0415
-            _transform = Affine.from_gdal(*gt)
-            _crs = RioCRS.from_wkt(ds.GetProjection()) if ds.GetProjection() else None
-            _nodata = ds.GetRasterBand(band).GetNoDataValue()
-            _shape = (ds.RasterYSize, ds.RasterXSize)
-            _chunks = (256, 256)
-            ds = None
-            return cls(
-                filename=filename,
-                band=band,
-                driver="GTiff",
-                crs=_crs,
-                transform=_transform,
-                shape=_shape,
-                dtype=np.dtype("float32"),
-                nodata=_nodata,
-                keep_open=keep_open,
-                dates=dates,
-                chunks=_chunks,
-            )
-        with src_ctx as src:
+        with rio.open(filename, "r", **options) as src:
             shape = (src.height, src.width)
             dtype = np.dtype(src.dtypes[band - 1])
             driver = src.driver
@@ -549,16 +487,10 @@ class CustomReader(BaseReader):
     def __attrs_post_init__(self):
         """Define _kwargs, open dataset and get info."""
         self.dataset = self._ctx_stack.enter_context(Reader(self.input["data"]))
-        if self.input.get("mask"):
+        if self.input["mask"]:
             self.mask = self._ctx_stack.enter_context(Reader(self.input["mask"]))
         else:
             self.mask = None
-
-        # Open extra masks (e.g. custom uploaded masks)
-        self._extra_masks: list[tuple[Any, float]] = []
-        for mask_path, mask_min in self.input.get("extra_masks", []):
-            reader = self._ctx_stack.enter_context(Reader(mask_path))
-            self._extra_masks.append((reader, mask_min))
 
         self.bounds = self.dataset.bounds
         self.crs = self.dataset.crs
@@ -610,32 +542,33 @@ class CustomReader(BaseReader):
             **kwargs,
         )
 
-        combined_mask = img.mask == 0  # True = invalid
-
-        # Apply primary mask
+        # https://rasterio.readthedocs.io/en/stable/topics/masks.html#nodata-representations-in-raster-files
         if self.mask is not None:
             mask_layer_img = self.mask.tile(
-                tile_x, tile_y, tile_z, tilesize, indexes=1, **kwargs,
+                tile_x,
+                tile_y,
+                tile_z,
+                tilesize,
+                indexes=1,
+                **kwargs,
             )
-            filled = np.squeeze(mask_layer_img.array.filled(0))
-            combined_mask = np.logical_or.reduce([
-                combined_mask,
-                filled == 0,
-                filled < self.input["mask_min_value"],
-            ])
 
-        # Apply extra masks (custom uploaded masks — binary: > 0 = valid)
-        for extra_reader, extra_min in self._extra_masks:
-            try:
-                extra_img = extra_reader.tile(
-                    tile_x, tile_y, tile_z, tilesize, indexes=1, **kwargs,
-                )
-                extra_filled = np.squeeze(extra_img.array.filled(0))
-                combined_mask = np.logical_or(combined_mask, extra_filled <= extra_min)
-            except Exception:
-                pass  # tile outside bounds — skip
+            # Combine the invalid pixels of `.mask` and `.img`
+            bad_image_pixels = img.mask == 0
+            # img.mask has "valid" = 255, "invalid" = 0
+            # need to convert it to numpy style
+            filled_mask_layer = np.squeeze(mask_layer_img.array.filled(0))
+            bad_mask_pixels = filled_mask_layer == 0
 
-        if np.any(combined_mask != (img.mask == 0)):
+            # Also mask out the pixels which don't pass the threshold
+            pixels_below_threshold = filled_mask_layer < self.input["mask_min_value"]
+            combined_mask = np.logical_or.reduce(
+                [
+                    bad_image_pixels,
+                    bad_mask_pixels,
+                    pixels_below_threshold,
+                ]
+            )
             img = ImageData(
                 np.ma.MaskedArray(img.data, mask=combined_mask),
                 assets=img.assets,
