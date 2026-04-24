@@ -6,7 +6,6 @@ from typing import Sequence, TypeVar
 
 import numpy as np
 from dateutil import parser
-from scipy import stats
 
 
 class CredentialsError(Exception):
@@ -95,19 +94,28 @@ def calculate_trend(
     time_days = _parse_x_values(x_values)
     valid_time = time_days[valid_mask]
 
-    # Calculate linear regression using actual time values
-    slope, intercept, r_value, p_value, std_err = stats.linregress(
-        valid_time, valid_values
-    )
+    # Inlined OLS on two 1-D arrays — previously `scipy.stats.linregress`.
+    # Only slope/intercept/r_squared are needed; p-value and std-err were
+    # discarded. Formula matches scipy's: slope = Σdxdy/Σdx², intercept =
+    # ȳ - slope·x̄, r² = (Σdxdy)² / (Σdx²·Σdy²).
+    x_mean = valid_time.mean()
+    y_mean = valid_values.mean()
+    dx = valid_time - x_mean
+    dy = valid_values - y_mean
+    ss_xy = float((dx * dy).sum())
+    ss_x = float((dx * dx).sum())
+    ss_y = float((dy * dy).sum())
+    slope = ss_xy / ss_x
+    intercept = y_mean - slope * x_mean
+    r_squared = (ss_xy * ss_xy) / (ss_x * ss_y) if ss_x and ss_y else 0.0
 
-    # Convert slope to mm/year
-    # slope is in meters/day, so convert to mm/year
+    # Convert slope to mm/year (slope is in meters/day)
     mm_per_year = slope * 1000 * 365.25
 
     return {
         "slope": float(slope),
         "intercept": float(intercept),
-        "r_squared": float(r_value**2),
+        "r_squared": float(r_squared),
         "mm_per_year": float(mm_per_year),
     }
 
@@ -240,7 +248,9 @@ def generate_colorbar(cmap_name: str) -> bytes:
 
 
 def register_custom_colormaps() -> None:
-    """Register cfastie, rplumbo, schwarzwald reversed variants in rio_tiler and matplotlib.
+    """Register reversed cfastie/rplumbo/schwarzwald colormaps.
+
+    Registers the ``_r`` variants in both rio_tiler and matplotlib.
 
     rio_tiler ships cfastie/rplumbo/schwarzwald but not their ``_r`` (reversed)
     counterparts.  This function reads each from rio_tiler's registry, reverses
@@ -278,17 +288,13 @@ def register_custom_colormaps() -> None:
 
         # Also register in matplotlib for the /colorbar/ endpoint
         rgba = np.array([list(rev[i]) for i in range(256)], dtype=np.uint8)
-        mpl_cmap = LinearSegmentedColormap.from_list(
-            rev_name, rgba[:, :3] / 255.0
-        )
+        mpl_cmap = LinearSegmentedColormap.from_list(rev_name, rgba[:, :3] / 255.0)
         if rev_name not in mpl.colormaps:
             mpl.colormaps.register(mpl_cmap, name=rev_name)
 
         # Register the forward matplotlib cmap too (in case it's missing)
         fwd_rgba = np.array([list(fwd[i]) for i in range(256)], dtype=np.uint8)
-        mpl_fwd = LinearSegmentedColormap.from_list(
-            name, fwd_rgba[:, :3] / 255.0
-        )
+        mpl_fwd = LinearSegmentedColormap.from_list(name, fwd_rgba[:, :3] / 255.0)
         if name not in mpl.colormaps:
             mpl.colormaps.register(mpl_fwd, name=name)
 
