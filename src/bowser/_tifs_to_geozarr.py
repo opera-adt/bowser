@@ -246,6 +246,10 @@ class _Loaded:
     array: np.ndarray  # (N, H, W) for 3D groups; (H, W) for single-file groups
     dim_name: str | None  # None for 2D
     coords: dict[str, tuple[str, np.ndarray]]  # {coord_name: (dim, values)}
+    # GDAL ``Unit Type`` from the first file in the group (``src.units[0]``).
+    # Empty/unset on GeoTIFFs with no unit declared. Written as ``units`` attr
+    # on the xarray DataArray so the bowser colorbar can label the scale.
+    units: str | None = None
 
 
 def _load_spatial_ref(path: str) -> _SpatialRef:
@@ -278,15 +282,23 @@ def _load_group(rg: dict, ref: _SpatialRef) -> _Loaded:
 
     # Dtype: float16 tifs are unusable downstream (GDAL reprojection + titiler
     # both choke), so upcast at read time. Everything else flows through
-    # unchanged.
+    # unchanged. Also grab the GDAL Unit Type from band 1 — rasterio returns
+    # ``('',)`` on files with no unit set, which we normalise to ``None``.
     with rasterio.open(file_list[0]) as src0:
         src_dtype = src0.dtypes[0]
+        band_units = src0.units or ()
     out_dtype = np.dtype("float32" if src_dtype == "float16" else src_dtype)
+    units = band_units[0] if band_units and band_units[0] else None
 
     if len(file_list) == 1:
         arr = _read_one(file_list[0], ref, out_dtype)
         return _Loaded(
-            name=name, display_name=display_name, array=arr, dim_name=None, coords={}
+            name=name,
+            display_name=display_name,
+            array=arr,
+            dim_name=None,
+            coords={},
+            units=units,
         )
 
     # 3D: pre-allocate (N, H, W) once, then fill per file — avoids the
@@ -315,6 +327,7 @@ def _load_group(rg: dict, ref: _SpatialRef) -> _Loaded:
                 array=stack,
                 dim_name=time_dim,
                 coords={time_dim: (time_dim, sec[order].to_numpy())},
+                units=units,
             )
         order = sorted(range(len(pairs)), key=lambda i: pairs[i])
         stack = stack[order]
@@ -344,6 +357,7 @@ def _load_group(rg: dict, ref: _SpatialRef) -> _Loaded:
                 ),
                 f"pair_label_{name}": (pair_dim, labels),
             },
+            units=units,
         )
     if all(len(d) == 1 for d in dates_per_file):
         t = pd.to_datetime([d[0] for d in dates_per_file])
@@ -355,6 +369,7 @@ def _load_group(rg: dict, ref: _SpatialRef) -> _Loaded:
             array=stack,
             dim_name=time_dim,
             coords={time_dim: (time_dim, t[order].to_numpy())},
+            units=units,
         )
     raise ValueError(
         f"Group {display_name!r}: inconsistent filename date structure "
@@ -467,6 +482,13 @@ def _write_variable_to_all_levels(
         # deliberately exclude y/x/spatial_ref here (they live in the skeleton)
         # so do the one attr that GeoZarr readers still need by hand.
         da.attrs["grid_mapping"] = "spatial_ref"
+        # CF conventions: ``long_name`` → colorbar title, ``units`` →
+        # colorbar unit label in the bowser UI. long_name comes from the
+        # RasterGroup's display name (e.g. "Velocity") so the UI doesn't
+        # have to show the sanitized zarr variable name ("velocity").
+        da.attrs["long_name"] = lv.display_name
+        if lv.units:
+            da.attrs["units"] = lv.units
         coords = dict(lv.coords.items())
         ds_var = xr.Dataset({lv.name: da}, coords=coords)
         ds_var.to_zarr(
