@@ -12,12 +12,16 @@ Reads the ``RasterGroup`` JSON config produced by ``bowser set-data`` /
 - optional multiscale pyramid (``--pyramid``): levels written to ``/0``, ``/1``,
   ``/2``, … subgroups; root carries the ``multiscales`` convention attrs
 
-Read path: one ``ProcessPoolExecutor`` worker per raster group, each using
-plain ``rasterio.open(f).read(1)`` into a pre-allocated numpy stack. No dask,
-no rioxarray lazy graph, no xarray IO lock. Profiling of the previous
-dask-backed path showed ~80% of wall time spent with idle threadpool workers
-and ~26% of active time blocked on ``xarray/backends/locks.py:__enter__`` —
-those are what this rewrite removes.
+Read path: a ``ThreadPoolExecutor`` pool of readers, each using plain
+``rasterio.open(f).read(1)`` into a pre-allocated numpy stack. Threads (not
+processes) because rasterio releases the GIL during reads and a process pool
+would double peak RSS by pickling multi-GB result arrays back through IPC.
+
+Streaming write: readers also compute the 2×2-mean pyramid levels in-worker,
+and the main thread drains futures via ``as_completed`` and writes each
+variable to every level group before dropping its arrays. Only a bounded
+number of groups are in flight at a time, so peak memory ≈
+``(n_workers + 1) × (4/3) × largest_group`` instead of the full stack.
 
 Usage
 -----
@@ -27,15 +31,18 @@ Usage
 
 from __future__ import annotations
 
+import itertools
 import json
 import logging
 import os
 import time
-from concurrent.futures import ProcessPoolExecutor
+import warnings
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from contextlib import contextmanager
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterable, Iterator
 
 import click
 import numpy as np
@@ -52,7 +59,6 @@ from bowser.geozarr import (
     DEFAULT_SHARD_FACTOR,
     ZarrWriteConfig,
     annotate_store,
-    build_pyramid,
     shard_encoding,
 )
 
@@ -135,7 +141,8 @@ def _timed(label: str):
     show_default=True,
     type=int,
     help=(
-        "Parallel worker processes — one variable per worker. "
+        "Parallel reader threads — one variable per thread. "
+        "rasterio releases the GIL during reads so threads overlap I/O. "
         "0 = min(len(variables), cpu_count())."
     ),
 )
@@ -188,24 +195,6 @@ def main(
     # so fail loudly on shape/CRS mismatch inside the worker).
     ref = _load_spatial_ref(groups_cfg[0]["file_list"][0])
 
-    n_workers = workers or min(len(groups_cfg), os.cpu_count() or 4)
-    logger.info("Loading %d variables with %d workers", len(groups_cfg), n_workers)
-    loaded: list[_Loaded]
-    with _timed("read (all variables, parallel)"):
-        if n_workers == 1:
-            loaded = [_load_group(g, ref) for g in groups_cfg]
-        else:
-            with ProcessPoolExecutor(max_workers=n_workers) as pool:
-                loaded = list(
-                    pool.map(_load_group, groups_cfg, [ref] * len(groups_cfg))
-                )
-
-    bytes_in = sum(lv.array.nbytes for lv in loaded)
-    logger.info("Loaded %.2f GiB across %d vars", bytes_in / 2**30, len(loaded))
-
-    with _timed("assemble xr.Dataset"):
-        ds = _assemble_dataset(loaded, ref)
-
     write_cfg = ZarrWriteConfig(
         chunk=chunk,
         shard_factor=shard_factor,
@@ -216,35 +205,80 @@ def main(
             p.strip() for p in quantize_patterns.split(",") if p.strip()
         ),
     )
-    encoding = shard_encoding(ds, write_cfg)
 
-    if pyramid:
-        with _timed("write level 0"):
-            logger.info("Writing level 0 → %s/0", output)
-            ds.to_zarr(
-                output, group="0", mode="w", consolidated=False, encoding=encoding
+    level_coords = (
+        _pyramid_level_coords(ref, min_pyramid_size)
+        if pyramid
+        else [(ref.y_coords, ref.x_coords)]
+    )
+    n_workers = workers or min(len(groups_cfg), os.cpu_count() or 4)
+    logger.info(
+        "Loading %d variables with %d threads, %d pyramid level(s)",
+        len(groups_cfg),
+        n_workers,
+        len(level_coords),
+    )
+
+    # 1. Write skeleton (y, x, spatial_ref) to each level group. Variables are
+    #    appended afterwards with mode="a", which is why y/x/spatial_ref must
+    #    already exist when we stream per-variable writes in.
+    with _timed("write skeletons"):
+        for i, (y, x) in enumerate(level_coords):
+            group = str(i) if pyramid else None
+            _write_skeleton(output, group, y, x, ref.crs_wkt)
+
+    # 2. Stream: readers produce (lv, levels) tuples in completion order; main
+    #    thread writes each variable to every level group and drops its arrays
+    #    before pulling the next result.
+    loader = partial(_load_and_coarsen, ref=ref, n_levels=len(level_coords))
+    total_bytes = 0
+    written: list[str] = []
+    max_in_flight = n_workers + 1
+    with _timed("read + coarsen + write (streaming)"):
+        if n_workers == 1:
+            stream: Iterable[tuple[_Loaded, list[np.ndarray]]] = (
+                loader(g) for g in groups_cfg
             )
-        with _timed("build pyramid (all levels)"):
-            logger.info("Building pyramid")
-            levels = build_pyramid(
-                output,
-                min_size=min_pyramid_size,
-                config=write_cfg,
-                level_0_ds=ds,
+            for lv, levels in stream:
+                total_bytes += lv.array.nbytes
+                _write_variable_to_all_levels(output, lv, levels, pyramid, write_cfg)
+                written.append(lv.name)
+                del lv, levels
+        else:
+            with ThreadPoolExecutor(max_workers=n_workers) as pool:
+                for lv, levels in _bounded_in_flight(
+                    pool, loader, groups_cfg, max_in_flight
+                ):
+                    total_bytes += lv.array.nbytes
+                    _write_variable_to_all_levels(
+                        output, lv, levels, pyramid, write_cfg
+                    )
+                    written.append(lv.name)
+                    del lv, levels
+    logger.info(
+        "Streamed %.2f GiB (level-0) across %d vars", total_bytes / 2**30, len(written)
+    )
+
+    with _timed("annotate_store"):
+        if pyramid:
+            multiscales_levels = [{"asset": "0"}] + [
+                {
+                    "asset": str(i),
+                    "derived_from": str(i - 1),
+                    "transform": {"scale": [2.0, 2.0]},
+                }
+                for i in range(1, len(level_coords))
+            ]
+            annotate_store(
+                output, data_group="0", multiscales_levels=multiscales_levels
             )
-        with _timed("annotate_store"):
-            annotate_store(output, data_group="0", multiscales_levels=levels)
-    else:
-        with _timed("write zarr (flat)"):
-            logger.info("Writing zarr → %s", output)
-            ds.to_zarr(output, mode="w", consolidated=False, encoding=encoding)
-        with _timed("annotate_store"):
+        else:
             annotate_store(output)
 
     if los_dir:
         _write_los_attrs(output, Path(los_dir))
 
-    click.echo(f"Wrote {output} with variables: {sorted(lv.name for lv in loaded)}")
+    click.echo(f"Wrote {output} with variables: {sorted(written)}")
 
 
 def _write_los_attrs(zarr_path: str, los_dir: Path) -> None:
@@ -333,8 +367,8 @@ def _load_spatial_ref(path: str) -> _SpatialRef:
 def _load_group(rg: dict, ref: _SpatialRef) -> _Loaded:
     """Read every file in a RasterGroup into one numpy array.
 
-    Runs inside a worker process — imports are at module top so pickling costs
-    are just the ``rg`` dict and ``ref`` dataclass (both tiny).
+    Runs inside a worker thread — rasterio releases the GIL during ``read``,
+    so N threads overlap I/O without the process-pool IPC doubling.
     """
     file_list: list[str] = rg["file_list"]
     name = _sanitize(rg["name"])
@@ -438,31 +472,138 @@ def _read_one(path: str, ref: _SpatialRef, out_dtype: np.dtype) -> np.ndarray:
     return arr.astype(out_dtype, copy=False)
 
 
-def _assemble_dataset(loaded: list[_Loaded], ref: _SpatialRef) -> xr.Dataset:
-    """Combine per-group numpy arrays into one ``xr.Dataset`` with shared x/y coords."""
-    data_vars: dict[str, xr.DataArray] = {}
-    extra_coords: dict[str, tuple[Any, np.ndarray]] = {}
-    for lv in loaded:
-        if lv.dim_name is None:
-            da = xr.DataArray(lv.array, dims=("y", "x"), name=lv.name)
-        else:
-            da = xr.DataArray(lv.array, dims=(lv.dim_name, "y", "x"), name=lv.name)
-            # Attach this group's per-dim coords to the containing Dataset so
-            # they're written alongside the variable.
-            for cname, (cdim, cvals) in lv.coords.items():
-                extra_coords[cname] = (cdim, cvals)
-        data_vars[lv.name] = da
-    ds = xr.Dataset(
-        data_vars,
-        coords={"y": ref.y_coords, "x": ref.x_coords, **extra_coords},
-    )
-    if ref.crs_wkt:
-        # Let rioxarray write spatial_ref via the usual accessor — keeps the
-        # CF `grid_mapping` attribute wiring identical to the old path.
+def _pyramid_level_coords(
+    ref: _SpatialRef, min_size: int, max_levels: int = 6
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Return ``(y, x)`` coord pairs for each pyramid level, starting with level 0.
+
+    2×2 mean resampling on both dims — matches ``bowser.geozarr._coarsen_2x2_numpy``
+    so consumer code that interprets the coarsened transforms keeps working.
+    """
+    levels = [(ref.y_coords, ref.x_coords)]
+    for _ in range(max_levels):
+        y, x = levels[-1]
+        if len(y) // 2 < min_size or len(x) // 2 < min_size:
+            break
+        ny = (len(y) // 2) * 2
+        nx = (len(x) // 2) * 2
+        levels.append(
+            (
+                y[:ny].reshape(-1, 2).mean(axis=1),
+                x[:nx].reshape(-1, 2).mean(axis=1),
+            )
+        )
+    return levels
+
+
+def _coarsen_2x2(arr: np.ndarray) -> np.ndarray:
+    """2×2-mean coarsen the last two axes.
+
+    See ``bowser.geozarr._coarsen_2x2_numpy``.
+    """
+    ny = (arr.shape[-2] // 2) * 2
+    nx = (arr.shape[-1] // 2) * 2
+    sub = arr[..., :ny, :nx]
+    reshaped = sub.reshape(sub.shape[:-2] + (ny // 2, 2, nx // 2, 2))
+    if np.issubdtype(arr.dtype, np.floating):
+        # nanmean: plain mean propagates NaN so any 2×2 block touching a NaN
+        # becomes NaN, wiping coarsened tiles for masked layers. All-NaN blocks
+        # legitimately stay NaN — suppress the RuntimeWarning those raise.
+        with np.errstate(invalid="ignore"), warnings.catch_warnings():
+            warnings.filterwarnings("ignore", r"Mean of empty slice", RuntimeWarning)
+            return np.nanmean(reshaped, axis=(-3, -1), dtype=np.float32).astype(
+                arr.dtype, copy=False
+            )
+    return reshaped.mean(axis=(-3, -1), dtype=np.float32).astype(arr.dtype, copy=False)
+
+
+def _load_and_coarsen(
+    rg: dict, ref: _SpatialRef, n_levels: int
+) -> tuple[_Loaded, list[np.ndarray]]:
+    """Reader-thread entry point: load a group and produce every pyramid level.
+
+    Coarsening happens inside the reader thread so the numpy reductions overlap
+    with other readers' I/O; if it lived in the main thread it would stall
+    subsequent writes behind each coarsen.
+    """
+    lv = _load_group(rg, ref)
+    levels = [lv.array]
+    for _ in range(1, n_levels):
+        levels.append(_coarsen_2x2(levels[-1]))
+    return lv, levels
+
+
+def _write_skeleton(
+    output: str, group: str | None, y: np.ndarray, x: np.ndarray, crs_wkt: str
+) -> None:
+    """Initialise a zarr group with y/x/spatial_ref only.
+
+    Variables are appended afterwards.
+    """
+    skel = xr.Dataset(coords={"y": y, "x": x})
+    if crs_wkt:
         import rioxarray  # noqa: F401, PLC0415
 
-        ds = ds.rio.write_crs(ref.crs_wkt)
-    return ds
+        skel = skel.rio.write_crs(crs_wkt)
+    skel.to_zarr(output, group=group, mode="w", consolidated=False)
+
+
+def _write_variable_to_all_levels(
+    output: str,
+    lv: _Loaded,
+    levels: list[np.ndarray],
+    pyramid: bool,
+    write_cfg: ZarrWriteConfig,
+) -> None:
+    """Append one variable (all pyramid levels) into existing skeleton groups."""
+    for i, arr in enumerate(levels):
+        group = str(i) if pyramid else None
+        if lv.dim_name is None:
+            da = xr.DataArray(arr, dims=("y", "x"), name=lv.name)
+        else:
+            da = xr.DataArray(arr, dims=(lv.dim_name, "y", "x"), name=lv.name)
+        # Normally stamped by ds.rio.write_crs() on the full Dataset; we
+        # deliberately exclude y/x/spatial_ref here (they live in the skeleton)
+        # so do the one attr that GeoZarr readers still need by hand.
+        da.attrs["grid_mapping"] = "spatial_ref"
+        coords = dict(lv.coords.items())
+        ds_var = xr.Dataset({lv.name: da}, coords=coords)
+        ds_var.to_zarr(
+            output,
+            group=group,
+            mode="a",
+            consolidated=False,
+            encoding=shard_encoding(ds_var, write_cfg),
+        )
+
+
+def _bounded_in_flight(
+    pool: ThreadPoolExecutor,
+    fn: Callable[[Any], Any],
+    items: Iterable[Any],
+    max_in_flight: int,
+) -> Iterator[Any]:
+    """Yield ``fn(item)`` results in completion order.
+
+    Caps the number of outstanding submissions at ``max_in_flight``.
+
+    Without the cap, readers would race ahead of the main-thread writer and
+    pile every loaded variable into memory — defeating the whole point of
+    streaming. With the cap, a new submission is only made after a previous
+    result is consumed.
+    """
+    it = iter(items)
+    in_flight = set()
+    for item in itertools.islice(it, max_in_flight):
+        in_flight.add(pool.submit(fn, item))
+    while in_flight:
+        done, _pending = wait(in_flight, return_when=FIRST_COMPLETED)
+        for fut in done:
+            in_flight.remove(fut)
+            yield fut.result()
+            nxt = next(it, None)
+            if nxt is not None:
+                in_flight.add(pool.submit(fn, nxt))
 
 
 def _sanitize(name: str) -> str:
