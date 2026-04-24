@@ -235,20 +235,28 @@ export default function ControlPanel({ title }: { title: string }) {
             }}
           >⇅</button>
         </div>
-        <img src={`/colorbar/${state.colormap}`} className="colorbar-img" alt="Colormap" />
-        <div className="minmax-row">
-          <div className="minmax-field">
-            <label className="minmax-label">Min</label>
-            <input className="sidebar-input" type="text" inputMode="decimal"
-              value={draftVmin} onChange={e => setDraftVmin(e.target.value)}
-              onBlur={commitVmin} onKeyDown={e => e.key === 'Enter' && commitVmin()} />
-          </div>
-          <div className="minmax-field">
-            <label className="minmax-label">Max</label>
-            <input className="sidebar-input" type="text" inputMode="decimal"
-              value={draftVmax} onChange={e => setDraftVmax(e.target.value)}
-              onBlur={commitVmax} onKeyDown={e => e.key === 'Enter' && commitVmax()} />
-          </div>
+        <div className="colorbar-row">
+          <input
+            aria-label="Min value"
+            className="sidebar-input"
+            type="text"
+            inputMode="decimal"
+            value={draftVmin}
+            onChange={e => setDraftVmin(e.target.value)}
+            onBlur={commitVmin}
+            onKeyDown={e => e.key === 'Enter' && commitVmin()}
+          />
+          <img src={`/colorbar/${state.colormap}`} className="colorbar-img" alt="Colormap" />
+          <input
+            aria-label="Max value"
+            className="sidebar-input"
+            type="text"
+            inputMode="decimal"
+            value={draftVmax}
+            onChange={e => setDraftVmax(e.target.value)}
+            onBlur={commitVmax}
+            onKeyDown={e => e.key === 'Enter' && commitVmax()}
+          />
         </div>
         <div className="slider-group">
           <div className="slider-label">
