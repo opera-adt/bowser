@@ -114,7 +114,7 @@ default = { solve-group = "default" }
 widget = { features = ["widget"], solve-group = "default" }
 test = { features = ["test"], solve-group = "test" }
 writer = { features = ["writer"], solve-group = "writer" }
-all = { features = ["widget", "test"], solve-group = "all" }
+all = { features = ["writer", "test"], solve-group = "all" }
 
 [tool.pixi.tasks]
 
