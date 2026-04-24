@@ -500,20 +500,30 @@ def _apply_layer_masks_md(
     da: "xr.DataArray",
     layer_masks: list[dict],
     time_idx: int | None = None,
+    source_ds: "xr.Dataset | None" = None,
 ) -> "xr.DataArray":
     """Apply a list of layer mask dicts to a DataArray (MD mode).
 
     Each dict has keys: dataset (str), threshold (float), mode ('min'|'max').
     threshold is an absolute value in the mask layer's data units.
     'min' keeps pixels >= threshold; 'max' keeps pixels <= threshold.
+
+    ``source_ds`` is the Dataset to look up mask variables in. Tile-rendering
+    callers MUST pass the same pyramid-level Dataset that ``da`` came from —
+    otherwise ``da.where(mask_da)`` outer-aligns two grids with different
+    cell sizes, producing a coord array that ``rioxarray.rio.bounds()`` can't
+    interpret as monotonic and the request 500s with NoDataInBounds. Defaults
+    to ``state.dataset`` (level 0) for the non-tile callers that already
+    operate at full resolution.
     """
+    ds = source_ds if source_ds is not None else state.dataset
     for m in layer_masks:
         var = m.get("dataset")
         threshold = float(m.get("threshold", 0.5))
         mode = m.get("mode", "min")
-        if not var or var not in state.dataset.data_vars:
+        if not var or var not in ds.data_vars:
             continue
-        mask_da = state.dataset[var]
+        mask_da = ds[var]
         if time_idx is not None:
             mdim = _non_spatial_dim(mask_da)
             if mdim is not None:
@@ -1596,10 +1606,15 @@ def XarrayPathDependency(
     if mask_da is not None:
         da = da.where(mask_da > mask_min_value)
 
-    # Apply layer masks
+    # Apply layer masks. ``source_ds=ds`` is essential here — ``ds`` is the
+    # pyramid-level Dataset selected for ``tile_z``; if we let the helper
+    # default to state.dataset (level 0) the mask grid won't match ``da``'s
+    # grid at low zoom and rioxarray bounds resolution fails downstream.
     if layer_masks:
         try:
-            da = _apply_layer_masks_md(da, json.loads(layer_masks), time_idx)
+            da = _apply_layer_masks_md(
+                da, json.loads(layer_masks), time_idx, source_ds=ds
+            )
         except json.JSONDecodeError as e:
             logger.warning(f"Failed to parse layer_masks JSON: {e}")
 
