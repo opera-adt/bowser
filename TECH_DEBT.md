@@ -62,7 +62,7 @@ skip it), anywhere iterating `data_vars`.
 coordinate. Downstream iteration has to know to skip it. Surprise factor is
 high.
 
-**Fix:** In `annotate_store` / `tifs_to_geozarr.py`, call
+**Fix:** In `annotate_store` / `bowser._tifs_to_geozarr`, call
 `ds = ds.set_coords("spatial_ref")` on write so readers see it as a coord. Or
 promote on read in `state.load`.
 
@@ -96,8 +96,9 @@ loader + one CLI entry. Target: ~400 lines deleted.
 
 ### 5. Source float16 GeoTIFFs from dolphin
 
-**Where:** Not a bowser bug — dolphin writes float16 output. `tifs_to_geozarr.py`
-upcasts to float32 on read (GDAL/rasterio can't reproject float16). The
+**Where:** Not a bowser bug — dolphin writes float16 output.
+`bowser._tifs_to_geozarr` upcasts to float32 on read (GDAL/rasterio can't
+reproject float16). The
 existing `_prepare_utils.py:146` does the same with a comment.
 
 **Fix:** Upstream question — should dolphin write float32 to begin with? If
@@ -137,7 +138,7 @@ variables share a native grid.
 
 ### 8. `--min-pyramid-size` is coupled to the tile size without self-documenting
 
-**Where:** `scripts/tifs_to_geozarr.py`.
+**Where:** `bowser tifs-to-geozarr` (`src/bowser/_tifs_to_geozarr.py`).
 
 **What's wrong:** Default 256 matches bowser's 256-px tiles, but the knob is a
 pyramid-builder option. Changing one without the other silently degrades tile

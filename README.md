@@ -66,7 +66,7 @@ can pick the right overview per tile zoom.
 bowser setup-disp-s1 /path/to/disp-s1/outputs
 
 # 2. convert to a single sharded GeoZarr cube with pyramid
-pixi run -e writer python scripts/tifs_to_geozarr.py \
+pixi run -e writer bowser tifs-to-geozarr \
     --pyramid bowser_rasters.json cube.zarr
 
 # 3. serve
@@ -144,7 +144,7 @@ Override the backend URL with `VITE_API_URL=http://localhost:8001 npm run dev`.
 ### DISP-S1 via VRTs (pre-GeoZarr)
 
 The older path is to make a GDAL VRT per NetCDF variable and let bowser
-read through those. This predates `scripts/tifs_to_geozarr.py` and has
+read through those. This predates `bowser tifs-to-geozarr` and has
 two drawbacks: remote NetCDF/HDF5 reads are slow (no standard overview
 format), and VRTs require a conda-forge GDAL with the NetCDF driver.
 

@@ -1005,6 +1005,148 @@ def register(
     click.echo(f"Wrote {len(entries)} entries to {catalog_path}")
 
 
+# ── tifs-to-geozarr ─────────────────────────────────────────────────
+# Defaults here mirror bowser.geozarr.DEFAULT_*. Kept as literals so this
+# decorator stack evaluates without importing bowser.geozarr (which pulls
+# in xarray/numpy/rasterio at module load). Check src/bowser/geozarr.py
+# before changing.
+@cli_app.command("tifs-to-geozarr")
+@click.argument("config", type=click.Path(exists=True, dir_okay=False))
+@click.argument("output", type=click.Path())
+@click.option(
+    "--chunk",
+    default=256,
+    show_default=True,
+    type=int,
+    help="Square chunk edge (pixels) along y and x.",
+)
+@click.option(
+    "--shard-factor",
+    default=4,
+    show_default=True,
+    type=click.IntRange(1, 64),
+    help=(
+        "Shard shape = chunk x factor on every dim. "
+        "4x bundles 1024x1024 pixel blocks (16 chunks) per shard on y/x and "
+        "4 timesteps per shard on non-spatial dims — one HTTP GET per shard. "
+        "Set to 1 to disable sharding entirely (fastest local write; more "
+        "files on disk)."
+    ),
+)
+@click.option(
+    "--compression",
+    default="lz4",
+    show_default=True,
+    type=click.Choice(["lz4", "lz4hc", "blosclz", "snappy", "zlib", "zstd"]),
+    help=(
+        "Blosc sub-codec. lz4 is ~6x faster than zstd at ~10% worse ratio; "
+        "zstd clevel 3 is a good middle ground."
+    ),
+)
+@click.option(
+    "--compression-level",
+    default=5,
+    show_default=True,
+    type=click.IntRange(1, 9),
+    help="Compression level (1=fastest, 9=smallest).",
+)
+@click.option(
+    "--quantize-digits",
+    default=0,
+    show_default=True,
+    type=click.IntRange(0, 10),
+    help=(
+        "If > 0, round matching float variables to this many significant "
+        "digits before compression (via numcodecs Quantize). Typical "
+        "coherence-like layers carry ~1 bit of real info per pixel and "
+        "compress ~40% smaller with `--quantize-digits 3`. 0 disables."
+    ),
+)
+@click.option(
+    "--quantize-patterns",
+    default="coherence,similarity,dispersion",
+    show_default=True,
+    help=(
+        "Comma-separated substrings matched against variable names (lower-"
+        "case) to decide which float vars get the quantize filter. "
+        "Integer-dtype variables are always skipped."
+    ),
+)
+@click.option(
+    "--workers",
+    default=0,
+    show_default=True,
+    type=int,
+    help=(
+        "Parallel reader threads — one variable per thread. "
+        "rasterio releases the GIL during reads so threads overlap I/O. "
+        "0 = min(len(variables), cpu_count())."
+    ),
+)
+@click.option(
+    "--pyramid/--no-pyramid",
+    default=False,
+    show_default=True,
+    help="Write level-0 data to /0 and build coarsened /1, /2, … overview groups.",
+)
+@click.option(
+    "--los-dir",
+    default=None,
+    type=click.Path(exists=True, file_okay=False),
+    help=(
+        "Directory containing ``heading_angle.json`` and ``los_enu.json`` for the "
+        "stack. When provided, the heading/incidence/ENU values are copied into "
+        "the zarr root attrs so the bowser UI can draw the LOS geometry icon."
+    ),
+)
+@click.option(
+    "--min-pyramid-size",
+    default=256,
+    show_default=True,
+    type=int,
+    help="Stop building pyramid when min(y, x) drops below this.",
+)
+@click.option("-v", "--verbose", count=True)
+def tifs_to_geozarr(
+    config: str,
+    output: str,
+    chunk: int,
+    shard_factor: int,
+    compression: str,
+    compression_level: int,
+    quantize_digits: int,
+    quantize_patterns: str,
+    workers: int,
+    pyramid: bool,
+    min_pyramid_size: int,
+    los_dir: str | None,
+    verbose: int,
+) -> None:
+    """Convert CONFIG (bowser_rasters.json) into OUTPUT (single zarr store).
+
+    Requires the ``writer`` extras: ``pip install 'bowser-insar[writer]'``
+    (or ``pixi install -e writer`` in the repo checkout).
+    """
+    from . import _tifs_to_geozarr  # noqa: PLC0415 — lazy: heavy deps
+
+    written = _tifs_to_geozarr.convert(
+        config=config,
+        output=output,
+        chunk=chunk,
+        shard_factor=shard_factor,
+        compression=compression,
+        compression_level=compression_level,
+        quantize_digits=quantize_digits,
+        quantize_patterns=quantize_patterns,
+        workers=workers,
+        pyramid=pyramid,
+        min_pyramid_size=min_pyramid_size,
+        los_dir=los_dir,
+        verbose=verbose,
+    )
+    click.echo(f"Wrote {output} with variables: {written}")
+
+
 def _sniff_bbox(uri: str) -> tuple[float, float, float, float]:
     """Open a zarr just long enough to grab its WGS84 bbox."""
     import rioxarray  # noqa: F401, PLC0415  (registers .rio accessor)

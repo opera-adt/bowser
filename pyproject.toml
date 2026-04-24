@@ -56,7 +56,8 @@ widget = [
   "bqplot>=0.12",
 ]
 test = ["pytest", "httpx", "ipython", "types-python-dateutil"]
-# GeoZarr writer: only needed for scripts/tifs_to_geozarr.py. Bowser runtime
+# GeoZarr writer: only needed for the `bowser tifs-to-geozarr` subcommand.
+# Bowser runtime
 # reads back the attrs with plain zarr and never imports this package, so it
 # stays out of the default env to avoid pulling pydantic>=2.12.
 writer = ["geozarr-toolkit>=0.1.1"]

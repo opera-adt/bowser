@@ -1,7 +1,12 @@
 """Convert a ``bowser_rasters.json`` set of GeoTIFFs into a single GeoZarr store.
 
-Reads the ``RasterGroup`` JSON config produced by ``bowser set-data`` /
-``bowser setup-dolphin`` and produces one consolidated zarr with:
+Invoked via the ``bowser tifs-to-geozarr`` CLI subcommand (see
+``bowser.cli``). Lives as its own module rather than inside ``cli.py`` so
+heavy scientific-stack imports (numpy/xarray/rasterio/pandas/opera_utils)
+stay out of ``bowser --help`` — ``cli.py`` imports this module lazily
+inside the command body.
+
+Produces one consolidated zarr with:
 
 - one variable per group (2D for single-file groups; 3D for multi-file groups)
 - a ``time`` dim when all files share a common reference date (linear time series)
@@ -9,8 +14,8 @@ Reads the ``RasterGroup`` JSON config produced by ``bowser set-data`` /
   ``pair_label_*`` coords for groups that are inherently date-pairs without a
   shared ref (e.g. ``unwrapped``)
 - GeoZarr ``spatial:`` / ``proj:`` / ``zarr_conventions`` root attributes
-- optional multiscale pyramid (``--pyramid``): levels written to ``/0``, ``/1``,
-  ``/2``, … subgroups; root carries the ``multiscales`` convention attrs
+- optional multiscale pyramid: levels written to ``/0``, ``/1``, ``/2``, …
+  subgroups; root carries the ``multiscales`` convention attrs
 
 Read path: a ``ThreadPoolExecutor`` pool of readers, each using plain
 ``rasterio.open(f).read(1)`` into a pre-allocated numpy stack. Threads (not
@@ -22,11 +27,6 @@ and the main thread drains futures via ``as_completed`` and writes each
 variable to every level group before dropping its arrays. Only a bounded
 number of groups are in flight at a time, so peak memory ≈
 ``(n_workers + 1) × (4/3) × largest_group`` instead of the full stack.
-
-Usage
------
-    python scripts/tifs_to_geozarr.py bowser_rasters.json cube.zarr
-    python scripts/tifs_to_geozarr.py bowser_rasters.json cube.zarr --pyramid
 """
 
 from __future__ import annotations
@@ -37,32 +37,23 @@ import logging
 import os
 import time
 import warnings
+from collections.abc import Iterable, Iterator
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
-from typing import Any, Callable, Iterable, Iterator
+from typing import Any, Callable
 
-import click
 import numpy as np
 import pandas as pd
 import rasterio
 import xarray as xr
 from opera_utils import get_dates
 
-from bowser.geozarr import (
-    DEFAULT_CHUNK,
-    DEFAULT_COMPRESSION_LEVEL,
-    DEFAULT_COMPRESSION_NAME,
-    DEFAULT_QUANTIZE_PATTERNS,
-    DEFAULT_SHARD_FACTOR,
-    ZarrWriteConfig,
-    annotate_store,
-    shard_encoding,
-)
+from .geozarr import ZarrWriteConfig, annotate_store, shard_encoding
 
-logger = logging.getLogger("tifs_to_geozarr")
+logger = logging.getLogger(__name__)
 
 
 @contextmanager
@@ -73,104 +64,7 @@ def _timed(label: str):
     logger.info("%s: %.2fs", label, time.perf_counter() - t0)
 
 
-@click.command()
-@click.argument("config", type=click.Path(exists=True, dir_okay=False))
-@click.argument("output", type=click.Path())
-@click.option(
-    "--chunk",
-    default=DEFAULT_CHUNK,
-    show_default=True,
-    type=int,
-    help="Square chunk edge (pixels) along y and x.",
-)
-@click.option(
-    "--shard-factor",
-    default=DEFAULT_SHARD_FACTOR,
-    show_default=True,
-    type=click.IntRange(1, 64),
-    help=(
-        "Shard shape = chunk x factor on every dim. "
-        "4x bundles 1024x1024 pixel blocks (16 chunks) per shard on y/x and "
-        "4 timesteps per shard on non-spatial dims — one HTTP GET per shard. "
-        "Set to 1 to disable sharding entirely (fastest local write; more "
-        "files on disk)."
-    ),
-)
-@click.option(
-    "--compression",
-    default=DEFAULT_COMPRESSION_NAME,
-    show_default=True,
-    type=click.Choice(["lz4", "lz4hc", "blosclz", "snappy", "zlib", "zstd"]),
-    help=(
-        "Blosc sub-codec. lz4 is ~6x faster than zstd at ~10% worse ratio; "
-        "zstd clevel 3 is a good middle ground."
-    ),
-)
-@click.option(
-    "--compression-level",
-    default=DEFAULT_COMPRESSION_LEVEL,
-    show_default=True,
-    type=click.IntRange(1, 9),
-    help="Compression level (1=fastest, 9=smallest).",
-)
-@click.option(
-    "--quantize-digits",
-    default=0,
-    show_default=True,
-    type=click.IntRange(0, 10),
-    help=(
-        "If > 0, round matching float variables to this many significant "
-        "digits before compression (via numcodecs Quantize). Typical "
-        "coherence-like layers carry ~1 bit of real info per pixel and "
-        "compress ~40% smaller with `--quantize-digits 3`. 0 disables."
-    ),
-)
-@click.option(
-    "--quantize-patterns",
-    default=",".join(DEFAULT_QUANTIZE_PATTERNS),
-    show_default=True,
-    help=(
-        "Comma-separated substrings matched against variable names (lower-"
-        "case) to decide which float vars get the quantize filter. "
-        "Integer-dtype variables are always skipped."
-    ),
-)
-@click.option(
-    "--workers",
-    default=0,
-    show_default=True,
-    type=int,
-    help=(
-        "Parallel reader threads — one variable per thread. "
-        "rasterio releases the GIL during reads so threads overlap I/O. "
-        "0 = min(len(variables), cpu_count())."
-    ),
-)
-@click.option(
-    "--pyramid/--no-pyramid",
-    default=False,
-    show_default=True,
-    help="Write level-0 data to /0 and build coarsened /1, /2, … overview groups.",
-)
-@click.option(
-    "--los-dir",
-    default=None,
-    type=click.Path(exists=True, file_okay=False),
-    help=(
-        "Directory containing ``heading_angle.json`` and ``los_enu.json`` for the "
-        "stack. When provided, the heading/incidence/ENU values are copied into "
-        "the zarr root attrs so the bowser UI can draw the LOS geometry icon."
-    ),
-)
-@click.option(
-    "--min-pyramid-size",
-    default=256,
-    show_default=True,
-    type=int,
-    help="Stop building pyramid when min(y, x) drops below this.",
-)
-@click.option("-v", "--verbose", count=True)
-def main(
+def convert(
     config: str,
     output: str,
     chunk: int,
@@ -184,8 +78,8 @@ def main(
     min_pyramid_size: int,
     los_dir: str | None,
     verbose: int,
-) -> None:
-    """Convert CONFIG (bowser_rasters.json) into OUTPUT (single zarr store)."""
+) -> list[str]:
+    """Run the conversion. Returns the list of variable names written."""
     logging.basicConfig(level=logging.INFO if verbose else logging.WARNING)
     groups_cfg = [g for g in json.loads(Path(config).read_text()) if g.get("file_list")]
     assert groups_cfg, f"No non-empty raster groups in {config}"
@@ -278,7 +172,7 @@ def main(
     if los_dir:
         _write_los_attrs(output, Path(los_dir))
 
-    click.echo(f"Wrote {output} with variables: {sorted(written)}")
+    return sorted(written)
 
 
 def _write_los_attrs(zarr_path: str, los_dir: Path) -> None:
@@ -612,7 +506,3 @@ def _sanitize(name: str) -> str:
     for c in " .-/()":
         out = out.replace(c, "_")
     return "_".join(filter(None, out.split("_")))
-
-
-if __name__ == "__main__":
-    main()
