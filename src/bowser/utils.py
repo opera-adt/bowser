@@ -61,9 +61,7 @@ def _parse_x_values(x_values: list[str | int]) -> np.ndarray:
     return datetime_to_float(dates)
 
 
-def calculate_trend(
-    values: np.ndarray, x_values: list[str | int | DateOrDatetimeT]
-) -> dict[str, float]:
+def calculate_trend(values: np.ndarray, x_values: list[str | int]) -> dict[str, float]:
     """Calculate linear trend for time series data.
 
     Parameters
@@ -71,7 +69,9 @@ def calculate_trend(
     values : np.ndarray
         Time series values (e.g., displacement in meters)
     x_values : list[str | int]
-        Time values as strings (datetime format) or integers
+        Time values as strings (datetime format) or integers.
+        Datetime objects aren't supported — ``_parse_x_values`` calls
+        ``parser.parse`` which only accepts strings.
 
     Returns
     -------
@@ -240,7 +240,9 @@ def generate_colorbar(cmap_name: str) -> bytes:
 
 
 def register_custom_colormaps() -> None:
-    """Register cfastie, rplumbo, schwarzwald reversed variants in rio_tiler and matplotlib.
+    """Register reversed cfastie/rplumbo/schwarzwald colormaps.
+
+    Registers the ``_r`` variants in both rio_tiler and matplotlib.
 
     rio_tiler ships cfastie/rplumbo/schwarzwald but not their ``_r`` (reversed)
     counterparts.  This function reads each from rio_tiler's registry, reverses
@@ -278,17 +280,13 @@ def register_custom_colormaps() -> None:
 
         # Also register in matplotlib for the /colorbar/ endpoint
         rgba = np.array([list(rev[i]) for i in range(256)], dtype=np.uint8)
-        mpl_cmap = LinearSegmentedColormap.from_list(
-            rev_name, rgba[:, :3] / 255.0
-        )
+        mpl_cmap = LinearSegmentedColormap.from_list(rev_name, rgba[:, :3] / 255.0)
         if rev_name not in mpl.colormaps:
             mpl.colormaps.register(mpl_cmap, name=rev_name)
 
         # Register the forward matplotlib cmap too (in case it's missing)
         fwd_rgba = np.array([list(fwd[i]) for i in range(256)], dtype=np.uint8)
-        mpl_fwd = LinearSegmentedColormap.from_list(
-            name, fwd_rgba[:, :3] / 255.0
-        )
+        mpl_fwd = LinearSegmentedColormap.from_list(name, fwd_rgba[:, :3] / 255.0)
         if name not in mpl.colormaps:
             mpl.colormaps.register(mpl_fwd, name=name)
 

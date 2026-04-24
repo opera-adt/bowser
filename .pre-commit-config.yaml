@@ -36,3 +36,4 @@ repos:
         - types-requests
         - "pydantic>=2.4"
         - types-simplejson
+        - types-python-dateutil
