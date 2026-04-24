@@ -34,7 +34,6 @@ from __future__ import annotations
 import itertools
 import json
 import logging
-import os
 import time
 import warnings
 from collections.abc import Iterable, Iterator
@@ -105,7 +104,15 @@ def convert(
         if pyramid
         else [(ref.y_coords, ref.x_coords)]
     )
-    n_workers = workers or min(len(groups_cfg), os.cpu_count() or 4)
+    # Default to 4 threads, not cpu_count. Each reader holds a whole variable
+    # in RAM (+ its pyramid levels) until the writer drains it, so peak memory
+    # scales as ``(n_workers + 1) × largest_group``. On a 12-core machine with
+    # multi-GB 3D stacks (unwrapped, filtered_time_series), cpu_count was
+    # driving peak RSS to 90+ GB. Rasterio reads are mostly I/O-bound and
+    # release the GIL, so 4 threads already saturate typical disk bandwidth;
+    # going higher trades little wall time for a lot of memory. Callers with
+    # small variables and plenty of RAM can override via ``--workers N``.
+    n_workers = workers or min(len(groups_cfg), 4)
     logger.info(
         "Loading %d variables with %d threads, %d pyramid level(s)",
         len(groups_cfg),

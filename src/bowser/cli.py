@@ -1080,7 +1080,9 @@ def register(
     help=(
         "Parallel reader threads — one variable per thread. "
         "rasterio releases the GIL during reads so threads overlap I/O. "
-        "0 = min(len(variables), cpu_count())."
+        "Peak RSS is roughly (workers + 1) × the largest variable, so "
+        "bumping this past a few threads inflates memory quickly for "
+        "multi-GB 3D stacks. 0 = min(len(variables), 4)."
     ),
 )
 @click.option(
