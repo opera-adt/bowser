@@ -79,15 +79,6 @@ see [`deploy/README.md`](deploy/README.md) — it covers the
 `bowser register` CLI, the Docker image, and the EC2 bootstrap script
 end-to-end.
 
-## Running in Jupyter
-
-```python
-from bowser._widget import make_bowser_widget
-
-widget = make_bowser_widget(rasters_file="bowser_rasters.json")
-widget
-```
-
 ## CLI Usage
 
 ```

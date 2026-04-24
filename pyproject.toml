@@ -46,15 +46,6 @@ classifiers = [
 dynamic = ["version"]
 
 [project.optional-dependencies]
-widget = [
-  "requests",
-  "jupyter",
-  "matplotlib",
-  "ipympl",
-  "ipywidgets",
-  "ipyleaflet",
-  "bqplot>=0.12",
-]
 test = ["pytest", "httpx", "ipython", "types-python-dateutil"]
 # GeoZarr writer: only needed for the `bowser tifs-to-geozarr` subcommand.
 # Bowser runtime
@@ -111,7 +102,6 @@ pydantic = ">=2.12"
 
 [tool.pixi.environments]
 default = { solve-group = "default" }
-widget = { features = ["widget"], solve-group = "default" }
 test = { features = ["test"], solve-group = "test" }
 writer = { features = ["writer"], solve-group = "writer" }
 all = { features = ["writer", "test"], solve-group = "all" }
