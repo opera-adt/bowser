@@ -476,6 +476,14 @@ def setup_dolphin(dolphin_work_dir, timeseries_mask, output, include_ifgs: bool 
             "file_list": _glob(f"{wd}/timeseries/point_height_correction_stderr.tif"),
         },
         {
+            "name": "Thermal expansion coefficient",
+            "file_list": _glob(f"{wd}/timeseries/thermal_expansion.tif"),
+        },
+        {
+            "name": "Thermal expansion coefficient std. err.",
+            "file_list": _glob(f"{wd}/timeseries/thermal_expansion_stderr.tif"),
+        },
+        {
             "name": "Time series residuals (total sum)",
             "file_list": _glob(f"{wd}/timeseries/unw_inversion_residuals.tif"),
         },

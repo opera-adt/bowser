@@ -1,8 +1,6 @@
 # Bowser
 
-Map-based viewer for InSAR time-series outputs — GeoZarr cubes, dolphin
-workflow directories, or loose GeoTIFFs — served through a local FastAPI
-server and rendered by titiler in the browser.
+Map-based viewer for InSAR time-series outputs — GeoZarr cubes, dolphin workflow directories, or loose GeoTIFFs — served through a local FastAPI server and rendered by titiler in the browser.
 
 ![](docs/demo-timeseries.jpg)
 
@@ -16,17 +14,14 @@ uvx --from bowser-insar bowser run --stack-file example-cube.zarr
 
 Open the `http://127.0.0.1:8000` link that bowser prints.
 
-> **Heads up — GDAL drivers.** The PyPI wheel is enough for GeoZarr cubes
-> and plain GeoTIFFs. For NetCDF/HDF5 inputs (DISP-S1 `.nc`, the VRT
-> legacy path) install the conda-forge build of GDAL — the `gdal` PyPI
-> package has no wheels and rasterio's bundled GDAL doesn't ship those
-> drivers. `pixi` is the easiest way:
+> **Note on PyPI installing an GDAL**: The PyPI wheel is enough for GeoZarr cubes
+> and plain GeoTIFFs. For other input formats, `pixi` is the easiest way:
 >
 > ```bash
 > pixi global install bowser-insar
 > ```
 
-## Install in another project
+**Installation in another project**
 
 ```bash
 # GeoZarr / GeoTIFF only
@@ -36,7 +31,9 @@ pip install bowser-insar       # or: uv add bowser-insar
 pixi add bowser-insar
 ```
 
-## Quickstart: dolphin workflow
+## Quickstarts
+
+### From [`dolphin`](https://github.com/isce-framework/dolphin)
 
 `bowser setup-dolphin` scans a dolphin work directory and writes a
 `bowser_rasters.json` describing every raster group it finds. `bowser run`
@@ -47,19 +44,26 @@ bowser setup-dolphin work/
 bowser run
 ```
 
+**Note:** these outputs must be **geocoded** to work with bowser, which lays them out on a basemap using web mapping tools.
+
 If you're running over ssh, tunnel the port back to your laptop:
 
 ```bash
 ssh -N -L 8000:localhost:8000 myserver
 ```
 
-## Quickstart: DISP-S1 → GeoZarr cube
+### From [`dolphin`](https://github.com/isce-framework/dolphin) → GeoZarr cube
 
-The recommended path for DISP-S1 products is to convert them once into a
-single pyramidal GeoZarr cube, then serve that. The converter handles the
-reference-date bookkeeping for `unwrapped`-style pair indices, builds the
-multiscale pyramid, and writes GeoZarr convention attributes so titiler
-can pick the right overview per tile zoom.
+Once the `bowser_rasters.json` file is created, you can convert the data into a GeoZarr cube:
+
+```bash
+pixi run -e writer bowser tifs-to-geozarr \
+    --pyramid bowser_rasters.json cube.zarr
+```
+
+### DISP-S1 → GeoZarr cube
+
+To work with DISP-S1 products, you may convert them once into a single pyramidal GeoZarr cube, then serve that. The converter handles the reference-date bookkeeping for morving temporal reference,, builds multiscale pyramids, and writes GeoZarr convention attributes so titiler can pick the right overview per tile zoom.
 
 ```bash
 # 1. prepare per-band GeoTIFFs and a bowser_rasters.json
@@ -73,15 +77,11 @@ pixi run -e writer bowser tifs-to-geozarr \
 bowser run --stack-file cube.zarr
 ```
 
-For a **multi-dataset catalog** (pick from a map of bounding boxes at
-startup) and an **EC2 deployment** serving cubes from a private S3 bucket,
-see [`deploy/README.md`](deploy/README.md) — it covers the
-`bowser register` CLI, the Docker image, and the EC2 bootstrap script
-end-to-end.
+For a **multi-dataset catalog** (pick from a map of bounding boxes at startup) and an **EC2 deployment** serving cubes from a private S3 bucket, see [`deploy/README.md`](deploy/README.md) for the `bowser register` CLI, the Docker image, and the EC2 bootstrap script end-to-end.
 
 ## CLI Usage
 
-```
+```bash
 $ bowser --help
 Commands:
   prepare-amplitude      Convert complex SLC GeoTIFFs to amplitude-in-dB.
@@ -113,8 +113,7 @@ npm install
 npm run build   # rebuilds src/bowser/dist/ after .tsx / CSS changes
 ```
 
-`src/bowser/dist/` is checked in so non-frontend users can `pip install`
-without Node.
+The PyPI wheel bundles `src/bowser/dist/` (built by the CD workflow before publishing), so end users can `pip install bowser-insar` without Node. From a git checkout, run `npm run build` first to populate `src/bowser/dist/` before `pip install -e .`.
 
 For a hot-reload loop on UI/styling changes, run the backend and the
 Vite dev server in two terminals. Vite proxies API calls to the
