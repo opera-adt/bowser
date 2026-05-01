@@ -47,13 +47,7 @@ node_modules/
 # Local data and artifacts that have no business in the build context
 data/
 tests/data/
-screenshots/
-iris-screenshots/
-tre-maps-screenshots/
-viz-lonboard-*.html
-viz-lonboard-*.ipynb
 *.parquet/
-work-walkthrough2
 
 # Notebook checkpoints
 .ipynb_checkpoints/
