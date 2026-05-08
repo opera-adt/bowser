@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { useDraggableResizable } from '../hooks/useDraggableResizable';
 import { LosMetadata } from '../types';
+import { downloadElementAsPng } from '../utils/screenshot';
 
 type Direction = 'ascending' | 'descending';
 type Looking = 'right' | 'left';
@@ -271,6 +272,7 @@ export default function LosIndicator() {
   const [direction, setDirection] = useState<Direction>('ascending');
   const [looking, setLooking] = useState<Looking>('right');
   const [incidence, setIncidence] = useState(37);
+  const [fontColor, setFontColor] = useState<'white' | 'black'>('white');
 
   const { panelRef, panelStyle, onDragMouseDown, resizeGrip } = useDraggableResizable({
     defaultWidth: 280,
@@ -316,6 +318,7 @@ export default function LosIndicator() {
       onMouseDown={e => e.stopPropagation()}
     >
       <div
+        data-screenshot-skip
         onMouseDown={onDragMouseDown}
         style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -324,15 +327,31 @@ export default function LosIndicator() {
         }}
       >
         <span style={{ fontSize: '0.72em', color: 'var(--sb-muted)' }}>LOS geometry</span>
-        <button
-          onMouseDown={e => e.stopPropagation()}
-          onClick={() => dispatch({ type: 'TOGGLE_LOS_INDICATOR' })}
-          title="Close"
-          style={{
-            background: 'none', border: 'none', color: 'var(--sb-muted)',
-            cursor: 'pointer', padding: '1px 5px', fontSize: '0.85em',
-          }}
-        >✕</button>
+        <div style={{ display: 'flex', gap: 2 }}>
+          <button
+            onMouseDown={e => e.stopPropagation()}
+            onClick={() => setFontColor(c => c === 'white' ? 'black' : 'white')}
+            title={`Screenshot font: ${fontColor} — click to toggle`}
+            style={{
+              background: 'none', border: '1px solid var(--sb-border)', borderRadius: 3,
+              cursor: 'pointer', padding: '0px 5px', fontSize: '0.75em', lineHeight: 1.5,
+              color: fontColor === 'white' ? '#fff' : '#111',
+              backgroundColor: fontColor === 'white' ? '#333' : '#ddd',
+            }}
+          >A</button>
+          <button
+            onMouseDown={e => e.stopPropagation()}
+            onClick={() => panelRef.current && downloadElementAsPng(panelRef.current, `los-geometry-${Date.now()}.png`, { skipSelector: '[data-screenshot-skip]', fontColor })}
+            title="Save as PNG (transparent background)"
+            style={{ background: 'none', border: 'none', color: 'var(--sb-muted)', cursor: 'pointer', padding: '1px 5px', fontSize: '0.85em' }}
+          ><i className="fa-solid fa-camera"></i></button>
+          <button
+            onMouseDown={e => e.stopPropagation()}
+            onClick={() => dispatch({ type: 'TOGGLE_LOS_INDICATOR' })}
+            title="Close"
+            style={{ background: 'none', border: 'none', color: 'var(--sb-muted)', cursor: 'pointer', padding: '1px 5px', fontSize: '0.85em' }}
+          >✕</button>
+        </div>
       </div>
 
       <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>

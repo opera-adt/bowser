@@ -99,6 +99,31 @@ export default function PointManagerPanel() {
       </div>
 
       <div className="point-list">
+        {/* Reference marker row — show/hide only (does not affect spatial correction) */}
+        <div className="point-item" style={{ borderLeft: '3px solid #888', opacity: state.refMarkerVisible ? 1 : 0.45 }}>
+          <div className="point-item-header">
+            <div className="point-color-indicator" style={{ backgroundColor: '#111', border: '2px solid #fff' }} />
+            <span className="point-name-input" style={{ color: 'var(--sb-muted)', fontStyle: 'italic' }}>
+              Reference
+            </span>
+          </div>
+          <div className="point-coordinates">
+            <small>
+              Lat: {state.refMarkerPosition[0].toFixed(6)},&nbsp;
+              Lon: {state.refMarkerPosition[1].toFixed(6)}
+            </small>
+          </div>
+          <div className="point-item-controls">
+            <button
+              onClick={() => dispatch({ type: 'TOGGLE_REF_MARKER_VISIBLE' })}
+              className="pure-button"
+              title={state.refMarkerVisible ? 'Hide reference marker' : 'Show reference marker'}
+            >
+              <i className={`fa-solid ${state.refMarkerVisible ? 'fa-eye' : 'fa-eye-slash'}`} />
+            </button>
+          </div>
+        </div>
+
         {state.timeSeriesPoints.length === 0 ? (
           <div className="no-points">
             <p>No time series points selected.</p>

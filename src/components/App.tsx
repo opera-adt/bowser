@@ -16,6 +16,7 @@ function AppContent() {
   const { fetchDatasets, fetchDataMode, fetchConfig } = useApi();
   const [appTitle, setAppTitle] = useState('');
   const [sidebarHidden, setSidebarHidden] = useState(false);
+  const [toolbarsVisible, setToolbarsVisible] = useState(true);
 
   useEffect(() => {
     const initializeApp = async () => {
@@ -62,8 +63,8 @@ function AppContent() {
         >
           <i className={`fa-solid fa-chevron-${sidebarHidden ? 'right' : 'left'}`} />
         </button>
-        <MapContainer />
-        <PointManagerPanel />
+        <MapContainer toolbarsVisible={toolbarsVisible} onToggleToolbars={() => setToolbarsVisible(v => !v)} />
+        {toolbarsVisible && <PointManagerPanel />}
         <RefPointChart />
         <ColormapBar />
         <LosIndicator />

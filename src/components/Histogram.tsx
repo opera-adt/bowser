@@ -19,16 +19,26 @@ interface HistogramData {
   p977: number;
 }
 
+// Module-level cache: persists for the lifetime of the page, shared across
+// remounts. Key = "dataset:timeIndex". Avoids re-fetching histograms the user
+// has already seen when scrubbing the time slider back and forth.
+const histogramCache = new Map<string, HistogramData>();
+
 export default function Histogram() {
   const { state, dispatch } = useAppContext();
   const [histData, setHistData] = useState<HistogramData | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Debounced so that scrubbing the time slider doesn't fire a full-image
-  // stats request per intermediate index (issue #34). Also aborts a stale
-  // request when a new one supersedes it.
   useEffect(() => {
     if (!state.currentDataset) return;
+    const cacheKey = `${state.currentDataset}:${state.currentTimeIndex}`;
+
+    const cached = histogramCache.get(cacheKey);
+    if (cached) {
+      setHistData(cached);
+      return;
+    }
+
     const controller = new AbortController();
     const timer = setTimeout(async () => {
       setLoading(true);
@@ -38,7 +48,11 @@ export default function Histogram() {
           `/histogram/${encodeURIComponent(state.currentDataset)}?${params}`,
           { signal: controller.signal },
         );
-        if (res.ok) setHistData(await res.json());
+        if (res.ok) {
+          const data = await res.json();
+          histogramCache.set(cacheKey, data);
+          setHistData(data);
+        }
       } catch (e) {
         if ((e as any).name !== 'AbortError') console.error('Error fetching histogram:', e);
       } finally {

@@ -26,6 +26,10 @@ const initialState: AppState = {
   currentTimeIndex: 0,
   refValues: {},
   selectedBasemap: 'esriSatellite',
+  secondaryBasemap: null,
+  basemapOpacity: 1,
+  secondaryBasemapOpacity: 0.7,
+  basemapSwapped: false,
   dataMode: 'md',
   colormap: 'rdbu_r',
   vmin: 0,
@@ -42,6 +46,7 @@ const initialState: AppState = {
   bufferRadius: 500,
   bufferSamples: 10,
   refEnabled: true,
+  refMarkerVisible: true,
   refBufferEnabled: false,
   refBufferRadius: 500,
   showRefChart: false,
@@ -53,6 +58,13 @@ const initialState: AppState = {
   showColorbar: false,
   showLosIndicator: false,
   graticuleMode: 'off',
+  wrapEnabled: false,
+  wrapWavelength: null,
+  wrapPeriod: 2 * Math.PI,
+  complexMode: 'phase',
+  pointPickingEnabled: true,
+  annotationMode: false,
+  annotations: [],
 };
 
 function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppState {
@@ -182,6 +194,14 @@ function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppSt
       };
     case 'SET_BASEMAP':
       return { ...state, selectedBasemap: action.payload };
+    case 'SET_SECONDARY_BASEMAP':
+      return { ...state, secondaryBasemap: action.payload };
+    case 'SET_BASEMAP_OPACITY':
+      return { ...state, basemapOpacity: action.payload };
+    case 'SET_SECONDARY_BASEMAP_OPACITY':
+      return { ...state, secondaryBasemapOpacity: action.payload };
+    case 'TOGGLE_BASEMAP_SWAP':
+      return { ...state, basemapSwapped: !state.basemapSwapped };
     case 'SET_DATA_MODE':
       return { ...state, dataMode: action.payload };
     case 'SET_COLORMAP':
@@ -215,6 +235,8 @@ function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppSt
       return { ...state, bufferSamples: action.payload };
     case 'TOGGLE_REF_ENABLED':
       return { ...state, refEnabled: !state.refEnabled };
+    case 'TOGGLE_REF_MARKER_VISIBLE':
+      return { ...state, refMarkerVisible: !state.refMarkerVisible };
     case 'TOGGLE_REF_BUFFER':
       return { ...state, refBufferEnabled: !state.refBufferEnabled };
     case 'SET_REF_BUFFER_RADIUS':
@@ -239,6 +261,29 @@ function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppSt
       return { ...state, showColorbar: !state.showColorbar };
     case 'TOGGLE_LOS_INDICATOR':
       return { ...state, showLosIndicator: !state.showLosIndicator };
+    case 'TOGGLE_WRAP':
+      return { ...state, wrapEnabled: !state.wrapEnabled };
+    case 'SET_WRAP_WAVELENGTH':
+      return { ...state, wrapWavelength: action.payload };
+    case 'SET_WRAP_PERIOD':
+      return { ...state, wrapPeriod: action.payload };
+    case 'SET_COMPLEX_MODE':
+      return { ...state, complexMode: action.payload };
+    case 'TOGGLE_POINT_PICKING':
+      return { ...state, pointPickingEnabled: !state.pointPickingEnabled };
+    case 'TOGGLE_ANNOTATION_MODE':
+      return { ...state, annotationMode: !state.annotationMode };
+    case 'ADD_ANNOTATION':
+      return { ...state, annotations: [...state.annotations, action.payload] };
+    case 'REMOVE_ANNOTATION':
+      return { ...state, annotations: state.annotations.filter(a => a.id !== action.payload) };
+    case 'UPDATE_ANNOTATION':
+      return {
+        ...state,
+        annotations: state.annotations.map(a =>
+          a.id === action.payload.id ? { ...a, ...action.payload.updates } : a
+        ),
+      };
     case 'CYCLE_GRATICULE': {
       const next = state.graticuleMode === 'off' ? 'plain'
                  : state.graticuleMode === 'plain' ? 'zebra'

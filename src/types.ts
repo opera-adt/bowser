@@ -56,9 +56,18 @@ export interface MultiPointTimeSeriesData {
   }[];
 }
 
+export interface MapAnnotation {
+  id: string;
+  position: [number, number];
+  text: string;
+  color: string;
+  fontSize: number;
+}
+
 export interface BaseMapItem {
   url: string;
   attribution: string;
+  label?: string;
 }
 
 export interface LayerMask {
@@ -82,6 +91,10 @@ export interface AppState {
   currentTimeIndex: number;
   refValues: { [key: string]: number[] };
   selectedBasemap: string;
+  secondaryBasemap: string | null;
+  basemapOpacity: number;
+  secondaryBasemapOpacity: number;
+  basemapSwapped: boolean;
   dataMode: string;
   colormap: string;
   vmin: number;
@@ -97,6 +110,7 @@ export interface AppState {
   bufferRadius: number;
   bufferSamples: number;
   refEnabled: boolean;
+  refMarkerVisible: boolean;
   refBufferEnabled: boolean;
   refBufferRadius: number;
   showRefChart: boolean;
@@ -113,6 +127,13 @@ export interface AppState {
   showColorbar: boolean;
   showLosIndicator: boolean;
   graticuleMode: 'off' | 'plain' | 'zebra';
+  wrapEnabled: boolean;
+  wrapWavelength: number | null;
+  wrapPeriod: number;
+  complexMode: 'phase' | 'amplitude';
+  pointPickingEnabled: boolean;
+  annotationMode: boolean;
+  annotations: MapAnnotation[];
 }
 
 export type AppAction =
@@ -127,6 +148,10 @@ export type AppAction =
   | { type: 'SET_TIME_INDEX'; payload: number }
   | { type: 'SET_REF_VALUES'; payload: { dataset: string; values: number[] } }
   | { type: 'SET_BASEMAP'; payload: string }
+  | { type: 'SET_SECONDARY_BASEMAP'; payload: string | null }
+  | { type: 'SET_BASEMAP_OPACITY'; payload: number }
+  | { type: 'SET_SECONDARY_BASEMAP_OPACITY'; payload: number }
+  | { type: 'TOGGLE_BASEMAP_SWAP' }
   | { type: 'SET_DATA_MODE'; payload: string }
   | { type: 'SET_COLORMAP'; payload: string }
   | { type: 'SET_VMIN'; payload: number }
@@ -144,6 +169,7 @@ export type AppAction =
   | { type: 'SET_BUFFER_RADIUS'; payload: number }
   | { type: 'SET_BUFFER_SAMPLES'; payload: number }
   | { type: 'TOGGLE_REF_ENABLED' }
+  | { type: 'TOGGLE_REF_MARKER_VISIBLE' }
   | { type: 'TOGGLE_REF_BUFFER' }
   | { type: 'SET_REF_BUFFER_RADIUS'; payload: number }
   | { type: 'TOGGLE_REF_CHART' }
@@ -155,6 +181,15 @@ export type AppAction =
   | { type: 'TOGGLE_COLORBAR' }
   | { type: 'TOGGLE_LOS_INDICATOR' }
   | { type: 'CYCLE_GRATICULE' }
+  | { type: 'TOGGLE_WRAP' }
+  | { type: 'SET_WRAP_WAVELENGTH'; payload: number | null }
+  | { type: 'SET_WRAP_PERIOD'; payload: number }
+  | { type: 'SET_COMPLEX_MODE'; payload: 'phase' | 'amplitude' }
+  | { type: 'TOGGLE_POINT_PICKING' }
+  | { type: 'TOGGLE_ANNOTATION_MODE' }
+  | { type: 'ADD_ANNOTATION'; payload: MapAnnotation }
+  | { type: 'REMOVE_ANNOTATION'; payload: string }
+  | { type: 'UPDATE_ANNOTATION'; payload: { id: string; updates: Partial<Omit<MapAnnotation, 'id' | 'position'>> } }
   | { type: 'ADD_CHART_WINDOW'; payload: ChartWindow }
   | { type: 'REMOVE_CHART_WINDOW'; payload: string }
   | { type: 'SET_CHART_WINDOW_DS'; payload: { id: string; dsNames: string[] } };

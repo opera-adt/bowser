@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { MapContainer as LeafletMapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -27,24 +27,216 @@ const fontAwesomeIcon = L.divIcon({
 function MapEvents({ toolActive }: { toolActive: boolean }) {
   const { state, dispatch } = useAppContext();
   const { active: profileActive } = useProfileContext();
+  const map = useMap();
 
   useMapEvents({
     click: (e) => {
-      // Let measure / profile tools consume their own clicks without also
-      // dropping a time-series point.
       if (toolActive || profileActive) return;
+
+      // Annotation mode: open an inline popup to enter text
+      if (state.annotationMode) {
+        const pos = e.latlng;
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'display:flex;flex-direction:column;gap:6px;padding:2px;min-width:180px;';
+
+        const row1 = document.createElement('div');
+        row1.style.cssText = 'display:flex;gap:6px;align-items:center;';
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.placeholder = 'Annotation text…';
+        input.style.cssText = 'flex:1;padding:3px 6px;border:1px solid #888;border-radius:4px;font-size:12px;min-width:0;';
+        const colorPick = document.createElement('input');
+        colorPick.type = 'color';
+        colorPick.value = '#ffffff';
+        colorPick.style.cssText = 'width:26px;height:22px;padding:0;border:none;cursor:pointer;background:none;flex-shrink:0;';
+        const sizeLabel = document.createElement('span');
+        sizeLabel.textContent = 'px';
+        sizeLabel.style.cssText = 'font-size:11px;color:#aaa;flex-shrink:0;';
+        const sizeInput = document.createElement('input');
+        sizeInput.type = 'number';
+        sizeInput.value = '13';
+        sizeInput.min = '8';
+        sizeInput.max = '72';
+        sizeInput.style.cssText = 'width:40px;padding:2px 4px;border:1px solid #888;border-radius:4px;font-size:12px;flex-shrink:0;';
+        row1.appendChild(input);
+        row1.appendChild(colorPick);
+        row1.appendChild(sizeInput);
+        row1.appendChild(sizeLabel);
+
+        const row2 = document.createElement('div');
+        row2.style.cssText = 'display:flex;gap:4px;justify-content:flex-end;';
+        const addBtn = document.createElement('button');
+        addBtn.textContent = 'Add';
+        addBtn.style.cssText = 'padding:2px 10px;cursor:pointer;font-size:12px;border:none;background:#5bc0be;color:#072a2d;border-radius:4px;font-weight:600;';
+        const cancelBtn = document.createElement('button');
+        cancelBtn.textContent = 'Cancel';
+        cancelBtn.style.cssText = 'padding:2px 10px;cursor:pointer;font-size:12px;border:1px solid #888;background:none;color:#ccc;border-radius:4px;';
+        row2.appendChild(cancelBtn);
+        row2.appendChild(addBtn);
+        wrap.appendChild(row1);
+        wrap.appendChild(row2);
+
+        const popup = L.popup({ closeButton: false, closeOnClick: false })
+          .setLatLng(pos).setContent(wrap).openOn(map);
+        setTimeout(() => input.focus(), 50);
+
+        const commit = () => {
+          const text = input.value.trim();
+          if (text) {
+            dispatch({
+              type: 'ADD_ANNOTATION',
+              payload: {
+                id: `ann_${Date.now()}`,
+                position: [pos.lat, pos.lng],
+                text,
+                color: colorPick.value,
+                fontSize: Math.max(8, Math.min(72, parseInt(sizeInput.value) || 13)),
+              },
+            });
+          }
+          map.closePopup(popup);
+        };
+        addBtn.onclick = commit;
+        cancelBtn.onclick = () => map.closePopup(popup);
+        input.onkeydown = ev => { if (ev.key === 'Enter') commit(); if (ev.key === 'Escape') map.closePopup(popup); };
+        return;
+      }
+
+      if (!state.pointPickingEnabled) return;
       dispatch({
         type: 'ADD_TIME_SERIES_POINT',
-        payload: {
-          position: [e.latlng.lat, e.latlng.lng],
-          name: `Point ${Date.now().toString().slice(-4)}`
-        }
+        payload: { position: [e.latlng.lat, e.latlng.lng], name: `Point ${Date.now().toString().slice(-4)}` },
       });
-      // Auto-open the chart the first time the user drops a point so they
-      // can actually see the time series without hunting for a toggle.
       if (!state.showChart) dispatch({ type: 'TOGGLE_CHART' });
     },
   });
+
+  return null;
+}
+
+/** Renders all map annotations as draggable labels; click to open delete popup. */
+function AnnotationLayer() {
+  const { state, dispatch } = useAppContext();
+  const map = useMap();
+
+  useEffect(() => {
+    const markers: L.Marker[] = [];
+    state.annotations.forEach(ann => {
+      const icon = L.divIcon({
+        className: '',
+        html: `<div style="
+          color:${ann.color};font-size:${ann.fontSize}px;font-weight:600;white-space:nowrap;
+          text-shadow:0 0 3px rgba(0,0,0,0.9),0 0 3px rgba(0,0,0,0.9);
+          cursor:move;user-select:none;padding:2px 5px;
+          background:rgba(0,0,0,0.35);border-radius:3px;
+          border:1px solid rgba(255,255,255,0.15);
+        ">${ann.text}</div>`,
+        iconAnchor: [0, 0],
+      });
+      const m = L.marker(ann.position, { icon, draggable: true })
+        .addTo(map);
+      m.on('click', (ev) => {
+        L.DomEvent.stop(ev);
+
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'display:flex;flex-direction:column;gap:7px;min-width:190px;font-size:12px;';
+
+        // ── Label input ──
+        const textRow = document.createElement('div');
+        textRow.style.cssText = 'display:flex;flex-direction:column;gap:2px;';
+        const textLbl = document.createElement('label');
+        textLbl.textContent = 'Label';
+        textLbl.style.cssText = 'font-size:10px;color:#aaa;';
+        const textInput = document.createElement('input');
+        textInput.type = 'text';
+        textInput.value = ann.text;
+        textInput.style.cssText = 'padding:3px 6px;border:1px solid #666;border-radius:4px;font-size:12px;width:100%;box-sizing:border-box;background:#2a2d35;color:#e8e6e3;';
+        textRow.appendChild(textLbl);
+        textRow.appendChild(textInput);
+
+        // ── Color + font-size row ──
+        const row2 = document.createElement('div');
+        row2.style.cssText = 'display:flex;gap:8px;align-items:flex-end;';
+
+        const colorCol = document.createElement('div');
+        colorCol.style.cssText = 'display:flex;flex-direction:column;gap:2px;';
+        const colorLbl = document.createElement('label');
+        colorLbl.textContent = 'Color';
+        colorLbl.style.cssText = 'font-size:10px;color:#aaa;';
+        const colorInput = document.createElement('input');
+        colorInput.type = 'color';
+        colorInput.value = ann.color;
+        colorInput.style.cssText = 'width:36px;height:26px;padding:0;border:none;cursor:pointer;background:none;';
+        colorCol.appendChild(colorLbl);
+        colorCol.appendChild(colorInput);
+
+        const sizeCol = document.createElement('div');
+        sizeCol.style.cssText = 'display:flex;flex-direction:column;gap:2px;flex:1;';
+        const sizeLbl = document.createElement('label');
+        sizeLbl.textContent = 'Font size (px)';
+        sizeLbl.style.cssText = 'font-size:10px;color:#aaa;';
+        const sizeInput = document.createElement('input');
+        sizeInput.type = 'number';
+        sizeInput.value = String(ann.fontSize);
+        sizeInput.min = '8';
+        sizeInput.max = '72';
+        sizeInput.style.cssText = 'padding:3px 6px;border:1px solid #666;border-radius:4px;font-size:12px;width:100%;box-sizing:border-box;background:#2a2d35;color:#e8e6e3;';
+        sizeCol.appendChild(sizeLbl);
+        sizeCol.appendChild(sizeInput);
+
+        row2.appendChild(colorCol);
+        row2.appendChild(sizeCol);
+
+        // ── Action buttons ──
+        const btnRow = document.createElement('div');
+        btnRow.style.cssText = 'display:flex;gap:6px;';
+
+        const applyBtn = document.createElement('button');
+        applyBtn.innerHTML = '<i class="fa-solid fa-check" style="margin-right:4px"></i>Apply';
+        applyBtn.style.cssText = 'flex:1;padding:4px 0;cursor:pointer;font-size:12px;border:1px solid #5bc0be;background:rgba(91,192,190,0.15);color:#5bc0be;border-radius:4px;font-weight:600;';
+        applyBtn.onclick = () => {
+          dispatch({
+            type: 'UPDATE_ANNOTATION',
+            payload: {
+              id: ann.id,
+              updates: {
+                text: textInput.value.trim() || ann.text,
+                color: colorInput.value,
+                fontSize: Math.max(8, Math.min(72, parseInt(sizeInput.value) || ann.fontSize)),
+              },
+            },
+          });
+          map.closePopup();
+        };
+
+        const delBtn = document.createElement('button');
+        delBtn.innerHTML = '<i class="fa-solid fa-trash"></i>';
+        delBtn.title = 'Delete annotation';
+        delBtn.style.cssText = 'padding:4px 10px;cursor:pointer;font-size:12px;border:1px solid #e07b7b;background:rgba(224,123,123,0.15);color:#e07b7b;border-radius:4px;';
+        delBtn.onclick = () => {
+          dispatch({ type: 'REMOVE_ANNOTATION', payload: ann.id });
+          map.closePopup();
+        };
+
+        btnRow.appendChild(applyBtn);
+        btnRow.appendChild(delBtn);
+
+        wrap.appendChild(textRow);
+        wrap.appendChild(row2);
+        wrap.appendChild(btnRow);
+
+        L.popup({ closeButton: true, offset: [0, -4], minWidth: 200 })
+          .setLatLng(m.getLatLng())
+          .setContent(wrap)
+          .openOn(map);
+
+        setTimeout(() => { textInput.focus(); textInput.select(); }, 50);
+        textInput.onkeydown = e => { if (e.key === 'Enter') applyBtn.click(); if (e.key === 'Escape') map.closePopup(); };
+      });
+      markers.push(m);
+    });
+    return () => { markers.forEach(m => m.remove()); };
+  }, [state.annotations, map, dispatch]);
 
   return null;
 }
@@ -128,9 +320,18 @@ function ScaleBar() {
   return null;
 }
 
-function RasterTileLayer() {
+function RasterTileLayer({ onTileStart, onTileEnd }: { onTileStart?: () => void; onTileEnd?: () => void }) {
   const { state } = useAppContext();
   const [tileUrl, setTileUrl] = useState<string | null>(null);
+  // Two-slot model: active = currently shown layer (full opacity);
+  // pending = next layer loading silently at opacity 0. Swap happens only when
+  // pending fires 'load' (all viewport tiles decoded) → no mixed-tile artifacts.
+  const [active, setActive] = useState<{ url: string; id: number } | null>(null);
+  const [pending, setPending] = useState<{ url: string; id: number } | null>(null);
+  const nextIdRef = useRef(0);
+
+  // Loading state is driven by tile events (tileloadstart/load) on both layers,
+  // so zoom/pan on the active layer also triggers the indicator.
 
   useEffect(() => {
     if (!state.currentDataset || !state.datasetInfo[state.currentDataset] || !state.dataMode) {
@@ -164,18 +365,48 @@ function RasterTileLayer() {
         colormap_name: colormap,
       };
 
-      // Add algorithm if needed
-      if (currentDatasetInfo.algorithm) {
+      // Determine effective algorithm:
+      // - complex datasets (algorithm='phase'|'amplitude'): complexMode selects phase vs amplitude;
+      //   wrap overrides phase→rewrap but not amplitude (wrapping amplitude makes no sense).
+      // - all others: wrap overrides to rewrap, else use native algorithm.
+      const isComplex = currentDatasetInfo.algorithm === 'phase' || currentDatasetInfo.algorithm === 'amplitude';
+      if (isComplex) {
+        if (state.complexMode === 'amplitude') {
+          params.algorithm = 'amplitude';
+        } else if (state.wrapEnabled) {
+          params.algorithm = 'rewrap';
+        } else {
+          params.algorithm = 'phase';
+        }
+      } else if (state.wrapEnabled) {
+        params.algorithm = 'rewrap';
+      } else if (currentDatasetInfo.algorithm) {
         params.algorithm = currentDatasetInfo.algorithm;
       }
 
-      // Add shift for reference point if available and re-referencing is enabled
-      if (state.refEnabled && state.refValues[state.currentDataset] && currentDatasetInfo.algorithm === 'shift') {
-        const refArr = state.refValues[state.currentDataset];
-        // For 2D variables (no time dim) the ref array has only one element; fall back to index 0
-        const shift = refArr[timeIdx] ?? refArr[0];
-        if (shift !== undefined) {
-          params.algorithm_params = JSON.stringify({ shift });
+      // Build algorithm_params, merging ref shift and wrap parameters.
+      // Rewrap accepts shift (subtracted before wrapping), scale_factor, and wrap_range,
+      // so ref correction keeps working when algorithm is overridden to 'rewrap'.
+      {
+        const algorithmParams: Record<string, number> = {};
+
+        if (state.refEnabled && state.refValues[state.currentDataset] && currentDatasetInfo.algorithm === 'shift') {
+          const refArr = state.refValues[state.currentDataset];
+          const shift = refArr[timeIdx] ?? refArr[0];
+          if (shift !== undefined) algorithmParams.shift = shift;
+        }
+
+        if (state.wrapEnabled) {
+          if (state.wrapWavelength !== null && state.wrapWavelength > 0) {
+            algorithmParams.scale_factor = (4 * Math.PI) / state.wrapWavelength;
+            algorithmParams.wrap_range = 2 * Math.PI;
+          } else {
+            algorithmParams.wrap_range = state.wrapPeriod;
+          }
+        }
+
+        if (Object.keys(algorithmParams).length > 0) {
+          params.algorithm_params = JSON.stringify(algorithmParams);
         }
       }
 
@@ -245,17 +476,56 @@ function RasterTileLayer() {
     state.vmax,
     state.layerMasks,
     state.customMaskPath,
+    state.wrapEnabled,
+    state.wrapWavelength,
+    state.wrapPeriod,
+    state.complexMode,
   ]);
 
-  if (!tileUrl) return null;
+  // Two-slot swap: when tileUrl changes, keep active visible and load pending at
+  // opacity=0. On pending 'load' (all viewport tiles decoded), atomically promote
+  // pending → active. No mixed-tile seam artifacts and no blank flash.
+  useEffect(() => {
+    if (!tileUrl) { setActive(null); setPending(null); return; }
+    const id = ++nextIdRef.current;
+    setActive(currentActive => {
+      if (!currentActive) {
+        setPending(null);
+        return { url: tileUrl, id };
+      }
+      setPending({ url: tileUrl, id });
+      return currentActive;
+    });
+  }, [tileUrl]);
 
   return (
-    <TileLayer
-      key={tileUrl}  // force refresh if URL changes
-      url={tileUrl}
-      opacity={state.opacity}
-      maxZoom={22}
-    />
+    <>
+      {active && (
+        <TileLayer
+          key={active.id} url={active.url} opacity={state.opacity} maxZoom={22} zIndex={10}
+          eventHandlers={{
+            tileloadstart: () => onTileStart?.(),
+            load: () => onTileEnd?.(),
+          }}
+        />
+      )}
+      {pending && (
+        <TileLayer
+          key={pending.id} url={pending.url} opacity={state.opacity} maxZoom={22} zIndex={11}
+          eventHandlers={{
+            tileloadstart: () => onTileStart?.(),
+            load: () => {
+              onTileEnd?.();
+              setPending(cur => {
+                if (!cur || cur.id !== pending.id) return cur;
+                setActive(cur);
+                return null;
+              });
+            },
+          }}
+        />
+      )}
+    </>
   );
 }
 
@@ -414,22 +684,24 @@ function MarkerEventHandlers() {
         />
       ))}
 
-      {/* Reference Marker */}
-      <Marker
-        position={state.refMarkerPosition}
-        icon={fontAwesomeIcon}
-        draggable
-        title="Reference Location"
-        eventHandlers={{
-          click: () => handleMarkerClick(state.refMarkerPosition),
-          dragend: handleRefMarkerDragEnd,
-        }}
-      />
+      {/* Reference Marker — only rendered when refMarkerVisible */}
+      {state.refMarkerVisible && (
+        <Marker
+          position={state.refMarkerPosition}
+          icon={fontAwesomeIcon}
+          draggable
+          title="Reference Location"
+          eventHandlers={{
+            click: () => handleMarkerClick(state.refMarkerPosition),
+            dragend: handleRefMarkerDragEnd,
+          }}
+        />
+      )}
     </>
   );
 }
 
-function MapTopRightToolbar() {
+function MapTopRightToolbar({ onToggleToolbars }: { onToggleToolbars: () => void }) {
   const { state, dispatch } = useAppContext();
   const [basemapOpen, setBasemapOpen] = useState(false);
   const info = state.currentDataset ? state.datasetInfo[state.currentDataset] : null;
@@ -461,14 +733,76 @@ function MapTopRightToolbar() {
           <i className="fa-solid fa-map"></i>
         </button>
         {basemapOpen && (
-          <div className="basemap-popover">
-            {Object.keys(baseMaps).map(key => (
+          <div className="basemap-popover" style={{ minWidth: 220 }}>
+            {/* ── Layer 1 (bottom) ── */}
+            <div style={{ fontSize: '0.7em', color: 'var(--sb-muted)', marginBottom: 4 }}>
+              Layer 1 {state.basemapSwapped ? '(top)' : '(bottom)'}
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
+              {Object.entries(baseMaps).map(([key, bm]) => (
+                <button
+                  key={key}
+                  className={`basemap-option${state.selectedBasemap === key ? ' active' : ''}`}
+                  onClick={() => dispatch({ type: 'SET_BASEMAP', payload: key })}
+                  style={{ padding: '2px 7px', fontSize: '0.78em' }}
+                >{bm.label ?? key}</button>
+              ))}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+              <span style={{ fontSize: '0.7em', color: 'var(--sb-muted)', flexShrink: 0 }}>Opacity</span>
+              <input type="range" min={0} max={1} step={0.05}
+                value={state.basemapOpacity}
+                onChange={e => dispatch({ type: 'SET_BASEMAP_OPACITY', payload: parseFloat(e.target.value) })}
+                style={{ flex: 1 }} />
+              <span style={{ fontSize: '0.7em', color: 'var(--sb-muted)', width: 28, textAlign: 'right' }}>
+                {Math.round(state.basemapOpacity * 100)}%
+              </span>
+            </div>
+
+            {/* ── Swap button ── */}
+            <button
+              onClick={() => dispatch({ type: 'TOGGLE_BASEMAP_SWAP' })}
+              title="Swap layer order"
+              style={{
+                width: '100%', marginBottom: 8, padding: '3px 0',
+                background: 'var(--sb-surface2)', border: '1px solid var(--sb-border)',
+                borderRadius: 4, color: 'var(--sb-text)', cursor: 'pointer', fontSize: '0.75em',
+              }}
+            >⇅ Swap order</button>
+
+            {/* ── Layer 2 (top) ── */}
+            <div style={{ fontSize: '0.7em', color: 'var(--sb-muted)', marginBottom: 4 }}>
+              Layer 2 {state.basemapSwapped ? '(bottom)' : '(top)'}
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
               <button
-                key={key}
-                className={`basemap-option${state.selectedBasemap === key ? ' active' : ''}`}
-                onClick={() => { dispatch({ type: 'SET_BASEMAP', payload: key }); setBasemapOpen(false); }}
-              >{key}</button>
-            ))}
+                className={`basemap-option${state.secondaryBasemap === null ? ' active' : ''}`}
+                onClick={() => dispatch({ type: 'SET_SECONDARY_BASEMAP', payload: null })}
+                style={{ padding: '2px 7px', fontSize: '0.78em' }}
+              >None</button>
+              {Object.entries(baseMaps).map(([key, bm]) => (
+                <button
+                  key={key}
+                  className={`basemap-option${state.secondaryBasemap === key ? ' active' : ''}`}
+                  onClick={() => dispatch({ type: 'SET_SECONDARY_BASEMAP', payload: key })}
+                  style={{ padding: '2px 7px', fontSize: '0.78em' }}
+                >{bm.label ?? key}</button>
+              ))}
+            </div>
+            {state.secondaryBasemap && (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                  <span style={{ fontSize: '0.7em', color: 'var(--sb-muted)', flexShrink: 0 }}>Opacity</span>
+                  <input type="range" min={0} max={1} step={0.05}
+                    value={state.secondaryBasemapOpacity}
+                    onChange={e => dispatch({ type: 'SET_SECONDARY_BASEMAP_OPACITY', payload: parseFloat(e.target.value) })}
+                    style={{ flex: 1 }} />
+                  <span style={{ fontSize: '0.7em', color: 'var(--sb-muted)', width: 28, textAlign: 'right' }}>
+                    {Math.round(state.secondaryBasemapOpacity * 100)}%
+                  </span>
+                </div>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -492,11 +826,28 @@ function MapTopRightToolbar() {
         onClick={() => dispatch({ type: 'CYCLE_GRATICULE' })}
         title={`Lat/lon grid: ${state.graticuleMode} (click to cycle)`}
       ><i className="fa-solid fa-border-all"></i></button>
+      <button
+        className={`map-tool-btn${state.annotationMode ? ' active' : ''}`}
+        onClick={() => dispatch({ type: 'TOGGLE_ANNOTATION_MODE' })}
+        title={state.annotationMode ? 'Annotation mode ON — click map to place label (double-click label to delete)' : 'Toggle annotation mode'}
+      ><i className="fa-solid fa-pen-to-square"></i></button>
+      <button
+        className={`map-tool-btn${!state.pointPickingEnabled ? ' active' : ''}`}
+        onClick={() => dispatch({ type: 'TOGGLE_POINT_PICKING' })}
+        title={state.pointPickingEnabled ? 'Point picking ON — click to disable' : 'Point picking OFF — click to enable'}
+        style={!state.pointPickingEnabled ? { opacity: 0.5 } : undefined}
+      ><i className="fa-solid fa-location-dot"></i></button>
+      <button
+        className="map-tool-btn"
+        onClick={onToggleToolbars}
+        title="Hide toolbar"
+        style={{ marginTop: 4, opacity: 0.6 }}
+      ><i className="fa-solid fa-chevron-right"></i></button>
     </div>
   );
 }
 
-export default function MapContainer() {
+export default function MapContainer({ toolbarsVisible, onToggleToolbars }: { toolbarsVisible: boolean; onToggleToolbars: () => void }) {
   const { state } = useAppContext();
 
   // Calculate initial center from first dataset bounds
@@ -520,32 +871,64 @@ export default function MapContainer() {
     return [0, 0];
   };
 
-  const selectedBasemap = baseMaps[state.selectedBasemap] || baseMaps.esriSatellite;
+  const primaryBm   = baseMaps[state.selectedBasemap] || baseMaps.esriSatellite;
+  const secondaryBm = state.secondaryBasemap ? baseMaps[state.secondaryBasemap] : null;
+  // Swapped: secondary renders first (bottom), primary on top; default: primary bottom, secondary top
+  const bottomBm  = state.basemapSwapped ? secondaryBm  : primaryBm;
+  const topBm     = state.basemapSwapped ? primaryBm    : secondaryBm;
+  const bottomOp  = state.basemapSwapped ? state.secondaryBasemapOpacity : state.basemapOpacity;
+  const topOp     = state.basemapSwapped ? state.basemapOpacity : state.secondaryBasemapOpacity;
 
   const center = getInitialCenter();
   const hasDatasets = Object.keys(state.datasetInfo).length > 0;
   const [measureActive, setMeasureActive] = useState(false);
+  const [tileLoading, setTileLoading] = useState(false);
+  const tileCountRef = useRef(0);
+  const onTileStart = () => { tileCountRef.current++; setTileLoading(true); };
+  const onTileEnd   = () => { if (--tileCountRef.current <= 0) { tileCountRef.current = 0; setTileLoading(false); } };
   const { active: profileActive, setActive: setProfileActive } = useProfileContext();
 
   return (
     <div className="map-container">
-      <div className="map-toolbar">
+      {toolbarsVisible ? (
+        <>
+          <div className="map-toolbar">
+            <button
+              className={`map-tool-btn${measureActive ? ' active' : ''}`}
+              title="Measure distance (click points, double-click to finish)"
+              onClick={() => { setMeasureActive(v => !v); setProfileActive(false); }}
+            >
+              <i className="fa-solid fa-ruler"></i>
+            </button>
+            <button
+              className={`map-tool-btn${profileActive ? ' active' : ''}`}
+              title="Draw profile line (click start, click end, double-click to extract)"
+              onClick={() => { setProfileActive(!profileActive); setMeasureActive(false); }}
+            >
+              <i className="fa-solid fa-chart-area"></i>
+            </button>
+          </div>
+          <MapTopRightToolbar onToggleToolbars={onToggleToolbars} />
+        </>
+      ) : (
         <button
-          className={`map-tool-btn${measureActive ? ' active' : ''}`}
-          title="Measure distance (click points, double-click to finish)"
-          onClick={() => { setMeasureActive(v => !v); setProfileActive(false); }}
-        >
-          <i className="fa-solid fa-ruler"></i>
-        </button>
-        <button
-          className={`map-tool-btn${profileActive ? ' active' : ''}`}
-          title="Draw profile line (click start, click end, double-click to extract)"
-          onClick={() => { setProfileActive(!profileActive); setMeasureActive(false); }}
-        >
-          <i className="fa-solid fa-chart-area"></i>
-        </button>
-      </div>
-      <MapTopRightToolbar />
+          className="map-tool-btn"
+          title="Show toolbar"
+          onClick={onToggleToolbars}
+          style={{ position: 'absolute', top: 10, right: 10, zIndex: 3000 }}
+        ><i className="fa-solid fa-bars"></i></button>
+      )}
+      {tileLoading && (
+        <div style={{
+          position: 'absolute', bottom: 28, right: 10, zIndex: 3000,
+          background: 'rgba(0,0,0,0.55)', color: '#fff', borderRadius: 20,
+          padding: '3px 10px', fontSize: '0.72em', display: 'flex',
+          alignItems: 'center', gap: 6, pointerEvents: 'none',
+        }}>
+          <i className="fa-solid fa-spinner fa-spin" style={{ fontSize: '0.9em' }} />
+          Loading…
+        </div>
+      )}
     <LeafletMapContainer
       key={hasDatasets ? 'with-data' : 'no-data'} // Force re-render when data loads
       center={center}
@@ -555,13 +938,29 @@ export default function MapContainer() {
       zoomControl={false}
     >
       <TileLayer
-        url={selectedBasemap.url}
-        attribution={selectedBasemap.attribution}
+        key={bottomBm?.url}
+        url={bottomBm?.url ?? ''}
+        attribution={bottomBm?.attribution ?? ''}
+        opacity={bottomOp}
         maxZoom={22}
+        zIndex={1}
+        eventHandlers={{ tileloadstart: onTileStart, load: onTileEnd }}
       />
-      <RasterTileLayer />
+      {topBm && (
+        <TileLayer
+          key={topBm.url}
+          url={topBm.url}
+          attribution={topBm.attribution}
+          opacity={topOp}
+          maxZoom={22}
+          zIndex={2}
+          eventHandlers={{ tileloadstart: onTileStart, load: onTileEnd }}
+        />
+      )}
+      <RasterTileLayer onTileStart={onTileStart} onTileEnd={onTileEnd} />
       <RadiusCircles />
       <MarkerEventHandlers />
+      <AnnotationLayer />
       <MapEvents toolActive={measureActive || profileActive} />
       <MousePosition />
       <ScaleBar />

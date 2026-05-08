@@ -25,6 +25,8 @@ export default function ControlPanel({ title }: { title: string }) {
   const { fetchPointTimeSeries, fetchBufferTimeSeries } = useApi();
   const [draftVmin, setDraftVmin] = useState(String(state.vmin));
   const [draftVmax, setDraftVmax] = useState(String(state.vmax));
+  const [draftWrapWavelength, setDraftWrapWavelength] = useState(state.wrapWavelength !== null ? String(state.wrapWavelength) : '');
+  const [draftWrapPeriod, setDraftWrapPeriod] = useState(String(state.wrapPeriod));
   const [lightTheme, setLightTheme] = useState(false);
   const [draftRefLat, setDraftRefLat] = useState(String(state.refMarkerPosition[0]));
   const [draftRefLon, setDraftRefLon] = useState(String(state.refMarkerPosition[1]));
@@ -99,6 +101,33 @@ export default function ControlPanel({ title }: { title: string }) {
       dispatch({ type: 'SET_VMAX', payload: Math.PI });
     }
   }, [state.currentDataset, dispatch]);
+
+  // Auto-set vmin/vmax when wrap is toggled
+  useEffect(() => {
+    if (!state.wrapEnabled) return;
+    const half = state.wrapWavelength !== null && state.wrapWavelength > 0
+      ? Math.PI
+      : state.wrapPeriod / 2;
+    dispatch({ type: 'SET_VMIN', payload: -half });
+    dispatch({ type: 'SET_VMAX', payload: half });
+  }, [state.wrapEnabled, state.wrapWavelength, state.wrapPeriod, dispatch]);
+
+  // Auto-set vmin/vmax only when the user explicitly switches Phase ↔ Amplitude.
+  // Do NOT include state.currentDataset here — the dataset-change effect above
+  // already handles defaults on switch, and including it here would overwrite
+  // any localStorage-persisted custom range the user had saved.
+  useEffect(() => {
+    const info = state.currentDataset ? state.datasetInfo[state.currentDataset] : null;
+    if (info?.algorithm !== 'phase' && info?.algorithm !== 'amplitude') return;
+    if (state.complexMode === 'phase') {
+      dispatch({ type: 'SET_VMIN', payload: -Math.PI });
+      dispatch({ type: 'SET_VMAX', payload: Math.PI });
+    } else {
+      dispatch({ type: 'SET_VMIN', payload: 0 });
+      dispatch({ type: 'SET_VMAX', payload: 1 });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.complexMode, dispatch]);
 
   const handleDatasetChange = (ds: string) => {
     dispatch({ type: 'SET_CURRENT_DATASET', payload: ds });
@@ -267,6 +296,100 @@ export default function ControlPanel({ title }: { title: string }) {
             min="0" max="1" step="0.01" value={state.opacity}
             onChange={e => dispatch({ type: 'SET_OPACITY', payload: parseFloat(e.target.value) })} />
         </div>
+        {currentDatasetInfo && (
+          <div style={{ marginTop: 6 }}>
+            {/* Phase / Amplitude toggle — only for complex (CFloat32) datasets */}
+            {(currentDatasetInfo.algorithm === 'phase' || currentDatasetInfo.algorithm === 'amplitude') && (
+              <div className="toggle-row" style={{ marginBottom: 6 }}>
+                <span style={{ fontSize: '0.82em', color: 'var(--sb-muted)' }}>View</span>
+                <div style={{ display: 'flex', gap: 3 }}>
+                  {(['phase', 'amplitude'] as const).map(mode => (
+                    <button
+                      key={mode}
+                      className={`toggle-pill${state.complexMode === mode ? ' active' : ''}`}
+                      onClick={() => dispatch({ type: 'SET_COMPLEX_MODE', payload: mode })}
+                    >
+                      {mode === 'phase' ? 'Phase' : 'Amplitude'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="toggle-row">
+              <span style={{ fontSize: '0.82em', color: 'var(--sb-muted)' }}>Rewrap</span>
+              <button
+                className={`toggle-pill${state.wrapEnabled ? ' active' : ''}`}
+                title="Re-wrap timeseries / unwrapped phase / velocity for fringe visualization"
+                onClick={() => dispatch({ type: 'TOGGLE_WRAP' })}
+              >
+                {state.wrapEnabled ? 'ON' : 'OFF'}
+              </button>
+            </div>
+            {state.wrapEnabled && (
+              <div style={{ marginTop: 4 }}>
+                <div className="minmax-row">
+                  <div className="minmax-field">
+                    <label className="minmax-label" title="Wavelength in meters — multiplies data by 4π/λ before wrapping to (−π, π). Clear to use Period instead.">λ (m)</label>
+                    <div style={{ display: 'flex', gap: 2 }}>
+                      <input
+                        className="sidebar-input"
+                        type="text"
+                        inputMode="decimal"
+                        placeholder="e.g. 0.24"
+                        value={draftWrapWavelength}
+                        onChange={e => setDraftWrapWavelength(e.target.value)}
+                        onBlur={() => {
+                          const v = parseFloat(draftWrapWavelength);
+                          dispatch({ type: 'SET_WRAP_WAVELENGTH', payload: draftWrapWavelength === '' || isNaN(v) ? null : v });
+                        }}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') {
+                            const v = parseFloat(draftWrapWavelength);
+                            dispatch({ type: 'SET_WRAP_WAVELENGTH', payload: draftWrapWavelength === '' || isNaN(v) ? null : v });
+                          }
+                        }}
+                        style={{ flex: 1 }}
+                      />
+                      {state.wrapWavelength !== null && (
+                        <button
+                          onClick={() => { setDraftWrapWavelength(''); dispatch({ type: 'SET_WRAP_WAVELENGTH', payload: null }); }}
+                          title="Clear wavelength — switch to Period mode"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--sb-muted)', padding: '0 2px', fontSize: '0.85em', flexShrink: 0 }}
+                        >✕</button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="minmax-field">
+                    <label className="minmax-label" title="Modulo period for wrapping (in data units). Active when λ is empty.">Period</label>
+                    <input
+                      className="sidebar-input"
+                      type="text"
+                      inputMode="decimal"
+                      placeholder={`${(2 * Math.PI).toFixed(4)}`}
+                      value={draftWrapPeriod}
+                      onChange={e => setDraftWrapPeriod(e.target.value)}
+                      onBlur={() => {
+                        const v = parseFloat(draftWrapPeriod);
+                        if (!isNaN(v) && v > 0) dispatch({ type: 'SET_WRAP_PERIOD', payload: v });
+                      }}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          const v = parseFloat(draftWrapPeriod);
+                          if (!isNaN(v) && v > 0) dispatch({ type: 'SET_WRAP_PERIOD', payload: v });
+                        }
+                      }}
+                    />
+                  </div>
+                </div>
+                <div style={{ fontSize: '0.72em', color: 'var(--sb-muted)', marginTop: 2 }}>
+                  {state.wrapWavelength !== null
+                    ? `scale = 4π/λ = ${(4 * Math.PI / state.wrapWavelength).toFixed(3)} rad/m → wrap to (−π, π)`
+                    : `wrap period = ${state.wrapPeriod.toFixed(4)} (data units)`}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
         <Histogram />
       </div>
 

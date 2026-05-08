@@ -489,13 +489,14 @@ def setup_dolphin(dolphin_work_dir, timeseries_mask, output, include_ifgs: bool 
         },
     ]
     if include_ifgs:
-        dolphin_outputs.append(
-            {
-                "name": "Interferograms",
-                "file_list": _glob(f"{wd}/interferograms/[0-9]*.int.tif"),
-                "algorithm": Algorithm.PHASE.value,
-            }
-        )
+        ifg_entry: dict = {
+            "name": "Interferograms",
+            "file_list": _glob(f"{wd}/interferograms/[0-9]*.int.tif"),
+            "algorithm": Algorithm.PHASE.value,
+        }
+        if timeseries_mask is not None:
+            ifg_entry["mask_file_list"] = timeseries_mask
+        dolphin_outputs.append(ifg_entry)
     # NOTE would be interesting to load amplitude timeseries
     amplitude_files = _glob(f"{wd}/amplitude_db/2*_amp_db.tif")
     if amplitude_files:

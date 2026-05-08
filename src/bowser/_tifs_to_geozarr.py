@@ -280,18 +280,49 @@ def _load_group(rg: dict, ref: _SpatialRef) -> _Loaded:
     display_name = rg["name"]
     fmt = rg.get("file_date_fmt") or "%Y%m%d"
 
-    # Dtype: float16 tifs are unusable downstream (GDAL reprojection + titiler
-    # both choke), so upcast at read time. Everything else flows through
-    # unchanged. Also grab the GDAL Unit Type from band 1 — rasterio returns
-    # ``('',)`` on files with no unit set, which we normalise to ``None``.
-    with rasterio.open(file_list[0]) as src0:
-        src_dtype = src0.dtypes[0]
-        band_units = src0.units or ()
-    out_dtype = np.dtype("float32" if src_dtype == "float16" else src_dtype)
-    units = band_units[0] if band_units and band_units[0] else None
+    # Rasterio's _band_dtype lookup is missing entries for GDAL type 10/11
+    # (CFloat32/CFloat64, used by interferograms) and type 15 (Float16, GDAL
+    # 3.7+, used by correlation files). Probe via GDAL first and route to a
+    # GDAL-based reader for those types; everything else uses rasterio.
+    gdal_complex_types = {8, 9, 10, 11}  # CInt16, CInt32, CFloat32, CFloat64
+    gdal_float16_type = 15
+    complex_transforms: dict[str, Callable[[np.ndarray], np.ndarray]] = {
+        "phase": np.angle,
+        "amplitude": np.abs,
+    }
+
+    from osgeo import gdal as _gdal
+
+    _ds = _gdal.Open(str(file_list[0]))
+    if _ds is None:
+        raise OSError(f"GDAL could not open {file_list[0]}")
+    gdal_type = _ds.GetRasterBand(1).DataType
+    _ds = None
+
+    if gdal_type in gdal_complex_types:
+        transform = complex_transforms.get(rg.get("algorithm", ""), np.abs)
+        out_dtype = np.dtype("float32")
+        units = None
+        reader = partial(_read_one_complex, ref=ref, transform=transform)
+    elif gdal_type == gdal_float16_type:
+        # Float16: rasterio has no type mapping; read via GDAL and upcast.
+        out_dtype = np.dtype("float32")
+        units = None
+        reader = partial(_read_one_complex, ref=ref, transform=lambda x: x)
+    else:
+        # Dtype: float16 tifs are unusable downstream (GDAL reprojection + titiler
+        # both choke), so upcast at read time. Everything else flows through
+        # unchanged. Also grab the GDAL Unit Type from band 1 — rasterio returns
+        # ``('',)`` on files with no unit set, which we normalise to ``None``.
+        with rasterio.open(file_list[0]) as src0:
+            src_dtype = src0.dtypes[0]
+            band_units = src0.units or ()
+        out_dtype = np.dtype("float32" if src_dtype == "float16" else src_dtype)
+        units = band_units[0] if band_units and band_units[0] else None
+        reader = partial(_read_one, ref=ref, out_dtype=out_dtype)
 
     if len(file_list) == 1:
-        arr = _read_one(file_list[0], ref, out_dtype)
+        arr = reader(file_list[0])
         return _Loaded(
             name=name,
             display_name=display_name,
@@ -305,7 +336,7 @@ def _load_group(rg: dict, ref: _SpatialRef) -> _Loaded:
     # (concat N arrays) memory bump that stacking would cause.
     stack = np.empty((len(file_list), ref.height, ref.width), dtype=out_dtype)
     for i, f in enumerate(file_list):
-        stack[i] = _read_one(f, ref, out_dtype)
+        stack[i] = reader(f)
 
     # Dim + coord choice mirrors the original xarray-backed code: single ref
     # date → linear time series; multiple refs → integer pair index + date
@@ -386,6 +417,30 @@ def _read_one(path: str, ref: _SpatialRef, out_dtype: np.dtype) -> np.ndarray:
         ), f"{path}: shape {(src.height, src.width)} != ref {(ref.height, ref.width)}"
         arr = src.read(1)
     return arr.astype(out_dtype, copy=False)
+
+
+def _read_one_complex(
+    path: str,
+    ref: _SpatialRef,
+    transform: Callable[[np.ndarray], np.ndarray],
+) -> np.ndarray:
+    """Read a CFloat32/CFloat64 band via GDAL and apply ``transform`` (e.g. np.angle).
+
+    Rasterio's dtype lookup does not map GDAL type codes 15/16 (CFloat32/CFloat64),
+    so complex-valued interferograms crash ``rasterio.open`` before data is read.
+    GDAL itself handles them fine via ``ReadAsArray``.
+    """
+    from osgeo import gdal
+
+    ds = gdal.Open(str(path))
+    if ds is None:
+        raise OSError(f"GDAL could not open {path}")
+    arr = ds.GetRasterBand(1).ReadAsArray()
+    ds = None
+    assert arr.shape == (ref.height, ref.width), (
+        f"{path}: shape {arr.shape} != ref {(ref.height, ref.width)}"
+    )
+    return transform(arr).astype(np.float32, copy=False)
 
 
 def _pyramid_level_coords(
@@ -472,6 +527,11 @@ def _write_variable_to_all_levels(
     write_cfg: ZarrWriteConfig,
 ) -> None:
     """Append one variable (all pyramid levels) into existing skeleton groups."""
+    # Pre-compute histogram stats at full resolution (level 0) while the array
+    # is already in memory. Stored as a zarr attr so the server can serve
+    # histogram requests instantly without reading the full data at query time.
+    hist_stats = _compute_histogram_stats(levels[0])
+
     for i, arr in enumerate(levels):
         group = str(i) if pyramid else None
         if lv.dim_name is None:
@@ -489,6 +549,10 @@ def _write_variable_to_all_levels(
         da.attrs["long_name"] = lv.display_name
         if lv.units:
             da.attrs["units"] = lv.units
+        # Embed pre-computed histogram stats only at level 0 (full resolution).
+        # Coarser pyramid levels are used for tile rendering, not statistics.
+        if i == 0:
+            da.attrs["bowser_histogram"] = hist_stats
         coords = dict(lv.coords.items())
         ds_var = xr.Dataset({lv.name: da}, coords=coords)
         ds_var.to_zarr(
@@ -527,6 +591,41 @@ def _bounded_in_flight(
             nxt = next(it, None)
             if nxt is not None:
                 in_flight.add(pool.submit(fn, nxt))
+
+
+def _compute_histogram_stats(arr: np.ndarray, nbins: int = 100) -> list[dict]:
+    """Return per-time-step histogram stats for embedding in zarr attrs.
+
+    For 2-D arrays (single file groups) a one-element list is returned so the
+    caller can always index by time_index without special-casing.
+    """
+    slices = [arr] if arr.ndim == 2 else [arr[i] for i in range(arr.shape[0])]
+    results: list[dict] = []
+    for sl in slices:
+        valid = sl.ravel().astype(np.float64)
+        valid = valid[np.isfinite(valid)]
+        if valid.size == 0:
+            results.append(
+                {k: 0.0 for k in ("min", "max", "p2", "p98", "p16", "p84", "p23", "p977")}
+                | {"bins": [], "counts": []}
+            )
+            continue
+        counts, bin_edges = np.histogram(valid, bins=nbins)
+        results.append(
+            {
+                "bins": bin_edges.tolist(),
+                "counts": counts.tolist(),
+                "min": float(valid.min()),
+                "max": float(valid.max()),
+                "p2": float(np.percentile(valid, 2)),
+                "p98": float(np.percentile(valid, 98)),
+                "p16": float(np.percentile(valid, 16)),
+                "p84": float(np.percentile(valid, 84)),
+                "p23": float(np.percentile(valid, 2.275)),
+                "p977": float(np.percentile(valid, 97.725)),
+            }
+        )
+    return results
 
 
 def _sanitize(name: str) -> str:

@@ -61,6 +61,12 @@ logger = logging.getLogger("bowser")
 warnings.filterwarnings(
     "ignore", category=RuntimeWarning, message="invalid value encountered in cast"
 )
+warnings.filterwarnings(
+    "ignore", message="Dataset has no geotransform, gcps, or rpcs"
+)
+warnings.filterwarnings(
+    "ignore", category=RuntimeWarning, message="invalid value encountered in divide"
+)
 
 t0 = time.time()
 
@@ -347,12 +353,16 @@ def create_xarray_dataset_info(ds: xr.Dataset) -> dict:
     for var_name, var in ds.data_vars.items():
         if not {"x", "y"}.issubset(set(var.dims)):
             continue
+        _vn = str(var_name).lower()
         use_moving_reference = (
             (
-                "displacement" in str(var_name).lower()
-                and "short_wave" not in str(var_name).lower()
+                "displacement" in _vn
+                and "short_wave" not in _vn
             )
-            or "velocity" in str(var_name).lower()
+            or "velocity" in _vn
+            or "unwrapped" in _vn
+            or "timeseries" in _vn
+            or "time_series" in _vn
         ) and not skip_spatial_reference
         available_mask_vars = [
             v
@@ -524,10 +534,13 @@ def _apply_layer_masks_md(
         if not var or var not in ds.data_vars:
             continue
         mask_da = ds[var]
-        if time_idx is not None:
-            mdim = _non_spatial_dim(mask_da)
-            if mdim is not None:
-                mask_da = mask_da.isel({mdim: time_idx})
+        mdim = _non_spatial_dim(mask_da)
+        if mdim is not None:
+            if time_idx is not None:
+                safe_idx = min(time_idx, mask_da.sizes[mdim] - 1)
+            else:
+                safe_idx = 0  # no time context: use first frame as a static spatial mask
+            mask_da = mask_da.isel({mdim: safe_idx})
         if mode == "max":
             da = da.where(mask_da <= threshold)
         else:
@@ -956,6 +969,18 @@ async def get_histogram(
         dim = _non_spatial_dim(da)
         if dim is not None:
             time_index = min(time_index, da.sizes[dim] - 1)
+
+        # Fast path: return pre-computed stats embedded at conversion time.
+        hist_cache = da.attrs.get("bowser_histogram")
+        if isinstance(hist_cache, list) and hist_cache:
+            idx = time_index if dim is not None else 0
+            if 0 <= idx < len(hist_cache):
+                entry = hist_cache[idx]
+                if isinstance(entry, dict) and "bins" in entry and "counts" in entry:
+                    return JSONResponse(entry)
+
+        # Slow path: compute on the fly (old zarr stores without the attr).
+        if dim is not None:
             arr = da.isel({dim: time_index}).values.ravel().astype(float)
         else:
             arr = da.values.ravel().astype(float)
