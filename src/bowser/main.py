@@ -1267,6 +1267,62 @@ async def extract_profile(
         except Exception:
             return None
 
+    def _read_lonlat_batch(
+        lons: np.ndarray, lats: np.ndarray
+    ) -> np.ndarray:
+        """Read many values at once. NaN for nodata/out-of-bounds.
+
+        In MD/zarr mode this collapses ~N pyproj transforms and N xarray
+        ``.sel`` calls into one of each, which is the dominant speedup over
+        the per-point ``_read_lonlat`` path used by the binned profile.
+        """
+        if lons.size == 0:
+            return np.array([], dtype=float)
+        try:
+            if state.mode == "md":
+                if dataset_name not in state.dataset.data_vars:
+                    return np.full(lons.shape, np.nan)
+                da = state.dataset[dataset_name]
+                dim = _non_spatial_dim(da)
+                if dim is not None and time_index < da.sizes[dim]:
+                    da = da.isel({dim: time_index})
+                xs, ys = state.transformer_from_lonlat.transform(lons, lats)
+                pts = xr.DataArray(
+                    np.arange(lons.size), dims="pt", name="pt"
+                )
+                xs_da = xr.DataArray(np.asarray(xs, dtype=float), dims="pt", coords={"pt": pts})
+                ys_da = xr.DataArray(np.asarray(ys, dtype=float), dims="pt", coords={"pt": pts})
+                # Bounds check: xarray sel(nearest) will pick edge pixels for
+                # points well outside the array; filter those out as NaN.
+                xmin = float(da.x.min()); xmax = float(da.x.max())
+                ymin = float(da.y.min()); ymax = float(da.y.max())
+                vals = da.sel(x=xs_da, y=ys_da, method="nearest").values.astype(float)
+                in_bounds = (
+                    (xs_da.values >= xmin) & (xs_da.values <= xmax)
+                    & (ys_da.values >= ymin) & (ys_da.values <= ymax)
+                )
+                vals[~in_bounds] = np.nan
+                return vals
+            else:
+                # COG path: per-point reads, but skip the float()/np.atleast_1d
+                # overhead and inline the loop here.
+                if dataset_name not in state.raster_groups:
+                    return np.full(lons.shape, np.nan)
+                rg = state.raster_groups[dataset_name]
+                t = min(time_index, len(rg.file_list) - 1)
+                reader = rg._reader.readers[t]
+                out = np.empty(lons.shape, dtype=float)
+                for i in range(lons.size):
+                    try:
+                        out[i] = float(
+                            np.atleast_1d(reader.read_lonlat(float(lons[i]), float(lats[i])))[0]
+                        )
+                    except Exception:
+                        out[i] = np.nan
+                return out
+        except Exception:
+            return np.full(lons.shape, np.nan)
+
     def _pos_at_dist(sd: float) -> tuple[float, float, float]:
         """Return (lon, lat, bearing_deg) at distance sd along the polyline."""
         seg_idx = int(
@@ -1316,49 +1372,71 @@ async def extract_profile(
         for bc in bin_centres:
             along_dists = np.arange(bc - half, bc + half + along_step * 0.5, along_step)
             along_dists = along_dists[(along_dists >= 0) & (along_dists <= total_dist)]
+            if along_dists.size == 0:
+                continue
 
             # Compute centre positions once per along-track step
             positions = [_pos_at_dist(ad) for ad in along_dists]  # (lon, lat, bearing)
+            clons = np.array([p[0] for p in positions])
+            clats = np.array([p[1] for p in positions])
+            bearings = np.array([p[2] for p in positions])
 
-            # --- Centre values (no perpendicular offset) ---
-            centre_vals = [
-                v
-                for clon, clat, _ in positions
-                if (v := _read_lonlat(clon, clat)) is not None
-            ]
+            # Build a single (lon, lat) batch for every (along, perp) pair we need
+            # this bin: centre line + dense perpendicular grid + display lines.
+            # One vectorized read replaces hundreds of single-point lookups.
+            lon_chunks: list[np.ndarray] = [clons]
+            lat_chunks: list[np.ndarray] = [clats]
 
-            # --- Full 2-D window (centre + perpendicular strip) ---
-            all_vals = list(centre_vals)
-            if radius > 0:
-                for clon, clat, bearing in positions:
-                    perp_az = bearing + 90.0
-                    for off in perp_offsets_dense:
-                        o_lon, o_lat, _ = geod.fwd(clon, clat, perp_az, off)
-                        v = _read_lonlat(o_lon, o_lat)
-                        if v is not None:
-                            all_vals.append(v)
+            # Dense perpendicular grid (for median over the buffer window).
+            if radius > 0 and perp_offsets_dense.size > 0:
+                perp_az = bearings + 90.0
+                # geod.fwd accepts arrays; tile lon/lat per offset.
+                for off in perp_offsets_dense:
+                    o_lon, o_lat, _ = geod.fwd(clons, clats, perp_az, np.full_like(clons, off))
+                    lon_chunks.append(np.asarray(o_lon, dtype=float))
+                    lat_chunks.append(np.asarray(o_lat, dtype=float))
 
-            if centre_vals:
+            # Display sample lines (a few perpendicular offsets shown as faint curves).
+            display_chunk_starts: list[int] = []
+            for off in perp_offsets_display:
+                display_chunk_starts.append(sum(c.size for c in lon_chunks))
+                if abs(off) < 1e-3:
+                    lon_chunks.append(clons)
+                    lat_chunks.append(clats)
+                else:
+                    o_lon, o_lat, _ = geod.fwd(clons, clats, bearings + 90.0, np.full_like(clons, off))
+                    lon_chunks.append(np.asarray(o_lon, dtype=float))
+                    lat_chunks.append(np.asarray(o_lat, dtype=float))
+
+            all_lons = np.concatenate(lon_chunks)
+            all_lats = np.concatenate(lat_chunks)
+            all_vals_arr = _read_lonlat_batch(all_lons, all_lats)
+
+            n_along = clons.size
+            n_dense = perp_offsets_dense.size if radius > 0 else 0
+
+            # Slice out each region from the batched results.
+            centre_vals = all_vals_arr[:n_along]
+            centre_finite = centre_vals[np.isfinite(centre_vals)]
+
+            window_end = n_along + n_along * n_dense
+            window_vals = all_vals_arr[:window_end]
+            window_finite = window_vals[np.isfinite(window_vals)]
+
+            if centre_finite.size > 0:
                 centre_profile.append(
-                    {"dist": float(bc), "value": float(np.nanmedian(centre_vals))}
+                    {"dist": float(bc), "value": float(np.nanmedian(centre_finite))}
                 )
-            if all_vals:
+            if window_finite.size > 0:
                 median_profile.append(
-                    {"dist": float(bc), "value": float(np.nanmedian(all_vals))}
+                    {"dist": float(bc), "value": float(np.nanmedian(window_finite))}
                 )
 
-            # --- Display sample lines (reuse cached positions) ---
-            for k, off in enumerate(perp_offsets_display):
-                svals: list[float] = []
-                for clon, clat, bearing in positions:
-                    if abs(off) < 1e-3:
-                        v = _read_lonlat(clon, clat)
-                    else:
-                        o_lon, o_lat, _ = geod.fwd(clon, clat, bearing + 90.0, off)
-                        v = _read_lonlat(o_lon, o_lat)
-                    if v is not None:
-                        svals.append(v)
-                if svals:
+            # Display sample medians (each line gets one median per bin)
+            for k, start in enumerate(display_chunk_starts):
+                svals = all_vals_arr[start : start + n_along]
+                svals = svals[np.isfinite(svals)]
+                if svals.size > 0:
                     sample_profiles_acc[k].append(
                         {"dist": float(bc), "value": float(np.nanmedian(svals))}
                     )

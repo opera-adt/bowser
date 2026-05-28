@@ -398,17 +398,17 @@ export function ProfileChart() {
       });
       if (profileData!.median) datasets.push({
         label: 'median', data: profileData!.median.map(p => p.value),
-        borderColor: '#4d9de0',
-        backgroundColor: endpointColor('#4d9de0', '#4d9de0'),
+        borderColor: gradientBorder,
+        backgroundColor: 'transparent',
         pointBackgroundColor: endpointColor(START_COLOR, END_COLOR),
         pointBorderColor: endpointColor(START_COLOR, END_COLOR),
-        borderWidth: 0, showLine: false,
+        borderWidth: 2.5, showLine: true,
         pointStyle: 'circle',
         pointRadius: (ctx: any) => {
           const n = ctx.dataset.data?.length ?? 0;
-          return ctx.dataIndex === 0 || ctx.dataIndex === n - 1 ? 7 : 5;
+          return ctx.dataIndex === 0 || ctx.dataIndex === n - 1 ? 7 : 4;
         },
-        pointHoverRadius: 7, fill: false,
+        pointHoverRadius: 7, fill: false, tension: 0.2,
       });
     } else {
       if (useBuffer) profileData!.samples.forEach((s, i) => datasets.push({
