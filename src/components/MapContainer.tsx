@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import ReactDOM from 'react-dom';
 import { MapContainer as LeafletMapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -320,82 +321,72 @@ function ScaleBar() {
   return null;
 }
 
-function RasterTileLayer({ onTileStart, onTileEnd }: { onTileStart?: () => void; onTileEnd?: () => void }) {
+function RasterTileLayer({
+  onTileStart, onTileEnd, pane, overrideDataset, overrideColormap, overrideVmin, overrideVmax, overrideOpacity, overrideTimeIndex,
+}: {
+  onTileStart?: () => void;
+  onTileEnd?: () => void;
+  pane?: string;
+  overrideDataset?: string;
+  overrideColormap?: string;
+  overrideVmin?: number;
+  overrideVmax?: number;
+  overrideOpacity?: number;
+  overrideTimeIndex?: number;
+}) {
   const { state } = useAppContext();
   const [tileUrl, setTileUrl] = useState<string | null>(null);
-  // Two-slot model: active = currently shown layer (full opacity);
-  // pending = next layer loading silently at opacity 0. Swap happens only when
-  // pending fires 'load' (all viewport tiles decoded) → no mixed-tile artifacts.
   const [active, setActive] = useState<{ url: string; id: number } | null>(null);
   const [pending, setPending] = useState<{ url: string; id: number } | null>(null);
   const nextIdRef = useRef(0);
 
-  // Loading state is driven by tile events (tileloadstart/load) on both layers,
-  // so zoom/pan on the active layer also triggers the indicator.
+  const effectiveDataset = overrideDataset ?? state.currentDataset;
+  const effectiveColormap = overrideColormap ?? state.colormap;
+  const effectiveVmin = overrideVmin ?? state.vmin;
+  const effectiveVmax = overrideVmax ?? state.vmax;
+  const effectiveOpacity = overrideOpacity ?? state.opacity;
+  const effectiveTimeIndex = overrideTimeIndex ?? state.currentTimeIndex;
 
   useEffect(() => {
-    if (!state.currentDataset || !state.datasetInfo[state.currentDataset] || !state.dataMode) {
-      return;
-    }
-    // dataMode starts as 'md' default; wait until datasets are loaded (which confirms mode is set)
-    if (state.dataMode !== 'md' && state.dataMode !== 'cog') {
-      return;
-    }
+    if (!effectiveDataset || !state.datasetInfo[effectiveDataset] || !state.dataMode) return;
+    if (state.dataMode !== 'md' && state.dataMode !== 'cog') return;
 
     const controller = new AbortController();
     const signal = controller.signal;
 
     const updateTileLayer = async () => {
-      const currentDatasetInfo = state.datasetInfo[state.currentDataset];
+      const dsInfo = state.datasetInfo[effectiveDataset];
+      const colormap = effectiveColormap;
+      const vmin = effectiveVmin;
+      const vmax = effectiveVmax;
+      const maxIdx = dsInfo.x_values.length - 1;
+      const timeIdx = Math.max(0, Math.min(effectiveTimeIndex, maxIdx));
 
-      // Use ONLY state — DO NOT read localStorage here
-      const colormap = state.colormap;
-      const vmin = state.vmin;
-      const vmax = state.vmax;
-
-      // Ensure time index is within bounds
-      const maxIdx = currentDatasetInfo.x_values.length - 1;
-      const timeIdx = Math.max(0, Math.min(state.currentTimeIndex, maxIdx));
-
-      // Build parameters
       const params: Record<string, string> = {
-        variable: state.currentDataset,
+        variable: effectiveDataset,
         time_idx: timeIdx.toString(),
         rescale: `${vmin},${vmax}`,
         colormap_name: colormap,
       };
 
-      // Determine effective algorithm:
-      // - complex datasets (algorithm='phase'|'amplitude'): complexMode selects phase vs amplitude;
-      //   wrap overrides phase→rewrap but not amplitude (wrapping amplitude makes no sense).
-      // - all others: wrap overrides to rewrap, else use native algorithm.
-      const isComplex = currentDatasetInfo.algorithm === 'phase' || currentDatasetInfo.algorithm === 'amplitude';
+      const isComplex = dsInfo.algorithm === 'phase' || dsInfo.algorithm === 'amplitude';
       if (isComplex) {
-        if (state.complexMode === 'amplitude') {
-          params.algorithm = 'amplitude';
-        } else if (state.wrapEnabled) {
-          params.algorithm = 'rewrap';
-        } else {
-          params.algorithm = 'phase';
-        }
+        if (state.complexMode === 'amplitude') params.algorithm = 'amplitude';
+        else if (state.wrapEnabled) params.algorithm = 'rewrap';
+        else params.algorithm = 'phase';
       } else if (state.wrapEnabled) {
         params.algorithm = 'rewrap';
-      } else if (currentDatasetInfo.algorithm) {
-        params.algorithm = currentDatasetInfo.algorithm;
+      } else if (dsInfo.algorithm) {
+        params.algorithm = dsInfo.algorithm;
       }
 
-      // Build algorithm_params, merging ref shift and wrap parameters.
-      // Rewrap accepts shift (subtracted before wrapping), scale_factor, and wrap_range,
-      // so ref correction keeps working when algorithm is overridden to 'rewrap'.
       {
         const algorithmParams: Record<string, number> = {};
-
-        if (state.refEnabled && state.refValues[state.currentDataset] && currentDatasetInfo.algorithm === 'shift') {
-          const refArr = state.refValues[state.currentDataset];
+        if (state.refEnabled && state.refValues[effectiveDataset] && dsInfo.algorithm === 'shift') {
+          const refArr = state.refValues[effectiveDataset];
           const shift = refArr[timeIdx] ?? refArr[0];
           if (shift !== undefined) algorithmParams.shift = shift;
         }
-
         if (state.wrapEnabled) {
           if (state.wrapWavelength !== null && state.wrapWavelength > 0) {
             algorithmParams.scale_factor = (4 * Math.PI) / state.wrapWavelength;
@@ -404,40 +395,29 @@ function RasterTileLayer({ onTileStart, onTileEnd }: { onTileStart?: () => void;
             algorithmParams.wrap_range = state.wrapPeriod;
           }
         }
-
         if (Object.keys(algorithmParams).length > 0) {
           params.algorithm_params = JSON.stringify(algorithmParams);
         }
       }
 
-      // Add URL parameter for COG mode
       if (state.dataMode === 'cog') {
-        const url = currentDatasetInfo.file_list[timeIdx];
-        const maskUrl = currentDatasetInfo.mask_file_list[timeIdx];
-        const maskMinValue = currentDatasetInfo.mask_min_value;
-
-        params.url = url;
+        params.url = dsInfo.file_list[timeIdx];
+        const maskUrl = dsInfo.mask_file_list[timeIdx];
         if (maskUrl) params.mask = maskUrl;
-        if (maskMinValue !== undefined) params.mask_min_value = maskMinValue.toString();
+        if (dsInfo.mask_min_value !== undefined) params.mask_min_value = dsInfo.mask_min_value.toString();
         if (state.customMaskPath) params.custom_mask = state.customMaskPath;
-        params.time_idx = timeIdx.toString();
       }
 
-      // Layer masks (both modes)
       if (state.layerMasks.length > 0) {
         params.layer_masks = JSON.stringify(
           state.layerMasks.map(m => ({ dataset: m.dataset, threshold: m.threshold, mode: m.mode }))
         );
       }
 
-      // MD mode: custom mask path
-      if (state.dataMode === 'md') {
-        if (state.customMaskPath) params.custom_mask_path = state.customMaskPath;
+      if (state.dataMode === 'md' && state.customMaskPath) {
+        params.custom_mask_path = state.customMaskPath;
       }
 
-      // Thread the catalog-selected dataset (if the user came from the
-      // picker) onto the tile URL so the backend routes this tile to the
-      // right BowserState.
       const datasetId = new URLSearchParams(window.location.search).get('dataset');
       if (datasetId) params.dataset = datasetId;
 
@@ -450,30 +430,25 @@ function RasterTileLayer({ onTileStart, onTileEnd }: { onTileStart?: () => void;
         const response = await fetch(endpoint, { signal });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const tileInfo = await response.json();
-        // Only set if not aborted
         if (!signal.aborted) setTileUrl(tileInfo.tiles[0]);
       } catch (err) {
-        if ((err as any).name !== 'AbortError') {
-          console.error('Error fetching tile info:', err);
-        }
+        if ((err as any).name !== 'AbortError') console.error('Error fetching tile info:', err);
       }
     };
 
-    // Debounce: collapse rapid state changes (histogram → rescale → ref point)
-    // into a single request to avoid transient 500s from concurrent opens.
     const debounceTimer = setTimeout(() => updateTileLayer(), 80);
     return () => { clearTimeout(debounceTimer); controller.abort(); };
   }, [
-    state.currentDataset,
-    state.currentTimeIndex,
+    effectiveDataset,
+    effectiveTimeIndex,
     state.datasetInfo,
     state.dataMode,
     state.refValues,
     state.refMarkerPosition,
     state.refEnabled,
-    state.colormap,
-    state.vmin,
-    state.vmax,
+    effectiveColormap,
+    effectiveVmin,
+    effectiveVmax,
     state.layerMasks,
     state.customMaskPath,
     state.wrapEnabled,
@@ -482,17 +457,11 @@ function RasterTileLayer({ onTileStart, onTileEnd }: { onTileStart?: () => void;
     state.complexMode,
   ]);
 
-  // Two-slot swap: when tileUrl changes, keep active visible and load pending at
-  // opacity=0. On pending 'load' (all viewport tiles decoded), atomically promote
-  // pending → active. No mixed-tile seam artifacts and no blank flash.
   useEffect(() => {
     if (!tileUrl) { setActive(null); setPending(null); return; }
     const id = ++nextIdRef.current;
     setActive(currentActive => {
-      if (!currentActive) {
-        setPending(null);
-        return { url: tileUrl, id };
-      }
+      if (!currentActive) { setPending(null); return { url: tileUrl, id }; }
       setPending({ url: tileUrl, id });
       return currentActive;
     });
@@ -502,7 +471,8 @@ function RasterTileLayer({ onTileStart, onTileEnd }: { onTileStart?: () => void;
     <>
       {active && (
         <TileLayer
-          key={active.id} url={active.url} opacity={state.opacity} maxZoom={22} zIndex={10}
+          key={`${active.id}:${pane ?? ''}`} url={active.url} opacity={effectiveOpacity} maxZoom={22} zIndex={10}
+          {...(pane ? { pane } : {})}
           eventHandlers={{
             tileloadstart: () => onTileStart?.(),
             load: () => onTileEnd?.(),
@@ -511,7 +481,8 @@ function RasterTileLayer({ onTileStart, onTileEnd }: { onTileStart?: () => void;
       )}
       {pending && (
         <TileLayer
-          key={pending.id} url={pending.url} opacity={state.opacity} maxZoom={22} zIndex={11}
+          key={`${pending.id}:${pane ?? ''}`} url={pending.url} opacity={effectiveOpacity} maxZoom={22} zIndex={11}
+          {...(pane ? { pane } : {})}
           eventHandlers={{
             tileloadstart: () => onTileStart?.(),
             load: () => {
@@ -701,6 +672,222 @@ function MarkerEventHandlers() {
   );
 }
 
+function PixelInspectLayer() {
+  const { state } = useAppContext();
+  const map = useMap();
+  const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string } | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!state.pixelInspectEnabled) {
+      setTooltip(null);
+      if (timerRef.current) clearTimeout(timerRef.current);
+      if (abortRef.current) { abortRef.current.abort(); abortRef.current = null; }
+    }
+  }, [state.pixelInspectEnabled]);
+
+  useMapEvents({
+    mousemove: (e) => {
+      if (!state.pixelInspectEnabled || !state.currentDataset) return;
+      const { lat, lng } = e.latlng;
+      const { x, y } = e.containerPoint;
+
+      // In split screen, choose dataset based on which side the cursor is on.
+      const mapWidth = map.getSize().x;
+      const onRight = state.splitScreen && state.splitDataset &&
+        x > mapWidth * state.splitPosition;
+      const activeDataset = onRight ? state.splitDataset! : state.currentDataset;
+
+      if (timerRef.current) clearTimeout(timerRef.current);
+      if (abortRef.current) { abortRef.current.abort(); abortRef.current = null; }
+      timerRef.current = setTimeout(async () => {
+        const controller = new AbortController();
+        abortRef.current = controller;
+        try {
+          const params = new URLSearchParams({
+            dataset_name: activeDataset,
+            lon: lng.toFixed(6),
+            lat: lat.toFixed(6),
+          });
+          const res = await fetch(`/point?${params}`, { signal: controller.signal });
+          if (!res.ok) return;
+          const values: number[] = await res.json();
+          const tIdx = onRight ? state.splitTimeIndex : state.currentTimeIndex;
+          const val = values[tIdx];
+          let text: string;
+          if (val === undefined || val === null || !isFinite(val)) {
+            text = 'nodata';
+          } else {
+            const unit = state.datasetInfo[activeDataset]?.unit ?? '';
+            const valStr = unit ? `${val.toPrecision(4)} ${unit}` : val.toPrecision(4);
+            text = state.splitScreen ? `${onRight ? 'R' : 'L'}: ${valStr}` : valStr;
+          }
+          setTooltip({ x, y, text });
+        } catch (err) {
+          if ((err as Error).name !== 'AbortError') setTooltip(null);
+        }
+      }, 150);
+    },
+    mouseout: () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      if (abortRef.current) { abortRef.current.abort(); abortRef.current = null; }
+      setTooltip(null);
+    },
+  });
+
+  const parent = map.getContainer().parentElement;
+  if (!state.pixelInspectEnabled || !tooltip || !parent) return null;
+
+  return ReactDOM.createPortal(
+    <div style={{
+      position: 'absolute',
+      left: tooltip.x + 14,
+      top: tooltip.y - 10,
+      background: 'rgba(10,10,10,0.88)',
+      color: '#e8e6e3',
+      padding: '3px 8px',
+      borderRadius: 4,
+      fontSize: '0.78em',
+      fontFamily: 'var(--font-mono, monospace)',
+      pointerEvents: 'none',
+      whiteSpace: 'nowrap',
+      zIndex: 3500,
+      border: '1px solid rgba(255,255,255,0.15)',
+      boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
+    }}>
+      {tooltip.text}
+    </div>,
+    parent,
+  );
+}
+
+// Leaflet component: creates split panes and applies clip-path as splitPosition changes.
+function SplitScreenControl() {
+  const { state } = useAppContext();
+  const map = useMap();
+
+  // Create panes synchronously during render — the only way to guarantee they exist
+  // before React-Leaflet's addLayer (which fires in useLayoutEffect) runs.
+  // createPane is idempotent thanks to the getPane guard.
+  if (!map.getPane('splitLeft')) {
+    const p = map.createPane('splitLeft');
+    p.style.zIndex = '200';
+    p.style.pointerEvents = 'none';
+  }
+  if (!map.getPane('splitRight')) {
+    const p = map.createPane('splitRight');
+    p.style.zIndex = '201';
+    p.style.pointerEvents = 'none';
+  }
+
+  useEffect(() => {
+    const leftPane = map.getPane('splitLeft');
+    const rightPane = map.getPane('splitRight');
+    if (!leftPane || !rightPane) return;
+
+    if (!state.splitScreen) {
+      leftPane.style.clipPath = '';
+      rightPane.style.clipPath = '';
+      return;
+    }
+
+    // clip: rect() uses pixel values in the pane's own coordinate system.
+    // The pane sits inside leaflet-map-pane which has CSS translate(dx,dy) for
+    // panning. The divider is at screen-X = mapWidth * splitPosition.
+    // In pane-local coords: localX = screenDividerX - dx.
+    // We update on every move so the clip stays fixed in screen space.
+    const updateClip = () => {
+      const sz = map.getSize();
+      const divX = Math.round(sz.x * state.splitPosition);
+      const dx = L.DomUtil.getPosition(map.getPanes().mapPane).x;
+      const lx = divX - dx; // divider in pane-local coords
+      leftPane.style.clipPath  = `polygon(-99999px -99999px,${lx}px -99999px,${lx}px 99999px,-99999px 99999px)`;
+      rightPane.style.clipPath = `polygon(${lx}px -99999px,99999px -99999px,99999px 99999px,${lx}px 99999px)`;
+    };
+
+    updateClip();
+    map.on('move zoom viewreset moveend resize', updateClip);
+    return () => {
+      map.off('move zoom viewreset moveend resize', updateClip);
+      leftPane.style.clipPath = '';
+      rightPane.style.clipPath = '';
+    };
+  }, [state.splitScreen, state.splitPosition, map]);
+
+  return null;
+}
+
+// DOM component (not Leaflet): draggable divider + right-panel dataset selector.
+function SplitDivider() {
+  const { state, dispatch } = useAppContext();
+  const dragging = useRef(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!dragging.current) return;
+      const parent = containerRef.current?.parentElement;
+      if (!parent) return;
+      const rect = parent.getBoundingClientRect();
+      const pos = Math.max(0.1, Math.min(0.9, (e.clientX - rect.left) / rect.width));
+      dispatch({ type: 'SET_SPLIT_POSITION', payload: pos });
+    };
+    const onUp = () => { dragging.current = false; };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    return () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+  }, [dispatch]);
+
+  const datasets = Object.keys(state.datasetInfo);
+  const pct = `${(state.splitPosition * 100).toFixed(2)}%`;
+
+  return (
+    <div ref={containerRef} style={{ position: 'absolute', top: 0, bottom: 0, left: pct, width: 0, zIndex: 1500, pointerEvents: 'none' }}>
+      {/* vertical rule */}
+      <div style={{ position: 'absolute', top: 0, bottom: 0, left: -1, width: 2, background: 'rgba(255,255,255,0.85)', boxShadow: '0 0 6px rgba(0,0,0,0.5)', pointerEvents: 'none' }} />
+
+      {/* drag handle */}
+      <div
+        onMouseDown={e => { e.preventDefault(); dragging.current = true; }}
+        style={{
+          position: 'absolute', top: '50%', left: -18, transform: 'translateY(-50%)',
+          width: 36, height: 36, background: 'var(--toolbar-bg)',
+          border: '1px solid var(--sb-border)', borderRadius: '50%',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          cursor: 'ew-resize', boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
+          fontSize: 13, color: 'var(--sb-text)', pointerEvents: 'all',
+        }}
+      >
+        <i className="fa-solid fa-arrows-left-right" />
+      </div>
+
+      {/* right-panel dataset selector */}
+      <div style={{
+        position: 'absolute', top: 10, left: 8,
+        background: 'var(--toolbar-bg)', border: '1px solid var(--sb-border)',
+        borderRadius: 6, padding: '4px 8px', fontSize: '0.78em',
+        color: 'var(--sb-text)', whiteSpace: 'nowrap',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.3)', pointerEvents: 'all',
+      }}>
+        <select
+          value={state.splitDataset || ''}
+          onChange={e => dispatch({ type: 'SET_SPLIT_DATASET', payload: e.target.value || null })}
+          style={{ background: 'transparent', border: 'none', color: 'inherit', fontSize: 'inherit', cursor: 'pointer', outline: 'none', maxWidth: 160 }}
+        >
+          <option value="">— right layer —</option>
+          {datasets.map(ds => (
+            <option key={ds} value={ds}>{state.datasetInfo[ds].label || ds}</option>
+          ))}
+        </select>
+      </div>
+    </div>
+  );
+}
+
 function MapTopRightToolbar({ onToggleToolbars }: { onToggleToolbars: () => void }) {
   const { state, dispatch } = useAppContext();
   const [basemapOpen, setBasemapOpen] = useState(false);
@@ -807,6 +994,11 @@ function MapTopRightToolbar({ onToggleToolbars }: { onToggleToolbars: () => void
         )}
       </div>
       <button
+        className={`map-tool-btn${state.splitScreen ? ' active' : ''}`}
+        onClick={() => dispatch({ type: 'TOGGLE_SPLIT_SCREEN' })}
+        title="Split screen — compare two layers"
+      ><i className="fa-solid fa-table-columns"></i></button>
+      <button
         className={`map-tool-btn${state.showColorbar ? ' active' : ''}`}
         onClick={() => dispatch({ type: 'TOGGLE_COLORBAR' })}
         title="Toggle colorbar on map"
@@ -816,11 +1008,6 @@ function MapTopRightToolbar({ onToggleToolbars }: { onToggleToolbars: () => void
         onClick={() => dispatch({ type: 'TOGGLE_LOS_INDICATOR' })}
         title="Toggle LOS geometry indicator"
       ><i className="fa-solid fa-satellite"></i></button>
-      <button
-        className={`map-tool-btn${state.refEnabled ? ' active' : ''}`}
-        onClick={() => dispatch({ type: 'TOGGLE_REF_ENABLED' })}
-        title="Toggle spatial re-referencing"
-      ><i className="fa-solid fa-crosshairs"></i></button>
       <button
         className={`map-tool-btn${state.graticuleMode !== 'off' ? ' active' : ''}`}
         onClick={() => dispatch({ type: 'CYCLE_GRATICULE' })}
@@ -832,11 +1019,10 @@ function MapTopRightToolbar({ onToggleToolbars }: { onToggleToolbars: () => void
         title={state.annotationMode ? 'Annotation mode ON — click map to place label (double-click label to delete)' : 'Toggle annotation mode'}
       ><i className="fa-solid fa-pen-to-square"></i></button>
       <button
-        className={`map-tool-btn${!state.pointPickingEnabled ? ' active' : ''}`}
-        onClick={() => dispatch({ type: 'TOGGLE_POINT_PICKING' })}
-        title={state.pointPickingEnabled ? 'Point picking ON — click to disable' : 'Point picking OFF — click to enable'}
-        style={!state.pointPickingEnabled ? { opacity: 0.5 } : undefined}
-      ><i className="fa-solid fa-location-dot"></i></button>
+        className={`map-tool-btn${state.pixelInspectEnabled ? ' active' : ''}`}
+        onClick={() => dispatch({ type: 'TOGGLE_PIXEL_INSPECT' })}
+        title="Inspect pixel value on hover"
+      ><i className="fa-solid fa-eye-dropper"></i></button>
       <button
         className="map-tool-btn"
         onClick={onToggleToolbars}
@@ -848,7 +1034,7 @@ function MapTopRightToolbar({ onToggleToolbars }: { onToggleToolbars: () => void
 }
 
 export default function MapContainer({ toolbarsVisible, onToggleToolbars }: { toolbarsVisible: boolean; onToggleToolbars: () => void }) {
-  const { state } = useAppContext();
+  const { state, dispatch } = useAppContext();
 
   // Calculate initial center from first dataset bounds
   const getInitialCenter = (): [number, number] => {
@@ -907,6 +1093,17 @@ export default function MapContainer({ toolbarsVisible, onToggleToolbars }: { to
             >
               <i className="fa-solid fa-chart-area"></i>
             </button>
+            <button
+              className={`map-tool-btn${state.refEnabled ? ' active' : ''}`}
+              onClick={() => dispatch({ type: 'TOGGLE_REF_ENABLED' })}
+              title="Toggle spatial re-referencing"
+            ><i className="fa-solid fa-crosshairs"></i></button>
+            <button
+              className={`map-tool-btn${!state.pointPickingEnabled ? ' active' : ''}`}
+              onClick={() => dispatch({ type: 'TOGGLE_POINT_PICKING' })}
+              title={state.pointPickingEnabled ? 'Point picking ON — click to disable' : 'Point picking OFF — click to enable'}
+              style={!state.pointPickingEnabled ? { opacity: 0.5 } : undefined}
+            ><i className="fa-solid fa-location-dot"></i></button>
           </div>
           <MapTopRightToolbar onToggleToolbars={onToggleToolbars} />
         </>
@@ -929,6 +1126,7 @@ export default function MapContainer({ toolbarsVisible, onToggleToolbars }: { to
           Loading…
         </div>
       )}
+    {state.splitScreen && <SplitDivider />}
     <LeafletMapContainer
       key={hasDatasets ? 'with-data' : 'no-data'} // Force re-render when data loads
       center={center}
@@ -957,7 +1155,23 @@ export default function MapContainer({ toolbarsVisible, onToggleToolbars }: { to
           eventHandlers={{ tileloadstart: onTileStart, load: onTileEnd }}
         />
       )}
-      <RasterTileLayer onTileStart={onTileStart} onTileEnd={onTileEnd} />
+      <SplitScreenControl />
+      <RasterTileLayer
+        pane={state.splitScreen ? 'splitLeft' : undefined}
+        onTileStart={onTileStart} onTileEnd={onTileEnd}
+      />
+      {state.splitScreen && state.splitDataset && (
+        <RasterTileLayer
+          pane="splitRight"
+          overrideDataset={state.splitDataset}
+          overrideColormap={state.splitColormap}
+          overrideVmin={state.splitVmin}
+          overrideVmax={state.splitVmax}
+          overrideOpacity={state.splitOpacity}
+          overrideTimeIndex={state.splitTimeIndex}
+          onTileStart={onTileStart} onTileEnd={onTileEnd}
+        />
+      )}
       <RadiusCircles />
       <MarkerEventHandlers />
       <AnnotationLayer />
@@ -969,6 +1183,7 @@ export default function MapContainer({ toolbarsVisible, onToggleToolbars }: { to
       <MapViewController />
       <MapResizeWatcher />
       <Graticule mode={state.graticuleMode} />
+      <PixelInspectLayer />
     </LeafletMapContainer>
     </div>
   );

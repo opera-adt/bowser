@@ -291,12 +291,34 @@ def _dump_raster_groups(raster_groups, output):
     default="bowser_rasters.json",
     show_default=True,
 )
-def setup_dolphin(dolphin_work_dir, timeseries_mask, output, include_ifgs: bool = True):
+@click.option(
+    "--mean-amplitude/--no-mean-amplitude",
+    default=True,
+    show_default=True,
+    help="Include mean amplitude raster (searches interferograms/, PS/).",
+)
+@click.option(
+    "--amplitude-db/--no-amplitude-db",
+    default=True,
+    show_default=True,
+    help=(
+        "Include per-date amplitude-dB rasters "
+        "(searches amplitude_db/, linked_phase/amplitude/)."
+    ),
+)
+def setup_dolphin(
+    dolphin_work_dir,
+    timeseries_mask,
+    output,
+    mean_amplitude: bool = True,
+    amplitude_db: bool = True,
+):
     """Set up output data configuration for a dolphin workflow.
 
     Saves to `output` JSON file.
     """
     from .titiler import Algorithm, RasterGroup, _find_files
+    include_ifgs = True
 
     def _glob(g):
         import rasterio
@@ -452,9 +474,11 @@ def setup_dolphin(dolphin_work_dir, timeseries_mask, output, include_ifgs: bool 
             "algorithm": Algorithm.AMPLITUDE.value,
         },
         {
-            "name": "Amplitude mean",
+            "name": "Normalized amplitude",
             "file_list": _glob_first(
-                f"{wd}/interferograms/amp_mean_looked*.tif",
+                f"{wd}/PS/amp_mean.tif",
+                f"{wd}/interferograms/amp_mean.tif",
+                f"{wd}/PS/amp_mean_looked*.tif",
                 f"{wd}/interferograms/amp_mean*.tif",
             ),
             "algorithm": Algorithm.AMPLITUDE.value,
@@ -497,16 +521,24 @@ def setup_dolphin(dolphin_work_dir, timeseries_mask, output, include_ifgs: bool 
         if timeseries_mask is not None:
             ifg_entry["mask_file_list"] = timeseries_mask
         dolphin_outputs.append(ifg_entry)
-    # NOTE would be interesting to load amplitude timeseries
-    amplitude_files = _glob(f"{wd}/amplitude_db/2*_amp_db.tif")
-    if amplitude_files:
-        dolphin_outputs.append(
-            {
-                "name": "Amplitude",
-                "file_list": amplitude_files,
-                "algorithm": Algorithm.AMPLITUDE.value,
-            }
+    if amplitude_db:
+        amplitude_db_files = _glob_first(
+            f"{wd}/amplitude_db/2*_amp_db.tif",
+            f"{wd}/linked_phase/amplitude/2*_amp_db.tif",
         )
+        if amplitude_db_files:
+            dolphin_outputs.append(
+                {
+                    "name": "Amplitude dB",
+                    "file_list": amplitude_db_files,
+                    "algorithm": Algorithm.AMPLITUDE.value,
+                }
+            )
+    if not mean_amplitude:
+        dolphin_outputs = [
+            g for g in dolphin_outputs
+            if g.get("name") != "Normalized amplitude"
+        ]
     if timeseries_mask is not None:
         # Timeseries
         dolphin_outputs[0]["mask_file_list"] = timeseries_mask
@@ -685,9 +717,13 @@ def setup_aligned_disp_s1(disp_s1_dir: str, output: str):
 @click.option(
     "-o",
     "--output-dir",
-    required=True,
+    default=None,
     type=click.Path(writable=True),
-    help="Directory where amplitude dB COG files will be written.",
+    help=(
+        "Directory where amplitude dB COG files will be written. "
+        "Defaults to 'amplitude/' inside the parent directory of the input SLC files "
+        "(e.g. linked_phase/amplitude/ when inputs are in linked_phase/)."
+    ),
 )
 @click.option(
     "--overwrite",
@@ -724,6 +760,8 @@ def prepare_amplitude(slc_files, output_dir, overwrite, mask_path, workers):
     import numpy as np
     import rasterio
 
+    if output_dir is None:
+        output_dir = Path(slc_files[0]).parent / "amplitude"
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 

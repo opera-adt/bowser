@@ -65,6 +65,15 @@ const initialState: AppState = {
   pointPickingEnabled: true,
   annotationMode: false,
   annotations: [],
+  pixelInspectEnabled: false,
+  splitScreen: false,
+  splitDataset: null,
+  splitPosition: 0.5,
+  splitColormap: 'rdbu_r',
+  splitVmin: 0,
+  splitVmax: 1,
+  splitOpacity: 1,
+  splitTimeIndex: 0,
 };
 
 function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppState {
@@ -273,6 +282,24 @@ function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppSt
       return { ...state, pointPickingEnabled: !state.pointPickingEnabled };
     case 'TOGGLE_ANNOTATION_MODE':
       return { ...state, annotationMode: !state.annotationMode };
+    case 'TOGGLE_PIXEL_INSPECT':
+      return { ...state, pixelInspectEnabled: !state.pixelInspectEnabled };
+    case 'TOGGLE_SPLIT_SCREEN':
+      return { ...state, splitScreen: !state.splitScreen };
+    case 'SET_SPLIT_DATASET':
+      return { ...state, splitDataset: action.payload };
+    case 'SET_SPLIT_POSITION':
+      return { ...state, splitPosition: action.payload };
+    case 'SET_SPLIT_COLORMAP':
+      return { ...state, splitColormap: action.payload };
+    case 'SET_SPLIT_VMIN':
+      return { ...state, splitVmin: action.payload };
+    case 'SET_SPLIT_VMAX':
+      return { ...state, splitVmax: action.payload };
+    case 'SET_SPLIT_OPACITY':
+      return { ...state, splitOpacity: action.payload };
+    case 'SET_SPLIT_TIME_INDEX':
+      return { ...state, splitTimeIndex: action.payload };
     case 'ADD_ANNOTATION':
       return { ...state, annotations: [...state.annotations, action.payload] };
     case 'REMOVE_ANNOTATION':

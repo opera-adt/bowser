@@ -134,6 +134,15 @@ export interface AppState {
   pointPickingEnabled: boolean;
   annotationMode: boolean;
   annotations: MapAnnotation[];
+  pixelInspectEnabled: boolean;
+  splitScreen: boolean;
+  splitDataset: string | null;
+  splitPosition: number;
+  splitColormap: string;
+  splitVmin: number;
+  splitVmax: number;
+  splitOpacity: number;
+  splitTimeIndex: number;
 }
 
 export type AppAction =
@@ -192,7 +201,16 @@ export type AppAction =
   | { type: 'UPDATE_ANNOTATION'; payload: { id: string; updates: Partial<Omit<MapAnnotation, 'id' | 'position'>> } }
   | { type: 'ADD_CHART_WINDOW'; payload: ChartWindow }
   | { type: 'REMOVE_CHART_WINDOW'; payload: string }
-  | { type: 'SET_CHART_WINDOW_DS'; payload: { id: string; dsNames: string[] } };
+  | { type: 'SET_CHART_WINDOW_DS'; payload: { id: string; dsNames: string[] } }
+  | { type: 'TOGGLE_PIXEL_INSPECT' }
+  | { type: 'TOGGLE_SPLIT_SCREEN' }
+  | { type: 'SET_SPLIT_DATASET'; payload: string | null }
+  | { type: 'SET_SPLIT_POSITION'; payload: number }
+  | { type: 'SET_SPLIT_COLORMAP'; payload: string }
+  | { type: 'SET_SPLIT_VMIN'; payload: number }
+  | { type: 'SET_SPLIT_VMAX'; payload: number }
+  | { type: 'SET_SPLIT_OPACITY'; payload: number }
+  | { type: 'SET_SPLIT_TIME_INDEX'; payload: number };
 
 // Backward compatibility
 export type LegacyAppAction = { type: 'SET_TS_MARKER_POSITION'; payload: [number, number] };

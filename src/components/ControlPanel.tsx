@@ -25,6 +25,8 @@ export default function ControlPanel({ title }: { title: string }) {
   const { fetchPointTimeSeries, fetchBufferTimeSeries } = useApi();
   const [draftVmin, setDraftVmin] = useState(String(state.vmin));
   const [draftVmax, setDraftVmax] = useState(String(state.vmax));
+  const [draftSplitVmin, setDraftSplitVmin] = useState(String(state.splitVmin));
+  const [draftSplitVmax, setDraftSplitVmax] = useState(String(state.splitVmax));
   const [draftWrapWavelength, setDraftWrapWavelength] = useState(state.wrapWavelength !== null ? String(state.wrapWavelength) : '');
   const [draftWrapPeriod, setDraftWrapPeriod] = useState(String(state.wrapPeriod));
   const [lightTheme, setLightTheme] = useState(false);
@@ -63,6 +65,8 @@ export default function ControlPanel({ title }: { title: string }) {
 
   useEffect(() => setDraftVmin(String(state.vmin)), [state.vmin]);
   useEffect(() => setDraftVmax(String(state.vmax)), [state.vmax]);
+  useEffect(() => setDraftSplitVmin(String(state.splitVmin)), [state.splitVmin]);
+  useEffect(() => setDraftSplitVmax(String(state.splitVmax)), [state.splitVmax]);
   useEffect(() => {
     setDraftRefLat(state.refMarkerPosition[0].toFixed(6));
     setDraftRefLon(state.refMarkerPosition[1].toFixed(6));
@@ -191,6 +195,10 @@ export default function ControlPanel({ title }: { title: string }) {
   const currentTimeValue = currentDatasetInfo
     ? currentDatasetInfo.x_values[state.currentTimeIndex]
     : '';
+  const splitDatasetInfo = state.splitDataset ? state.datasetInfo[state.splitDataset] : null;
+  const splitTimeValue = splitDatasetInfo
+    ? splitDatasetInfo.x_values[Math.min(state.splitTimeIndex, splitDatasetInfo.x_values.length - 1)]
+    : '';
 
   const SectionHeader = ({ icon, label, collapseKey }: { icon: string; label: string; collapseKey?: string }) => (
     <div
@@ -240,7 +248,7 @@ export default function ControlPanel({ title }: { title: string }) {
 
       {/* ── VISUALIZATION ── */}
       <div className="sidebar-section">
-        <SectionHeader icon="fa-palette" label="Visualization" />
+        <SectionHeader icon="fa-palette" label={state.splitScreen ? 'Left Layer' : 'Visualization'} />
         <div className="colormap-row">
           <select
             className="sidebar-select"
@@ -392,6 +400,106 @@ export default function ControlPanel({ title }: { title: string }) {
         )}
         <Histogram />
       </div>
+
+      {/* ── SPLIT SCREEN RIGHT LAYER ── */}
+      {state.splitScreen && (
+        <div className="sidebar-section">
+          <SectionHeader icon="fa-table-columns" label="Right Layer" />
+
+          <select
+            className="sidebar-select"
+            value={state.splitDataset || ''}
+            onChange={e => dispatch({ type: 'SET_SPLIT_DATASET', payload: e.target.value || null })}
+          >
+            <option value="">— none —</option>
+            {Object.entries(state.datasetInfo).map(([key, info]) => (
+              <option key={key} value={key}>{info.label || key}</option>
+            ))}
+          </select>
+
+          {splitDatasetInfo && (
+            <div className="slider-group">
+              <div className="slider-label">
+                <span>Time step</span>
+                <span className="slider-value">{splitTimeValue}</span>
+              </div>
+              <input type="range" className="sidebar-range"
+                min="0" max={splitDatasetInfo.x_values.length - 1} step="1"
+                value={Math.min(state.splitTimeIndex, splitDatasetInfo.x_values.length - 1)}
+                onChange={e => dispatch({ type: 'SET_SPLIT_TIME_INDEX', payload: parseInt(e.target.value) })}
+              />
+            </div>
+          )}
+
+          {state.splitDataset && (
+            <>
+              <div className="colormap-row" style={{ marginTop: 6 }}>
+                <select
+                  className="sidebar-select"
+                  value={state.splitColormap.endsWith('_r') ? state.splitColormap.slice(0, -2) : state.splitColormap}
+                  onChange={e => {
+                    const base = e.target.value;
+                    const inv = state.splitColormap.endsWith('_r');
+                    dispatch({ type: 'SET_SPLIT_COLORMAP', payload: inv ? `${base}_r` : base });
+                  }}
+                >
+                  {colormapOptions.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+                <button
+                  className={`invert-btn${state.splitColormap.endsWith('_r') ? ' active' : ''}`}
+                  title="Invert colormap"
+                  onClick={() => {
+                    const cm = state.splitColormap;
+                    dispatch({ type: 'SET_SPLIT_COLORMAP', payload: cm.endsWith('_r') ? cm.slice(0, -2) : `${cm}_r` });
+                  }}
+                >⇅</button>
+              </div>
+              <div className="colorbar-row">
+                <input
+                  aria-label="Min value"
+                  className="sidebar-input"
+                  type="text" inputMode="decimal"
+                  value={draftSplitVmin}
+                  onChange={e => setDraftSplitVmin(e.target.value)}
+                  onBlur={() => { const v = parseFloat(draftSplitVmin); if (!isNaN(v)) dispatch({ type: 'SET_SPLIT_VMIN', payload: v }); }}
+                  onKeyDown={e => { if (e.key === 'Enter') { const v = parseFloat(draftSplitVmin); if (!isNaN(v)) dispatch({ type: 'SET_SPLIT_VMIN', payload: v }); } }}
+                />
+                <img src={`/colorbar/${state.splitColormap}`} className="colorbar-img" alt="Colormap" />
+                <input
+                  aria-label="Max value"
+                  className="sidebar-input"
+                  type="text" inputMode="decimal"
+                  value={draftSplitVmax}
+                  onChange={e => setDraftSplitVmax(e.target.value)}
+                  onBlur={() => { const v = parseFloat(draftSplitVmax); if (!isNaN(v)) dispatch({ type: 'SET_SPLIT_VMAX', payload: v }); }}
+                  onKeyDown={e => { if (e.key === 'Enter') { const v = parseFloat(draftSplitVmax); if (!isNaN(v)) dispatch({ type: 'SET_SPLIT_VMAX', payload: v }); } }}
+                />
+              </div>
+              <Histogram
+                dataset={state.splitDataset}
+                vmin={state.splitVmin}
+                vmax={state.splitVmax}
+                onSetVmin={v => dispatch({ type: 'SET_SPLIT_VMIN', payload: v })}
+                onSetVmax={v => dispatch({ type: 'SET_SPLIT_VMAX', payload: v })}
+              />
+              <div className="slider-group">
+                <div className="slider-label">
+                  <span>Opacity</span>
+                  <span className="slider-value">{Math.round(state.splitOpacity * 100)}%</span>
+                </div>
+                <input
+                  className="sidebar-range"
+                  type="range" min="0" max="1" step="0.01"
+                  value={state.splitOpacity}
+                  onChange={e => dispatch({ type: 'SET_SPLIT_OPACITY', payload: parseFloat(e.target.value) })}
+                />
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {/* ── REFERENCE POINT ── */}
       <div className="sidebar-section">

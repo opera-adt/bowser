@@ -253,16 +253,45 @@ class _Loaded:
 
 
 def _load_spatial_ref(path: str) -> _SpatialRef:
-    with rasterio.open(path) as src:
-        t = src.transform
-        # Pixel-center coordinates: (ix + 0.5, iy + 0.5) * transform. Same
-        # convention rioxarray uses on open_rasterio.
-        x = (np.arange(src.width) + 0.5) * t.a + t.c
-        y = (np.arange(src.height) + 0.5) * t.e + t.f
+    try:
+        with rasterio.open(path) as src:
+            t = src.transform
+            # Pixel-center coordinates: (ix + 0.5, iy + 0.5) * transform. Same
+            # convention rioxarray uses on open_rasterio.
+            x = (np.arange(src.width) + 0.5) * t.a + t.c
+            y = (np.arange(src.height) + 0.5) * t.e + t.f
+            return _SpatialRef(
+                height=src.height,
+                width=src.width,
+                crs_wkt=src.crs.to_wkt() if src.crs else "",
+                transform=tuple(t)[:6],
+                x_coords=x.astype(np.float64),
+                y_coords=y.astype(np.float64),
+            )
+    except KeyError:
+        # rasterio's _band_dtype lookup is missing entries for some GDAL types
+        # (e.g. Float16 = type 15). Fall back to GDAL for spatial metadata only.
+        from osgeo import gdal as _gdal
+        from osgeo import osr as _osr
+
+        ds = _gdal.Open(str(path))
+        if ds is None:
+            raise OSError(f"GDAL could not open {path}")
+        gt = ds.GetGeoTransform()
+        width, height = ds.RasterXSize, ds.RasterYSize
+        srs = _osr.SpatialReference()
+        srs.ImportFromWkt(ds.GetProjection())
+        srs.SetAxisMappingStrategy(_osr.OAMS_TRADITIONAL_GIS_ORDER)
+        ds = None
+        from affine import Affine
+
+        t = Affine(gt[1], gt[2], gt[0], gt[4], gt[5], gt[3])
+        x = (np.arange(width) + 0.5) * t.a + t.c
+        y = (np.arange(height) + 0.5) * t.e + t.f
         return _SpatialRef(
-            height=src.height,
-            width=src.width,
-            crs_wkt=src.crs.to_wkt() if src.crs else "",
+            height=height,
+            width=width,
+            crs_wkt=srs.ExportToWkt(),
             transform=tuple(t)[:6],
             x_coords=x.astype(np.float64),
             y_coords=y.astype(np.float64),
@@ -317,7 +346,13 @@ def _load_group(rg: dict, ref: _SpatialRef) -> _Loaded:
         with rasterio.open(file_list[0]) as src0:
             src_dtype = src0.dtypes[0]
             band_units = src0.units or ()
-        out_dtype = np.dtype("float32" if src_dtype == "float16" else src_dtype)
+            has_nodata = src0.nodata is not None
+        # float16 is unusable downstream; integer types with nodata need float32
+        # so _read_one can use NaN for masked pixels.
+        if src_dtype == "float16" or (has_nodata and not np.issubdtype(np.dtype(src_dtype), np.floating)):
+            out_dtype = np.dtype("float32")
+        else:
+            out_dtype = np.dtype(src_dtype)
         units = band_units[0] if band_units and band_units[0] else None
         reader = partial(_read_one, ref=ref, out_dtype=out_dtype)
 
@@ -409,13 +444,43 @@ def _load_group(rg: dict, ref: _SpatialRef) -> _Loaded:
 
 
 def _read_one(path: str, ref: _SpatialRef, out_dtype: np.dtype) -> np.ndarray:
-    """Read band 1 of a single tif as a 2D numpy array, asserting shape match."""
+    """Read band 1 of a single tif as a 2D numpy array.
+
+    If the source shape or transform differs from the reference grid (e.g. a
+    full-resolution PS/amp_mean.tif alongside a looked interferogram stack),
+    the data is reprojected with average resampling to match the reference.
+    """
+    from affine import Affine
+    from rasterio.crs import CRS
+    from rasterio.enums import Resampling
+    from rasterio.warp import reproject as _reproject
+
     with rasterio.open(path) as src:
-        assert (src.height, src.width) == (
-            ref.height,
-            ref.width,
-        ), f"{path}: shape {(src.height, src.width)} != ref {(ref.height, ref.width)}"
+        nodata = src.nodata
+        if (src.height, src.width) != (ref.height, ref.width):
+            # Resample to reference grid (e.g. full-res PS amp → looked grid).
+            out_dtype = np.dtype("float32")
+            dst = np.full((ref.height, ref.width), np.nan, dtype=np.float32)
+            _reproject(
+                source=rasterio.band(src, 1),
+                destination=dst,
+                src_transform=src.transform,
+                src_crs=src.crs,
+                dst_transform=Affine(*ref.transform),
+                dst_crs=CRS.from_wkt(ref.crs_wkt),
+                resampling=Resampling.average,
+                src_nodata=nodata,
+                dst_nodata=np.nan,
+            )
+            return dst
         arr = src.read(1)
+    if nodata is not None:
+        # Integer dtypes can't hold NaN; upcast to float32 so nodata → NaN.
+        if not np.issubdtype(out_dtype, np.floating):
+            out_dtype = np.dtype("float32")
+        result = arr.astype(out_dtype, copy=True)
+        result[arr == nodata] = np.nan
+        return result
     return arr.astype(out_dtype, copy=False)
 
 
