@@ -1554,6 +1554,7 @@ app.add_middleware(
         "image/png",
         "image/jp2",
         "image/webp",
+        "image/tiff",  # GeoTIFF exports are already (deflate-)compressed binary
     },
     compression_level=6,
 )
