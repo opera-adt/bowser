@@ -37,6 +37,45 @@ export default function ControlPanel({ title }: { title: string }) {
     buffer: true,
   });
   const toggleSection = (key: string) => setCollapsed(c => ({ ...c, [key]: !c[key] }));
+  const [exporting, setExporting] = useState(false);
+
+  // Export the active layer as a GeoTIFF, mirroring the tile request's masking
+  // params so the file matches what's rendered (recommended + layer + custom masks).
+  const handleExportGeoTIFF = useCallback(async () => {
+    if (!state.currentDataset) return;
+    setExporting(true);
+    try {
+      const params = new URLSearchParams();
+      params.set('variable', state.currentDataset);
+      params.set('time_idx', String(state.currentTimeIndex));
+      const datasetId = new URLSearchParams(window.location.search).get('dataset');
+      if (datasetId) params.set('dataset', datasetId);
+      if (state.layerMasks.length > 0) {
+        params.set('layer_masks', JSON.stringify(
+          state.layerMasks.map(m => ({ dataset: m.dataset, threshold: m.threshold, mode: m.mode }))
+        ));
+      }
+      if (state.customMaskPath) params.set('custom_mask_path', state.customMaskPath);
+
+      const res = await fetch(`/export/geotiff?${params.toString()}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const masked = state.layerMasks.length > 0 || !!state.customMaskPath;
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${state.currentDataset}_t${state.currentTimeIndex}${masked ? '_masked' : ''}.tif`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('GeoTIFF export failed:', err);
+      alert(`GeoTIFF export failed: ${(err as Error).message}`);
+    } finally {
+      setExporting(false);
+    }
+  }, [state.currentDataset, state.currentTimeIndex, state.layerMasks, state.customMaskPath]);
   // dataset range cache: { [datasetName]: { min, max, p2, p98 } }
   const [datasetRanges, setDatasetRanges] = useState<Record<string, { min: number; max: number; p2: number; p98: number }>>({});
 
@@ -682,6 +721,23 @@ export default function ControlPanel({ title }: { title: string }) {
               </>
             )}
           </>
+        )}
+      </div>
+
+      {/* ── EXPORT (active layer → GeoTIFF) ── */}
+      <div className="sidebar-section">
+        <SectionHeader icon="fa-download" label="Export" />
+        <button className="hist-btn" style={{ width: '100%' }}
+          disabled={!state.currentDataset || exporting}
+          title="Download the active layer as a GeoTIFF (masking applied if enabled)"
+          onClick={handleExportGeoTIFF}>
+          <i className={`fa-solid ${exporting ? 'fa-spinner fa-spin' : 'fa-download'}`} style={{ marginRight: 6 }}></i>
+          {exporting ? 'Exporting…' : 'Export layer (GeoTIFF)'}
+        </button>
+        {(state.layerMasks.length > 0 || state.customMaskPath) && (
+          <div style={{ fontSize: '0.72em', color: 'var(--sb-muted)', marginTop: 4, textAlign: 'center' }}>
+            masking will be applied
+          </div>
         )}
       </div>
 

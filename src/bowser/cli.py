@@ -1202,10 +1202,19 @@ def _sniff_bbox(uri: str) -> tuple[float, float, float, float]:
     import xarray as xr  # noqa: PLC0415
     from pyproj import Transformer  # noqa: PLC0415
 
-    from .geozarr import data_group_name, resolve_crs  # noqa: PLC0415
+    from .geozarr import (  # noqa: PLC0415
+        data_group_name,
+        resolve_crs,
+        storage_options_for,
+    )
 
     group = data_group_name(uri)
-    ds = xr.open_zarr(uri, group=group) if group else xr.open_zarr(uri)
+    so = storage_options_for(uri)
+    ds = (
+        xr.open_zarr(uri, group=group, storage_options=so)
+        if group
+        else xr.open_zarr(uri, storage_options=so)
+    )
     crs = resolve_crs(ds)
     ds = ds.rio.write_crs(crs)
     minx, miny, maxx, maxy = ds.rio.bounds()

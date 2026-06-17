@@ -15,6 +15,7 @@ References
 from __future__ import annotations
 
 import logging
+import os
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -33,8 +34,40 @@ __all__ = [
     "data_group_name",
     "load_pyramid_levels",
     "shard_encoding",
+    "storage_options_for",
     "ZarrWriteConfig",
 ]
+
+
+def storage_options_for(uri: str | Path) -> dict[str, Any]:
+    """Return fsspec ``storage_options`` for opening ``uri``.
+
+    For ``s3://`` URIs we default to *anonymous* (unsigned) access. A bucket
+    being "public" only means its policy permits unsigned requests; the client
+    still signs every request unless told otherwise, so boto3 walks the AWS
+    credential chain and fails with a ``NoCredentialsError`` (often masked by
+    the aiobotocore ContextVar bug, see ``_multiscales_layout``) when no keys
+    are configured. Passing ``anon=True`` selects botocore's ``UNSIGNED``
+    signer, which is what public buckets actually want.
+
+    Set ``BOWSER_S3_ANON=0`` (or ``false``) to use the normal credential chain
+    for private buckets.
+
+    Parameters
+    ----------
+    uri : str or Path
+        The store URI. Non-``s3://`` URIs get empty options.
+
+    Returns
+    -------
+    dict
+        ``{"anon": bool}`` for S3 URIs, ``{}`` otherwise.
+
+    """
+    if str(uri).startswith("s3://"):
+        anon = os.environ.get("BOWSER_S3_ANON", "1").lower() not in ("0", "false", "no")
+        return {"anon": anon}
+    return {}
 
 # Defaults tuned for DISP-S1-sized cubes on S3: 256×256 chunks keep random-access
 # tile reads cheap, and 4× shard factor on every dim means one HTTP GET per
@@ -232,7 +265,9 @@ def _multiscales_layout(path: str | Path) -> list[dict] | None:
     ContextVar conflict on our pixi runtime. Reading without consolidation
     is a few extra HTTP HEADs and side-steps the issue.
     """
-    ds = xr.open_zarr(str(path), consolidated=False)
+    ds = xr.open_zarr(
+        str(path), consolidated=False, storage_options=storage_options_for(path)
+    )
     ms = ds.attrs.get("multiscales")
     if not isinstance(ms, dict):
         return None
@@ -249,10 +284,11 @@ def load_pyramid_levels(path: str | Path):
     layout = _multiscales_layout(path)
     if not layout:
         raise ValueError(f"{path} has no multiscales layout")
+    so = storage_options_for(path)
     out = []
     for level in layout:
         asset = str(level["asset"])
-        ds = xr.open_zarr(path, group=asset, consolidated=False)
+        ds = xr.open_zarr(path, group=asset, consolidated=False, storage_options=so)
         out.append(PyramidLevel.from_dataset(asset, ds))
     return out
 

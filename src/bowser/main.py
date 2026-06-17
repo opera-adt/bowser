@@ -1647,43 +1647,21 @@ logger.info("Configured COG endpoints at /cog/*")
 
 
 # MD mode: use xarray approach
-def XarrayPathDependency(
-    request: Request,
-    variable: str = Query(..., description="Variable name"),
-    dataset: Optional[str] = Query(
-        None,
-        description=(
-            "Catalog dataset id (multi-dataset mode). Omit to use the single "
-            "store loaded via --stack-file."
-        ),
-    ),
-    time_idx: Optional[int] = Query(None, description="Time index"),
-    mask_variable: Optional[str] = Query(None, description="Mask variable"),
-    mask_min_value: float = Query(0.1, description="Mask minimum value"),
-    layer_masks: Optional[str] = Query(
-        None, description="JSON list of {dataset,threshold,mode} mask dicts"
-    ),
-    custom_mask_path: Optional[str] = Query(
-        None, description="Path to uploaded custom mask GeoTIFF"
-    ),
-) -> xr.DataArray:
-    """Create a DataArray from query parameters.
+def _build_masked_md_dataarray(
+    ds: "xr.Dataset",
+    variable: str,
+    time_idx: Optional[int],
+    mask_variable: Optional[str],
+    mask_min_value: float,
+    layer_masks: Optional[str],
+    custom_mask_path: Optional[str],
+) -> "xr.DataArray":
+    """Build the masked 2-D/3-D DataArray for ``variable`` from a GeoZarr ``ds``.
 
-    Picks the appropriate multiscale pyramid level for tile-bearing routes;
-    non-tile routes fall back to the native-resolution level. Routes through
-    the catalog registry when ``dataset`` is given — different ``dataset``
-    values at the same time serve from independent BowserStates, so two
-    clients on two datasets never collide.
+    Shared by the tile path (``XarrayPathDependency``) and the GeoTIFF export so
+    both apply identical masking: the recommended mask (for ``displacement``),
+    the threshold layer masks, and an uploaded custom mask.
     """
-    target = _resolve_state(dataset)
-    # Path param is only present on tile-bearing routes like
-    # /md/tiles/{tms}/{z}/{x}/{y}. Missing elsewhere — fall back to full res.
-    try:
-        tile_z = int(request.path_params["z"])
-    except (KeyError, TypeError, ValueError):
-        ds = target.dataset
-    else:
-        ds = target.dataset_for_tile_zoom(tile_z)
     da = ds[variable]
     skip_recommended_mask = not settings.BOWSER_USE_RECOMMENDED_MASK
     if mask_variable is not None:
@@ -1735,6 +1713,213 @@ def XarrayPathDependency(
             logger.warning(f"Failed to apply custom mask {custom_mask_path}: {exc}")
 
     return da
+
+
+def _build_masked_cog_dataarray(
+    target: BowserState,
+    variable: str,
+    time_idx: Optional[int],
+    mask_min_value: Optional[float],
+    layer_masks: Optional[str],
+    custom_mask_path: Optional[str],
+) -> "xr.DataArray":
+    """Build the masked 2-D DataArray for a COG-mode RasterGroup at ``time_idx``.
+
+    Mirrors ``CustomReader``/``InputDependency``: the active group's GeoTIFF for
+    that time step, with the primary (recommended) mask kept where
+    ``value >= mask_min_value``, each ``min``-mode layer mask kept where
+    ``value > threshold``, and the custom mask kept where ``value > 0.5``. Masks
+    are reprojected to the data grid when they don't already align.
+    """
+    import rioxarray as rxr  # noqa: PLC0415
+
+    if variable not in target.raster_groups:
+        raise HTTPException(status_code=404, detail=f"Dataset {variable} not found")
+    rg = target.raster_groups[variable]
+    if not rg.file_list:
+        raise HTTPException(status_code=404, detail=f"No files for dataset {variable}")
+    idx = 0 if time_idx is None else max(0, min(time_idx, len(rg.file_list) - 1))
+
+    da = rxr.open_rasterio(rg.file_list[idx], masked=True).squeeze("band", drop=True)
+
+    def _keep(da_, path, thr, inclusive=False):
+        m = rxr.open_rasterio(path, masked=True).squeeze("band", drop=True)
+        if m.rio.crs != da_.rio.crs or m.shape != da_.shape:
+            m = m.rio.reproject_match(da_)
+        return da_.where(m >= thr) if inclusive else da_.where(m > thr)
+
+    # Primary (recommended) mask, as the COG tile path applies it.
+    mmv = rg.mask_min_value if mask_min_value is None else mask_min_value
+    if rg.mask_file_list:
+        mfile = rg.mask_file_list[min(idx, len(rg.mask_file_list) - 1)]
+        if mfile:
+            da = _keep(da, mfile, mmv, inclusive=True)
+
+    # Layer masks — only ``min`` mode is defined for COG (CustomReader can't invert).
+    if layer_masks:
+        try:
+            for m in json.loads(layer_masks):
+                name = m.get("dataset")
+                if m.get("mode", "min") != "min" or name not in target.raster_groups:
+                    continue
+                fl = target.raster_groups[name].file_list
+                if fl:
+                    da = _keep(da, fl[min(idx, len(fl) - 1)], float(m.get("threshold", 0.5)))
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to parse layer_masks JSON: {e}")
+
+    # Custom uploaded mask (binary, kept where > 0.5 — matches CustomReader).
+    if custom_mask_path and Path(custom_mask_path).exists():
+        try:
+            da = _keep(da, custom_mask_path, 0.5)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"Failed to apply custom mask {custom_mask_path}: {exc}")
+
+    return da
+
+
+def XarrayPathDependency(
+    request: Request,
+    variable: str = Query(..., description="Variable name"),
+    dataset: Optional[str] = Query(
+        None,
+        description=(
+            "Catalog dataset id (multi-dataset mode). Omit to use the single "
+            "store loaded via --stack-file."
+        ),
+    ),
+    time_idx: Optional[int] = Query(None, description="Time index"),
+    mask_variable: Optional[str] = Query(None, description="Mask variable"),
+    mask_min_value: float = Query(0.1, description="Mask minimum value"),
+    layer_masks: Optional[str] = Query(
+        None, description="JSON list of {dataset,threshold,mode} mask dicts"
+    ),
+    custom_mask_path: Optional[str] = Query(
+        None, description="Path to uploaded custom mask GeoTIFF"
+    ),
+) -> xr.DataArray:
+    """Create a DataArray from query parameters.
+
+    Picks the appropriate multiscale pyramid level for tile-bearing routes;
+    non-tile routes fall back to the native-resolution level. Routes through
+    the catalog registry when ``dataset`` is given — different ``dataset``
+    values at the same time serve from independent BowserStates, so two
+    clients on two datasets never collide.
+    """
+    target = _resolve_state(dataset)
+    # Path param is only present on tile-bearing routes like
+    # /md/tiles/{tms}/{z}/{x}/{y}. Missing elsewhere — fall back to full res.
+    try:
+        tile_z = int(request.path_params["z"])
+    except (KeyError, TypeError, ValueError):
+        ds = target.dataset
+    else:
+        ds = target.dataset_for_tile_zoom(tile_z)
+    return _build_masked_md_dataarray(
+        ds,
+        variable,
+        time_idx,
+        mask_variable,
+        mask_min_value,
+        layer_masks,
+        custom_mask_path,
+    )
+
+
+@app.get(
+    "/export/geotiff",
+    tags=["Export"],
+    responses={200: {"description": "The active layer as a GeoTIFF download"}},
+)
+def export_geotiff(
+    variable: str = Query(..., description="Variable / active layer name"),
+    dataset: Optional[str] = Query(None, description="Catalog dataset id"),
+    time_idx: Optional[int] = Query(None, description="Time index"),
+    mask_variable: Optional[str] = Query(None, description="Override mask variable (MD)"),
+    mask_min_value: Optional[float] = Query(None, description="Primary mask threshold"),
+    layer_masks: Optional[str] = Query(
+        None, description="JSON list of {dataset,threshold,mode} mask dicts"
+    ),
+    custom_mask_path: Optional[str] = Query(
+        None, description="Uploaded custom mask GeoTIFF path"
+    ),
+):
+    """Export the active layer as a (optionally masked) GeoTIFF.
+
+    Works in both data modes and applies exactly the masking shown on the map:
+    GeoZarr (MD) via :func:`_build_masked_md_dataarray`, direct GeoTIFFs (COG)
+    via :func:`_build_masked_cog_dataarray` — recommended mask, layer masks, and
+    a custom mask. Masked-out pixels become ``NaN`` nodata; native resolution;
+    one 2-D slice for ``time_idx``.
+    """
+    import tempfile  # noqa: PLC0415
+    import rioxarray  # noqa: F401, PLC0415 — registers the .rio accessor
+
+    from starlette.background import BackgroundTask  # noqa: PLC0415
+    from starlette.responses import FileResponse  # noqa: PLC0415
+
+    target = _resolve_state(dataset)
+    if target.mode == "md":
+        da = _build_masked_md_dataarray(
+            target.dataset,
+            variable,
+            time_idx,
+            mask_variable,
+            0.1 if mask_min_value is None else mask_min_value,
+            layer_masks,
+            custom_mask_path,
+        )
+        fallback_crs = target.dataset.rio.crs
+    else:  # cog
+        da = _build_masked_cog_dataarray(
+            target, variable, time_idx, mask_min_value, layer_masks, custom_mask_path
+        )
+        fallback_crs = None
+
+    # Collapse any leftover non-spatial dim so we always write a 2-D raster.
+    mdim = _non_spatial_dim(da)
+    if mdim is not None:
+        safe_idx = 0 if time_idx is None else max(0, min(time_idx, da.sizes[mdim] - 1))
+        da = da.isel({mdim: safe_idx})
+
+    # Copy so we can scrub encoding attrs without mutating the cached dataset,
+    # then drop any pre-existing ``_FillValue`` — rioxarray refuses to overwrite
+    # it, which breaks ``write_nodata`` on the un-masked path (masking via
+    # ``where`` already strips it, so only raw exports hit this).
+    da = da.copy()
+    da.attrs.pop("_FillValue", None)
+    da.encoding.pop("_FillValue", None)
+
+    # Guarantee a CRS. Use NaN nodata so masked pixels are flagged — but only
+    # for floating dtypes (``where`` upcasts masked int arrays to float anyway;
+    # an unmasked int layer keeps its dtype and can't carry a NaN nodata).
+    crs = da.rio.crs or fallback_crs
+    if crs is not None:
+        da = da.rio.write_crs(crs)
+    if np.issubdtype(da.dtype, np.floating):
+        da = da.rio.write_nodata(float("nan"), encoded=False)
+
+    fd, tmp_path = tempfile.mkstemp(prefix="bowser_export_", suffix=".tif")
+    os.close(fd)
+    try:
+        da.rio.to_raster(tmp_path, driver="GTiff", compress="deflate")
+    except Exception as exc:  # noqa: BLE001
+        Path(tmp_path).unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=500, detail=f"GeoTIFF export failed: {exc}"
+        ) from exc
+
+    name_parts = ([dataset] if dataset else []) + [variable]
+    if time_idx is not None:
+        name_parts.append(f"t{time_idx}")
+    filename = "_".join(name_parts) + ".tif"
+
+    return FileResponse(
+        tmp_path,
+        media_type="image/tiff",
+        filename=filename,
+        background=BackgroundTask(lambda: Path(tmp_path).unlink(missing_ok=True)),
+    )
 
 
 md_endpoints = TilerFactory(

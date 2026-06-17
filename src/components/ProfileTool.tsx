@@ -318,7 +318,7 @@ export function ProfileToolMap() {
 export function ProfileChart() {
   const { state } = useAppContext();
   const { active, data: profileData, loading, radius, samplingInterval,
-          setRadius, setSamplingInterval, setHoverDist, clearAll } = useProfileContext();
+          setActive, setRadius, setSamplingInterval, setHoverDist, clearAll } = useProfileContext();
   const chartRef = useRef<ChartJS<'line'>>(null);
   const { panelRef, panelStyle, onDragMouseDown, resizeGrip } = useDraggableResizable({
     defaultWidth: 540, defaultHeight: 280, initialRight: 20, initialBottom: 20,
@@ -492,7 +492,7 @@ export function ProfileChart() {
         }}>
           <i className="fa-solid fa-camera"></i>
         </button>
-        <button className="chart-btn" onClick={clearAll} title="Clear profile">
+        <button className="chart-btn" onClick={() => { clearAll(); setActive(false); }} title="Close profile">
           <i className="fa-solid fa-xmark"></i>
         </button>
       </div>
