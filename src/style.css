@@ -7,6 +7,8 @@
  * AI-artifact default look.
  */
 :root {
+  --toolbar-bg: rgba(19, 21, 31, 0.9);
+  --toolbar-popover-bg: rgba(19, 21, 31, 0.96);
   --font-sans: "IBM Plex Sans", system-ui, Avenir, Helvetica, Arial, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
@@ -75,6 +77,8 @@
 
 /* ── Light theme ───────────────────────────────────────────── */
 [data-theme="light"] {
+  --toolbar-bg: rgba(255, 255, 255, 0.92);
+  --toolbar-popover-bg: rgba(255, 255, 255, 0.97);
   /* Light graphite: warm off-white paper, deep teal accent */
   --sb-bg:        #f5f4f1;
   --sb-surface:   #ffffff;
@@ -933,7 +937,7 @@ img.huechange { filter: hue-rotate(120deg); }
   z-index: 2000;
   display: flex;
   gap: 6px;
-  background: rgba(19, 21, 31, 0.9);
+  background: var(--toolbar-bg);
   border: 1px solid var(--sb-border);
   border-radius: 8px;
   padding: 6px 8px;
@@ -958,7 +962,7 @@ img.huechange { filter: hue-rotate(120deg); }
   top: calc(100% + 6px);
   right: 0;
   min-width: 160px;
-  background: rgba(19, 21, 31, 0.96);
+  background: var(--toolbar-popover-bg);
   border: 1px solid var(--sb-border);
   border-radius: 8px;
   padding: 4px;
@@ -989,6 +993,7 @@ img.huechange { filter: hue-rotate(120deg); }
   background: var(--sb-accent);
   color: var(--sb-on-accent);
 }
+
 
 .map-tool-btn {
   background: var(--sb-surface2);

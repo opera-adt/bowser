@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, useCallback, createContext, useContext } from 'react';
 import { useMap } from 'react-leaflet';
+import { Chart as ChartJS } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import L from 'leaflet';
 import { useAppContext } from '../context/AppContext';
 import { useDraggableResizable } from '../hooks/useDraggableResizable';
+import { downloadChartAsPng } from '../utils/screenshot';
 
 interface CentrePoint { dist: number; value: number }
 interface ProfileResponse {
@@ -20,9 +22,11 @@ interface ProfileState {
   radius: number;
   samplingInterval: number;
   active: boolean;
+  hoverDist: number | null;
   setActive: (a: boolean) => void;
   setRadius: (r: number) => void;
   setSamplingInterval: (s: number) => void;
+  setHoverDist: (d: number | null) => void;
   clearAll: () => void;
   // private setters for ProfileToolMap
   _setData: (d: ProfileResponse | null) => void;
@@ -30,8 +34,8 @@ interface ProfileState {
 }
 
 export const ProfileContext = createContext<ProfileState>({
-  data: null, loading: false, radius: 0, samplingInterval: 0, active: false,
-  setActive: () => {}, setRadius: () => {}, setSamplingInterval: () => {}, clearAll: () => {},
+  data: null, loading: false, radius: 0, samplingInterval: 0, active: false, hoverDist: null,
+  setActive: () => {}, setRadius: () => {}, setSamplingInterval: () => {}, setHoverDist: () => {}, clearAll: () => {},
   _setData: () => {}, _setLoading: () => {},
 });
 
@@ -67,12 +71,13 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   const [radius, setRadius] = useState(0);
   const [samplingInterval, setSamplingInterval] = useState(0);
   const [active, setActive] = useState(false);
-  const clearAll = useCallback(() => setData(null), []);
+  const [hoverDist, setHoverDist] = useState<number | null>(null);
+  const clearAll = useCallback(() => { setData(null); setHoverDist(null); }, []);
 
   return (
     <ProfileContext.Provider value={{
-      data, loading, radius, samplingInterval, active,
-      setActive, setRadius, setSamplingInterval, clearAll,
+      data, loading, radius, samplingInterval, active, hoverDist,
+      setActive, setRadius, setSamplingInterval, setHoverDist, clearAll,
       _setData: setData, _setLoading: setLoading,
     }}>
       {children}
@@ -81,17 +86,36 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
 }
 
 // ── Map-only component (inside Leaflet MapContainer, renders null) ─────────────
+/** Interpolate a lat/lng position at `targetDist` metres along a polyline. */
+function latlngAtDist(pts: L.LatLng[], targetDist: number): L.LatLng | null {
+  if (pts.length < 2) return null;
+  let cum = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const segLen = pts[i].distanceTo(pts[i + 1]);
+    if (cum + segLen >= targetDist) {
+      const frac = segLen > 0 ? (targetDist - cum) / segLen : 0;
+      return L.latLng(
+        pts[i].lat + frac * (pts[i + 1].lat - pts[i].lat),
+        pts[i].lng + frac * (pts[i + 1].lng - pts[i].lng),
+      );
+    }
+    cum += segLen;
+  }
+  return pts[pts.length - 1];
+}
+
 export function ProfileToolMap() {
   const map = useMap();
   const { state } = useAppContext();
   const ctx = useContext(ProfileContext);
-  const { active, radius, samplingInterval, _setData, _setLoading, clearAll: ctxClearAll } = ctx;
+  const { active, radius, samplingInterval, hoverDist, _setData, _setLoading, clearAll: ctxClearAll } = ctx;
 
   const polyRef    = useRef<L.Polyline | null>(null);
   const previewRef = useRef<L.Polyline | null>(null);
   const markersRef = useRef<L.Marker[]>([]);
   const ptsRef     = useRef<L.LatLng[]>([]);
   const modeRef    = useRef<'idle' | 'drawing' | 'ready'>('idle');
+  const hoverDotRef = useRef<L.CircleMarker | null>(null);
 
   // Always-current refs so Leaflet handlers don't close over stale values
   const radiusRef = useRef(radius);
@@ -167,8 +191,28 @@ export function ProfileToolMap() {
     markersRef.current = [];
     ptsRef.current = [];
     modeRef.current = 'idle';
+    hoverDotRef.current?.remove(); hoverDotRef.current = null;
     ctxClearAll();
   }, [ctxClearAll]);
+
+  // Show/hide gray dot on map as user hovers over the profile chart
+  useEffect(() => {
+    if (hoverDist === null || modeRef.current !== 'ready' || ptsRef.current.length < 2) {
+      hoverDotRef.current?.remove();
+      hoverDotRef.current = null;
+      return;
+    }
+    const pos = latlngAtDist(ptsRef.current, hoverDist);
+    if (!pos) return;
+    if (hoverDotRef.current) {
+      hoverDotRef.current.setLatLng(pos);
+    } else {
+      hoverDotRef.current = L.circleMarker(pos, {
+        radius: 7, color: 'white', weight: 2,
+        fillColor: '#888888', fillOpacity: 0.9, interactive: false,
+      }).addTo(map);
+    }
+  }, [hoverDist, map]);
 
   // Re-fetch when time index changes
   useEffect(() => {
@@ -273,8 +317,9 @@ export function ProfileToolMap() {
 // ── Chart panel (outside MapContainer, no Leaflet DOM) ────────────────────────
 export function ProfileChart() {
   const { state } = useAppContext();
-  const { active, data: profileData, loading, radius, samplingInterval, setRadius, setSamplingInterval, clearAll } =
-    useProfileContext();
+  const { active, data: profileData, loading, radius, samplingInterval,
+          setActive, setRadius, setSamplingInterval, setHoverDist, clearAll } = useProfileContext();
+  const chartRef = useRef<ChartJS<'line'>>(null);
   const { panelRef, panelStyle, onDragMouseDown, resizeGrip } = useDraggableResizable({
     defaultWidth: 540, defaultHeight: 280, initialRight: 20, initialBottom: 20,
     minWidth: 200, minHeight: 150,
@@ -353,17 +398,17 @@ export function ProfileChart() {
       });
       if (profileData!.median) datasets.push({
         label: 'median', data: profileData!.median.map(p => p.value),
-        borderColor: '#4d9de0',
-        backgroundColor: endpointColor('#4d9de0', '#4d9de0'),
+        borderColor: gradientBorder,
+        backgroundColor: 'transparent',
         pointBackgroundColor: endpointColor(START_COLOR, END_COLOR),
         pointBorderColor: endpointColor(START_COLOR, END_COLOR),
-        borderWidth: 0, showLine: false,
+        borderWidth: 2.5, showLine: true,
         pointStyle: 'circle',
         pointRadius: (ctx: any) => {
           const n = ctx.dataset.data?.length ?? 0;
-          return ctx.dataIndex === 0 || ctx.dataIndex === n - 1 ? 7 : 5;
+          return ctx.dataIndex === 0 || ctx.dataIndex === n - 1 ? 7 : 4;
         },
-        pointHoverRadius: 7, fill: false,
+        pointHoverRadius: 7, fill: false, tension: 0.2,
       });
     } else {
       if (useBuffer) profileData!.samples.forEach((s, i) => datasets.push({
@@ -404,6 +449,14 @@ export function ProfileChart() {
 
   const options = {
     responsive: true, maintainAspectRatio: false, animation: { duration: 0 },
+    onHover: (_evt: any, elements: any[]) => {
+      if (elements.length > 0) {
+        const dist = parseFloat(xLabels[elements[0].index]);
+        setHoverDist(isNaN(dist) ? null : dist);
+      } else {
+        setHoverDist(null);
+      }
+    },
     plugins: {
       legend: { display: radius > 0 || isBinned, labels: { color: textColor, filter: (item: any) => !item.text.startsWith('sample') } },
       tooltip: { callbacks: { title: (ctx: any) => `${ctx[0]?.label ?? ''} m` } },
@@ -433,13 +486,20 @@ export function ProfileChart() {
             onKeyDown={e => { if (e.key === 'Enter') { e.currentTarget.blur(); } }}
             className="profile-radius-input" onMouseDown={e => e.stopPropagation()} />
         </div>
-        <button className="chart-btn" onClick={clearAll} title="Clear profile">
+        <button className="chart-btn" title="Save as PNG (transparent background)" onClick={() => {
+          const canvas = chartRef.current?.canvas;
+          if (canvas) downloadChartAsPng(canvas, `profile-${state.currentDataset}-${Date.now()}.png`);
+        }}>
+          <i className="fa-solid fa-camera"></i>
+        </button>
+        <button className="chart-btn" onClick={() => { clearAll(); setActive(false); }} title="Close profile">
           <i className="fa-solid fa-xmark"></i>
         </button>
       </div>
       {hasData && (
-        <div style={{ flex: 1, minHeight: 120, position: 'relative' }}>
-          <Line data={chartData} options={options as any} />
+        <div style={{ flex: 1, minHeight: 120, position: 'relative' }}
+          onMouseLeave={() => setHoverDist(null)}>
+          <Line ref={chartRef} data={chartData} options={options as any} />
         </div>
       )}
       {resizeGrip}

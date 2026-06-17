@@ -19,26 +19,55 @@ interface HistogramData {
   p977: number;
 }
 
-export default function Histogram() {
+// Module-level cache: persists for the lifetime of the page, shared across
+// remounts. Key = "dataset:timeIndex". Avoids re-fetching histograms the user
+// has already seen when scrubbing the time slider back and forth.
+const histogramCache = new Map<string, HistogramData>();
+
+interface HistogramProps {
+  // When provided, overrides the defaults drawn from state.
+  dataset?: string;
+  vmin?: number;
+  vmax?: number;
+  onSetVmin?: (v: number) => void;
+  onSetVmax?: (v: number) => void;
+}
+
+export default function Histogram({ dataset, vmin, vmax, onSetVmin, onSetVmax }: HistogramProps = {}) {
   const { state, dispatch } = useAppContext();
   const [histData, setHistData] = useState<HistogramData | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Debounced so that scrubbing the time slider doesn't fire a full-image
-  // stats request per intermediate index (issue #34). Also aborts a stale
-  // request when a new one supersedes it.
+  const effectiveDataset = dataset ?? state.currentDataset;
+  const effectiveVmin = vmin ?? state.vmin;
+  const effectiveVmax = vmax ?? state.vmax;
+  const setVmin = onSetVmin ?? ((v: number) => dispatch({ type: 'SET_VMIN', payload: v }));
+  const setVmax = onSetVmax ?? ((v: number) => dispatch({ type: 'SET_VMAX', payload: v }));
+
   useEffect(() => {
-    if (!state.currentDataset) return;
+    if (!effectiveDataset) return;
+    const cacheKey = `${effectiveDataset}:${state.currentTimeIndex}`;
+
+    const cached = histogramCache.get(cacheKey);
+    if (cached) {
+      setHistData(cached);
+      return;
+    }
+
     const controller = new AbortController();
     const timer = setTimeout(async () => {
       setLoading(true);
       try {
         const params = withDataset(new URLSearchParams({ time_index: String(state.currentTimeIndex) }));
         const res = await fetch(
-          `/histogram/${encodeURIComponent(state.currentDataset)}?${params}`,
+          `/histogram/${encodeURIComponent(effectiveDataset)}?${params}`,
           { signal: controller.signal },
         );
-        if (res.ok) setHistData(await res.json());
+        if (res.ok) {
+          const data = await res.json();
+          histogramCache.set(cacheKey, data);
+          setHistData(data);
+        }
       } catch (e) {
         if ((e as any).name !== 'AbortError') console.error('Error fetching histogram:', e);
       } finally {
@@ -46,39 +75,39 @@ export default function Histogram() {
       }
     }, 250);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [state.currentDataset, state.currentTimeIndex]);
+  }, [effectiveDataset, state.currentTimeIndex]);
 
   const handleAutoScale = () => {
     if (!histData) return;
-    dispatch({ type: 'SET_VMIN', payload: parseFloat(histData.p2.toFixed(4)) });
-    dispatch({ type: 'SET_VMAX', payload: parseFloat(histData.p98.toFixed(4)) });
+    setVmin(parseFloat(histData.p2.toFixed(4)));
+    setVmax(parseFloat(histData.p98.toFixed(4)));
   };
 
   const handleFullScale = () => {
     if (!histData) return;
-    dispatch({ type: 'SET_VMIN', payload: parseFloat(histData.min.toFixed(4)) });
-    dispatch({ type: 'SET_VMAX', payload: parseFloat(histData.max.toFixed(4)) });
+    setVmin(parseFloat(histData.min.toFixed(4)));
+    setVmax(parseFloat(histData.max.toFixed(4)));
   };
 
   const handleSigmaScale = () => {
     if (!histData || histData.p16 == null || histData.p84 == null) return;
-    dispatch({ type: 'SET_VMIN', payload: parseFloat(histData.p16.toFixed(4)) });
-    dispatch({ type: 'SET_VMAX', payload: parseFloat(histData.p84.toFixed(4)) });
+    setVmin(parseFloat(histData.p16.toFixed(4)));
+    setVmax(parseFloat(histData.p84.toFixed(4)));
   };
 
   const handleTwoSigmaScale = () => {
     if (!histData || histData.p23 == null || histData.p977 == null) return;
-    dispatch({ type: 'SET_VMIN', payload: parseFloat(histData.p23.toFixed(4)) });
-    dispatch({ type: 'SET_VMAX', payload: parseFloat(histData.p977.toFixed(4)) });
+    setVmin(parseFloat(histData.p23.toFixed(4)));
+    setVmax(parseFloat(histData.p977.toFixed(4)));
   };
 
   const handleCenterZero = () => {
-    const absMax = parseFloat(Math.max(Math.abs(state.vmin), Math.abs(state.vmax)).toFixed(4));
-    dispatch({ type: 'SET_VMIN', payload: -absMax });
-    dispatch({ type: 'SET_VMAX', payload: absMax });
+    const absMax = parseFloat(Math.max(Math.abs(effectiveVmin), Math.abs(effectiveVmax)).toFixed(4));
+    setVmin(-absMax);
+    setVmax(absMax);
   };
 
-  if (!state.currentDataset || loading) {
+  if (!effectiveDataset || loading) {
     return <div className="histogram-loading">{loading ? 'Computing…' : ''}</div>;
   }
   if (!histData || histData.bins.length < 2) return null;
@@ -89,7 +118,7 @@ export default function Histogram() {
 
   const bgColors = histData.bins.slice(0, -1).map((b, i) => {
     const center = (b + histData.bins[i + 1]) / 2;
-    return center >= state.vmin && center <= state.vmax
+    return center >= effectiveVmin && center <= effectiveVmax
       ? 'rgba(77,157,224,0.85)'
       : 'rgba(120,120,160,0.30)';
   });

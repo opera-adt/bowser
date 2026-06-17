@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { useDraggableResizable } from '../hooks/useDraggableResizable';
+import { downloadElementAsPng } from '../utils/screenshot';
 
 export default function ColormapBar() {
   const { state, dispatch } = useAppContext();
@@ -9,6 +10,10 @@ export default function ColormapBar() {
   const [showBarSlider, setShowBarSlider] = useState(false);
   const [customLabel, setCustomLabel] = useState<string | null>(null);
   const [customUnit, setCustomUnit] = useState<string | null>(null);
+  const [fontColor, setFontColor] = useState<'white' | 'black'>('white');
+
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasWrapRef = useRef<HTMLDivElement>(null);
 
   const { panelRef, panelStyle, size, onDragMouseDown, resizeGrip } = useDraggableResizable({
     defaultWidth:  300,
@@ -18,6 +23,43 @@ export default function ColormapBar() {
     minWidth: 100,
     minHeight: 80,
   });
+
+  // Redraw the vertical colorbar on the canvas whenever colormap, orientation, or panel size changes.
+  // Canvas approach: html-to-image captures canvas via toDataURL — no CSS-transform artifacts.
+  // size.width/height in deps ensures the effect re-runs on first show when the panel has known dimensions.
+  useEffect(() => {
+    if (horizontal) return;
+    const wrap = canvasWrapRef.current;
+    const canvas = canvasRef.current;
+    if (!wrap || !canvas) return;
+
+    let cancelled = false;
+    const draw = () => {
+      const cw = wrap.clientWidth;
+      const ch = wrap.clientHeight;
+      if (!cw || !ch) return;
+      canvas.width = cw;
+      canvas.height = ch;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      const img = new Image();
+      img.onload = () => {
+        if (cancelled || canvas.width !== cw || canvas.height !== ch) return;
+        ctx.clearRect(0, 0, cw, ch);
+        ctx.save();
+        ctx.translate(cw / 2, ch / 2);
+        ctx.rotate(-Math.PI / 2); // CCW: left→bottom, right→top (vmax at top)
+        ctx.drawImage(img, -ch / 2, -cw / 2, ch, cw);
+        ctx.restore();
+      };
+      img.src = `/colorbar/${state.colormap}`;
+    };
+
+    const raf = requestAnimationFrame(draw);
+    const ro = new ResizeObserver(draw);
+    ro.observe(wrap);
+    return () => { cancelled = true; cancelAnimationFrame(raf); ro.disconnect(); };
+  }, [state.colormap, horizontal, size.width, size.height, state.showColorbar]);
 
   if (!state.showColorbar) return null;
 
@@ -91,6 +133,7 @@ export default function ColormapBar() {
     >
       {/* ── Header ── */}
       <div
+        data-screenshot-skip
         onMouseDown={onDragMouseDown}
         style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -111,6 +154,27 @@ export default function ColormapBar() {
           >
             {horizontal ? '⇕' : '⇔'}
           </button>
+          <button
+            onMouseDown={e => e.stopPropagation()}
+            onClick={() => setFontColor(c => c === 'white' ? 'black' : 'white')}
+            title={`Screenshot font: ${fontColor} — click to toggle`}
+            style={{
+              background: 'none', border: '1px solid var(--sb-border)', borderRadius: 3,
+              cursor: 'pointer', padding: '0px 5px', fontSize: '0.75em', lineHeight: 1.5,
+              color: fontColor === 'white' ? '#fff' : '#111',
+              backgroundColor: fontColor === 'white' ? '#333' : '#ddd',
+            }}
+          >A</button>
+          <button
+            onMouseDown={e => e.stopPropagation()}
+            title="Save as PNG (transparent background)"
+            onClick={() => panelRef.current && downloadElementAsPng(
+              panelRef.current,
+              `colorbar-${state.colormap}-${Date.now()}.png`,
+              { skipSelector: '[data-screenshot-skip]', fontColor },
+            )}
+            style={{ background: 'none', border: 'none', color: 'var(--sb-muted)', cursor: 'pointer', padding: '1px 5px', fontSize: '0.85em', lineHeight: 1 }}
+          ><i className="fa-solid fa-camera"></i></button>
           <button
             onMouseDown={e => e.stopPropagation()}
             onClick={() => dispatch({ type: 'TOGGLE_COLORBAR' })}
@@ -194,27 +258,16 @@ export default function ColormapBar() {
         ) : (
           <>
             <div style={{ flex: 1, display: 'flex', flexDirection: 'row', gap: PAD, minHeight: 0 }}>
-              {/* Rotated bar inside fixed-width wrapper */}
-              <div style={{
-                position: 'relative',
-                width: barThickV,
-                flexShrink: 0,
-                alignSelf: 'stretch',
-                overflow: 'hidden',
-                borderRadius: 3,
-              }}>
-                <img
-                  src={`/colorbar/${state.colormap}`}
-                  alt="colorbar"
-                  style={{
-                    position: 'absolute',
-                    width: bodyH - 30,
-                    height: barThickV,
-                    top: '50%', left: '50%',
-                    transform: 'translate(-50%, -50%) rotate(-90deg)',
-                    objectFit: 'fill',
-                    imageRendering: 'pixelated',
-                  }}
+              {/* Wrapper controls size; canvas fills it and is drawn programmatically */}
+              <div
+                ref={canvasWrapRef}
+                style={{ width: barThickV, flexShrink: 0, alignSelf: 'stretch',
+                         borderRadius: 3, overflow: 'hidden', position: 'relative' }}
+              >
+                <canvas
+                  ref={canvasRef}
+                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
+                           imageRendering: 'pixelated' }}
                 />
               </div>
               {/* Labels column: vmax top, mid rotated at center, unit (not rotated) at center right, vmin bottom */}

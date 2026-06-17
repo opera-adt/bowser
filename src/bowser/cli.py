@@ -101,6 +101,16 @@ def cli_app():
     default=None,
     help="Path to htpasswd file for HTTP Basic Auth. No auth when omitted.",
 )
+@click.option(
+    "--s3-anon/--no-s3-anon",
+    "s3_anon",
+    default=None,
+    help=(
+        "Read s3:// stores anonymously (unsigned), the default. Use "
+        "--no-s3-anon for private buckets to sign requests with the normal "
+        "AWS credential chain (AWS_PROFILE / env keys / instance role)."
+    ),
+)
 def run(
     stack_file,
     rasters_file,
@@ -116,6 +126,7 @@ def run(
     ssl_certfile,
     ssl_keyfile,
     htpasswd_file,
+    s3_anon,
 ):
     """Run the web server."""
     import uvicorn
@@ -133,6 +144,10 @@ def run(
         not no_spatial_reference
     ).lower()
     os.environ["BOWSER_USE_RECOMMENDED_MASK"] = str(not no_recommended_mask).lower()
+    # Only override when the flag is given; otherwise leave any existing
+    # BOWSER_S3_ANON env (and the anon-by-default) untouched.
+    if s3_anon is not None:
+        os.environ["BOWSER_S3_ANON"] = str(s3_anon).lower()
     if title:
         os.environ["BOWSER_TITLE"] = title
     if htpasswd_file:
@@ -291,12 +306,34 @@ def _dump_raster_groups(raster_groups, output):
     default="bowser_rasters.json",
     show_default=True,
 )
-def setup_dolphin(dolphin_work_dir, timeseries_mask, output, include_ifgs: bool = True):
+@click.option(
+    "--mean-amplitude/--no-mean-amplitude",
+    default=True,
+    show_default=True,
+    help="Include mean amplitude raster (searches interferograms/, PS/).",
+)
+@click.option(
+    "--amplitude-db/--no-amplitude-db",
+    default=True,
+    show_default=True,
+    help=(
+        "Include per-date amplitude-dB rasters "
+        "(searches amplitude_db/, linked_phase/amplitude/)."
+    ),
+)
+def setup_dolphin(
+    dolphin_work_dir,
+    timeseries_mask,
+    output,
+    mean_amplitude: bool = True,
+    amplitude_db: bool = True,
+):
     """Set up output data configuration for a dolphin workflow.
 
     Saves to `output` JSON file.
     """
     from .titiler import Algorithm, RasterGroup, _find_files
+    include_ifgs = True
 
     def _glob(g):
         import rasterio
@@ -452,9 +489,11 @@ def setup_dolphin(dolphin_work_dir, timeseries_mask, output, include_ifgs: bool 
             "algorithm": Algorithm.AMPLITUDE.value,
         },
         {
-            "name": "Amplitude mean",
+            "name": "Normalized amplitude",
             "file_list": _glob_first(
-                f"{wd}/interferograms/amp_mean_looked*.tif",
+                f"{wd}/PS/amp_mean.tif",
+                f"{wd}/interferograms/amp_mean.tif",
+                f"{wd}/PS/amp_mean_looked*.tif",
                 f"{wd}/interferograms/amp_mean*.tif",
             ),
             "algorithm": Algorithm.AMPLITUDE.value,
@@ -489,23 +528,32 @@ def setup_dolphin(dolphin_work_dir, timeseries_mask, output, include_ifgs: bool 
         },
     ]
     if include_ifgs:
-        dolphin_outputs.append(
-            {
-                "name": "Interferograms",
-                "file_list": _glob(f"{wd}/interferograms/[0-9]*.int.tif"),
-                "algorithm": Algorithm.PHASE.value,
-            }
+        ifg_entry: dict = {
+            "name": "Interferograms",
+            "file_list": _glob(f"{wd}/interferograms/[0-9]*.int.tif"),
+            "algorithm": Algorithm.PHASE.value,
+        }
+        if timeseries_mask is not None:
+            ifg_entry["mask_file_list"] = timeseries_mask
+        dolphin_outputs.append(ifg_entry)
+    if amplitude_db:
+        amplitude_db_files = _glob_first(
+            f"{wd}/amplitude_db/2*_amp_db.tif",
+            f"{wd}/linked_phase/amplitude/2*_amp_db.tif",
         )
-    # NOTE would be interesting to load amplitude timeseries
-    amplitude_files = _glob(f"{wd}/amplitude_db/2*_amp_db.tif")
-    if amplitude_files:
-        dolphin_outputs.append(
-            {
-                "name": "Amplitude",
-                "file_list": amplitude_files,
-                "algorithm": Algorithm.AMPLITUDE.value,
-            }
-        )
+        if amplitude_db_files:
+            dolphin_outputs.append(
+                {
+                    "name": "Amplitude dB",
+                    "file_list": amplitude_db_files,
+                    "algorithm": Algorithm.AMPLITUDE.value,
+                }
+            )
+    if not mean_amplitude:
+        dolphin_outputs = [
+            g for g in dolphin_outputs
+            if g.get("name") != "Normalized amplitude"
+        ]
     if timeseries_mask is not None:
         # Timeseries
         dolphin_outputs[0]["mask_file_list"] = timeseries_mask
@@ -684,9 +732,13 @@ def setup_aligned_disp_s1(disp_s1_dir: str, output: str):
 @click.option(
     "-o",
     "--output-dir",
-    required=True,
+    default=None,
     type=click.Path(writable=True),
-    help="Directory where amplitude dB COG files will be written.",
+    help=(
+        "Directory where amplitude dB COG files will be written. "
+        "Defaults to 'amplitude/' inside the parent directory of the input SLC files "
+        "(e.g. linked_phase/amplitude/ when inputs are in linked_phase/)."
+    ),
 )
 @click.option(
     "--overwrite",
@@ -723,6 +775,8 @@ def prepare_amplitude(slc_files, output_dir, overwrite, mask_path, workers):
     import numpy as np
     import rasterio
 
+    if output_dir is None:
+        output_dir = Path(slc_files[0]).parent / "amplitude"
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1163,10 +1217,19 @@ def _sniff_bbox(uri: str) -> tuple[float, float, float, float]:
     import xarray as xr  # noqa: PLC0415
     from pyproj import Transformer  # noqa: PLC0415
 
-    from .geozarr import data_group_name, resolve_crs  # noqa: PLC0415
+    from .geozarr import (  # noqa: PLC0415
+        data_group_name,
+        resolve_crs,
+        storage_options_for,
+    )
 
     group = data_group_name(uri)
-    ds = xr.open_zarr(uri, group=group) if group else xr.open_zarr(uri)
+    so = storage_options_for(uri)
+    ds = (
+        xr.open_zarr(uri, group=group, storage_options=so)
+        if group
+        else xr.open_zarr(uri, storage_options=so)
+    )
     crs = resolve_crs(ds)
     ds = ds.rio.write_crs(crs)
     minx, miny, maxx, maxy = ds.rio.bounds()

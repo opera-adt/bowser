@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useMap } from 'react-leaflet';
+import L from 'leaflet';
 
 type GraticuleMode = 'off' | 'plain' | 'zebra';
 
@@ -57,18 +58,21 @@ export default function Graticule({ mode }: { mode: GraticuleMode }) {
   useEffect(() => {
     if (mode === 'off') return;
 
-    const container = map.getContainer();
+    // Place the SVG inside a dedicated Leaflet pane so it participates in the
+    // map-pane's stacking context: z-index 450 puts it above tile (200) and
+    // overlay (400) panes, below shadow/marker (500/600+) panes.
+    let pane = map.getPane('graticule') as HTMLElement | undefined;
+    if (!pane) {
+      pane = map.createPane('graticule');
+      pane.style.zIndex = '450';
+      pane.style.pointerEvents = 'none';
+    }
+
     const svg = document.createElementNS(SVG_NS, 'svg');
     svg.setAttribute('class', 'bowser-graticule');
     svg.style.position = 'absolute';
-    svg.style.left = '0';
-    svg.style.top = '0';
-    svg.style.width = '100%';
-    svg.style.height = '100%';
     svg.style.pointerEvents = 'none';
-    // Above tile panes (200/400) but below markers (600+).
-    svg.style.zIndex = '500';
-    container.appendChild(svg);
+    pane.appendChild(svg);
 
     function redraw() {
       while (svg.firstChild) svg.removeChild(svg.firstChild);
@@ -76,6 +80,15 @@ export default function Graticule({ mode }: { mode: GraticuleMode }) {
       svg.setAttribute('width', String(size.x));
       svg.setAttribute('height', String(size.y));
       svg.setAttribute('viewBox', `0 0 ${size.x} ${size.y}`);
+
+      // The graticule pane is inside leaflet-map-pane which carries a CSS
+      // translate for panning.  Offset the SVG by the inverse of that
+      // translate so that latLngToContainerPoint() coordinates map directly
+      // onto SVG pixel coordinates without any adjustment.
+      const mapPane = map.getPanes().mapPane;
+      const pos = L.DomUtil.getPosition(mapPane);
+      svg.style.left = `${-pos.x}px`;
+      svg.style.top = `${-pos.y}px`;
 
       const bounds = map.getBounds();
       const south = bounds.getSouth();
@@ -94,27 +107,34 @@ export default function Graticule({ mode }: { mode: GraticuleMode }) {
 
       const project = (lat: number, lng: number) => map.latLngToContainerPoint([lat, lng]);
 
-      const lineStroke = mode === 'zebra' ? 'rgba(0,0,0,0.35)' : 'rgba(60,60,60,0.55)';
-      const lineWidth = mode === 'zebra' ? 0.6 : 0.8;
+      const lineStroke = mode === 'zebra' ? 'rgba(0,0,0,0.65)' : 'rgba(40,40,40,0.75)';
+      const lineWidth = 0.3;
+      const haloStroke = 'rgba(255,255,255,0.6)';
+      const haloWidth = 2.0;
 
-      // ---- Grid lines (full-screen) ----
-      for (const lat of lats) {
-        const p1 = project(lat, west);
-        const p2 = project(lat, east);
+      // ---- Grid lines (full-screen) — halo drawn first so dark line sits on top ----
+      const addLine = (x1: number, y1: number, x2: number, y2: number) => {
         svg.appendChild(svgEl('line', {
-          x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y,
+          x1, y1, x2, y2,
+          stroke: haloStroke, 'stroke-width': haloWidth,
+          'shape-rendering': 'crispEdges',
+        }));
+        svg.appendChild(svgEl('line', {
+          x1, y1, x2, y2,
           stroke: lineStroke, 'stroke-width': lineWidth,
           'shape-rendering': 'crispEdges',
         }));
+      };
+
+      for (const lat of lats) {
+        const p1 = project(lat, west);
+        const p2 = project(lat, east);
+        addLine(p1.x, p1.y, p2.x, p2.y);
       }
       for (const lng of lons) {
         const p1 = project(south, lng);
         const p2 = project(north, lng);
-        svg.appendChild(svgEl('line', {
-          x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y,
-          stroke: lineStroke, 'stroke-width': lineWidth,
-          'shape-rendering': 'crispEdges',
-        }));
+        addLine(p1.x, p1.y, p2.x, p2.y);
       }
 
       const labelStyle = {
@@ -142,7 +162,7 @@ export default function Graticule({ mode }: { mode: GraticuleMode }) {
 
       if (mode === 'zebra') {
         // ---- QGIS-style zebra border ----
-        const W = 22; // border thickness in px
+        const W = 11; // border thickness in px
         const w = size.x;
         const h = size.y;
 

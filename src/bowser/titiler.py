@@ -50,15 +50,34 @@ class Amplitude(BaseAlgorithm):
 
 
 class Rewrap(BaseAlgorithm):
-    """Creation algorithm for re-wrapping unwrapped phase to (-pi, pi)."""
+    """Creation algorithm for re-wrapping to (-wrap_range/2, wrap_range/2).
+
+    ``shift`` is subtracted first (reference-point correction), then the
+    result is multiplied by ``scale_factor`` and wrapped.  ``wrap_range``
+    controls the modulo period (default 2π wraps to (−π, π)).
+
+    Accepts both real (already-extracted phase) and complex (CFloat32)
+    input. For complex input, ``np.angle`` is applied first so that
+    rewrap can be used directly on raw interferogram files without
+    needing to chain with the ``phase`` algorithm.
+    """
 
     scale_factor: float = 1.0
+    shift: float = 0.0
+    wrap_range: float = 2 * np.pi
 
     def __call__(self, img: ImageData) -> ImageData:  # noqa: D102
+        data = img.array
+        if np.iscomplexobj(data):
+            real = np.angle(data)
+            mask = np.logical_or(
+                getattr(data, "mask", False),
+                np.logical_or(np.isnan(real), real == 0),
+            )
+            data = np.ma.MaskedArray(real, mask=mask)
+        half = self.wrap_range / 2
         return ImageData(
-            np.ma.mod(np.pi + (self.scale_factor * img.array), 2 * np.pi) - np.pi,
-            # img. - self.shift,
-            # np.ma.MaskedArray(data, mask=~mask),
+            np.ma.mod(half + self.scale_factor * (data - self.shift), self.wrap_range) - half,
             assets=img.assets,
             crs=img.crs,
             bounds=img.bounds,

@@ -61,6 +61,12 @@ logger = logging.getLogger("bowser")
 warnings.filterwarnings(
     "ignore", category=RuntimeWarning, message="invalid value encountered in cast"
 )
+warnings.filterwarnings(
+    "ignore", message="Dataset has no geotransform, gcps, or rpcs"
+)
+warnings.filterwarnings(
+    "ignore", category=RuntimeWarning, message="invalid value encountered in divide"
+)
 
 t0 = time.time()
 
@@ -347,12 +353,16 @@ def create_xarray_dataset_info(ds: xr.Dataset) -> dict:
     for var_name, var in ds.data_vars.items():
         if not {"x", "y"}.issubset(set(var.dims)):
             continue
+        _vn = str(var_name).lower()
         use_moving_reference = (
             (
-                "displacement" in str(var_name).lower()
-                and "short_wave" not in str(var_name).lower()
+                "displacement" in _vn
+                and "short_wave" not in _vn
             )
-            or "velocity" in str(var_name).lower()
+            or "velocity" in _vn
+            or "unwrapped" in _vn
+            or "timeseries" in _vn
+            or "time_series" in _vn
         ) and not skip_spatial_reference
         available_mask_vars = [
             v
@@ -524,10 +534,13 @@ def _apply_layer_masks_md(
         if not var or var not in ds.data_vars:
             continue
         mask_da = ds[var]
-        if time_idx is not None:
-            mdim = _non_spatial_dim(mask_da)
-            if mdim is not None:
-                mask_da = mask_da.isel({mdim: time_idx})
+        mdim = _non_spatial_dim(mask_da)
+        if mdim is not None:
+            if time_idx is not None:
+                safe_idx = min(time_idx, mask_da.sizes[mdim] - 1)
+            else:
+                safe_idx = 0  # no time context: use first frame as a static spatial mask
+            mask_da = mask_da.isel({mdim: safe_idx})
         if mode == "max":
             da = da.where(mask_da <= threshold)
         else:
@@ -956,6 +969,18 @@ async def get_histogram(
         dim = _non_spatial_dim(da)
         if dim is not None:
             time_index = min(time_index, da.sizes[dim] - 1)
+
+        # Fast path: return pre-computed stats embedded at conversion time.
+        hist_cache = da.attrs.get("bowser_histogram")
+        if isinstance(hist_cache, list) and hist_cache:
+            idx = time_index if dim is not None else 0
+            if 0 <= idx < len(hist_cache):
+                entry = hist_cache[idx]
+                if isinstance(entry, dict) and "bins" in entry and "counts" in entry:
+                    return JSONResponse(entry)
+
+        # Slow path: compute on the fly (old zarr stores without the attr).
+        if dim is not None:
             arr = da.isel({dim: time_index}).values.ravel().astype(float)
         else:
             arr = da.values.ravel().astype(float)
@@ -1242,6 +1267,62 @@ async def extract_profile(
         except Exception:
             return None
 
+    def _read_lonlat_batch(
+        lons: np.ndarray, lats: np.ndarray
+    ) -> np.ndarray:
+        """Read many values at once. NaN for nodata/out-of-bounds.
+
+        In MD/zarr mode this collapses ~N pyproj transforms and N xarray
+        ``.sel`` calls into one of each, which is the dominant speedup over
+        the per-point ``_read_lonlat`` path used by the binned profile.
+        """
+        if lons.size == 0:
+            return np.array([], dtype=float)
+        try:
+            if state.mode == "md":
+                if dataset_name not in state.dataset.data_vars:
+                    return np.full(lons.shape, np.nan)
+                da = state.dataset[dataset_name]
+                dim = _non_spatial_dim(da)
+                if dim is not None and time_index < da.sizes[dim]:
+                    da = da.isel({dim: time_index})
+                xs, ys = state.transformer_from_lonlat.transform(lons, lats)
+                pts = xr.DataArray(
+                    np.arange(lons.size), dims="pt", name="pt"
+                )
+                xs_da = xr.DataArray(np.asarray(xs, dtype=float), dims="pt", coords={"pt": pts})
+                ys_da = xr.DataArray(np.asarray(ys, dtype=float), dims="pt", coords={"pt": pts})
+                # Bounds check: xarray sel(nearest) will pick edge pixels for
+                # points well outside the array; filter those out as NaN.
+                xmin = float(da.x.min()); xmax = float(da.x.max())
+                ymin = float(da.y.min()); ymax = float(da.y.max())
+                vals = da.sel(x=xs_da, y=ys_da, method="nearest").values.astype(float)
+                in_bounds = (
+                    (xs_da.values >= xmin) & (xs_da.values <= xmax)
+                    & (ys_da.values >= ymin) & (ys_da.values <= ymax)
+                )
+                vals[~in_bounds] = np.nan
+                return vals
+            else:
+                # COG path: per-point reads, but skip the float()/np.atleast_1d
+                # overhead and inline the loop here.
+                if dataset_name not in state.raster_groups:
+                    return np.full(lons.shape, np.nan)
+                rg = state.raster_groups[dataset_name]
+                t = min(time_index, len(rg.file_list) - 1)
+                reader = rg._reader.readers[t]
+                out = np.empty(lons.shape, dtype=float)
+                for i in range(lons.size):
+                    try:
+                        out[i] = float(
+                            np.atleast_1d(reader.read_lonlat(float(lons[i]), float(lats[i])))[0]
+                        )
+                    except Exception:
+                        out[i] = np.nan
+                return out
+        except Exception:
+            return np.full(lons.shape, np.nan)
+
     def _pos_at_dist(sd: float) -> tuple[float, float, float]:
         """Return (lon, lat, bearing_deg) at distance sd along the polyline."""
         seg_idx = int(
@@ -1291,49 +1372,71 @@ async def extract_profile(
         for bc in bin_centres:
             along_dists = np.arange(bc - half, bc + half + along_step * 0.5, along_step)
             along_dists = along_dists[(along_dists >= 0) & (along_dists <= total_dist)]
+            if along_dists.size == 0:
+                continue
 
             # Compute centre positions once per along-track step
             positions = [_pos_at_dist(ad) for ad in along_dists]  # (lon, lat, bearing)
+            clons = np.array([p[0] for p in positions])
+            clats = np.array([p[1] for p in positions])
+            bearings = np.array([p[2] for p in positions])
 
-            # --- Centre values (no perpendicular offset) ---
-            centre_vals = [
-                v
-                for clon, clat, _ in positions
-                if (v := _read_lonlat(clon, clat)) is not None
-            ]
+            # Build a single (lon, lat) batch for every (along, perp) pair we need
+            # this bin: centre line + dense perpendicular grid + display lines.
+            # One vectorized read replaces hundreds of single-point lookups.
+            lon_chunks: list[np.ndarray] = [clons]
+            lat_chunks: list[np.ndarray] = [clats]
 
-            # --- Full 2-D window (centre + perpendicular strip) ---
-            all_vals = list(centre_vals)
-            if radius > 0:
-                for clon, clat, bearing in positions:
-                    perp_az = bearing + 90.0
-                    for off in perp_offsets_dense:
-                        o_lon, o_lat, _ = geod.fwd(clon, clat, perp_az, off)
-                        v = _read_lonlat(o_lon, o_lat)
-                        if v is not None:
-                            all_vals.append(v)
+            # Dense perpendicular grid (for median over the buffer window).
+            if radius > 0 and perp_offsets_dense.size > 0:
+                perp_az = bearings + 90.0
+                # geod.fwd accepts arrays; tile lon/lat per offset.
+                for off in perp_offsets_dense:
+                    o_lon, o_lat, _ = geod.fwd(clons, clats, perp_az, np.full_like(clons, off))
+                    lon_chunks.append(np.asarray(o_lon, dtype=float))
+                    lat_chunks.append(np.asarray(o_lat, dtype=float))
 
-            if centre_vals:
+            # Display sample lines (a few perpendicular offsets shown as faint curves).
+            display_chunk_starts: list[int] = []
+            for off in perp_offsets_display:
+                display_chunk_starts.append(sum(c.size for c in lon_chunks))
+                if abs(off) < 1e-3:
+                    lon_chunks.append(clons)
+                    lat_chunks.append(clats)
+                else:
+                    o_lon, o_lat, _ = geod.fwd(clons, clats, bearings + 90.0, np.full_like(clons, off))
+                    lon_chunks.append(np.asarray(o_lon, dtype=float))
+                    lat_chunks.append(np.asarray(o_lat, dtype=float))
+
+            all_lons = np.concatenate(lon_chunks)
+            all_lats = np.concatenate(lat_chunks)
+            all_vals_arr = _read_lonlat_batch(all_lons, all_lats)
+
+            n_along = clons.size
+            n_dense = perp_offsets_dense.size if radius > 0 else 0
+
+            # Slice out each region from the batched results.
+            centre_vals = all_vals_arr[:n_along]
+            centre_finite = centre_vals[np.isfinite(centre_vals)]
+
+            window_end = n_along + n_along * n_dense
+            window_vals = all_vals_arr[:window_end]
+            window_finite = window_vals[np.isfinite(window_vals)]
+
+            if centre_finite.size > 0:
                 centre_profile.append(
-                    {"dist": float(bc), "value": float(np.nanmedian(centre_vals))}
+                    {"dist": float(bc), "value": float(np.nanmedian(centre_finite))}
                 )
-            if all_vals:
+            if window_finite.size > 0:
                 median_profile.append(
-                    {"dist": float(bc), "value": float(np.nanmedian(all_vals))}
+                    {"dist": float(bc), "value": float(np.nanmedian(window_finite))}
                 )
 
-            # --- Display sample lines (reuse cached positions) ---
-            for k, off in enumerate(perp_offsets_display):
-                svals: list[float] = []
-                for clon, clat, bearing in positions:
-                    if abs(off) < 1e-3:
-                        v = _read_lonlat(clon, clat)
-                    else:
-                        o_lon, o_lat, _ = geod.fwd(clon, clat, bearing + 90.0, off)
-                        v = _read_lonlat(o_lon, o_lat)
-                    if v is not None:
-                        svals.append(v)
-                if svals:
+            # Display sample medians (each line gets one median per bin)
+            for k, start in enumerate(display_chunk_starts):
+                svals = all_vals_arr[start : start + n_along]
+                svals = svals[np.isfinite(svals)]
+                if svals.size > 0:
                     sample_profiles_acc[k].append(
                         {"dist": float(bc), "value": float(np.nanmedian(svals))}
                     )
@@ -1544,43 +1647,21 @@ logger.info("Configured COG endpoints at /cog/*")
 
 
 # MD mode: use xarray approach
-def XarrayPathDependency(
-    request: Request,
-    variable: str = Query(..., description="Variable name"),
-    dataset: Optional[str] = Query(
-        None,
-        description=(
-            "Catalog dataset id (multi-dataset mode). Omit to use the single "
-            "store loaded via --stack-file."
-        ),
-    ),
-    time_idx: Optional[int] = Query(None, description="Time index"),
-    mask_variable: Optional[str] = Query(None, description="Mask variable"),
-    mask_min_value: float = Query(0.1, description="Mask minimum value"),
-    layer_masks: Optional[str] = Query(
-        None, description="JSON list of {dataset,threshold,mode} mask dicts"
-    ),
-    custom_mask_path: Optional[str] = Query(
-        None, description="Path to uploaded custom mask GeoTIFF"
-    ),
-) -> xr.DataArray:
-    """Create a DataArray from query parameters.
+def _build_masked_md_dataarray(
+    ds: "xr.Dataset",
+    variable: str,
+    time_idx: Optional[int],
+    mask_variable: Optional[str],
+    mask_min_value: float,
+    layer_masks: Optional[str],
+    custom_mask_path: Optional[str],
+) -> "xr.DataArray":
+    """Build the masked 2-D/3-D DataArray for ``variable`` from a GeoZarr ``ds``.
 
-    Picks the appropriate multiscale pyramid level for tile-bearing routes;
-    non-tile routes fall back to the native-resolution level. Routes through
-    the catalog registry when ``dataset`` is given — different ``dataset``
-    values at the same time serve from independent BowserStates, so two
-    clients on two datasets never collide.
+    Shared by the tile path (``XarrayPathDependency``) and the GeoTIFF export so
+    both apply identical masking: the recommended mask (for ``displacement``),
+    the threshold layer masks, and an uploaded custom mask.
     """
-    target = _resolve_state(dataset)
-    # Path param is only present on tile-bearing routes like
-    # /md/tiles/{tms}/{z}/{x}/{y}. Missing elsewhere — fall back to full res.
-    try:
-        tile_z = int(request.path_params["z"])
-    except (KeyError, TypeError, ValueError):
-        ds = target.dataset
-    else:
-        ds = target.dataset_for_tile_zoom(tile_z)
     da = ds[variable]
     skip_recommended_mask = not settings.BOWSER_USE_RECOMMENDED_MASK
     if mask_variable is not None:
@@ -1632,6 +1713,213 @@ def XarrayPathDependency(
             logger.warning(f"Failed to apply custom mask {custom_mask_path}: {exc}")
 
     return da
+
+
+def _build_masked_cog_dataarray(
+    target: BowserState,
+    variable: str,
+    time_idx: Optional[int],
+    mask_min_value: Optional[float],
+    layer_masks: Optional[str],
+    custom_mask_path: Optional[str],
+) -> "xr.DataArray":
+    """Build the masked 2-D DataArray for a COG-mode RasterGroup at ``time_idx``.
+
+    Mirrors ``CustomReader``/``InputDependency``: the active group's GeoTIFF for
+    that time step, with the primary (recommended) mask kept where
+    ``value >= mask_min_value``, each ``min``-mode layer mask kept where
+    ``value > threshold``, and the custom mask kept where ``value > 0.5``. Masks
+    are reprojected to the data grid when they don't already align.
+    """
+    import rioxarray as rxr  # noqa: PLC0415
+
+    if variable not in target.raster_groups:
+        raise HTTPException(status_code=404, detail=f"Dataset {variable} not found")
+    rg = target.raster_groups[variable]
+    if not rg.file_list:
+        raise HTTPException(status_code=404, detail=f"No files for dataset {variable}")
+    idx = 0 if time_idx is None else max(0, min(time_idx, len(rg.file_list) - 1))
+
+    da = rxr.open_rasterio(rg.file_list[idx], masked=True).squeeze("band", drop=True)
+
+    def _keep(da_, path, thr, inclusive=False):
+        m = rxr.open_rasterio(path, masked=True).squeeze("band", drop=True)
+        if m.rio.crs != da_.rio.crs or m.shape != da_.shape:
+            m = m.rio.reproject_match(da_)
+        return da_.where(m >= thr) if inclusive else da_.where(m > thr)
+
+    # Primary (recommended) mask, as the COG tile path applies it.
+    mmv = rg.mask_min_value if mask_min_value is None else mask_min_value
+    if rg.mask_file_list:
+        mfile = rg.mask_file_list[min(idx, len(rg.mask_file_list) - 1)]
+        if mfile:
+            da = _keep(da, mfile, mmv, inclusive=True)
+
+    # Layer masks — only ``min`` mode is defined for COG (CustomReader can't invert).
+    if layer_masks:
+        try:
+            for m in json.loads(layer_masks):
+                name = m.get("dataset")
+                if m.get("mode", "min") != "min" or name not in target.raster_groups:
+                    continue
+                fl = target.raster_groups[name].file_list
+                if fl:
+                    da = _keep(da, fl[min(idx, len(fl) - 1)], float(m.get("threshold", 0.5)))
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to parse layer_masks JSON: {e}")
+
+    # Custom uploaded mask (binary, kept where > 0.5 — matches CustomReader).
+    if custom_mask_path and Path(custom_mask_path).exists():
+        try:
+            da = _keep(da, custom_mask_path, 0.5)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"Failed to apply custom mask {custom_mask_path}: {exc}")
+
+    return da
+
+
+def XarrayPathDependency(
+    request: Request,
+    variable: str = Query(..., description="Variable name"),
+    dataset: Optional[str] = Query(
+        None,
+        description=(
+            "Catalog dataset id (multi-dataset mode). Omit to use the single "
+            "store loaded via --stack-file."
+        ),
+    ),
+    time_idx: Optional[int] = Query(None, description="Time index"),
+    mask_variable: Optional[str] = Query(None, description="Mask variable"),
+    mask_min_value: float = Query(0.1, description="Mask minimum value"),
+    layer_masks: Optional[str] = Query(
+        None, description="JSON list of {dataset,threshold,mode} mask dicts"
+    ),
+    custom_mask_path: Optional[str] = Query(
+        None, description="Path to uploaded custom mask GeoTIFF"
+    ),
+) -> xr.DataArray:
+    """Create a DataArray from query parameters.
+
+    Picks the appropriate multiscale pyramid level for tile-bearing routes;
+    non-tile routes fall back to the native-resolution level. Routes through
+    the catalog registry when ``dataset`` is given — different ``dataset``
+    values at the same time serve from independent BowserStates, so two
+    clients on two datasets never collide.
+    """
+    target = _resolve_state(dataset)
+    # Path param is only present on tile-bearing routes like
+    # /md/tiles/{tms}/{z}/{x}/{y}. Missing elsewhere — fall back to full res.
+    try:
+        tile_z = int(request.path_params["z"])
+    except (KeyError, TypeError, ValueError):
+        ds = target.dataset
+    else:
+        ds = target.dataset_for_tile_zoom(tile_z)
+    return _build_masked_md_dataarray(
+        ds,
+        variable,
+        time_idx,
+        mask_variable,
+        mask_min_value,
+        layer_masks,
+        custom_mask_path,
+    )
+
+
+@app.get(
+    "/export/geotiff",
+    tags=["Export"],
+    responses={200: {"description": "The active layer as a GeoTIFF download"}},
+)
+def export_geotiff(
+    variable: str = Query(..., description="Variable / active layer name"),
+    dataset: Optional[str] = Query(None, description="Catalog dataset id"),
+    time_idx: Optional[int] = Query(None, description="Time index"),
+    mask_variable: Optional[str] = Query(None, description="Override mask variable (MD)"),
+    mask_min_value: Optional[float] = Query(None, description="Primary mask threshold"),
+    layer_masks: Optional[str] = Query(
+        None, description="JSON list of {dataset,threshold,mode} mask dicts"
+    ),
+    custom_mask_path: Optional[str] = Query(
+        None, description="Uploaded custom mask GeoTIFF path"
+    ),
+):
+    """Export the active layer as a (optionally masked) GeoTIFF.
+
+    Works in both data modes and applies exactly the masking shown on the map:
+    GeoZarr (MD) via :func:`_build_masked_md_dataarray`, direct GeoTIFFs (COG)
+    via :func:`_build_masked_cog_dataarray` — recommended mask, layer masks, and
+    a custom mask. Masked-out pixels become ``NaN`` nodata; native resolution;
+    one 2-D slice for ``time_idx``.
+    """
+    import tempfile  # noqa: PLC0415
+    import rioxarray  # noqa: F401, PLC0415 — registers the .rio accessor
+
+    from starlette.background import BackgroundTask  # noqa: PLC0415
+    from starlette.responses import FileResponse  # noqa: PLC0415
+
+    target = _resolve_state(dataset)
+    if target.mode == "md":
+        da = _build_masked_md_dataarray(
+            target.dataset,
+            variable,
+            time_idx,
+            mask_variable,
+            0.1 if mask_min_value is None else mask_min_value,
+            layer_masks,
+            custom_mask_path,
+        )
+        fallback_crs = target.dataset.rio.crs
+    else:  # cog
+        da = _build_masked_cog_dataarray(
+            target, variable, time_idx, mask_min_value, layer_masks, custom_mask_path
+        )
+        fallback_crs = None
+
+    # Collapse any leftover non-spatial dim so we always write a 2-D raster.
+    mdim = _non_spatial_dim(da)
+    if mdim is not None:
+        safe_idx = 0 if time_idx is None else max(0, min(time_idx, da.sizes[mdim] - 1))
+        da = da.isel({mdim: safe_idx})
+
+    # Copy so we can scrub encoding attrs without mutating the cached dataset,
+    # then drop any pre-existing ``_FillValue`` — rioxarray refuses to overwrite
+    # it, which breaks ``write_nodata`` on the un-masked path (masking via
+    # ``where`` already strips it, so only raw exports hit this).
+    da = da.copy()
+    da.attrs.pop("_FillValue", None)
+    da.encoding.pop("_FillValue", None)
+
+    # Guarantee a CRS. Use NaN nodata so masked pixels are flagged — but only
+    # for floating dtypes (``where`` upcasts masked int arrays to float anyway;
+    # an unmasked int layer keeps its dtype and can't carry a NaN nodata).
+    crs = da.rio.crs or fallback_crs
+    if crs is not None:
+        da = da.rio.write_crs(crs)
+    if np.issubdtype(da.dtype, np.floating):
+        da = da.rio.write_nodata(float("nan"), encoded=False)
+
+    fd, tmp_path = tempfile.mkstemp(prefix="bowser_export_", suffix=".tif")
+    os.close(fd)
+    try:
+        da.rio.to_raster(tmp_path, driver="GTiff", compress="deflate")
+    except Exception as exc:  # noqa: BLE001
+        Path(tmp_path).unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=500, detail=f"GeoTIFF export failed: {exc}"
+        ) from exc
+
+    name_parts = ([dataset] if dataset else []) + [variable]
+    if time_idx is not None:
+        name_parts.append(f"t{time_idx}")
+    filename = "_".join(name_parts) + ".tif"
+
+    return FileResponse(
+        tmp_path,
+        media_type="image/tiff",
+        filename=filename,
+        background=BackgroundTask(lambda: Path(tmp_path).unlink(missing_ok=True)),
+    )
 
 
 md_endpoints = TilerFactory(

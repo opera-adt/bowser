@@ -25,6 +25,10 @@ export default function ControlPanel({ title }: { title: string }) {
   const { fetchPointTimeSeries, fetchBufferTimeSeries } = useApi();
   const [draftVmin, setDraftVmin] = useState(String(state.vmin));
   const [draftVmax, setDraftVmax] = useState(String(state.vmax));
+  const [draftSplitVmin, setDraftSplitVmin] = useState(String(state.splitVmin));
+  const [draftSplitVmax, setDraftSplitVmax] = useState(String(state.splitVmax));
+  const [draftWrapWavelength, setDraftWrapWavelength] = useState(state.wrapWavelength !== null ? String(state.wrapWavelength) : '');
+  const [draftWrapPeriod, setDraftWrapPeriod] = useState(String(state.wrapPeriod));
   const [lightTheme, setLightTheme] = useState(false);
   const [draftRefLat, setDraftRefLat] = useState(String(state.refMarkerPosition[0]));
   const [draftRefLon, setDraftRefLon] = useState(String(state.refMarkerPosition[1]));
@@ -33,6 +37,45 @@ export default function ControlPanel({ title }: { title: string }) {
     buffer: true,
   });
   const toggleSection = (key: string) => setCollapsed(c => ({ ...c, [key]: !c[key] }));
+  const [exporting, setExporting] = useState(false);
+
+  // Export the active layer as a GeoTIFF, mirroring the tile request's masking
+  // params so the file matches what's rendered (recommended + layer + custom masks).
+  const handleExportGeoTIFF = useCallback(async () => {
+    if (!state.currentDataset) return;
+    setExporting(true);
+    try {
+      const params = new URLSearchParams();
+      params.set('variable', state.currentDataset);
+      params.set('time_idx', String(state.currentTimeIndex));
+      const datasetId = new URLSearchParams(window.location.search).get('dataset');
+      if (datasetId) params.set('dataset', datasetId);
+      if (state.layerMasks.length > 0) {
+        params.set('layer_masks', JSON.stringify(
+          state.layerMasks.map(m => ({ dataset: m.dataset, threshold: m.threshold, mode: m.mode }))
+        ));
+      }
+      if (state.customMaskPath) params.set('custom_mask_path', state.customMaskPath);
+
+      const res = await fetch(`/export/geotiff?${params.toString()}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const masked = state.layerMasks.length > 0 || !!state.customMaskPath;
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${state.currentDataset}_t${state.currentTimeIndex}${masked ? '_masked' : ''}.tif`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('GeoTIFF export failed:', err);
+      alert(`GeoTIFF export failed: ${(err as Error).message}`);
+    } finally {
+      setExporting(false);
+    }
+  }, [state.currentDataset, state.currentTimeIndex, state.layerMasks, state.customMaskPath]);
   // dataset range cache: { [datasetName]: { min, max, p2, p98 } }
   const [datasetRanges, setDatasetRanges] = useState<Record<string, { min: number; max: number; p2: number; p98: number }>>({});
 
@@ -61,6 +104,8 @@ export default function ControlPanel({ title }: { title: string }) {
 
   useEffect(() => setDraftVmin(String(state.vmin)), [state.vmin]);
   useEffect(() => setDraftVmax(String(state.vmax)), [state.vmax]);
+  useEffect(() => setDraftSplitVmin(String(state.splitVmin)), [state.splitVmin]);
+  useEffect(() => setDraftSplitVmax(String(state.splitVmax)), [state.splitVmax]);
   useEffect(() => {
     setDraftRefLat(state.refMarkerPosition[0].toFixed(6));
     setDraftRefLon(state.refMarkerPosition[1].toFixed(6));
@@ -99,6 +144,33 @@ export default function ControlPanel({ title }: { title: string }) {
       dispatch({ type: 'SET_VMAX', payload: Math.PI });
     }
   }, [state.currentDataset, dispatch]);
+
+  // Auto-set vmin/vmax when wrap is toggled
+  useEffect(() => {
+    if (!state.wrapEnabled) return;
+    const half = state.wrapWavelength !== null && state.wrapWavelength > 0
+      ? Math.PI
+      : state.wrapPeriod / 2;
+    dispatch({ type: 'SET_VMIN', payload: -half });
+    dispatch({ type: 'SET_VMAX', payload: half });
+  }, [state.wrapEnabled, state.wrapWavelength, state.wrapPeriod, dispatch]);
+
+  // Auto-set vmin/vmax only when the user explicitly switches Phase ↔ Amplitude.
+  // Do NOT include state.currentDataset here — the dataset-change effect above
+  // already handles defaults on switch, and including it here would overwrite
+  // any localStorage-persisted custom range the user had saved.
+  useEffect(() => {
+    const info = state.currentDataset ? state.datasetInfo[state.currentDataset] : null;
+    if (info?.algorithm !== 'phase' && info?.algorithm !== 'amplitude') return;
+    if (state.complexMode === 'phase') {
+      dispatch({ type: 'SET_VMIN', payload: -Math.PI });
+      dispatch({ type: 'SET_VMAX', payload: Math.PI });
+    } else {
+      dispatch({ type: 'SET_VMIN', payload: 0 });
+      dispatch({ type: 'SET_VMAX', payload: 1 });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.complexMode, dispatch]);
 
   const handleDatasetChange = (ds: string) => {
     dispatch({ type: 'SET_CURRENT_DATASET', payload: ds });
@@ -162,6 +234,10 @@ export default function ControlPanel({ title }: { title: string }) {
   const currentTimeValue = currentDatasetInfo
     ? currentDatasetInfo.x_values[state.currentTimeIndex]
     : '';
+  const splitDatasetInfo = state.splitDataset ? state.datasetInfo[state.splitDataset] : null;
+  const splitTimeValue = splitDatasetInfo
+    ? splitDatasetInfo.x_values[Math.min(state.splitTimeIndex, splitDatasetInfo.x_values.length - 1)]
+    : '';
 
   const SectionHeader = ({ icon, label, collapseKey }: { icon: string; label: string; collapseKey?: string }) => (
     <div
@@ -211,7 +287,7 @@ export default function ControlPanel({ title }: { title: string }) {
 
       {/* ── VISUALIZATION ── */}
       <div className="sidebar-section">
-        <SectionHeader icon="fa-palette" label="Visualization" />
+        <SectionHeader icon="fa-palette" label={state.splitScreen ? 'Left Layer' : 'Visualization'} />
         <div className="colormap-row">
           <select
             className="sidebar-select"
@@ -267,8 +343,202 @@ export default function ControlPanel({ title }: { title: string }) {
             min="0" max="1" step="0.01" value={state.opacity}
             onChange={e => dispatch({ type: 'SET_OPACITY', payload: parseFloat(e.target.value) })} />
         </div>
+        {currentDatasetInfo && (
+          <div style={{ marginTop: 6 }}>
+            {/* Phase / Amplitude toggle — only for complex (CFloat32) datasets */}
+            {(currentDatasetInfo.algorithm === 'phase' || currentDatasetInfo.algorithm === 'amplitude') && (
+              <div className="toggle-row" style={{ marginBottom: 6 }}>
+                <span style={{ fontSize: '0.82em', color: 'var(--sb-muted)' }}>View</span>
+                <div style={{ display: 'flex', gap: 3 }}>
+                  {(['phase', 'amplitude'] as const).map(mode => (
+                    <button
+                      key={mode}
+                      className={`toggle-pill${state.complexMode === mode ? ' active' : ''}`}
+                      onClick={() => dispatch({ type: 'SET_COMPLEX_MODE', payload: mode })}
+                    >
+                      {mode === 'phase' ? 'Phase' : 'Amplitude'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="toggle-row">
+              <span style={{ fontSize: '0.82em', color: 'var(--sb-muted)' }}>Rewrap</span>
+              <button
+                className={`toggle-pill${state.wrapEnabled ? ' active' : ''}`}
+                title="Re-wrap timeseries / unwrapped phase / velocity for fringe visualization"
+                onClick={() => dispatch({ type: 'TOGGLE_WRAP' })}
+              >
+                {state.wrapEnabled ? 'ON' : 'OFF'}
+              </button>
+            </div>
+            {state.wrapEnabled && (
+              <div style={{ marginTop: 4 }}>
+                <div className="minmax-row">
+                  <div className="minmax-field">
+                    <label className="minmax-label" title="Wavelength in meters — multiplies data by 4π/λ before wrapping to (−π, π). Clear to use Period instead.">λ (m)</label>
+                    <div style={{ display: 'flex', gap: 2 }}>
+                      <input
+                        className="sidebar-input"
+                        type="text"
+                        inputMode="decimal"
+                        placeholder="e.g. 0.24"
+                        value={draftWrapWavelength}
+                        onChange={e => setDraftWrapWavelength(e.target.value)}
+                        onBlur={() => {
+                          const v = parseFloat(draftWrapWavelength);
+                          dispatch({ type: 'SET_WRAP_WAVELENGTH', payload: draftWrapWavelength === '' || isNaN(v) ? null : v });
+                        }}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') {
+                            const v = parseFloat(draftWrapWavelength);
+                            dispatch({ type: 'SET_WRAP_WAVELENGTH', payload: draftWrapWavelength === '' || isNaN(v) ? null : v });
+                          }
+                        }}
+                        style={{ flex: 1 }}
+                      />
+                      {state.wrapWavelength !== null && (
+                        <button
+                          onClick={() => { setDraftWrapWavelength(''); dispatch({ type: 'SET_WRAP_WAVELENGTH', payload: null }); }}
+                          title="Clear wavelength — switch to Period mode"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--sb-muted)', padding: '0 2px', fontSize: '0.85em', flexShrink: 0 }}
+                        >✕</button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="minmax-field">
+                    <label className="minmax-label" title="Modulo period for wrapping (in data units). Active when λ is empty.">Period</label>
+                    <input
+                      className="sidebar-input"
+                      type="text"
+                      inputMode="decimal"
+                      placeholder={`${(2 * Math.PI).toFixed(4)}`}
+                      value={draftWrapPeriod}
+                      onChange={e => setDraftWrapPeriod(e.target.value)}
+                      onBlur={() => {
+                        const v = parseFloat(draftWrapPeriod);
+                        if (!isNaN(v) && v > 0) dispatch({ type: 'SET_WRAP_PERIOD', payload: v });
+                      }}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          const v = parseFloat(draftWrapPeriod);
+                          if (!isNaN(v) && v > 0) dispatch({ type: 'SET_WRAP_PERIOD', payload: v });
+                        }
+                      }}
+                    />
+                  </div>
+                </div>
+                <div style={{ fontSize: '0.72em', color: 'var(--sb-muted)', marginTop: 2 }}>
+                  {state.wrapWavelength !== null
+                    ? `scale = 4π/λ = ${(4 * Math.PI / state.wrapWavelength).toFixed(3)} rad/m → wrap to (−π, π)`
+                    : `wrap period = ${state.wrapPeriod.toFixed(4)} (data units)`}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
         <Histogram />
       </div>
+
+      {/* ── SPLIT SCREEN RIGHT LAYER ── */}
+      {state.splitScreen && (
+        <div className="sidebar-section">
+          <SectionHeader icon="fa-table-columns" label="Right Layer" />
+
+          <select
+            className="sidebar-select"
+            value={state.splitDataset || ''}
+            onChange={e => dispatch({ type: 'SET_SPLIT_DATASET', payload: e.target.value || null })}
+          >
+            <option value="">— none —</option>
+            {Object.entries(state.datasetInfo).map(([key, info]) => (
+              <option key={key} value={key}>{info.label || key}</option>
+            ))}
+          </select>
+
+          {splitDatasetInfo && (
+            <div className="slider-group">
+              <div className="slider-label">
+                <span>Time step</span>
+                <span className="slider-value">{splitTimeValue}</span>
+              </div>
+              <input type="range" className="sidebar-range"
+                min="0" max={splitDatasetInfo.x_values.length - 1} step="1"
+                value={Math.min(state.splitTimeIndex, splitDatasetInfo.x_values.length - 1)}
+                onChange={e => dispatch({ type: 'SET_SPLIT_TIME_INDEX', payload: parseInt(e.target.value) })}
+              />
+            </div>
+          )}
+
+          {state.splitDataset && (
+            <>
+              <div className="colormap-row" style={{ marginTop: 6 }}>
+                <select
+                  className="sidebar-select"
+                  value={state.splitColormap.endsWith('_r') ? state.splitColormap.slice(0, -2) : state.splitColormap}
+                  onChange={e => {
+                    const base = e.target.value;
+                    const inv = state.splitColormap.endsWith('_r');
+                    dispatch({ type: 'SET_SPLIT_COLORMAP', payload: inv ? `${base}_r` : base });
+                  }}
+                >
+                  {colormapOptions.map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+                <button
+                  className={`invert-btn${state.splitColormap.endsWith('_r') ? ' active' : ''}`}
+                  title="Invert colormap"
+                  onClick={() => {
+                    const cm = state.splitColormap;
+                    dispatch({ type: 'SET_SPLIT_COLORMAP', payload: cm.endsWith('_r') ? cm.slice(0, -2) : `${cm}_r` });
+                  }}
+                >⇅</button>
+              </div>
+              <div className="colorbar-row">
+                <input
+                  aria-label="Min value"
+                  className="sidebar-input"
+                  type="text" inputMode="decimal"
+                  value={draftSplitVmin}
+                  onChange={e => setDraftSplitVmin(e.target.value)}
+                  onBlur={() => { const v = parseFloat(draftSplitVmin); if (!isNaN(v)) dispatch({ type: 'SET_SPLIT_VMIN', payload: v }); }}
+                  onKeyDown={e => { if (e.key === 'Enter') { const v = parseFloat(draftSplitVmin); if (!isNaN(v)) dispatch({ type: 'SET_SPLIT_VMIN', payload: v }); } }}
+                />
+                <img src={`/colorbar/${state.splitColormap}`} className="colorbar-img" alt="Colormap" />
+                <input
+                  aria-label="Max value"
+                  className="sidebar-input"
+                  type="text" inputMode="decimal"
+                  value={draftSplitVmax}
+                  onChange={e => setDraftSplitVmax(e.target.value)}
+                  onBlur={() => { const v = parseFloat(draftSplitVmax); if (!isNaN(v)) dispatch({ type: 'SET_SPLIT_VMAX', payload: v }); }}
+                  onKeyDown={e => { if (e.key === 'Enter') { const v = parseFloat(draftSplitVmax); if (!isNaN(v)) dispatch({ type: 'SET_SPLIT_VMAX', payload: v }); } }}
+                />
+              </div>
+              <Histogram
+                dataset={state.splitDataset}
+                vmin={state.splitVmin}
+                vmax={state.splitVmax}
+                onSetVmin={v => dispatch({ type: 'SET_SPLIT_VMIN', payload: v })}
+                onSetVmax={v => dispatch({ type: 'SET_SPLIT_VMAX', payload: v })}
+              />
+              <div className="slider-group">
+                <div className="slider-label">
+                  <span>Opacity</span>
+                  <span className="slider-value">{Math.round(state.splitOpacity * 100)}%</span>
+                </div>
+                <input
+                  className="sidebar-range"
+                  type="range" min="0" max="1" step="0.01"
+                  value={state.splitOpacity}
+                  onChange={e => dispatch({ type: 'SET_SPLIT_OPACITY', payload: parseFloat(e.target.value) })}
+                />
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {/* ── REFERENCE POINT ── */}
       <div className="sidebar-section">
@@ -451,6 +721,23 @@ export default function ControlPanel({ title }: { title: string }) {
               </>
             )}
           </>
+        )}
+      </div>
+
+      {/* ── EXPORT (active layer → GeoTIFF) ── */}
+      <div className="sidebar-section">
+        <SectionHeader icon="fa-download" label="Export" />
+        <button className="hist-btn" style={{ width: '100%' }}
+          disabled={!state.currentDataset || exporting}
+          title="Download the active layer as a GeoTIFF (masking applied if enabled)"
+          onClick={handleExportGeoTIFF}>
+          <i className={`fa-solid ${exporting ? 'fa-spinner fa-spin' : 'fa-download'}`} style={{ marginRight: 6 }}></i>
+          {exporting ? 'Exporting…' : 'Export layer (GeoTIFF)'}
+        </button>
+        {(state.layerMasks.length > 0 || state.customMaskPath) && (
+          <div style={{ fontSize: '0.72em', color: 'var(--sb-muted)', marginTop: 4, textAlign: 'center' }}>
+            masking will be applied
+          </div>
         )}
       </div>
 

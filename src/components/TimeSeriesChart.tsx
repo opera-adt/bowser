@@ -7,6 +7,7 @@ import zoomPlugin from 'chartjs-plugin-zoom';
 import { useAppContext } from '../context/AppContext';
 import { useApi } from '../hooks/useApi';
 import { MultiPointTimeSeriesData } from '../types';
+import { downloadChartAsPng } from '../utils/screenshot';
 
 // Chart.js plugin to wire legend-click visibility to all related datasets (raw, trend,
 // residual, samples, median) that share the same base label.
@@ -486,6 +487,12 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
           )}
           <button className="chart-btn" onClick={handleExportToCSV} title="Export CSV">
             <i className="fa-solid fa-download"></i>
+          </button>
+          <button className="chart-btn" title="Save as PNG (transparent background)" onClick={() => {
+            const canvas = chartRef.current?.canvas;
+            if (canvas) downloadChartAsPng(canvas, `timeseries-${state.currentDataset}-${Date.now()}.png`);
+          }}>
+            <i className="fa-solid fa-camera"></i>
           </button>
           <button className="chart-btn" title="New chart window" onClick={spawnNewChart}>
             <i className="fa-solid fa-plus"></i>
