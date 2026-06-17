@@ -101,6 +101,16 @@ def cli_app():
     default=None,
     help="Path to htpasswd file for HTTP Basic Auth. No auth when omitted.",
 )
+@click.option(
+    "--s3-anon/--no-s3-anon",
+    "s3_anon",
+    default=None,
+    help=(
+        "Read s3:// stores anonymously (unsigned), the default. Use "
+        "--no-s3-anon for private buckets to sign requests with the normal "
+        "AWS credential chain (AWS_PROFILE / env keys / instance role)."
+    ),
+)
 def run(
     stack_file,
     rasters_file,
@@ -116,6 +126,7 @@ def run(
     ssl_certfile,
     ssl_keyfile,
     htpasswd_file,
+    s3_anon,
 ):
     """Run the web server."""
     import uvicorn
@@ -133,6 +144,10 @@ def run(
         not no_spatial_reference
     ).lower()
     os.environ["BOWSER_USE_RECOMMENDED_MASK"] = str(not no_recommended_mask).lower()
+    # Only override when the flag is given; otherwise leave any existing
+    # BOWSER_S3_ANON env (and the anon-by-default) untouched.
+    if s3_anon is not None:
+        os.environ["BOWSER_S3_ANON"] = str(s3_anon).lower()
     if title:
         os.environ["BOWSER_TITLE"] = title
     if htpasswd_file:
