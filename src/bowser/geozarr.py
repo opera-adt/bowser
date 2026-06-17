@@ -39,7 +39,7 @@ __all__ = [
 ]
 
 
-def storage_options_for(uri: str | Path) -> dict[str, Any]:
+def storage_options_for(uri: str | Path) -> dict[str, Any] | None:
     """Return fsspec ``storage_options`` for opening ``uri``.
 
     For ``s3://`` URIs we default to *anonymous* (unsigned) access. A bucket
@@ -53,21 +53,27 @@ def storage_options_for(uri: str | Path) -> dict[str, Any]:
     Set ``BOWSER_S3_ANON=0`` (or ``false``) to use the normal credential chain
     for private buckets.
 
+    Non-``s3://`` stores return ``None`` rather than ``{}`` on purpose: zarr's
+    store resolver raises ``TypeError("'storage_options' was provided but
+    unused")`` if a (even empty) dict is passed for a local/non-FSSpec path, so
+    callers must pass ``None`` to keep local GeoZarr opening working.
+
     Parameters
     ----------
     uri : str or Path
-        The store URI. Non-``s3://`` URIs get empty options.
+        The store URI.
 
     Returns
     -------
-    dict
-        ``{"anon": bool}`` for S3 URIs, ``{}`` otherwise.
+    dict or None
+        ``{"anon": bool}`` for S3 URIs, ``None`` otherwise (so it can be passed
+        straight to ``xr.open_zarr(..., storage_options=...)`` for local paths).
 
     """
     if str(uri).startswith("s3://"):
         anon = os.environ.get("BOWSER_S3_ANON", "1").lower() not in ("0", "false", "no")
         return {"anon": anon}
-    return {}
+    return None
 
 # Defaults tuned for DISP-S1-sized cubes on S3: 256×256 chunks keep random-access
 # tile reads cheap, and 4× shard factor on every dim means one HTTP GET per
