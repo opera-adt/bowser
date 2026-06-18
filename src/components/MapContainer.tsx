@@ -1085,8 +1085,10 @@ function OverlayLayers() {
           vizKey = o.mode === 'cmap' ? (o.discrete ? `d${nbins}:${binColors.join('')}` : (o.cmap ?? '')) : 'rgb';
         }
 
-        return panes.map((pane, pi) => {
-          const key = `${o.id}:${pi}:${vizKey}:${o.vmin}:${o.vmax}`;
+        return panes.map((pane) => {
+          // Pane name (not index) in the key: react-leaflet can't move a layer
+          // between panes after creation, so switching side must remount it.
+          const key = `${o.id}:${pane ?? 'default'}:${vizKey}:${o.vmin}:${o.vmax}`;
           // Only pass `pane` when set: Leaflet's getPane(undefined) returns
           // undefined (it only resolves string pane names), and the layer then
           // crashes on `getPane().appendChild`. Omitting it uses the default pane.
