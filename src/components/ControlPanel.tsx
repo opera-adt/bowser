@@ -105,9 +105,17 @@ export default function ControlPanel({ title }: { title: string }) {
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const masked = state.layerMasks.length > 0 || !!state.customMaskPath;
+      // Name the file by the layer's actual time label (e.g. a date or
+      // reference_secondary pair) rather than the bare slice index; fall back
+      // to `t<index>` for datasets without a time axis. Sanitize for a path:
+      // strip the time-of-day after `T` and replace filename-unsafe chars.
+      const timeVal = state.datasetInfo[state.currentDataset]?.x_values?.[state.currentTimeIndex];
+      const timeToken = timeVal == null
+        ? `t${state.currentTimeIndex}`
+        : String(timeVal).split('T')[0].replace(/[^0-9A-Za-z._-]/g, '-');
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${state.currentDataset}_t${state.currentTimeIndex}${masked ? '_masked' : ''}.tif`;
+      a.download = `${state.currentDataset}_${timeToken}${masked ? '_masked' : ''}.tif`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -118,7 +126,7 @@ export default function ControlPanel({ title }: { title: string }) {
     } finally {
       setExporting(false);
     }
-  }, [state.currentDataset, state.currentTimeIndex, state.layerMasks, state.customMaskPath]);
+  }, [state.currentDataset, state.currentTimeIndex, state.layerMasks, state.customMaskPath, state.datasetInfo]);
 
   // Upload a GeoTIFF as a raster overlay: store it, read band metadata, grab
   // WGS84 bounds from the tiler's tilejson, and add it with sensible defaults
