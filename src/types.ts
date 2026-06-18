@@ -82,6 +82,31 @@ export interface ChartWindow {
   dsNames: string[];  // datasets shown in this window; empty = follow currentDataset
 }
 
+export interface OverlayBand {
+  name: string;
+  min: number;
+  max: number;
+  p2: number;
+  p98: number;
+}
+
+// A user-uploaded raster shown between the basemap and the data layer.
+export interface Overlay {
+  id: string;
+  name: string;
+  path: string;          // server path returned by /upload_raster
+  bandCount: number;
+  bands: OverlayBand[];
+  bounds: [number, number, number, number] | null;  // WGS84 [west, south, east, north]
+  visible: boolean;
+  opacity: number;       // 0..1
+  mode: 'rgb' | 'cmap';  // rgb for multi-band, cmap for single-band
+  cmap: string;          // colormap_name (cmap mode)
+  vmin: number;
+  vmax: number;
+  // Stacking order is the index in AppState.overlays (first = just above basemap).
+}
+
 export interface AppState {
   datasetInfo: { [key: string]: RasterGroup };
   timeSeriesPoints: TimeSeriesPoint[];
@@ -106,6 +131,7 @@ export interface AppState {
   showResiduals: boolean;
   layerMasks: LayerMask[];
   customMaskPath: string | null;
+  overlays: Overlay[];
   bufferEnabled: boolean;
   bufferRadius: number;
   bufferSamples: number;
@@ -170,6 +196,10 @@ export type AppAction =
   | { type: 'SET_SELECTED_POINT'; payload: string | null }
   | { type: 'TOGGLE_TRENDS' }
   | { type: 'TOGGLE_RESIDUALS' }
+  | { type: 'ADD_OVERLAY'; payload: Overlay }
+  | { type: 'REMOVE_OVERLAY'; payload: string }
+  | { type: 'UPDATE_OVERLAY'; payload: { id: string; updates: Partial<Overlay> } }
+  | { type: 'REORDER_OVERLAY'; payload: { id: string; direction: 'up' | 'down' } }
   | { type: 'ADD_LAYER_MASK'; payload: LayerMask }
   | { type: 'REMOVE_LAYER_MASK'; payload: string }
   | { type: 'UPDATE_LAYER_MASK'; payload: { id: string; updates: Partial<LayerMask> } }

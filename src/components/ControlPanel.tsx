@@ -35,6 +35,7 @@ export default function ControlPanel({ title }: { title: string }) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({
     masking: true,
     buffer: true,
+    overlays: true,
   });
   const toggleSection = (key: string) => setCollapsed(c => ({ ...c, [key]: !c[key] }));
   const [exporting, setExporting] = useState(false);
@@ -76,6 +77,46 @@ export default function ControlPanel({ title }: { title: string }) {
       setExporting(false);
     }
   }, [state.currentDataset, state.currentTimeIndex, state.layerMasks, state.customMaskPath]);
+
+  // Upload a GeoTIFF as a raster overlay: store it, read band metadata, grab
+  // WGS84 bounds from the tiler's tilejson, and add it with sensible defaults
+  // (RGB for >=3 bands, colormap + p2/p98 rescale for single-band).
+  const handleUploadRaster = useCallback(async (file: File) => {
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await fetch('/upload_raster', { method: 'POST', body: form });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const meta = await res.json();
+      let bounds: [number, number, number, number] | null = null;
+      try {
+        const tj = await fetch(
+          `/overlay/WebMercatorQuad/tilejson.json?url=${encodeURIComponent(meta.path)}`
+        ).then(r => r.json());
+        if (Array.isArray(tj.bounds) && tj.bounds.length === 4) bounds = tj.bounds;
+      } catch { /* bounds optional */ }
+      const b0 = meta.bands?.[0] ?? { p2: 0, p98: 1, min: 0, max: 1 };
+      dispatch({
+        type: 'ADD_OVERLAY',
+        payload: {
+          id: `ov_${Date.now()}`,
+          name: meta.name,
+          path: meta.path,
+          bandCount: meta.band_count,
+          bands: meta.bands ?? [],
+          bounds,
+          visible: true,
+          opacity: 1,
+          mode: meta.band_count >= 3 ? 'rgb' : 'cmap',
+          cmap: 'viridis',
+          vmin: b0.p2 ?? b0.min ?? 0,
+          vmax: b0.p98 ?? b0.max ?? 1,
+        },
+      });
+    } catch (err) {
+      alert(`Raster upload failed: ${(err as Error).message}`);
+    }
+  }, [dispatch]);
   // dataset range cache: { [datasetName]: { min, max, p2, p98 } }
   const [datasetRanges, setDatasetRanges] = useState<Record<string, { min: number; max: number; p2: number; p98: number }>>({});
 
@@ -720,6 +761,81 @@ export default function ControlPanel({ title }: { title: string }) {
                 </div>
               </>
             )}
+          </>
+        )}
+      </div>
+
+      {/* ── OVERLAYS (collapsible) ── */}
+      <div className="sidebar-section">
+        <SectionHeader icon="fa-layer-group" label="Overlays" collapseKey="overlays" />
+        {!collapsed.overlays && (
+          <>
+            <label className="hist-btn" style={{ width: '100%', cursor: 'pointer', textAlign: 'center', display: 'block' }}>
+              <i className="fa-solid fa-upload" style={{ marginRight: 6 }}></i>Upload raster (GeoTIFF)
+              <input type="file" accept=".tif,.tiff" style={{ display: 'none' }}
+                onChange={e => { const f = e.target.files?.[0]; if (f) handleUploadRaster(f); e.currentTarget.value = ''; }} />
+            </label>
+            {state.overlays.length === 0 && (
+              <div style={{ fontSize: '0.72em', color: 'var(--sb-muted)', marginTop: 6, textAlign: 'center' }}>
+                Uploaded rasters sit between the basemap and the data layer.
+              </div>
+            )}
+            {state.overlays.map((o, i) => (
+              <div key={o.id} className="layer-mask-row" style={{ marginTop: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 4 }}>
+                  <button className="hist-btn" style={{ padding: '2px 5px' }} title={o.visible ? 'Hide' : 'Show'}
+                    onClick={() => dispatch({ type: 'UPDATE_OVERLAY', payload: { id: o.id, updates: { visible: !o.visible } } })}>
+                    <i className={`fa-solid ${o.visible ? 'fa-eye' : 'fa-eye-slash'}`}></i>
+                  </button>
+                  <span style={{ flex: 1, fontSize: '0.76em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={o.name}>{o.name}</span>
+                  <button className="hist-btn" style={{ padding: '2px 5px' }} title="Center map on this raster" disabled={!o.bounds}
+                    onClick={() => { if (o.bounds) dispatch({ type: 'APPLY_VIEW_BOUNDS', payload: [o.bounds![1], o.bounds![0], o.bounds![3], o.bounds![2]] }); }}>
+                    <i className="fa-solid fa-crosshairs"></i>
+                  </button>
+                  <button className="hist-btn" style={{ padding: '2px 5px' }} title="Move up (toward data)" disabled={i === state.overlays.length - 1}
+                    onClick={() => dispatch({ type: 'REORDER_OVERLAY', payload: { id: o.id, direction: 'up' } })}>
+                    <i className="fa-solid fa-arrow-up"></i>
+                  </button>
+                  <button className="hist-btn" style={{ padding: '2px 5px' }} title="Move down (toward basemap)" disabled={i === 0}
+                    onClick={() => dispatch({ type: 'REORDER_OVERLAY', payload: { id: o.id, direction: 'down' } })}>
+                    <i className="fa-solid fa-arrow-down"></i>
+                  </button>
+                  <button className="hist-btn" style={{ padding: '2px 5px', color: 'var(--sb-red)' }} title="Remove"
+                    onClick={() => dispatch({ type: 'REMOVE_OVERLAY', payload: o.id })}>
+                    <i className="fa-solid fa-xmark"></i>
+                  </button>
+                </div>
+                <div className="slider-label">
+                  <span style={{ fontSize: '0.75em', color: 'var(--sb-muted)' }}>Opacity</span>
+                  <span className="slider-value">{Math.round(o.opacity * 100)}%</span>
+                </div>
+                <input type="range" className="sidebar-range" min="0" max="1" step="0.05" value={o.opacity}
+                  onChange={e => dispatch({ type: 'UPDATE_OVERLAY', payload: { id: o.id, updates: { opacity: parseFloat(e.target.value) } } })} />
+                {o.bandCount >= 3 ? (
+                  <div style={{ fontSize: '0.72em', color: 'var(--sb-muted)', marginTop: 4 }}>RGB ({o.bandCount}-band)</div>
+                ) : (
+                  <>
+                    <select className="sidebar-select" style={{ width: '100%', fontSize: '0.78em', marginTop: 4 }}
+                      value={o.cmap}
+                      onChange={e => dispatch({ type: 'UPDATE_OVERLAY', payload: { id: o.id, updates: { cmap: e.target.value } } })}>
+                      {colormapOptions.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                    </select>
+                    <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                      <div className="minmax-field" style={{ flex: 1 }}>
+                        <label className="minmax-label">Min</label>
+                        <input className="sidebar-input" type="number" value={o.vmin}
+                          onChange={e => dispatch({ type: 'UPDATE_OVERLAY', payload: { id: o.id, updates: { vmin: parseFloat(e.target.value) } } })} />
+                      </div>
+                      <div className="minmax-field" style={{ flex: 1 }}>
+                        <label className="minmax-label">Max</label>
+                        <input className="sidebar-input" type="number" value={o.vmax}
+                          onChange={e => dispatch({ type: 'UPDATE_OVERLAY', payload: { id: o.id, updates: { vmax: parseFloat(e.target.value) } } })} />
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            ))}
           </>
         )}
       </div>

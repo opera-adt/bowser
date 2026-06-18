@@ -42,6 +42,7 @@ const initialState: AppState = {
   showResiduals: false,
   layerMasks: [],
   customMaskPath: null,
+  overlays: [],
   bufferEnabled: false,
   bufferRadius: 500,
   bufferSamples: 10,
@@ -236,6 +237,26 @@ function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppSt
       };
     case 'SET_CUSTOM_MASK_PATH':
       return { ...state, customMaskPath: action.payload };
+    case 'ADD_OVERLAY':
+      return { ...state, overlays: [...state.overlays, action.payload] };
+    case 'REMOVE_OVERLAY':
+      return { ...state, overlays: state.overlays.filter(o => o.id !== action.payload) };
+    case 'UPDATE_OVERLAY':
+      return {
+        ...state,
+        overlays: state.overlays.map(o =>
+          o.id === action.payload.id ? { ...o, ...action.payload.updates } : o
+        ),
+      };
+    case 'REORDER_OVERLAY': {
+      const idx = state.overlays.findIndex(o => o.id === action.payload.id);
+      if (idx < 0) return state;
+      const swap = action.payload.direction === 'up' ? idx + 1 : idx - 1;
+      if (swap < 0 || swap >= state.overlays.length) return state;
+      const overlays = [...state.overlays];
+      [overlays[idx], overlays[swap]] = [overlays[swap], overlays[idx]];
+      return { ...state, overlays };
+    }
     case 'TOGGLE_BUFFER':
       return { ...state, bufferEnabled: !state.bufferEnabled };
     case 'SET_BUFFER_RADIUS':

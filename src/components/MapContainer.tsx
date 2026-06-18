@@ -1036,6 +1036,33 @@ function MapTopRightToolbar({ onToggleToolbars }: { onToggleToolbars: () => void
   );
 }
 
+// User raster overlays, drawn between the basemap (zIndex 1-2) and the data
+// layer (zIndex 10). Array order = stacking order; index 0 sits just above the
+// basemap. Each overlay is tiled by the /overlay titiler (reprojected on the fly).
+function OverlayLayers() {
+  const { state } = useAppContext();
+  return (
+    <>
+      {state.overlays.map((o, i) => {
+        if (!o.visible) return null;
+        const base = `/overlay/tiles/WebMercatorQuad/{z}/{x}/{y}?url=${encodeURIComponent(o.path)}`;
+        const url = o.mode === 'cmap'
+          ? `${base}&colormap_name=${encodeURIComponent(o.cmap)}&rescale=${o.vmin},${o.vmax}`
+          : base;
+        return (
+          <TileLayer
+            key={`${o.id}:${o.mode}:${o.cmap}:${o.vmin}:${o.vmax}`}
+            url={url}
+            opacity={o.opacity}
+            zIndex={Math.min(3 + i, 9)}
+            maxZoom={22}
+          />
+        );
+      })}
+    </>
+  );
+}
+
 export default function MapContainer({ toolbarsVisible, onToggleToolbars }: { toolbarsVisible: boolean; onToggleToolbars: () => void }) {
   const { state, dispatch } = useAppContext();
 
@@ -1158,6 +1185,7 @@ export default function MapContainer({ toolbarsVisible, onToggleToolbars }: { to
           eventHandlers={{ tileloadstart: onTileStart, load: onTileEnd }}
         />
       )}
+      <OverlayLayers />
       <SplitScreenControl />
       <RasterTileLayer
         pane={state.splitScreen ? 'splitLeft' : undefined}
