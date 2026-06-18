@@ -20,6 +20,14 @@ const colormapOptions = [
   { value: 'jet', label: 'Jet' },
 ];
 
+// Default per-bin colors for discrete/categorical overlays.
+const BIN_PALETTE = [
+  '#d62728', '#ff7f0e', '#ffd92f', '#2ca02c', '#1f77b4', '#9467bd',
+  '#8c564b', '#e377c2', '#7f7f7f', '#17becf', '#bcbd22', '#393b79',
+];
+const binColorsFor = (n: number, prev: string[] = []): string[] =>
+  Array.from({ length: n }, (_, k) => prev[k] ?? BIN_PALETTE[k % BIN_PALETTE.length]);
+
 export default function ControlPanel({ title }: { title: string }) {
   const { state, dispatch } = useAppContext();
   const { fetchPointTimeSeries, fetchBufferTimeSeries } = useApi();
@@ -36,6 +44,7 @@ export default function ControlPanel({ title }: { title: string }) {
     masking: true,
     buffer: true,
     overlays: true,
+    export: true,
   });
   const toggleSection = (key: string) => setCollapsed(c => ({ ...c, [key]: !c[key] }));
   const [exporting, setExporting] = useState(false);
@@ -101,6 +110,7 @@ export default function ControlPanel({ title }: { title: string }) {
         payload: {
           id: `ov_${Date.now()}`,
           name: meta.name,
+          type: 'geotiff',
           path: meta.path,
           bandCount: meta.band_count,
           bands: meta.bands ?? [],
@@ -111,12 +121,37 @@ export default function ControlPanel({ title }: { title: string }) {
           cmap: 'viridis',
           vmin: b0.p2 ?? b0.min ?? 0,
           vmax: b0.p98 ?? b0.max ?? 1,
+          discrete: false,
+          nbins: 5,
+          binColors: binColorsFor(5),
         },
       });
     } catch (err) {
       alert(`Raster upload failed: ${(err as Error).message}`);
     }
   }, [dispatch]);
+
+  // Add an external WMS / WMTS(XYZ-template) overlay from a URL.
+  const [extType, setExtType] = useState<'wms' | 'wmts'>('wms');
+  const [extUrl, setExtUrl] = useState('');
+  const [extLayers, setExtLayers] = useState('');
+  const addExternalOverlay = useCallback(() => {
+    const url = extUrl.trim();
+    if (!url) return;
+    dispatch({
+      type: 'ADD_OVERLAY',
+      payload: {
+        id: `ov_${Date.now()}`,
+        name: (extType === 'wms' ? extLayers.trim() : '') || url.replace(/^https?:\/\//, '').slice(0, 30),
+        type: extType,
+        visible: true,
+        opacity: 1,
+        url,
+        wmsLayers: extType === 'wms' ? extLayers.trim() : undefined,
+      },
+    });
+    setExtUrl(''); setExtLayers('');
+  }, [extType, extUrl, extLayers, dispatch]);
   // dataset range cache: { [datasetName]: { min, max, p2, p98 } }
   const [datasetRanges, setDatasetRanges] = useState<Record<string, { min: number; max: number; p2: number; p98: number }>>({});
 
@@ -775,6 +810,25 @@ export default function ControlPanel({ title }: { title: string }) {
               <input type="file" accept=".tif,.tiff" style={{ display: 'none' }}
                 onChange={e => { const f = e.target.files?.[0]; if (f) handleUploadRaster(f); e.currentTarget.value = ''; }} />
             </label>
+            <div style={{ marginTop: 6 }}>
+              <div style={{ display: 'flex', gap: 4 }}>
+                <select className="sidebar-select" style={{ width: 72, fontSize: '0.76em' }} value={extType}
+                  onChange={e => setExtType(e.target.value as 'wms' | 'wmts')}>
+                  <option value="wms">WMS</option>
+                  <option value="wmts">WMTS</option>
+                </select>
+                <input className="sidebar-input" style={{ flex: 1, fontSize: '0.74em' }}
+                  placeholder={extType === 'wms' ? 'WMS base URL' : 'WMTS/XYZ template …/{z}/{x}/{y}'}
+                  value={extUrl} onChange={e => setExtUrl(e.target.value)} />
+              </div>
+              {extType === 'wms' && (
+                <input className="sidebar-input" style={{ width: '100%', fontSize: '0.74em', marginTop: 4 }}
+                  placeholder="WMS layer name(s)" value={extLayers} onChange={e => setExtLayers(e.target.value)} />
+              )}
+              <button className="hist-btn" style={{ width: '100%', marginTop: 4 }} disabled={!extUrl.trim()} onClick={addExternalOverlay}>
+                <i className="fa-solid fa-plus" style={{ marginRight: 5 }}></i>Add {extType.toUpperCase()}
+              </button>
+            </div>
             {state.overlays.length === 0 && (
               <div style={{ fontSize: '0.72em', color: 'var(--sb-muted)', marginTop: 6, textAlign: 'center' }}>
                 Uploaded rasters sit between the basemap and the data layer.
@@ -782,16 +836,21 @@ export default function ControlPanel({ title }: { title: string }) {
             )}
             {state.overlays.map((o, i) => (
               <div key={o.id} className="layer-mask-row" style={{ marginTop: 8 }}>
+                {/* Name on its own line so it's fully visible */}
+                <div style={{ fontSize: '0.76em', fontWeight: 600, marginBottom: 3, wordBreak: 'break-all', lineHeight: 1.2 }} title={o.name}>
+                  {o.type !== 'geotiff' && <span style={{ color: 'var(--sb-muted)', fontWeight: 400 }}>{o.type.toUpperCase()} · </span>}{o.name}
+                </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 4 }}>
                   <button className="hist-btn" style={{ padding: '2px 5px' }} title={o.visible ? 'Hide' : 'Show'}
                     onClick={() => dispatch({ type: 'UPDATE_OVERLAY', payload: { id: o.id, updates: { visible: !o.visible } } })}>
                     <i className={`fa-solid ${o.visible ? 'fa-eye' : 'fa-eye-slash'}`}></i>
                   </button>
-                  <span style={{ flex: 1, fontSize: '0.76em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={o.name}>{o.name}</span>
-                  <button className="hist-btn" style={{ padding: '2px 5px' }} title="Center map on this raster" disabled={!o.bounds}
-                    onClick={() => { if (o.bounds) dispatch({ type: 'APPLY_VIEW_BOUNDS', payload: [o.bounds![1], o.bounds![0], o.bounds![3], o.bounds![2]] }); }}>
-                    <i className="fa-solid fa-crosshairs"></i>
-                  </button>
+                  {o.type === 'geotiff' && (
+                    <button className="hist-btn" style={{ padding: '2px 5px' }} title="Center map on this raster" disabled={!o.bounds}
+                      onClick={() => { if (o.bounds) dispatch({ type: 'APPLY_VIEW_BOUNDS', payload: [o.bounds![1], o.bounds![0], o.bounds![3], o.bounds![2]] }); }}>
+                      <i className="fa-solid fa-crosshairs"></i>
+                    </button>
+                  )}
                   <button className="hist-btn" style={{ padding: '2px 5px' }} title="Move up (toward data)" disabled={i === state.overlays.length - 1}
                     onClick={() => dispatch({ type: 'REORDER_OVERLAY', payload: { id: o.id, direction: 'up' } })}>
                     <i className="fa-solid fa-arrow-up"></i>
@@ -804,6 +863,7 @@ export default function ControlPanel({ title }: { title: string }) {
                     onClick={() => dispatch({ type: 'REMOVE_OVERLAY', payload: o.id })}>
                     <i className="fa-solid fa-xmark"></i>
                   </button>
+                  <span style={{ flex: 1 }} />
                 </div>
                 <div className="slider-label">
                   <span style={{ fontSize: '0.75em', color: 'var(--sb-muted)' }}>Opacity</span>
@@ -811,15 +871,26 @@ export default function ControlPanel({ title }: { title: string }) {
                 </div>
                 <input type="range" className="sidebar-range" min="0" max="1" step="0.05" value={o.opacity}
                   onChange={e => dispatch({ type: 'UPDATE_OVERLAY', payload: { id: o.id, updates: { opacity: parseFloat(e.target.value) } } })} />
-                {o.bandCount >= 3 ? (
+                {o.type !== 'geotiff' ? (
+                  <div style={{ fontSize: '0.7em', color: 'var(--sb-muted)', marginTop: 4, wordBreak: 'break-all' }}>{o.url}</div>
+                ) : (o.bandCount ?? 1) >= 3 ? (
                   <div style={{ fontSize: '0.72em', color: 'var(--sb-muted)', marginTop: 4 }}>RGB ({o.bandCount}-band)</div>
                 ) : (
                   <>
-                    <select className="sidebar-select" style={{ width: '100%', fontSize: '0.78em', marginTop: 4 }}
-                      value={o.cmap}
-                      onChange={e => dispatch({ type: 'UPDATE_OVERLAY', payload: { id: o.id, updates: { cmap: e.target.value } } })}>
-                      {colormapOptions.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-                    </select>
+                    <div className="toggle-row" style={{ marginTop: 4 }}>
+                      <span style={{ fontSize: '0.78em', color: 'var(--sb-muted)' }}>Discrete classes</span>
+                      <button className={`toggle-pill${o.discrete ? ' active' : ''}`}
+                        onClick={() => dispatch({ type: 'UPDATE_OVERLAY', payload: { id: o.id, updates: { discrete: !o.discrete } } })}>
+                        {o.discrete ? 'ON' : 'OFF'}
+                      </button>
+                    </div>
+                    {!o.discrete && (
+                      <select className="sidebar-select" style={{ width: '100%', fontSize: '0.78em', marginTop: 4 }}
+                        value={o.cmap}
+                        onChange={e => dispatch({ type: 'UPDATE_OVERLAY', payload: { id: o.id, updates: { cmap: e.target.value } } })}>
+                        {colormapOptions.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                      </select>
+                    )}
                     <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
                       <div className="minmax-field" style={{ flex: 1 }}>
                         <label className="minmax-label">Min</label>
@@ -831,7 +902,32 @@ export default function ControlPanel({ title }: { title: string }) {
                         <input className="sidebar-input" type="number" value={o.vmax}
                           onChange={e => dispatch({ type: 'UPDATE_OVERLAY', payload: { id: o.id, updates: { vmax: parseFloat(e.target.value) } } })} />
                       </div>
+                      {o.discrete && (
+                        <div className="minmax-field" style={{ width: 60 }}>
+                          <label className="minmax-label">Classes</label>
+                          <input className="sidebar-input" type="number" min={2} max={12} value={o.nbins ?? 5}
+                            onChange={e => { const n = Math.max(2, Math.min(12, parseInt(e.target.value) || 2));
+                              dispatch({ type: 'UPDATE_OVERLAY', payload: { id: o.id, updates: { nbins: n, binColors: binColorsFor(n, o.binColors) } } }); }} />
+                        </div>
+                      )}
                     </div>
+                    {o.discrete && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                        {(o.binColors ?? []).map((c, k) => {
+                          const vmin = o.vmin ?? 0, vmax = o.vmax ?? 1, nb = o.nbins ?? 1;
+                          const step = (vmax - vmin) / nb;
+                          const lo = vmin + k * step, hi = vmin + (k + 1) * step;
+                          return (
+                            <div key={k} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }} title={`${lo.toPrecision(3)} – ${hi.toPrecision(3)}`}>
+                              <input type="color" value={c} style={{ width: 26, height: 18, padding: 0, border: '1px solid var(--sb-border)', borderRadius: 3, background: 'none', cursor: 'pointer' }}
+                                onChange={e => { const colors = [...(o.binColors ?? [])]; colors[k] = e.target.value;
+                                  dispatch({ type: 'UPDATE_OVERLAY', payload: { id: o.id, updates: { binColors: colors } } }); }} />
+                              <span style={{ fontSize: '0.6em', color: 'var(--sb-muted)' }}>{hi.toPrecision(3)}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </>
                 )}
               </div>
@@ -842,18 +938,22 @@ export default function ControlPanel({ title }: { title: string }) {
 
       {/* ── EXPORT (active layer → GeoTIFF) ── */}
       <div className="sidebar-section">
-        <SectionHeader icon="fa-download" label="Export" />
-        <button className="hist-btn" style={{ width: '100%' }}
-          disabled={!state.currentDataset || exporting}
-          title="Download the active layer as a GeoTIFF (masking applied if enabled)"
-          onClick={handleExportGeoTIFF}>
-          <i className={`fa-solid ${exporting ? 'fa-spinner fa-spin' : 'fa-download'}`} style={{ marginRight: 6 }}></i>
-          {exporting ? 'Exporting…' : 'Export layer (GeoTIFF)'}
-        </button>
-        {(state.layerMasks.length > 0 || state.customMaskPath) && (
-          <div style={{ fontSize: '0.72em', color: 'var(--sb-muted)', marginTop: 4, textAlign: 'center' }}>
-            masking will be applied
-          </div>
+        <SectionHeader icon="fa-download" label="Export" collapseKey="export" />
+        {!collapsed.export && (
+          <>
+            <button className="hist-btn" style={{ width: '100%' }}
+              disabled={!state.currentDataset || exporting}
+              title="Download the active layer as a GeoTIFF (masking applied if enabled)"
+              onClick={handleExportGeoTIFF}>
+              <i className={`fa-solid ${exporting ? 'fa-spinner fa-spin' : 'fa-download'}`} style={{ marginRight: 6 }}></i>
+              {exporting ? 'Exporting…' : 'Export layer (GeoTIFF)'}
+            </button>
+            {(state.layerMasks.length > 0 || state.customMaskPath) && (
+              <div style={{ fontSize: '0.72em', color: 'var(--sb-muted)', marginTop: 4, textAlign: 'center' }}>
+                masking will be applied
+              </div>
+            )}
+          </>
         )}
       </div>
 

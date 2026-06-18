@@ -90,21 +90,34 @@ export interface OverlayBand {
   p98: number;
 }
 
-// A user-uploaded raster shown between the basemap and the data layer.
+// A user overlay shown between the basemap and the data layer. Either an
+// uploaded GeoTIFF (tiled by our /overlay titiler) or an external WMS/WMTS
+// service. Stacking order is the index in AppState.overlays (first = bottom).
 export interface Overlay {
   id: string;
   name: string;
-  path: string;          // server path returned by /upload_raster
-  bandCount: number;
-  bands: OverlayBand[];
-  bounds: [number, number, number, number] | null;  // WGS84 [west, south, east, north]
+  type: 'geotiff' | 'wms' | 'wmts';
   visible: boolean;
   opacity: number;       // 0..1
-  mode: 'rgb' | 'cmap';  // rgb for multi-band, cmap for single-band
-  cmap: string;          // colormap_name (cmap mode)
-  vmin: number;
-  vmax: number;
-  // Stacking order is the index in AppState.overlays (first = just above basemap).
+
+  // --- geotiff ---
+  path?: string;         // server path returned by /upload_raster
+  bandCount?: number;
+  bands?: OverlayBand[];
+  bounds?: [number, number, number, number] | null;  // WGS84 [west, south, east, north]
+  mode?: 'rgb' | 'cmap'; // rgb for multi-band, cmap for single-band
+  cmap?: string;         // colormap_name (continuous cmap mode)
+  vmin?: number;
+  vmax?: number;
+  // Discrete/categorical binning (single-band): split [vmin,vmax] into `nbins`
+  // equal classes, each drawn with its own color (titiler interval colormap).
+  discrete?: boolean;
+  nbins?: number;
+  binColors?: string[];  // hex per bin, length === nbins
+
+  // --- external (wms / wmts / xyz) ---
+  url?: string;          // WMS base URL, or WMTS/XYZ tile template with {z}/{x}/{y}
+  wmsLayers?: string;    // WMS LAYERS parameter
 }
 
 export interface AppState {

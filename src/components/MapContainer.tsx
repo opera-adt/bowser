@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
-import { MapContainer as LeafletMapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-leaflet';
+import { MapContainer as LeafletMapContainer, TileLayer, WMSTileLayer, Marker, useMapEvents, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useApi } from '../hooks/useApi';
@@ -1036,6 +1036,11 @@ function MapTopRightToolbar({ onToggleToolbars }: { onToggleToolbars: () => void
   );
 }
 
+function hexToRgba(hex: string): [number, number, number, number] {
+  const h = (hex || '#000000').replace('#', '');
+  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16), 255];
+}
+
 // User raster overlays, drawn between the basemap (zIndex 1-2) and the data
 // layer (zIndex 10). Array order = stacking order; index 0 sits just above the
 // basemap. Each overlay is tiled by the /overlay titiler (reprojected on the fly).
@@ -1045,16 +1050,52 @@ function OverlayLayers() {
     <>
       {state.overlays.map((o, i) => {
         if (!o.visible) return null;
-        const base = `/overlay/tiles/WebMercatorQuad/{z}/{x}/{y}?url=${encodeURIComponent(o.path)}`;
-        const url = o.mode === 'cmap'
-          ? `${base}&colormap_name=${encodeURIComponent(o.cmap)}&rescale=${o.vmin},${o.vmax}`
-          : base;
+        const zIndex = Math.min(3 + i, 9);
+
+        if (o.type === 'wms') {
+          return (
+            <WMSTileLayer
+              key={`${o.id}:${o.wmsLayers}`}
+              url={o.url ?? ''}
+              params={{ layers: o.wmsLayers ?? '', format: 'image/png', transparent: true } as any}
+              opacity={o.opacity}
+              zIndex={zIndex}
+            />
+          );
+        }
+        if (o.type === 'wmts') {
+          // RESTful WMTS / XYZ template with {z}/{x}/{y} placeholders.
+          return (
+            <TileLayer key={o.id} url={o.url ?? ''} opacity={o.opacity} zIndex={zIndex} maxZoom={22} />
+          );
+        }
+
+        // geotiff
+        const vmin = o.vmin ?? 0, vmax = o.vmax ?? 1, nbins = o.nbins ?? 5;
+        const binColors = o.binColors ?? [];
+        const base = `/overlay/tiles/WebMercatorQuad/{z}/{x}/{y}?url=${encodeURIComponent(o.path ?? '')}`;
+        let url = base;
+        if (o.mode === 'cmap' && o.discrete) {
+          // Equal-width bins over [vmin,vmax], each its own color (interval cmap).
+          const step = (vmax - vmin) / nbins;
+          const intervals = Array.from({ length: nbins }, (_, k) => {
+            const lo = vmin + k * step;
+            const hi = k === nbins - 1 ? vmax + Math.abs(step) * 1e-3 + 1e-9 : vmin + (k + 1) * step;
+            return [[lo, hi], hexToRgba(binColors[k])];
+          });
+          url = `${base}&colormap=${encodeURIComponent(JSON.stringify(intervals))}`;
+        } else if (o.mode === 'cmap') {
+          url = `${base}&colormap_name=${encodeURIComponent(o.cmap ?? 'viridis')}&rescale=${vmin},${vmax}`;
+        }
+        const vizKey = o.mode === 'cmap'
+          ? (o.discrete ? `d${nbins}:${binColors.join('')}` : o.cmap)
+          : 'rgb';
         return (
           <TileLayer
-            key={`${o.id}:${o.mode}:${o.cmap}:${o.vmin}:${o.vmax}`}
+            key={`${o.id}:${vizKey}:${vmin}:${vmax}`}
             url={url}
             opacity={o.opacity}
-            zIndex={Math.min(3 + i, 9)}
+            zIndex={zIndex}
             maxZoom={22}
           />
         );
