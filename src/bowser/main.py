@@ -1682,19 +1682,26 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.add_middleware(
-    CompressionMiddleware,
-    minimum_size=0,
-    exclude_mediatype={
-        "image/jpeg",
-        "image/jpg",
-        "image/png",
-        "image/jp2",
-        "image/webp",
-        "image/tiff",  # GeoTIFF exports are already (deflate-)compressed binary
-    },
-    compression_level=6,
-)
+# Response compression is OFF by default: starlette-cramjam mangles the
+# Content-Length of compressed StaticFiles responses on some uvicorn/h11 stacks,
+# crashing requests with h11 "Too much data for declared Content-Length". The
+# gzip win isn't worth the fragility for local/JPL-network use. Set
+# BOWSER_COMPRESSION=1 to re-enable (e.g. if serving the bundle over a slow link
+# once the upstream bug is fixed).
+if os.environ.get("BOWSER_COMPRESSION", "0").lower() in ("1", "true", "yes"):
+    app.add_middleware(
+        CompressionMiddleware,
+        minimum_size=0,
+        exclude_mediatype={
+            "image/jpeg",
+            "image/jpg",
+            "image/png",
+            "image/jp2",
+            "image/webp",
+            "image/tiff",  # GeoTIFF exports are already (deflate-)compressed binary
+        },
+        compression_level=6,
+    )
 
 # Set up algorithms
 algorithms = default_algorithms.register(
@@ -2116,7 +2123,16 @@ async def root(request: Request):
     return FileResponse(dist_path / "index.html")
 
 
-# Serve the SPA as a catch-all under /.
-app.mount("/", StaticFiles(directory=dist_path, html=True))
+# Serve the SPA as a catch-all under /. The frontend bundle is gitignored and
+# built by `npm run build`; an install that skipped that step has no dist/.
+# Don't hard-crash on it — run API-only with a clear message instead.
+if dist_path.exists():
+    app.mount("/", StaticFiles(directory=dist_path, html=True))
+else:
+    logger.warning(
+        f"Frontend bundle not found at {dist_path} — serving API only. "
+        "Build it with `npm ci && npm run build` before installing from source, "
+        "or use the published package / Docker image."
+    )
 print(f"Setup complete: time to load datasets: {time.time() - t0:.1f} sec.")
 logger.info(f"Bowser started in {state.mode.upper()} mode")
