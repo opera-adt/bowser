@@ -110,14 +110,22 @@ def calculate_trend(values: np.ndarray, x_values: list[str | int]) -> dict[str, 
     intercept = y_mean - slope * x_mean
     r_squared = (ss_xy * ss_xy) / (ss_x * ss_y) if ss_x and ss_y else 0.0
 
-    # Convert slope to mm/year (slope is in meters/day)
+    # Standard error of the slope: sqrt( (SSR/(n-2)) / Σdx² ), SSR = Σdy² - slope·Σdxdy.
+    n = int(valid_mask.sum())
+    ssr = max(ss_y - slope * ss_xy, 0.0)
+    std_err = ((ssr / (n - 2)) / ss_x) ** 0.5 if n > 2 and ss_x > 0 else 0.0
+
+    # Convert slope (meters/day) and its std error to mm/year.
     mm_per_year = slope * 1000 * 365.25
+    std_mm_per_year = std_err * 1000 * 365.25
 
     return {
         "slope": float(slope),
         "intercept": float(intercept),
         "r_squared": float(r_squared),
         "mm_per_year": float(mm_per_year),
+        "std_err": float(std_err),
+        "std_mm_per_year": float(std_mm_per_year),
     }
 
 

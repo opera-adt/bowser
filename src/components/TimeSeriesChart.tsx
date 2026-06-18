@@ -269,28 +269,45 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
 
   const handleExportToCSV = useCallback(() => {
     if (!firstDs) return;
+    // Exclude the fitted-trend line series (label "… trend") — keep real data series.
     const allDatasets = Object.entries(chartDataMap).flatMap(([dsName, cd]) =>
-      cd.datasets.map(d => ({ ...d, _dsName: dsName }))
+      cd.datasets.filter(d => !d.label.endsWith(' trend')).map(d => ({ ...d, _dsName: dsName }))
     );
     if (allDatasets.length === 0) return;
     const multiDs = activeDatasetsForChart.length > 1;
-    const headers = ['Time', ...allDatasets.map(d => multiDs ? `${d._dsName} — ${d.label}` : d.label)];
+    const colName = (d: typeof allDatasets[number]) => multiDs ? `${d._dsName} — ${d.label}` : d.label;
+
+    // ── Metadata header (per series): point lat/lon and trend velocity ± std ──
+    const ptById = Object.fromEntries(state.timeSeriesPoints.map(p => [p.id, p]));
+    const num = (v: number | undefined, dp = 5) => (v === undefined || isNaN(v) ? '' : v.toFixed(dp));
+    const metaHeader = '# series,lat,lon,dataset,velocity_mm_per_yr,velocity_std_mm_per_yr';
+    const metaRows = allDatasets.map(d => {
+      const p = ptById[d.pointId];
+      const t = d.trend;
+      return `# ${colName(d)},${p ? num(p.position[0], 6) : ''},${p ? num(p.position[1], 6) : ''},` +
+        `${d._dsName},${num(t?.mmPerYear, 3)},${num(t?.stdMmPerYear, 3)}`;
+    });
+
+    // ── Time × series value matrix ──
+    const headers = ['Time', ...allDatasets.map(colName)];
     const byLabel: Record<string, Record<string, number>> = {};
     allDatasets.forEach(d => {
       const key = multiDs ? `${d._dsName}::${d.label}` : d.label;
       d.data.forEach(pt => { (byLabel[pt.x as string] ??= {})[key] = pt.y; });
     });
     const allTimes = [...new Set(allDatasets.flatMap(d => d.data.map(pt => pt.x as string)))].sort();
-    const rows = allTimes.map(t => {
-      const row = [t];
-      allDatasets.forEach(d => {
-        const key = multiDs ? `${d._dsName}::${d.label}` : d.label;
-        row.push(byLabel[t]?.[key]?.toString() ?? '');
-      });
-      return row;
-    });
-    const csvContent = [headers, ...rows].map(r => r.join(',')).join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const rows = allTimes.map(t => [t, ...allDatasets.map(d => {
+      const key = multiDs ? `${d._dsName}::${d.label}` : d.label;
+      return byLabel[t]?.[key]?.toString() ?? '';
+    })]);
+
+    const csvContent = [
+      ...metaRows, '',                       // metadata (commented), then a blank line
+      [headers, ...rows].map(r => r.join(',')).join('\n'),
+    ].join('\n');
+    // Prepend the metadata column header before the metadata rows.
+    const out = [metaHeader, csvContent].join('\n');
+    const blob = new Blob([out], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     link.setAttribute('href', URL.createObjectURL(blob));
     link.setAttribute('download', `time-series-${state.currentDataset}-${new Date().toISOString().slice(0, 16).replace(/[:.]/g, '-')}.csv`);
@@ -298,7 +315,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  }, [chartDataMap, firstDs, activeDatasetsForChart, state.currentDataset]);
+  }, [chartDataMap, firstDs, activeDatasetsForChart, state.currentDataset, state.timeSeriesPoints]);
 
   // Ordered list of dataset names currently in chartDataMap
   const activeChartDs = Object.keys(chartDataMap);

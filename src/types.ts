@@ -36,7 +36,7 @@ export interface TimeSeriesPoint {
   color: string;
   visible: boolean;
   data?: { [dataset: string]: number[] };
-  trendData?: { [dataset: string]: { slope: number; intercept: number; rSquared: number; mmPerYear: number } };
+  trendData?: { [dataset: string]: { slope: number; intercept: number; rSquared: number; mmPerYear: number; stdMmPerYear?: number } };
 }
 
 export interface MultiPointTimeSeriesData {
@@ -52,6 +52,7 @@ export interface MultiPointTimeSeriesData {
       intercept: number;
       rSquared: number;
       mmPerYear: number;
+      stdMmPerYear?: number;
     };
   }[];
 }
@@ -192,7 +193,7 @@ export type AppAction =
   | { type: 'REMOVE_TIME_SERIES_POINT'; payload: string }
   | { type: 'UPDATE_TIME_SERIES_POINT'; payload: { id: string; updates: Partial<TimeSeriesPoint> } }
   | { type: 'SET_POINT_DATA'; payload: { pointId: string; dataset: string; data: number[] } }
-  | { type: 'SET_POINT_TREND_DATA'; payload: { pointId: string; dataset: string; trend: { slope: number; intercept: number; rSquared: number; mmPerYear: number } } }
+  | { type: 'SET_POINT_TREND_DATA'; payload: { pointId: string; dataset: string; trend: { slope: number; intercept: number; rSquared: number; mmPerYear: number; stdMmPerYear?: number } } }
   | { type: 'SET_REF_MARKER_POSITION'; payload: [number, number] }
   | { type: 'SET_CURRENT_DATASET'; payload: string }
   | { type: 'SET_TIME_INDEX'; payload: number }

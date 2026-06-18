@@ -797,6 +797,7 @@ async def multi_point(
                     "intercept": trend_result["intercept"],
                     "rSquared": trend_result["r_squared"],
                     "mmPerYear": trend_result["mm_per_year"],
+                    "stdMmPerYear": trend_result["std_mm_per_year"],
                 }
 
             results.append(
