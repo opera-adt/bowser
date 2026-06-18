@@ -9,6 +9,9 @@ const API_ROUTES = [
 	'dataset_range', 'datasets', 'histogram', 'mode', 'multi_point',
 	'picker', 'point', 'profile', 'trend_analysis', 'upload_mask',
 	'variables',
+	// tile endpoints, overlays, and the newer routes
+	'md', 'cog', 'overlay', 'export', 'upload_raster', 'wms_capabilities',
+	'static',
 ]
 
 const apiProxyPattern = `^/(${API_ROUTES.join('|')})(/|$)`
