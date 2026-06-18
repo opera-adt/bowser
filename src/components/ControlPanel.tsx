@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { useApi } from '../hooks/useApi';
 import Histogram from './Histogram';
@@ -248,6 +248,22 @@ export default function ControlPanel({ title }: { title: string }) {
       dispatch({ type: 'SET_VMAX', payload: Math.PI });
     }
   }, [state.currentDataset, dispatch]);
+
+  // Seed the moving reference marker from the cube's recorded reference point
+  // (reference_lonlat, [lon, lat]) the first time we see each dataset. Tracked
+  // in a ref so re-selecting a dataset never clobbers a marker the user moved.
+  const appliedRefDefault = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const ds = state.currentDataset;
+    if (!ds || appliedRefDefault.current.has(ds)) return;
+    const refLonLat = state.datasetInfo[ds]?.reference_lonlat;
+    appliedRefDefault.current.add(ds);
+    if (!refLonLat) return;
+    const [lon, lat] = refLonLat;
+    dispatch({ type: 'SET_REF_MARKER_POSITION', payload: [lat, lon] });
+    if (state.datasetInfo[ds]?.uses_spatial_ref) setRefValues(ds);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.currentDataset, state.datasetInfo, dispatch]);
 
   // Auto-set vmin/vmax when wrap is toggled
   useEffect(() => {
@@ -661,6 +677,22 @@ export default function ControlPanel({ title }: { title: string }) {
               onBlur={commitRefPosition} onKeyDown={e => e.key === 'Enter' && commitRefPosition()} />
           </div>
         </div>
+        {currentDatasetInfo?.reference_lonlat && (
+          <button
+            className="sidebar-btn"
+            style={{ marginTop: 6, width: '100%', fontSize: '0.8em' }}
+            title={`Reset to the cube's reference point (${currentDatasetInfo.reference_lonlat[1].toFixed(5)}, ${currentDatasetInfo.reference_lonlat[0].toFixed(5)})`}
+            onClick={() => {
+              const [lon, lat] = currentDatasetInfo.reference_lonlat!;
+              dispatch({ type: 'SET_REF_MARKER_POSITION', payload: [lat, lon] });
+              const ds = state.currentDataset;
+              if (ds && state.datasetInfo[ds]?.uses_spatial_ref) setRefValues(ds);
+            }}
+          >
+            <i className="fas fa-rotate-left" style={{ marginRight: 6 }} />
+            Revert to default reference
+          </button>
+        )}
         <div className="toggle-row" style={{ marginTop: 6 }}>
           <span style={{ fontSize: '0.82em', color: 'var(--sb-muted)' }}>Sample around ref marker</span>
           <button className={`toggle-pill${state.refBufferEnabled ? ' active' : ''}`}

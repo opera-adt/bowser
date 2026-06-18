@@ -331,6 +331,57 @@ def _los_metadata_from_attrs(attrs: dict) -> dict | None:
     return result
 
 
+def _reference_lonlat(ds: "xr.Dataset") -> list[float] | None:
+    """Return ``[lon, lat]`` of the product's spatial reference point, if recorded.
+
+    DISP-S1 writes a scalar ``reference_point`` variable whose attrs carry
+    ``longitudes``/``latitudes`` lists — the point the displacement is referenced
+    to. Falls back to a couple of root-attr spellings (``reference_lonlat`` is
+    what ``tifs-to-geozarr --reference-point`` writes). Returns ``None`` when
+    absent (e.g. cubes whose converter didn't carry the reference point).
+
+    Reference points are stored as lon/lat by convention; a candidate that does
+    not fall within valid geographic ranges (e.g. a cube that wrongly stashed
+    UTM metres) is rejected with a warning rather than silently misplacing the
+    marker.
+    """
+    candidate: list[float] | None = None
+    if "reference_point" in ds.variables:
+        a = ds["reference_point"].attrs
+        lons, lats = a.get("longitudes"), a.get("latitudes")
+        try:
+            if lons is not None and lats is not None and len(lons) and len(lats):
+                candidate = [float(lons[0]), float(lats[0])]
+        except (TypeError, ValueError):
+            pass
+    a = ds.attrs
+    if candidate is None:
+        v = a.get("reference_point") or a.get("reference_lonlat")
+        if isinstance(v, (list, tuple)) and len(v) == 2:
+            try:
+                candidate = [float(v[0]), float(v[1])]
+            except (TypeError, ValueError):
+                pass
+    if candidate is None:
+        rlon, rlat = a.get("reference_lon"), a.get("reference_lat")
+        if rlon is not None and rlat is not None:
+            try:
+                candidate = [float(rlon), float(rlat)]
+            except (TypeError, ValueError):
+                pass
+    if candidate is None:
+        return None
+    lon, lat = candidate
+    if abs(lon) > 180 or abs(lat) > 90:
+        logger.warning(
+            "Ignoring reference point %s: not a valid lon/lat. Reference points "
+            "must be stored as lon/lat (see tifs-to-geozarr --reference-point).",
+            candidate,
+        )
+        return None
+    return candidate
+
+
 def create_xarray_dataset_info(ds: xr.Dataset) -> dict:
     """Create dataset info structure from Xarray Dataset."""
     bounds = ds.rio.bounds()
@@ -347,6 +398,7 @@ def create_xarray_dataset_info(ds: xr.Dataset) -> dict:
     )
 
     los_metadata = _los_metadata_from_attrs(dict(ds.attrs))
+    reference_lonlat = _reference_lonlat(ds)
     dataset_info = {}
     skip_spatial_reference = not settings.BOWSER_USE_SPATIAL_REFERENCE_DISP
     for var_name, var in ds.data_vars.items():
@@ -384,6 +436,7 @@ def create_xarray_dataset_info(ds: xr.Dataset) -> dict:
             "label": attrs.get("long_name", var_name),
             "unit": attrs.get("units", ""),
             "los_metadata": los_metadata,
+            "reference_lonlat": reference_lonlat,
         }
 
     return dataset_info
@@ -630,6 +683,26 @@ async def _get_point_values(
         return np.atleast_1d(reader.read_lonlat(lon, lat))
 
 
+def _point_xy(dataset_name: str, lon: float, lat: float) -> tuple[float, float] | None:
+    """Return a point's coordinates in the dataset's native CRS (e.g. UTM x/y).
+
+    Mirrors the lon/lat → CRS transform used when sampling, so CSV exports can
+    carry projected easting/northing alongside lon/lat for cubes that aren't in
+    geographic coordinates. Returns ``None`` if the transform is unavailable.
+    """
+    try:
+        if state.mode == "md":
+            x, y = state.transformer_from_lonlat.transform(lon, lat)
+        else:
+            reader = state.raster_groups[dataset_name]._reader
+            x, y = reader.readers[0]._transformer_from_lonlat.transform(lon, lat)
+        if np.isfinite(x) and np.isfinite(y):
+            return float(x), float(y)
+    except (AttributeError, KeyError, ValueError):
+        pass
+    return None
+
+
 @app.get(
     "/point",
     response_class=JSONResponse,
@@ -800,6 +873,7 @@ async def multi_point(
                     "stdMmPerYear": trend_result["std_mm_per_year"],
                 }
 
+            xy = _point_xy(dataset_name, float(lon), float(lat))  # type: ignore[arg-type]
             results.append(
                 {
                     "pointId": point_id,
@@ -808,6 +882,8 @@ async def multi_point(
                     "borderColor": color,
                     "backgroundColor": color + "20",
                     "trend": trend_data,
+                    "x": xy[0] if xy else None,
+                    "y": xy[1] if xy else None,
                 }
             )
 

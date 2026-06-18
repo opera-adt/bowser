@@ -76,7 +76,9 @@ def convert(
     pyramid: bool,
     min_pyramid_size: int,
     los_dir: str | None,
-    verbose: int,
+    reference_point: str | None = None,
+    reference_point_epsg: int | None = None,
+    verbose: int = 0,
 ) -> list[str]:
     """Run the conversion. Returns the list of variable names written."""
     logging.basicConfig(level=logging.INFO if verbose else logging.WARNING)
@@ -179,7 +181,97 @@ def convert(
     if los_dir:
         _write_los_attrs(output, Path(los_dir))
 
+    if reference_point:
+        lon, lat = _reference_point_to_lonlat(
+            reference_point, reference_point_epsg, ref.crs_wkt
+        )
+        _write_reference_point(output, lon, lat)
+
     return sorted(written)
+
+
+def _reference_point_to_lonlat(
+    reference_point: str, src_epsg: int | None, dataset_crs_wkt: str
+) -> tuple[float, float]:
+    """Parse ``"X,Y"`` and return it as ``(lon, lat)`` in EPSG:4326.
+
+    The pair is interpreted in ``src_epsg`` when given, otherwise in the
+    dataset CRS (so a UTM cube can take its native easting/northing). The
+    GeoZarr stores reference points as lon/lat by convention, so the result
+    is validated to fall within valid geographic ranges — out-of-range values
+    (e.g. raw UTM metres with no/incorrect source CRS) raise ``ValueError``.
+
+    Parameters
+    ----------
+    reference_point : str
+        ``"X,Y"`` coordinate pair in ``src_epsg`` (or the dataset CRS).
+    src_epsg : int or None
+        EPSG code the pair is given in; ``None`` uses the dataset CRS.
+    dataset_crs_wkt : str
+        WKT of the cube's CRS, used when ``src_epsg`` is ``None``.
+
+    Returns
+    -------
+    tuple of float
+        ``(lon, lat)`` in EPSG:4326.
+
+    Raises
+    ------
+    ValueError
+        If the pair cannot be parsed or does not reproject to a valid
+        geographic coordinate.
+    """
+    from pyproj import CRS, Transformer  # noqa: PLC0415
+
+    try:
+        x_str, y_str = reference_point.split(",")
+        x, y = float(x_str), float(y_str)
+    except (ValueError, AttributeError) as exc:
+        raise ValueError(
+            f"--reference-point must be 'X,Y', got {reference_point!r}"
+        ) from exc
+
+    if src_epsg is not None:
+        src_crs = CRS.from_epsg(src_epsg)
+    elif dataset_crs_wkt:
+        src_crs = CRS.from_wkt(dataset_crs_wkt)
+    else:
+        raise ValueError(
+            "Dataset CRS is unknown; pass --reference-point-epsg to say which "
+            "CRS the reference point is in."
+        )
+
+    if src_crs.to_epsg() == 4326:
+        lon, lat = x, y
+    else:
+        lon, lat = Transformer.from_crs(
+            src_crs, 4326, always_xy=True
+        ).transform(x, y)
+
+    if not (np.isfinite(lon) and np.isfinite(lat)) or abs(lon) > 180 or abs(lat) > 90:
+        raise ValueError(
+            f"Reference point {reference_point!r} reprojected to "
+            f"(lon={lon}, lat={lat}), which is not a valid lon/lat. Pass "
+            "--reference-point-epsg with the CRS your X,Y are in."
+        )
+    return float(lon), float(lat)
+
+
+def _write_reference_point(zarr_path: str, lon: float, lat: float) -> None:
+    """Stash a default reference point (lon/lat) in the zarr root/group attrs.
+
+    The bowser UI reads ``reference_lonlat`` to seed the moving reference
+    marker. Mirrors :func:`_write_los_attrs`: written to the root and every
+    subgroup so ``ds.attrs`` exposes it regardless of how the store is opened.
+    """
+    import zarr  # noqa: PLC0415
+
+    root = zarr.open_group(zarr_path, mode="r+")
+    root.attrs["reference_lonlat"] = [lon, lat]
+    for name in list(root.group_keys()):
+        if name not in ("multiscales",):
+            root[name].attrs["reference_lonlat"] = [lon, lat]
+    logger.info("Stashed reference point in %s: lon=%s lat=%s", zarr_path, lon, lat)
 
 
 def _write_los_attrs(zarr_path: str, los_dir: Path) -> None:

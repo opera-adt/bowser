@@ -1162,6 +1162,26 @@ def register(
     type=int,
     help="Stop building pyramid when min(y, x) drops below this.",
 )
+@click.option(
+    "--reference-point",
+    default=None,
+    help=(
+        "Default spatial reference point as 'X,Y'. Interpreted in the dataset "
+        "CRS (e.g. UTM easting,northing) unless --reference-point-epsg is given, "
+        "and stored in the zarr as lon/lat so the bowser UI seeds the moving "
+        "reference marker there. Reprojects to lon/lat and errors if the result "
+        "is not a valid geographic coordinate."
+    ),
+)
+@click.option(
+    "--reference-point-epsg",
+    default=None,
+    type=int,
+    help=(
+        "EPSG code the --reference-point X,Y is given in. Omit to interpret it "
+        "in the dataset CRS; pass 4326 if you already have lon,lat."
+    ),
+)
 @click.option("-v", "--verbose", count=True)
 def tifs_to_geozarr(
     config: str,
@@ -1176,6 +1196,8 @@ def tifs_to_geozarr(
     pyramid: bool,
     min_pyramid_size: int,
     los_dir: str | None,
+    reference_point: str | None,
+    reference_point_epsg: int | None,
     verbose: int,
 ) -> None:
     """Convert CONFIG (bowser_rasters.json) into OUTPUT (single zarr store).
@@ -1198,6 +1220,8 @@ def tifs_to_geozarr(
         pyramid=pyramid,
         min_pyramid_size=min_pyramid_size,
         los_dir=los_dir,
+        reference_point=reference_point,
+        reference_point_epsg=reference_point_epsg,
         verbose=verbose,
     )
     click.echo(f"Wrote {output} with variables: {written}")

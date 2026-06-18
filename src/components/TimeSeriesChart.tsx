@@ -280,11 +280,15 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     // ── Metadata header (per series): point lat/lon and trend velocity ± std ──
     const ptById = Object.fromEntries(state.timeSeriesPoints.map(p => [p.id, p]));
     const num = (v: number | undefined, dp = 5) => (v === undefined || isNaN(v) ? '' : v.toFixed(dp));
-    const metaHeader = '# series,lat,lon,dataset,velocity_mm_per_yr,velocity_std_mm_per_yr';
+    // x/y are the point's coordinates in the cube's native CRS (e.g. UTM
+    // easting/northing) — useful when the data isn't geographic; blank when the
+    // backend couldn't supply them.
+    const metaHeader = '# series,lat,lon,x,y,dataset,velocity_mm_per_yr,velocity_std_mm_per_yr';
     const metaRows = allDatasets.map(d => {
       const p = ptById[d.pointId];
       const t = d.trend;
       return `# ${colName(d)},${p ? num(p.position[0], 6) : ''},${p ? num(p.position[1], 6) : ''},` +
+        `${num(d.x ?? undefined, 3)},${num(d.y ?? undefined, 3)},` +
         `${d._dsName},${num(t?.mmPerYear, 3)},${num(t?.stdMmPerYear, 3)}`;
     });
 

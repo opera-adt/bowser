@@ -27,6 +27,10 @@ export interface RasterGroup {
   unit?: string;
   reference_date?: string | null;
   los_metadata?: LosMetadata;
+  // Default spatial reference point [lon, lat] recorded in the cube (DISP-S1
+  // reference_point / tifs-to-geozarr --reference-point). Seeds the moving
+  // reference marker; null when the cube carries none.
+  reference_lonlat?: [number, number] | null;
 }
 
 export interface TimeSeriesPoint {
@@ -47,6 +51,10 @@ export interface MultiPointTimeSeriesData {
     data: Array<{ x: string; y: number }>;
     borderColor: string;
     backgroundColor: string;
+    // Point coordinates in the dataset's native CRS (e.g. UTM easting/northing);
+    // null when the cube is geographic or the transform is unavailable.
+    x?: number | null;
+    y?: number | null;
     trend?: {
       slope: number;
       intercept: number;
