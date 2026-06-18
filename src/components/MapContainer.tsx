@@ -1066,7 +1066,10 @@ function OverlayLayers() {
         if (o.type === 'geotiff') {
           const vmin = o.vmin ?? 0, vmax = o.vmax ?? 1, nbins = o.nbins ?? 5;
           const binColors = o.binColors ?? [];
-          const base = `/overlay/tiles/WebMercatorQuad/{z}/{x}/{y}?url=${encodeURIComponent(o.path ?? '')}`;
+          // Force PNG so areas outside the raster footprint are transparent.
+          // Without an extension titiler may emit JPEG (no alpha) → opaque black
+          // covering the whole map.
+          const base = `/overlay/tiles/WebMercatorQuad/{z}/{x}/{y}.png?url=${encodeURIComponent(o.path ?? '')}`;
           url = base;
           if (o.mode === 'cmap' && o.discrete) {
             const step = (vmax - vmin) / nbins;
