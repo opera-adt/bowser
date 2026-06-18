@@ -202,6 +202,7 @@ export type AppAction =
   | { type: 'UPDATE_TIME_SERIES_POINT'; payload: { id: string; updates: Partial<TimeSeriesPoint> } }
   | { type: 'SET_POINT_DATA'; payload: { pointId: string; dataset: string; data: number[] } }
   | { type: 'SET_POINT_TREND_DATA'; payload: { pointId: string; dataset: string; trend: { slope: number; intercept: number; rSquared: number; mmPerYear: number; stdMmPerYear?: number } } }
+  | { type: 'LOAD_PROJECT'; payload: Partial<AppState> }
   | { type: 'SET_REF_MARKER_POSITION'; payload: [number, number] }
   | { type: 'SET_CURRENT_DATASET'; payload: string }
   | { type: 'SET_TIME_INDEX'; payload: number }
