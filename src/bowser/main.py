@@ -592,15 +592,27 @@ async def _get_point_values(
     lon: float,
     lat: float,
     layer_masks: list[dict] | None = None,
+    time_idx: int | None = None,
 ) -> np.ndarray:
-    """Get point values for a dataset at lon/lat, with optional MD-mode masking."""
+    """Get point values for a dataset at lon/lat, with optional MD-mode masking.
+
+    When ``time_idx`` is given, only that single time step is read — a hover
+    that shows one value then costs one chunk/file fetch instead of pulling the
+    whole time series (~80 sharded S3 GETs for a DISP-S1 cube). Omit it to get
+    the full series (charts, reference values).
+    """
     if state.mode == "md":
         if dataset_name not in state.dataset.data_vars:
             raise HTTPException(
                 status_code=404, detail=f"Variable {dataset_name} not found"
             )
         da = state.dataset[dataset_name]
-        da = _apply_layer_masks_md(da, layer_masks or [])
+        # Select the single time step before reading so only its chunk is fetched.
+        if time_idx is not None:
+            dim = _non_spatial_dim(da)
+            if dim is not None:
+                da = da.isel({dim: max(0, min(time_idx, da.sizes[dim] - 1))})
+        da = _apply_layer_masks_md(da, layer_masks or [], time_idx=time_idx)
         x, y = state.transformer_from_lonlat.transform(lon, lat)
         point_data = da.sel(x=x, y=y, method="nearest")
         return np.atleast_1d(point_data.values)
@@ -609,9 +621,13 @@ async def _get_point_values(
             raise HTTPException(
                 status_code=404, detail=f"Dataset {dataset_name} not found"
             )
-        return np.atleast_1d(
-            state.raster_groups[dataset_name]._reader.read_lonlat(lon, lat)
-        )
+        reader = state.raster_groups[dataset_name]._reader
+        # Read a single band/time step instead of opening every file in the stack.
+        if time_idx is not None:
+            row, col = reader.readers[0]._lonlat_to_rowcol(lon, lat)
+            safe_idx = max(0, min(time_idx, len(reader.readers) - 1))
+            return np.atleast_1d(reader[safe_idx, row, col])
+        return np.atleast_1d(reader.read_lonlat(lon, lat))
 
 
 @app.get(
@@ -623,9 +639,13 @@ async def point(
     dataset_name: str,
     lon: Annotated[float, Query(..., title="Longitude", ge=-180, le=180)],
     lat: Annotated[float, Query(..., title="Latitude", ge=-90, le=90)],
+    time_idx: Annotated[
+        int | None,
+        Query(title="Time index — read only this step (fast single-value hover)"),
+    ] = None,
 ):
-    """Fetch list of time series values for a point."""
-    values = await _get_point_values(dataset_name, lon, lat)
+    """Fetch point values. Full time series, or one value when ``time_idx`` is set."""
+    values = await _get_point_values(dataset_name, lon, lat, time_idx=time_idx)
     return JSONResponse(values.tolist())
 
 
