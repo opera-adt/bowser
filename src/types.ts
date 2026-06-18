@@ -119,6 +119,7 @@ export interface Overlay {
   // --- external (wms / wmts / xyz) ---
   url?: string;          // WMS base URL, or WMTS/XYZ tile template with {z}/{x}/{y}
   wmsLayers?: string;    // WMS LAYERS parameter
+  maxNativeZoom?: number; // highest zoom the service has tiles for; upsample past it
 }
 
 export interface AppState {

@@ -148,6 +148,7 @@ export default function ControlPanel({ title }: { title: string }) {
         opacity: 1,
         url,
         wmsLayers: extType === 'wms' ? extLayers.trim() : undefined,
+        maxNativeZoom: 18,
       },
     });
     setExtUrl(''); setExtLayers('');
@@ -883,7 +884,15 @@ export default function ControlPanel({ title }: { title: string }) {
                   </div>
                 )}
                 {o.type !== 'geotiff' ? (
-                  <div style={{ fontSize: '0.7em', color: 'var(--sb-muted)', marginTop: 4, wordBreak: 'break-all' }}>{o.url}</div>
+                  <>
+                    <div style={{ fontSize: '0.7em', color: 'var(--sb-muted)', marginTop: 4, wordBreak: 'break-all' }}>{o.url}</div>
+                    <div style={{ display: 'flex', gap: 4, marginTop: 4, alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.72em', color: 'var(--sb-muted)' }} title="Highest zoom the service has tiles for; above it, tiles are upsampled instead of disappearing">Max native zoom</span>
+                      <input className="sidebar-input" type="number" min={1} max={24} style={{ width: 56, fontSize: '0.76em' }}
+                        value={o.maxNativeZoom ?? 18}
+                        onChange={e => dispatch({ type: 'UPDATE_OVERLAY', payload: { id: o.id, updates: { maxNativeZoom: Math.max(1, Math.min(24, parseInt(e.target.value) || 18)) } } })} />
+                    </div>
+                  </>
                 ) : (o.bandCount ?? 1) >= 3 ? (
                   <div style={{ fontSize: '0.72em', color: 'var(--sb-muted)', marginTop: 4 }}>RGB ({o.bandCount}-band)</div>
                 ) : (

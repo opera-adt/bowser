@@ -1093,15 +1093,18 @@ function OverlayLayers() {
           // undefined (it only resolves string pane names), and the layer then
           // crashes on `getPane().appendChild`. Omitting it uses the default pane.
           const paneProp = pane ? { pane } : {};
+          // maxNativeZoom: past the service's deepest tiles, upsample instead of
+          // requesting non-existent tiles (which 404 → the overlay vanishes on zoom-in).
+          const mnz = o.maxNativeZoom;
           if (o.type === 'wms') {
             return (
               <WMSTileLayer key={key} {...paneProp} url={o.url ?? ''}
                 params={{ layers: o.wmsLayers ?? '', format: 'image/png', transparent: true } as any}
-                opacity={o.opacity} zIndex={zIndex} />
+                opacity={o.opacity} zIndex={zIndex} maxZoom={22} maxNativeZoom={mnz} />
             );
           }
           if (o.type === 'wmts') {
-            return <TileLayer key={key} {...paneProp} url={o.url ?? ''} opacity={o.opacity} zIndex={zIndex} maxZoom={22} />;
+            return <TileLayer key={key} {...paneProp} url={o.url ?? ''} opacity={o.opacity} zIndex={zIndex} maxZoom={22} maxNativeZoom={mnz} />;
           }
           return <TileLayer key={key} {...paneProp} url={url} opacity={o.opacity} zIndex={zIndex} maxZoom={22} />;
         });
