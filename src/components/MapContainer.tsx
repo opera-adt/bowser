@@ -1087,17 +1087,21 @@ function OverlayLayers() {
 
         return panes.map((pane, pi) => {
           const key = `${o.id}:${pi}:${vizKey}:${o.vmin}:${o.vmax}`;
+          // Only pass `pane` when set: Leaflet's getPane(undefined) returns
+          // undefined (it only resolves string pane names), and the layer then
+          // crashes on `getPane().appendChild`. Omitting it uses the default pane.
+          const paneProp = pane ? { pane } : {};
           if (o.type === 'wms') {
             return (
-              <WMSTileLayer key={key} pane={pane} url={o.url ?? ''}
+              <WMSTileLayer key={key} {...paneProp} url={o.url ?? ''}
                 params={{ layers: o.wmsLayers ?? '', format: 'image/png', transparent: true } as any}
                 opacity={o.opacity} zIndex={zIndex} />
             );
           }
           if (o.type === 'wmts') {
-            return <TileLayer key={key} pane={pane} url={o.url ?? ''} opacity={o.opacity} zIndex={zIndex} maxZoom={22} />;
+            return <TileLayer key={key} {...paneProp} url={o.url ?? ''} opacity={o.opacity} zIndex={zIndex} maxZoom={22} />;
           }
-          return <TileLayer key={key} pane={pane} url={url} opacity={o.opacity} zIndex={zIndex} maxZoom={22} />;
+          return <TileLayer key={key} {...paneProp} url={url} opacity={o.opacity} zIndex={zIndex} maxZoom={22} />;
         });
       })}
     </>
