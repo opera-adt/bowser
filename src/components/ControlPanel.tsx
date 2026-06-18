@@ -51,6 +51,7 @@ export default function ControlPanel({ title }: { title: string }) {
   // ── Project save/load: persist points, reference, annotations and masks. ──
   const PROJECT_KEYS = [
     'currentDataset', 'currentTimeIndex', 'colormap', 'vmin', 'vmax',
+    'opacity', 'dataMode',
     'refMarkerPosition', 'refEnabled', 'refMarkerVisible',
     'timeSeriesPoints', 'annotations', 'layerMasks', 'customMaskPath',
   ] as const;
@@ -95,6 +96,8 @@ export default function ControlPanel({ title }: { title: string }) {
       colormap: isStr,
       vmin: isNum,
       vmax: isNum,
+      opacity: (v) => isNum(v) && v >= 0 && v <= 1,
+      dataMode: isStr,
       refMarkerPosition: isPair,
       refEnabled: isBool,
       refMarkerVisible: isBool,
@@ -115,6 +118,15 @@ export default function ControlPanel({ title }: { title: string }) {
       });
       if (Object.keys(payload).length === 0) {
         throw new Error('no valid project fields found');
+      }
+      // Switching currentDataset fires the dataset-change effect, which restores
+      // colormap/vmin/vmax from localStorage and would otherwise clobber the
+      // project's values. Seed localStorage first so it reads back what we load.
+      const ds = payload.currentDataset;
+      if (typeof ds === 'string') {
+        if ('colormap' in payload) localStorage.setItem(`${ds}-colormap_name`, String(payload.colormap));
+        if ('vmin' in payload) localStorage.setItem(`${ds}-vmin`, String(payload.vmin));
+        if ('vmax' in payload) localStorage.setItem(`${ds}-vmax`, String(payload.vmax));
       }
       dispatch({ type: 'LOAD_PROJECT', payload });
       if (skipped.length) alert(`Loaded project; ignored malformed fields: ${skipped.join(', ')}`);
