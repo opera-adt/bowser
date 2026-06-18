@@ -136,7 +136,11 @@ export default function ControlPanel({ title }: { title: string }) {
   const [extUrl, setExtUrl] = useState('');
   const [extLayers, setExtLayers] = useState('');
   const addExternalOverlay = useCallback(() => {
-    const url = extUrl.trim();
+    // Leaflet only substitutes lowercase {x}/{y}/{z}/{s}; normalize uppercase
+    // placeholders (common in WMTS/ArcGIS docs) so they don't throw.
+    const url = extUrl.trim()
+      .replace(/\{Z\}/g, '{z}').replace(/\{Y\}/g, '{y}')
+      .replace(/\{X\}/g, '{x}').replace(/\{S\}/g, '{s}');
     if (!url) return;
     dispatch({
       type: 'ADD_OVERLAY',
