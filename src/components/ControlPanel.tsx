@@ -871,6 +871,17 @@ export default function ControlPanel({ title }: { title: string }) {
                 </div>
                 <input type="range" className="sidebar-range" min="0" max="1" step="0.05" value={o.opacity}
                   onChange={e => dispatch({ type: 'UPDATE_OVERLAY', payload: { id: o.id, updates: { opacity: parseFloat(e.target.value) } } })} />
+                {state.splitScreen && (
+                  <div style={{ display: 'flex', gap: 4, marginTop: 4, alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.72em', color: 'var(--sb-muted)' }}>Show on</span>
+                    <select className="sidebar-select" style={{ flex: 1, fontSize: '0.76em' }} value={o.side ?? 'both'}
+                      onChange={e => dispatch({ type: 'UPDATE_OVERLAY', payload: { id: o.id, updates: { side: e.target.value as 'left' | 'right' | 'both' } } })}>
+                      <option value="both">Both sides</option>
+                      <option value="left">Left only</option>
+                      <option value="right">Right only</option>
+                    </select>
+                  </div>
+                )}
                 {o.type !== 'geotiff' ? (
                   <div style={{ fontSize: '0.7em', color: 'var(--sb-muted)', marginTop: 4, wordBreak: 'break-all' }}>{o.url}</div>
                 ) : (o.bandCount ?? 1) >= 3 ? (

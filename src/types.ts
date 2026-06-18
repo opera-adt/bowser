@@ -99,6 +99,7 @@ export interface Overlay {
   type: 'geotiff' | 'wms' | 'wmts';
   visible: boolean;
   opacity: number;       // 0..1
+  side?: 'left' | 'right' | 'both';  // which half to show in split-screen (default both)
 
   // --- geotiff ---
   path?: string;         // server path returned by /upload_raster

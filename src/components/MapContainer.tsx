@@ -1046,59 +1046,56 @@ function hexToRgba(hex: string): [number, number, number, number] {
 // basemap. Each overlay is tiled by the /overlay titiler (reprojected on the fly).
 function OverlayLayers() {
   const { state } = useAppContext();
+  const split = state.splitScreen;
   return (
     <>
-      {state.overlays.map((o, i) => {
-        if (!o.visible) return null;
+      {state.overlays.flatMap((o, i) => {
+        if (!o.visible) return [];
         const zIndex = Math.min(3 + i, 9);
+        // In split-screen, draw into the left/right (clipped) pane(s) per `side`.
+        const side = o.side ?? 'both';
+        const panes: (string | undefined)[] = !split
+          ? [undefined]
+          : side === 'left' ? ['splitLeft']
+          : side === 'right' ? ['splitRight']
+          : ['splitLeft', 'splitRight'];
 
-        if (o.type === 'wms') {
-          return (
-            <WMSTileLayer
-              key={`${o.id}:${o.wmsLayers}`}
-              url={o.url ?? ''}
-              params={{ layers: o.wmsLayers ?? '', format: 'image/png', transparent: true } as any}
-              opacity={o.opacity}
-              zIndex={zIndex}
-            />
-          );
-        }
-        if (o.type === 'wmts') {
-          // RESTful WMTS / XYZ template with {z}/{x}/{y} placeholders.
-          return (
-            <TileLayer key={o.id} url={o.url ?? ''} opacity={o.opacity} zIndex={zIndex} maxZoom={22} />
-          );
+        // Resolve the tile URL once (geotiff); WMS uses params.
+        let url = '';
+        let vizKey: string = o.type;
+        if (o.type === 'geotiff') {
+          const vmin = o.vmin ?? 0, vmax = o.vmax ?? 1, nbins = o.nbins ?? 5;
+          const binColors = o.binColors ?? [];
+          const base = `/overlay/tiles/WebMercatorQuad/{z}/{x}/{y}?url=${encodeURIComponent(o.path ?? '')}`;
+          url = base;
+          if (o.mode === 'cmap' && o.discrete) {
+            const step = (vmax - vmin) / nbins;
+            const intervals = Array.from({ length: nbins }, (_, k) => {
+              const lo = vmin + k * step;
+              const hi = k === nbins - 1 ? vmax + Math.abs(step) * 1e-3 + 1e-9 : vmin + (k + 1) * step;
+              return [[lo, hi], hexToRgba(binColors[k])];
+            });
+            url = `${base}&colormap=${encodeURIComponent(JSON.stringify(intervals))}`;
+          } else if (o.mode === 'cmap') {
+            url = `${base}&colormap_name=${encodeURIComponent(o.cmap ?? 'viridis')}&rescale=${vmin},${vmax}`;
+          }
+          vizKey = o.mode === 'cmap' ? (o.discrete ? `d${nbins}:${binColors.join('')}` : (o.cmap ?? '')) : 'rgb';
         }
 
-        // geotiff
-        const vmin = o.vmin ?? 0, vmax = o.vmax ?? 1, nbins = o.nbins ?? 5;
-        const binColors = o.binColors ?? [];
-        const base = `/overlay/tiles/WebMercatorQuad/{z}/{x}/{y}?url=${encodeURIComponent(o.path ?? '')}`;
-        let url = base;
-        if (o.mode === 'cmap' && o.discrete) {
-          // Equal-width bins over [vmin,vmax], each its own color (interval cmap).
-          const step = (vmax - vmin) / nbins;
-          const intervals = Array.from({ length: nbins }, (_, k) => {
-            const lo = vmin + k * step;
-            const hi = k === nbins - 1 ? vmax + Math.abs(step) * 1e-3 + 1e-9 : vmin + (k + 1) * step;
-            return [[lo, hi], hexToRgba(binColors[k])];
-          });
-          url = `${base}&colormap=${encodeURIComponent(JSON.stringify(intervals))}`;
-        } else if (o.mode === 'cmap') {
-          url = `${base}&colormap_name=${encodeURIComponent(o.cmap ?? 'viridis')}&rescale=${vmin},${vmax}`;
-        }
-        const vizKey = o.mode === 'cmap'
-          ? (o.discrete ? `d${nbins}:${binColors.join('')}` : o.cmap)
-          : 'rgb';
-        return (
-          <TileLayer
-            key={`${o.id}:${vizKey}:${vmin}:${vmax}`}
-            url={url}
-            opacity={o.opacity}
-            zIndex={zIndex}
-            maxZoom={22}
-          />
-        );
+        return panes.map((pane, pi) => {
+          const key = `${o.id}:${pi}:${vizKey}:${o.vmin}:${o.vmax}`;
+          if (o.type === 'wms') {
+            return (
+              <WMSTileLayer key={key} pane={pane} url={o.url ?? ''}
+                params={{ layers: o.wmsLayers ?? '', format: 'image/png', transparent: true } as any}
+                opacity={o.opacity} zIndex={zIndex} />
+            );
+          }
+          if (o.type === 'wmts') {
+            return <TileLayer key={key} pane={pane} url={o.url ?? ''} opacity={o.opacity} zIndex={zIndex} maxZoom={22} />;
+          }
+          return <TileLayer key={key} pane={pane} url={url} opacity={o.opacity} zIndex={zIndex} maxZoom={22} />;
+        });
       })}
     </>
   );
