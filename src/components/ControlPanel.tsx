@@ -68,13 +68,56 @@ export default function ControlPanel({ title }: { title: string }) {
     a.download = `bowser-project-${new Date().toISOString().slice(0, 16).replace(/[:.]/g, '-')}.json`;
     document.body.appendChild(a); a.click(); a.remove();
   }, [state]);
+  // Validate each field before merging it into state. LOAD_PROJECT spreads the
+  // payload straight onto state, so a hand-edited/corrupt file with a wrong type
+  // (e.g. timeSeriesPoints not an array, refMarkerPosition not a pair) would
+  // crash rendering — a React render throw blanks the whole app. Drop any field
+  // that doesn't match its expected shape rather than trusting the file.
   const loadProject = useCallback(async (file: File) => {
+    const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+    const isStr = (v: unknown): v is string => typeof v === 'string';
+    const isBool = (v: unknown) => typeof v === 'boolean';
+    const isPair = (v: unknown) =>
+      Array.isArray(v) && v.length === 2 && isNum(v[0]) && isNum(v[1]);
+    const obj = (v: unknown): v is Record<string, unknown> =>
+      !!v && typeof v === 'object';
+    const arrayOf = (pred: (x: unknown) => boolean) => (v: unknown) =>
+      Array.isArray(v) && v.every(pred);
+    const isPoint = (v: unknown) =>
+      obj(v) && isStr(v.id) && isPair(v.position) && isStr(v.color) && isBool(v.visible);
+    const isAnnotation = (v: unknown) =>
+      obj(v) && isStr(v.id) && isPair(v.position) && isStr(v.text);
+    const isMask = (v: unknown) =>
+      obj(v) && isStr(v.id) && isStr(v.dataset) && isNum(v.threshold);
+    const validators: Record<(typeof PROJECT_KEYS)[number], (v: unknown) => boolean> = {
+      currentDataset: isStr,
+      currentTimeIndex: (v) => isNum(v) && v >= 0,
+      colormap: isStr,
+      vmin: isNum,
+      vmax: isNum,
+      refMarkerPosition: isPair,
+      refEnabled: isBool,
+      refMarkerVisible: isBool,
+      timeSeriesPoints: arrayOf(isPoint),
+      annotations: arrayOf(isAnnotation),
+      layerMasks: arrayOf(isMask),
+      customMaskPath: (v) => v === null || isStr(v),
+    };
     try {
       const p = JSON.parse(await file.text());
-      if (!p || typeof p !== 'object') throw new Error('not a bowser project file');
+      if (!obj(p)) throw new Error('not a bowser project file');
       const payload: Record<string, unknown> = {};
-      PROJECT_KEYS.forEach(k => { if (k in p) payload[k] = p[k]; });
+      const skipped: string[] = [];
+      PROJECT_KEYS.forEach(k => {
+        if (!(k in p)) return;
+        if (validators[k](p[k])) payload[k] = p[k];
+        else skipped.push(k);
+      });
+      if (Object.keys(payload).length === 0) {
+        throw new Error('no valid project fields found');
+      }
       dispatch({ type: 'LOAD_PROJECT', payload });
+      if (skipped.length) alert(`Loaded project; ignored malformed fields: ${skipped.join(', ')}`);
     } catch (err) {
       alert(`Could not load project: ${(err as Error).message}`);
     }

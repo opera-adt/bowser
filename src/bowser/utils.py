@@ -79,15 +79,22 @@ def calculate_trend(values: np.ndarray, x_values: list[str | int]) -> dict[str, 
         Dictionary with slope (m/day), intercept (m), r_squared, and mm_per_year
 
     """
+    # A degenerate fit (too few points, or no spread in time) has no defined
+    # slope. Return a fully-populated zero result so every branch yields the
+    # same key set — callers index keys like ``std_mm_per_year`` directly.
+    zero_trend = {
+        "slope": 0.0,
+        "intercept": 0.0,
+        "r_squared": 0.0,
+        "mm_per_year": 0.0,
+        "std_err": 0.0,
+        "std_mm_per_year": 0.0,
+    }
+
     # Filter out NaN values
     valid_mask = ~np.isnan(values)
     if valid_mask.sum() < 2:
-        return {
-            "slope": 0.0,
-            "intercept": 0.0,
-            "r_squared": 0.0,
-            "mm_per_year": 0.0,
-        }
+        return zero_trend
 
     valid_values = values[valid_mask]
 
@@ -106,6 +113,10 @@ def calculate_trend(values: np.ndarray, x_values: list[str | int]) -> dict[str, 
     ss_xy = float((dx * dy).sum())
     ss_x = float((dx * dx).sum())
     ss_y = float((dy * dy).sum())
+    # ss_x == 0 means every valid sample shares one time value (e.g. duplicate
+    # date labels): the slope is undefined and would divide by zero.
+    if ss_x == 0:
+        return zero_trend
     slope = ss_xy / ss_x
     intercept = y_mean - slope * x_mean
     r_squared = (ss_xy * ss_xy) / (ss_x * ss_y) if ss_x and ss_y else 0.0

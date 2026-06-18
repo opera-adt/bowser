@@ -1616,9 +1616,47 @@ async def extract_profile(
     )
 
 
-# Upload directory for custom masks
+# Upload directory for custom masks / overlays.
 _UPLOAD_DIR = Path(os.environ.get("BOWSER_UPLOAD_DIR", "/tmp/bowser_masks"))
 _UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+# Cap per-file upload size (memory/disk DoS guard) and retention window.
+_MAX_UPLOAD_BYTES = int(os.environ.get("BOWSER_MAX_UPLOAD_MB", "500")) * 1024 * 1024
+_UPLOAD_RETENTION_S = int(os.environ.get("BOWSER_UPLOAD_RETENTION_H", "24")) * 3600
+
+
+def _sweep_upload_dir() -> None:
+    """Delete uploads older than the retention window so the dir can't grow without bound."""
+    cutoff = time.time() - _UPLOAD_RETENTION_S
+    for f in _UPLOAD_DIR.glob("*"):
+        try:
+            if f.is_file() and f.stat().st_mtime < cutoff:
+                f.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+async def _save_upload(file: "UploadFile", dest: Path) -> None:
+    """Stream an upload to ``dest`` in chunks, enforcing ``_MAX_UPLOAD_BYTES``.
+
+    Reading the whole body into memory at once (``await file.read()``) lets a
+    single large POST exhaust RAM; streaming with a running byte ceiling bounds
+    both memory and the on-disk size, and aborts cleanly with HTTP 413.
+    """
+    _sweep_upload_dir()
+    total = 0
+    try:
+        with dest.open("wb") as out:
+            while chunk := await file.read(1024 * 1024):
+                total += len(chunk)
+                if total > _MAX_UPLOAD_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"Upload exceeds {_MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit",
+                    )
+                out.write(chunk)
+    except BaseException:
+        dest.unlink(missing_ok=True)
+        raise
 
 
 @app.post(
@@ -1633,7 +1671,7 @@ async def upload_mask(file: UploadFile):
     import uuid  # noqa: PLC0415
 
     dest = _UPLOAD_DIR / f"mask_{uuid.uuid4().hex}.tif"
-    dest.write_bytes(await file.read())
+    await _save_upload(file, dest)
     return JSONResponse({"path": str(dest)})
 
 
@@ -1656,7 +1694,7 @@ async def upload_raster(file: UploadFile):
 
     suffix = Path(file.filename or "").suffix or ".tif"
     dest = _UPLOAD_DIR / f"overlay_{uuid.uuid4().hex}{suffix}"
-    dest.write_bytes(await file.read())
+    await _save_upload(file, dest)
 
     from rio_tiler.io import Reader  # noqa: PLC0415
 
@@ -1895,22 +1933,36 @@ def _build_masked_md_dataarray(
     both apply identical masking: the recommended mask (for ``displacement``),
     the threshold layer masks, and an uploaded custom mask.
     """
+    if variable not in ds.variables:
+        raise HTTPException(status_code=404, detail=f"Variable {variable} not found")
     da = ds[variable]
     # Masking is opt-in: nothing is hidden unless the caller asks for it, via
     # ``mask_variable`` or the ``layer_masks`` the UI's Masking panel sends.
     # ``recommended_mask`` is offered in ``available_mask_vars`` like any other
     # mask layer, so the masked view is one click away rather than the default.
-    mask_da = ds[mask_variable] if mask_variable is not None else None
+    if mask_variable is not None:
+        # An unknown name is a client error, not a 500 from the KeyError.
+        if mask_variable not in ds.variables:
+            raise HTTPException(
+                status_code=404, detail=f"Mask variable {mask_variable} not found"
+            )
+        mask_da = ds[mask_variable]
+    else:
+        mask_da = None
 
     # Resolve the per-variable non-spatial dim (was hardcoded "time")
     if time_idx is not None:
         dim = _non_spatial_dim(da)
         if dim is not None:
-            da = da.isel({dim: time_idx})
+            # Clamp to the valid range so an out-of-bounds index returns the
+            # nearest edge slice rather than raising IndexError (a 500).
+            da = da.isel({dim: max(0, min(time_idx, da.sizes[dim] - 1))})
         if mask_da is not None:
             mdim = _non_spatial_dim(mask_da)
             if mdim is not None:
-                mask_da = mask_da.isel({mdim: time_idx})
+                mask_da = mask_da.isel(
+                    {mdim: max(0, min(time_idx, mask_da.sizes[mdim] - 1))}
+                )
 
     # Apply primary mask
     if mask_da is not None:
