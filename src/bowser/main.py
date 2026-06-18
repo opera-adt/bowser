@@ -1611,6 +1611,65 @@ async def upload_raster(file: UploadFile):
     )
 
 
+@app.get(
+    "/wms_capabilities",
+    response_class=JSONResponse,
+    responses={200: {"description": "Named layers advertised by a WMS GetCapabilities"}},
+)
+def wms_capabilities(url: str = Query(..., description="WMS base URL")):
+    """Proxy a WMS GetCapabilities and return its requestable named layers.
+
+    Done server-side because browsers are usually blocked by CORS from reading a
+    foreign WMS's capabilities. Returns ``[{name, title}]`` for every ``<Layer>``
+    that has a ``<Name>`` (only named layers can be requested via GetMap).
+    """
+    import ssl  # noqa: PLC0415
+    import urllib.request  # noqa: PLC0415
+    import xml.etree.ElementTree as ET  # noqa: PLC0415
+
+    # Use certifi's CA bundle — some hosts (e.g. our dev box) have an incomplete
+    # system trust store and otherwise fail with CERTIFICATE_VERIFY_FAILED.
+    try:
+        import certifi  # noqa: PLC0415
+
+        ctx = ssl.create_default_context(cafile=certifi.where())
+    except Exception:  # noqa: BLE001
+        ctx = ssl.create_default_context()
+
+    sep = "&" if "?" in url else "?"
+    cap_url = f"{url}{sep}service=WMS&request=GetCapabilities"
+    try:
+        with urllib.request.urlopen(cap_url, timeout=20, context=ctx) as resp:  # noqa: S310
+            raw = resp.read()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502, detail=f"Could not fetch WMS capabilities: {exc}"
+        ) from exc
+    try:
+        root = ET.fromstring(raw)
+    except ET.ParseError as exc:
+        raise HTTPException(
+            status_code=502, detail=f"Invalid WMS capabilities XML: {exc}"
+        ) from exc
+
+    layers: list[dict] = []
+    seen: set[str] = set()
+    for el in root.iter():
+        if el.tag.split("}")[-1] != "Layer":
+            continue
+        name = title = None
+        for child in el:
+            tag = child.tag.split("}")[-1]
+            if tag == "Name" and name is None:
+                name = (child.text or "").strip()
+            elif tag == "Title" and title is None:
+                title = (child.text or "").strip()
+        if name and name not in seen:
+            seen.add(name)
+            layers.append({"name": name, "title": title or name})
+    return JSONResponse({"layers": layers})
+
+
 # Set up CORS
 app.add_middleware(
     CORSMiddleware,

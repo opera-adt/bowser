@@ -156,7 +156,30 @@ export default function ControlPanel({ title }: { title: string }) {
       },
     });
     setExtUrl(''); setExtLayers('');
+    setWmsLayerOptions([]);
   }, [extType, extUrl, extLayers, dispatch]);
+
+  // Fetch a WMS's named layers (server-side proxy avoids browser CORS) so the
+  // user can pick from a dropdown instead of knowing the layer name in advance.
+  const [wmsLayerOptions, setWmsLayerOptions] = useState<{ name: string; title: string }[]>([]);
+  const [wmsLoading, setWmsLoading] = useState(false);
+  const fetchWmsLayers = useCallback(async () => {
+    const u = extUrl.trim();
+    if (!u) return;
+    setWmsLoading(true);
+    try {
+      const res = await fetch(`/wms_capabilities?url=${encodeURIComponent(u)}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const layers = (await res.json()).layers ?? [];
+      setWmsLayerOptions(layers);
+      if (layers.length) setExtLayers(layers[0].name);
+      else alert('No named layers found in this WMS.');
+    } catch (err) {
+      alert(`Could not load WMS layers: ${(err as Error).message}`);
+    } finally {
+      setWmsLoading(false);
+    }
+  }, [extUrl]);
   // dataset range cache: { [datasetName]: { min, max, p2, p98 } }
   const [datasetRanges, setDatasetRanges] = useState<Record<string, { min: number; max: number; p2: number; p98: number }>>({});
 
@@ -824,11 +847,25 @@ export default function ControlPanel({ title }: { title: string }) {
                 </select>
                 <input className="sidebar-input" style={{ flex: 1, fontSize: '0.74em' }}
                   placeholder={extType === 'wms' ? 'WMS base URL' : 'WMTS/XYZ template …/{z}/{x}/{y}'}
-                  value={extUrl} onChange={e => setExtUrl(e.target.value)} />
+                  value={extUrl} onChange={e => { setExtUrl(e.target.value); setWmsLayerOptions([]); }} />
               </div>
               {extType === 'wms' && (
-                <input className="sidebar-input" style={{ width: '100%', fontSize: '0.74em', marginTop: 4 }}
-                  placeholder="WMS layer name(s)" value={extLayers} onChange={e => setExtLayers(e.target.value)} />
+                <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                  <button className="hist-btn" style={{ whiteSpace: 'nowrap', fontSize: '0.76em' }}
+                    disabled={!extUrl.trim() || wmsLoading} onClick={fetchWmsLayers}
+                    title="Read the available layers from this WMS">
+                    {wmsLoading ? '…' : 'Load layers'}
+                  </button>
+                  {wmsLayerOptions.length > 0 ? (
+                    <select className="sidebar-select" style={{ flex: 1, fontSize: '0.76em' }}
+                      value={extLayers} onChange={e => setExtLayers(e.target.value)}>
+                      {wmsLayerOptions.map(l => <option key={l.name} value={l.name}>{l.title}</option>)}
+                    </select>
+                  ) : (
+                    <input className="sidebar-input" style={{ flex: 1, fontSize: '0.74em' }}
+                      placeholder="WMS layer name" value={extLayers} onChange={e => setExtLayers(e.target.value)} />
+                  )}
+                </div>
               )}
               <button className="hist-btn" style={{ width: '100%', marginTop: 4 }} disabled={!extUrl.trim()} onClick={addExternalOverlay}>
                 <i className="fa-solid fa-plus" style={{ marginRight: 5 }}></i>Add {extType.toUpperCase()}
