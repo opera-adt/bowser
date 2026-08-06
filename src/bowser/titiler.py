@@ -77,7 +77,8 @@ class Rewrap(BaseAlgorithm):
             data = np.ma.MaskedArray(real, mask=mask)
         half = self.wrap_range / 2
         return ImageData(
-            np.ma.mod(half + self.scale_factor * (data - self.shift), self.wrap_range) - half,
+            np.ma.mod(half + self.scale_factor * (data - self.shift), self.wrap_range)
+            - half,
             assets=img.assets,
             crs=img.crs,
             bounds=img.bounds,
@@ -149,6 +150,7 @@ class LosMetadata(BaseModel):
         Center-swath unit vector from ground to satellite in local ENU.
     los_enu_ground_to_sat_near, los_enu_ground_to_sat_far
         Near-range and far-range ENU vectors.
+
     """
 
     heading_deg: float

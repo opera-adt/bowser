@@ -65,9 +65,7 @@ def _open_md(uri: str) -> tuple[xr.Dataset, Transformer, list["PyramidLevel"]]:
             # written to the store root (LOS geometry etc) is still visible.
             import zarr  # noqa: PLC0415
 
-            root_attrs = dict(
-                zarr.open_group(uri, mode="r", storage_options=so).attrs
-            )
+            root_attrs = dict(zarr.open_group(uri, mode="r", storage_options=so).attrs)
         else:
             ds = xr.open_zarr(uri, consolidated=False, storage_options=so)
     else:

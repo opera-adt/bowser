@@ -75,6 +75,7 @@ def storage_options_for(uri: str | Path) -> dict[str, Any] | None:
         return {"anon": anon}
     return None
 
+
 # Defaults tuned for DISP-S1-sized cubes on S3: 256×256 chunks keep random-access
 # tile reads cheap, and 4× shard factor on every dim means one HTTP GET per
 # shard covers a 1024×1024 tile block (or 4 timesteps for timeseries reads).
@@ -131,6 +132,7 @@ class ZarrWriteConfig:
         Substring patterns matched against variable names (case-insensitive)
         to decide whether a variable gets the quantize filter. Integer-dtype
         variables are always skipped regardless of name.
+
     """
 
     chunk: int = DEFAULT_CHUNK
