@@ -33,6 +33,7 @@ from starlette_cramjam.middleware import CompressionMiddleware
 from .config import settings
 from .state import BowserState, DatasetRegistry
 from .utils import (
+    _uses_spatial_reference,
     calculate_trend,
     desensitize_mpl_case,
     generate_colorbar,
@@ -351,14 +352,9 @@ def create_xarray_dataset_info(ds: xr.Dataset) -> dict:
     for var_name, var in ds.data_vars.items():
         if not {"x", "y"}.issubset(set(var.dims)):
             continue
-        _vn = str(var_name).lower()
         use_moving_reference = (
-            ("displacement" in _vn and "short_wave" not in _vn)
-            or "velocity" in _vn
-            or "unwrapped" in _vn
-            or "timeseries" in _vn
-            or "time_series" in _vn
-        ) and not skip_spatial_reference
+            _uses_spatial_reference(str(var_name), var) and not skip_spatial_reference
+        )
         available_mask_vars = [
             v
             for v in ["temporal_coherence", "phase_similarity", "recommended_mask"]

@@ -5,6 +5,7 @@ from functools import cache
 from typing import Sequence, TypeVar
 
 import numpy as np
+import xarray as xr
 from dateutil import parser
 
 
@@ -308,3 +309,101 @@ def desensitize_mpl_case():
         if name.lower() in mpl.colormaps:
             continue
         mpl.colormaps.register(mpl.colormaps[name], name=name.lower())
+
+
+# Base units marking a *relative* measurement: a length (surface displacement)
+# or an angle (interferometric phase). The absolute value of such a quantity is
+# meaningless without a reference point, which is exactly what a moving spatial
+# reference provides. Rates count too — subtracting the reference point's
+# velocity gives relative velocity — so only the numerator is inspected.
+# Unitless layers (coherence, masks, connected components) are never relative.
+_RELATIVE_BASE_UNITS = frozenset(
+    {
+        "m",
+        "meter",
+        "metre",
+        "mm",
+        "millimeter",
+        "millimetre",
+        "cm",
+        "centimeter",
+        "centimetre",
+        "km",
+        "kilometer",
+        "kilometre",
+        "rad",
+        "radian",
+        "deg",
+        "degree",
+    }
+)
+
+# Variables that carry a relative unit but must *not* be re-referenced. DISP-S1
+# ``short_wavelength_displacement`` is already spatially high-pass filtered, so
+# subtracting a moving reference double-counts the filtering and produces a
+# misleading picture. Producers should state this with the
+# ``bowser_uses_spatial_ref`` attr; this list covers products predating it.
+_NEVER_SPATIAL_REF_SUBSTRINGS = ("short_wave",)
+
+
+def _is_relative_unit(units: str) -> bool:
+    """Return True if ``units`` denotes a length or an angle, optionally per time.
+
+    Only the numerator is considered, so ``meters / year`` matches on ``meters``.
+
+    Examples
+    --------
+    >>> _is_relative_unit("meters")
+    True
+    >>> _is_relative_unit("meters / year")
+    True
+    >>> _is_relative_unit("radians")
+    True
+    >>> _is_relative_unit("unitless")
+    False
+
+    """
+    base = str(units).split("/")[0].strip().lower().rstrip("s")
+    return base in _RELATIVE_BASE_UNITS
+
+
+def _uses_spatial_reference(var_name: str, var: xr.DataArray) -> bool:
+    """Decide whether a variable should offer a moving spatial reference point.
+
+    Resolution order:
+
+    1. An explicit ``bowser_uses_spatial_ref`` attr on the variable always wins.
+       This is how a producer states intent, and the only way to express
+       exceptions such as DISP-S1 ``short_wavelength_displacement``.
+    2. Otherwise infer it from the CF ``units`` attr: length and angle
+       quantities are relative measurements and get a reference point, while
+       unitless layers (coherence, masks, connected components) do not.
+
+    Bowser previously matched substrings of the variable name against a
+    hardcoded list, which both over-matched (dolphin's ``time_series_residuals``)
+    and under-matched — any producer not using one of the listed names silently
+    lost the feature, with no way to turn it back on.
+
+    Parameters
+    ----------
+    var_name : str
+        Name of the variable, used only for the documented exception list.
+    var : xarray.DataArray
+        The variable itself; its ``attrs`` supply both the explicit opt-in and
+        the ``units`` fallback.
+
+    Returns
+    -------
+    bool
+        Whether to offer a moving spatial reference for this variable.
+
+    """
+    explicit = var.attrs.get("bowser_uses_spatial_ref")
+    if explicit is not None:
+        if isinstance(explicit, str):
+            return explicit.strip().lower() in ("1", "true", "yes")
+        return bool(explicit)
+
+    if any(s in var_name.lower() for s in _NEVER_SPATIAL_REF_SUBSTRINGS):
+        return False
+    return _is_relative_unit(var.attrs.get("units", ""))

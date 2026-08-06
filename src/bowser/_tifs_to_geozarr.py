@@ -250,6 +250,10 @@ class _Loaded:
     # Empty/unset on GeoTIFFs with no unit declared. Written as ``units`` attr
     # on the xarray DataArray so the bowser colorbar can label the scale.
     units: str | None = None
+    # Whether this group should offer a moving spatial reference point, from the
+    # ``uses_spatial_ref`` key that ``bowser set-data`` writes. ``None`` means
+    # the config did not say, and bowser falls back to inferring from ``units``.
+    uses_spatial_ref: bool | None = None
 
 
 def _load_spatial_ref(path: str) -> _SpatialRef:
@@ -298,6 +302,9 @@ def _load_group(rg: dict, ref: _SpatialRef) -> _Loaded:
         band_units = src0.units or ()
         has_nodata = src0.nodata is not None
     units = band_units[0] if band_units and band_units[0] else None
+    # Preserved verbatim (including an explicit False) so the store records what
+    # the config said; absent means "let bowser infer it from units".
+    uses_spatial_ref = rg.get("uses_spatial_ref")
 
     if src_dtype in complex_dtypes:
         transform = complex_transforms.get(rg.get("algorithm", ""), np.abs)
@@ -325,6 +332,7 @@ def _load_group(rg: dict, ref: _SpatialRef) -> _Loaded:
             dim_name=None,
             coords={},
             units=units,
+            uses_spatial_ref=uses_spatial_ref,
         )
 
     # 3D: pre-allocate (N, H, W) once, then fill per file — avoids the
@@ -354,6 +362,7 @@ def _load_group(rg: dict, ref: _SpatialRef) -> _Loaded:
                 dim_name=time_dim,
                 coords={time_dim: (time_dim, sec[order].to_numpy())},
                 units=units,
+                uses_spatial_ref=uses_spatial_ref,
             )
         order = sorted(range(len(pairs)), key=lambda i: pairs[i])
         stack = stack[order]
@@ -384,6 +393,7 @@ def _load_group(rg: dict, ref: _SpatialRef) -> _Loaded:
                 f"pair_label_{name}": (pair_dim, labels),
             },
             units=units,
+            uses_spatial_ref=uses_spatial_ref,
         )
     if all(len(d) == 1 for d in dates_per_file):
         t = pd.to_datetime([d[0] for d in dates_per_file])
@@ -396,6 +406,7 @@ def _load_group(rg: dict, ref: _SpatialRef) -> _Loaded:
             dim_name=time_dim,
             coords={time_dim: (time_dim, t[order].to_numpy())},
             units=units,
+            uses_spatial_ref=uses_spatial_ref,
         )
     raise ValueError(
         f"Group {display_name!r}: inconsistent filename date structure "
@@ -570,6 +581,11 @@ def _write_variable_to_all_levels(
         da.attrs["long_name"] = lv.display_name
         if lv.units:
             da.attrs["units"] = lv.units
+        # Explicit opt-in/out for the moving spatial reference point. Stamping
+        # it here means bowser never has to guess from the variable name; see
+        # ``_uses_spatial_reference`` in bowser/main.py.
+        if lv.uses_spatial_ref is not None:
+            da.attrs["bowser_uses_spatial_ref"] = bool(lv.uses_spatial_ref)
         # Embed pre-computed histogram stats only at level 0 (full resolution).
         # Coarser pyramid levels are used for tile rendering, not statistics.
         if i == 0:

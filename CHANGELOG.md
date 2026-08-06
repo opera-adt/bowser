@@ -4,6 +4,41 @@ All notable changes to bowser are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Producers can now declare whether a variable takes a moving spatial reference
+  point with a `bowser_uses_spatial_ref` boolean attr on the variable. It
+  overrides every heuristic, and is the only way to express exceptions such as
+  DISP-S1 `short_wavelength_displacement`. `bowser tifs-to-geozarr` stamps it
+  from the `uses_spatial_ref` key in `bowser_rasters.json`.
+
+### Changed
+
+- Spatial-reference eligibility is inferred from CF `units` instead of matching
+  substrings of the variable name. Length and angle quantities (`meters`,
+  `radians`, `meters / year`, …) are relative measurements and get a reference
+  point; unitless layers (coherence, masks, connected components) do not. The
+  name list both over-matched and under-matched, and every new producer needed
+  another entry — dolphin stores called their stack `time_series`, so
+  re-referencing silently did nothing there until 0.5.0.
+  `short_wavelength_displacement` remains excluded by name as a documented
+  fallback for products written before the attr existed.
+  The one behavior change on existing stores: dolphin `re_wrapped_phase`
+  (radians) now offers a reference point, which it should — `Rewrap` gained a
+  `shift` parameter in 0.5.0 for exactly that.
+- Moved the eligibility helpers to `bowser.utils`, which has no import-time side
+  effects, so they can be unit-tested without `bowser.main` loading dataset
+  state at import.
+
+### Fixed
+
+- `bowser tifs-to-geozarr` no longer imports `osgeo.gdal`. 0.5.0 made the GDAL
+  Python bindings an undeclared hard dependency of the writer; rasterio maps
+  every GDAL dtype the converter handles, including `float16`, as of 1.5.0.
+  The `writer` extra now pins `rasterio>=1.5.0`.
+
 ## [0.5.0] - 2026-06-17
 
 Large UI release: split-screen comparison, map annotations, phase re-wrapping,
