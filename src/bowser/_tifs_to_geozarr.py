@@ -2,9 +2,9 @@
 
 Invoked via the ``bowser tifs-to-geozarr`` CLI subcommand (see
 ``bowser.cli``). Lives as its own module rather than inside ``cli.py`` so
-heavy scientific-stack imports (numpy/xarray/rasterio/pandas/opera_utils)
-stay out of ``bowser --help`` — ``cli.py`` imports this module lazily
-inside the command body.
+heavy scientific-stack imports (numpy/xarray/rasterio/pandas) stay out of
+``bowser --help`` — ``cli.py`` imports this module lazily inside the
+command body.
 
 Produces one consolidated zarr with:
 
@@ -48,8 +48,8 @@ import numpy as np
 import pandas as pd
 import rasterio
 import xarray as xr
-from opera_utils import get_dates
 
+from ._dates import get_dates
 from .geozarr import ZarrWriteConfig, annotate_store, shard_encoding
 
 logger = logging.getLogger(__name__)

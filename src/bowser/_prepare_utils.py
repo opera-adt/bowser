@@ -4,12 +4,12 @@ from pathlib import Path
 from typing import Sequence
 
 import h5py
-from opera_utils import get_dates
 from opera_utils.credentials import ASFCredentialEndpoints, AWSCredentials
 from opera_utils.disp import open_h5
 from osgeo import gdal
 from tqdm.contrib.concurrent import process_map
 
+from ._dates import get_dates
 
 logger = logging.getLogger("bowser")
 

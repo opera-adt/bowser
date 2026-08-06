@@ -38,6 +38,22 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Python bindings an undeclared hard dependency of the writer; rasterio maps
   every GDAL dtype the converter handles, including `float16`, as of 1.5.0.
   The `writer` extra now pins `rasterio>=1.5.0`.
+- `bowser run` no longer imports `osgeo` either, so it works on a plain
+  `pip install`. Two things put it on the import path:
+  - `readers.py` and `_tifs_to_geozarr.py` imported `get_dates` from
+    `opera_utils`, and importing `opera_utils` loads the whole `osgeo` package
+    tree at module scope. Date parsing is now `bowser._dates`, which is
+    behavior-compatible (verified against `opera_utils.get_dates` over 300
+    filename/format combinations, including which inputs raise).
+  - `readers.py` ran `_patch_rasterio_float16()` at import, which did
+    `from osgeo import gdal` inside a bare `except Exception: pass`. The patch
+    now edits rasterio's dtype table directly. It was also asking the wrong
+    library — rasterio links its own GDAL, so the separately installed
+    bindings' version says nothing about what rasterio can read.
+
+  `bowser prepare` still needs `opera_utils` (S3 credentials, `open_h5`) and
+  `osgeo.gdal` directly, so that subcommand continues to require a conda/pixi
+  environment.
 
 ## [0.5.0] - 2026-06-17
 

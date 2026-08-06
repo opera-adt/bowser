@@ -23,7 +23,6 @@ import rasterio.warp
 import rasterio.windows
 from morecantile import TileMatrixSet
 from numpy.typing import ArrayLike
-from opera_utils import get_dates
 from pyproj import Transformer
 from rasterio.crs import CRS
 from rio_tiler.constants import WEB_MERCATOR_TMS, WGS84_CRS
@@ -32,25 +31,28 @@ from rio_tiler.models import BandStatistics, ImageData, Info, PointData
 from rio_tiler.types import BBox, Indexes
 from tqdm.contrib.concurrent import thread_map
 
+from ._dates import get_dates
+
 
 def _patch_rasterio_float16() -> None:
     """Register GDAL Float16 (type code 15) with rasterio if missing.
 
     GDAL 3.11+ interprets NBITS=16 on float32 GeoTIFFs as native Float16
-    (datatype code 15). Rasterio builds that lack a mapping for code 15 raise
-    ``KeyError: 15`` on open. Patch the forward/reverse dtype dicts so rasterio
-    can open these files transparently.
+    (datatype code 15). Rasterio only mapped that code in 1.5.0; older builds
+    raise ``KeyError: 15`` on open. Patch the forward/reverse dtype dicts so
+    those builds can open these files transparently. A no-op on rasterio 1.5+.
+
+    Deliberately does not consult ``osgeo.gdal`` to decide whether the code is
+    supported: rasterio links its own GDAL, so the version of a separately
+    installed set of bindings says nothing about what rasterio can read — and
+    importing them would put the GDAL Python bindings on bowser's import path,
+    where they are an undeclared dependency that pip cannot install.
     """
-    try:
-        from osgeo import gdal
-        if not hasattr(gdal, "GDT_Float16"):
-            return
-        from rasterio.dtypes import dtype_fwd, dtype_rev
-        if 15 not in dtype_fwd:
-            dtype_fwd[15] = "float16"
-            dtype_rev["float16"] = 15
-    except Exception:
-        pass
+    from rasterio.dtypes import dtype_fwd, dtype_rev
+
+    if 15 not in dtype_fwd:
+        dtype_fwd[15] = "float16"
+        dtype_rev["float16"] = 15
 
 
 _patch_rasterio_float16()
@@ -200,10 +202,12 @@ class RasterReader(DatasetReader):
             with rio.open(self.filename, "r") as src:
                 return src.bounds
         except KeyError:
-            # GDAL dtype not known to rasterio (e.g. Float16); compute from transform+shape.
+            # GDAL dtype not known to rasterio (e.g. Float16); compute it from
+            # the transform + shape instead.
             h, w = self.shape
             tf = self.transform
             from rasterio.transform import array_bounds  # noqa: PLC0415
+
             return array_bounds(h, w, tf)
 
     @property
@@ -225,7 +229,7 @@ class RasterReader(DatasetReader):
     ) -> RasterReader:
         """Create a RasterReader from a GDAL-readable filename."""
         if file_date_fmt:
-            dates = get_dates(filename, fmt=file_date_fmt)
+            dates = tuple(get_dates(filename, fmt=file_date_fmt))
         else:
             dates = None
         try:
@@ -234,15 +238,17 @@ class RasterReader(DatasetReader):
             # rasterio doesn't know this GDAL dtype (e.g. Float16 = GDAL type 15).
             # Fall back to GDAL directly to get shape/transform, treat as float32.
             from osgeo import gdal  # noqa: PLC0415
+
             gdal.UseExceptions()
             ds = gdal.Open(str(filename))
             if ds is None:
                 raise OSError(f"Cannot open {filename}")
             gt = ds.GetGeoTransform()
             from affine import Affine  # noqa: PLC0415
-            from rasterio.crs import CRS as RioCRS  # noqa: PLC0415
+            from rasterio.crs import CRS  # noqa: PLC0415
+
             _transform = Affine.from_gdal(*gt)
-            _crs = RioCRS.from_wkt(ds.GetProjection()) if ds.GetProjection() else None
+            _crs = CRS.from_wkt(ds.GetProjection()) if ds.GetProjection() else None
             _nodata = ds.GetRasterBand(band).GetNoDataValue()
             _shape = (ds.RasterYSize, ds.RasterXSize)
             _chunks = (256, 256)
@@ -615,20 +621,32 @@ class CustomReader(BaseReader):
         # Apply primary mask
         if self.mask is not None:
             mask_layer_img = self.mask.tile(
-                tile_x, tile_y, tile_z, tilesize, indexes=1, **kwargs,
+                tile_x,
+                tile_y,
+                tile_z,
+                tilesize,
+                indexes=1,
+                **kwargs,
             )
             filled = np.squeeze(mask_layer_img.array.filled(0))
-            combined_mask = np.logical_or.reduce([
-                combined_mask,
-                filled == 0,
-                filled < self.input["mask_min_value"],
-            ])
+            combined_mask = np.logical_or.reduce(
+                [
+                    combined_mask,
+                    filled == 0,
+                    filled < self.input["mask_min_value"],
+                ]
+            )
 
         # Apply extra masks (custom uploaded masks — binary: > 0 = valid)
         for extra_reader, extra_min in self._extra_masks:
             try:
                 extra_img = extra_reader.tile(
-                    tile_x, tile_y, tile_z, tilesize, indexes=1, **kwargs,
+                    tile_x,
+                    tile_y,
+                    tile_z,
+                    tilesize,
+                    indexes=1,
+                    **kwargs,
                 )
                 extra_filled = np.squeeze(extra_img.array.filled(0))
                 combined_mask = np.logical_or(combined_mask, extra_filled <= extra_min)
