@@ -253,45 +253,16 @@ class _Loaded:
 
 
 def _load_spatial_ref(path: str) -> _SpatialRef:
-    try:
-        with rasterio.open(path) as src:
-            t = src.transform
-            # Pixel-center coordinates: (ix + 0.5, iy + 0.5) * transform. Same
-            # convention rioxarray uses on open_rasterio.
-            x = (np.arange(src.width) + 0.5) * t.a + t.c
-            y = (np.arange(src.height) + 0.5) * t.e + t.f
-            return _SpatialRef(
-                height=src.height,
-                width=src.width,
-                crs_wkt=src.crs.to_wkt() if src.crs else "",
-                transform=tuple(t)[:6],
-                x_coords=x.astype(np.float64),
-                y_coords=y.astype(np.float64),
-            )
-    except KeyError:
-        # rasterio's _band_dtype lookup is missing entries for some GDAL types
-        # (e.g. Float16 = type 15). Fall back to GDAL for spatial metadata only.
-        from osgeo import gdal as _gdal
-        from osgeo import osr as _osr
-
-        ds = _gdal.Open(str(path))
-        if ds is None:
-            raise OSError(f"GDAL could not open {path}")
-        gt = ds.GetGeoTransform()
-        width, height = ds.RasterXSize, ds.RasterYSize
-        srs = _osr.SpatialReference()
-        srs.ImportFromWkt(ds.GetProjection())
-        srs.SetAxisMappingStrategy(_osr.OAMS_TRADITIONAL_GIS_ORDER)
-        ds = None
-        from affine import Affine
-
-        t = Affine(gt[1], gt[2], gt[0], gt[4], gt[5], gt[3])
-        x = (np.arange(width) + 0.5) * t.a + t.c
-        y = (np.arange(height) + 0.5) * t.e + t.f
+    with rasterio.open(path) as src:
+        t = src.transform
+        # Pixel-center coordinates: (ix + 0.5, iy + 0.5) * transform. Same
+        # convention rioxarray uses on open_rasterio.
+        x = (np.arange(src.width) + 0.5) * t.a + t.c
+        y = (np.arange(src.height) + 0.5) * t.e + t.f
         return _SpatialRef(
-            height=height,
-            width=width,
-            crs_wkt=srs.ExportToWkt(),
+            height=src.height,
+            width=src.width,
+            crs_wkt=src.crs.to_wkt() if src.crs else "",
             transform=tuple(t)[:6],
             x_coords=x.astype(np.float64),
             y_coords=y.astype(np.float64),
@@ -309,51 +280,40 @@ def _load_group(rg: dict, ref: _SpatialRef) -> _Loaded:
     display_name = rg["name"]
     fmt = rg.get("file_date_fmt") or "%Y%m%d"
 
-    # Rasterio's _band_dtype lookup is missing entries for GDAL type 10/11
-    # (CFloat32/CFloat64, used by interferograms) and type 15 (Float16, GDAL
-    # 3.7+, used by correlation files). Probe via GDAL first and route to a
-    # GDAL-based reader for those types; everything else uses rasterio.
-    gdal_complex_types = {8, 9, 10, 11}  # CInt16, CInt32, CFloat32, CFloat64
-    gdal_float16_type = 15
+    # Complex rasters (interferograms) are reduced to a real quantity by the
+    # group's algorithm before anything downstream sees them. rasterio names
+    # CInt16/CInt32 "complex_int16"/"complex64" and CFloat32/CFloat64
+    # "complex64"/"complex128"; none of those have a numpy equivalent we want to
+    # carry through, so they all read via _read_one_complex.
+    complex_dtypes = {"complex_int16", "complex64", "complex128"}
     complex_transforms: dict[str, Callable[[np.ndarray], np.ndarray]] = {
         "phase": np.angle,
         "amplitude": np.abs,
     }
 
-    from osgeo import gdal as _gdal
+    # Also grab the GDAL Unit Type from band 1 — rasterio returns ``('',)`` on
+    # files with no unit set, which we normalise to ``None``.
+    with rasterio.open(file_list[0]) as src0:
+        src_dtype = src0.dtypes[0]
+        band_units = src0.units or ()
+        has_nodata = src0.nodata is not None
+    units = band_units[0] if band_units and band_units[0] else None
 
-    _ds = _gdal.Open(str(file_list[0]))
-    if _ds is None:
-        raise OSError(f"GDAL could not open {file_list[0]}")
-    gdal_type = _ds.GetRasterBand(1).DataType
-    _ds = None
-
-    if gdal_type in gdal_complex_types:
+    if src_dtype in complex_dtypes:
         transform = complex_transforms.get(rg.get("algorithm", ""), np.abs)
         out_dtype = np.dtype("float32")
-        units = None
         reader = partial(_read_one_complex, ref=ref, transform=transform)
-    elif gdal_type == gdal_float16_type:
-        # Float16: rasterio has no type mapping; read via GDAL and upcast.
-        out_dtype = np.dtype("float32")
-        units = None
-        reader = partial(_read_one_complex, ref=ref, transform=lambda x: x)
     else:
-        # Dtype: float16 tifs are unusable downstream (GDAL reprojection + titiler
-        # both choke), so upcast at read time. Everything else flows through
-        # unchanged. Also grab the GDAL Unit Type from band 1 — rasterio returns
-        # ``('',)`` on files with no unit set, which we normalise to ``None``.
-        with rasterio.open(file_list[0]) as src0:
-            src_dtype = src0.dtypes[0]
-            band_units = src0.units or ()
-            has_nodata = src0.nodata is not None
-        # float16 is unusable downstream; integer types with nodata need float32
-        # so _read_one can use NaN for masked pixels.
-        if src_dtype == "float16" or (has_nodata and not np.issubdtype(np.dtype(src_dtype), np.floating)):
+        # float16 tifs are unusable downstream (GDAL reprojection + titiler both
+        # choke); integer types carrying a nodata value need float32 so
+        # _read_one can use NaN for masked pixels. Everything else flows
+        # through unchanged.
+        if src_dtype == "float16" or (
+            has_nodata and not np.issubdtype(np.dtype(src_dtype), np.floating)
+        ):
             out_dtype = np.dtype("float32")
         else:
             out_dtype = np.dtype(src_dtype)
-        units = band_units[0] if band_units and band_units[0] else None
         reader = partial(_read_one, ref=ref, out_dtype=out_dtype)
 
     if len(file_list) == 1:
@@ -489,22 +449,18 @@ def _read_one_complex(
     ref: _SpatialRef,
     transform: Callable[[np.ndarray], np.ndarray],
 ) -> np.ndarray:
-    """Read a CFloat32/CFloat64 band via GDAL and apply ``transform`` (e.g. np.angle).
+    """Read a complex band and apply ``transform`` (e.g. ``np.angle``).
 
-    Rasterio's dtype lookup does not map GDAL type codes 15/16 (CFloat32/CFloat64),
-    so complex-valued interferograms crash ``rasterio.open`` before data is read.
-    GDAL itself handles them fine via ``ReadAsArray``.
+    Kept separate from :func:`_read_one` because the complex → real reduction has
+    to happen before any dtype coercion, and because a complex raster on a
+    mismatched grid can't be handed to ``rasterio.warp.reproject``.
     """
-    from osgeo import gdal
-
-    ds = gdal.Open(str(path))
-    if ds is None:
-        raise OSError(f"GDAL could not open {path}")
-    arr = ds.GetRasterBand(1).ReadAsArray()
-    ds = None
-    assert arr.shape == (ref.height, ref.width), (
-        f"{path}: shape {arr.shape} != ref {(ref.height, ref.width)}"
-    )
+    with rasterio.open(path) as src:
+        arr = src.read(1)
+    assert arr.shape == (
+        ref.height,
+        ref.width,
+    ), f"{path}: shape {arr.shape} != ref {(ref.height, ref.width)}"
     return transform(arr).astype(np.float32, copy=False)
 
 
@@ -671,7 +627,10 @@ def _compute_histogram_stats(arr: np.ndarray, nbins: int = 100) -> list[dict]:
         valid = valid[np.isfinite(valid)]
         if valid.size == 0:
             results.append(
-                {k: 0.0 for k in ("min", "max", "p2", "p98", "p16", "p84", "p23", "p977")}
+                {
+                    k: 0.0
+                    for k in ("min", "max", "p2", "p98", "p16", "p84", "p23", "p977")
+                }
                 | {"bins": [], "counts": []}
             )
             continue

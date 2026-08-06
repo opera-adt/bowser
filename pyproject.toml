@@ -51,7 +51,12 @@ test = ["pytest", "httpx", "ipython", "types-python-dateutil"]
 # Bowser runtime
 # reads back the attrs with plain zarr and never imports this package, so it
 # stays out of the default env to avoid pulling pydantic>=2.12.
-writer = ["geozarr-toolkit>=0.1.1"]
+#
+# rasterio>=1.5.0 is required for the float16 dtype (rasterio #3469), which
+# GDAL 3.7+ writes for correlation layers. Complex dtypes have been mapped for
+# much longer. Scoped to this extra on purpose: rasterio 1.5 needs Python 3.12+,
+# and the bowser runtime itself still supports 3.11.
+writer = ["geozarr-toolkit>=0.1.1", "rasterio>=1.5.0"]
 
 # [project.urls]
 # Homepage = "https://github.com/opera-adt/bowser"
