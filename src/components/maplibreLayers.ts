@@ -70,14 +70,21 @@ export function useDataRaster(
       'raster-fade-duration': 0 } }, firstOverlayId(map));
     layerRef.current = id;
     if (!previous) return;
-    const swap = (e: maplibregl.MapSourceDataEvent) => {
-      if (e.sourceId !== id || !map.isSourceLoaded(id)) return;
+    // Drop *every* older data layer, not just the last one: a change made before the
+    // previous swap happened (scrubbing time, toggling a mask) must not leave a layer
+    // behind, or it shows through the new layer's transparent (masked / nodata) pixels.
+    const swap = () => {
+      if (!map.getSource(id) || !map.isSourceLoaded(id)) return;
       map.off('sourcedata', swap);
-      if (map.getLayer(previous)) map.removeLayer(previous);
-      if (map.getSource(previous)) map.removeSource(previous);
+      map.off('idle', swap);
+      map.getStyle().layers.filter((l: { id: string }) => l.id.startsWith('data-') && l.id !== id).forEach(l => {
+        map.removeLayer(l.id);
+        if (map.getSource(l.id)) map.removeSource(l.id);
+      });
     };
     map.on('sourcedata', swap);
-    return () => { map.off('sourcedata', swap); };
+    map.on('idle', swap);   // sourcedata can arrive before the source counts as loaded
+    return () => { map.off('sourcedata', swap); map.off('idle', swap); };
   }, [ready, map, tileUrl]);
 
   useEffect(() => {

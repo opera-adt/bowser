@@ -170,6 +170,24 @@ describe('MapLibreMap', () => {
     expect(map.sources.has('data-1')).toBe(false);
   });
 
+  it('changes made before the swap leave no layer behind (masked pixels must not show the old data)', async () => {
+    const { view, map } = await mount();
+    mockState.currentTimeIndex = 0;
+    view.rerender(<MapLibreMap />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+    mockState.layerMasks = [{ dataset: 'temporal_coherence', threshold: 0.9, mode: 'min' }];
+    view.rerender(<MapLibreMap />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+    const ids = () => map.layers.map(l => l.id).filter(id => id.startsWith('data-'));
+    expect(ids()).toEqual(['data-1', 'data-2', 'data-3']);
+    expect(map.sources.get('data-3').tiles[0]).toBe('http://h/t/{z}/{x}/{y}.png?v=3');
+    const maskRequest = (fetch as any).mock.calls.map((c: any[]) => c[0]).filter((u: string) => u.startsWith('/md/')).pop();
+    expect(decodeURIComponent(maskRequest)).toContain('"dataset":"temporal_coherence"');
+    act(() => map.fire('idle', {}));
+    expect(ids()).toEqual(['data-3']);
+    expect([...map.sources.keys()].filter(k => k.startsWith('data-'))).toEqual(['data-3']);
+  });
+
   it('a map click picks a point and opens the chart', async () => {
     const { map } = await mount();
     act(() => map.fire('click', { lngLat: { lat: 33.958, lng: -117.674 }, point: { x: 1, y: 1 } }));
