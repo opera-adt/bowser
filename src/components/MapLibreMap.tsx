@@ -12,8 +12,8 @@
  * view sync (fit to dataset, sidebar view buttons), basemaps (primary/secondary, swap, opacity), the data raster layer
  * (double-buffered so a new time step never flashes blank), point picking, time-series
  * and reference markers, pixel inspect, cursor position, scale bar, fit to the data.
- * Profile and measure tools: MapLibreProfile, MapLibreMeasure. Still Leaflet-only (next commits): split screen,
- * overlays/WMS, graticule, annotations, buffer circles.
+ * Profile and measure tools: MapLibreProfile, MapLibreMeasure; split screen: MapLibreSplit.
+ * Still Leaflet-only (next commits): overlays/WMS, graticule, annotations, buffer circles.
  */
 import { useEffect, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
@@ -39,11 +39,12 @@ import { applyTerrain, useBasemapLayers, useDataRaster } from './maplibreLayers'
 import { MapLeftToolbar, MapTopRightToolbar, type MapFeature } from './MapToolbars';
 import MapLibreProfile from './MapLibreProfile';
 import MapLibreMeasure from './MapLibreMeasure';
+import MapLibreSplit from './MapLibreSplit';
 import { useProfileContext } from './ProfileTool';
 import type { AppState } from '../types';
 
 /** Toolbar features not ported to MapLibre yet: shown disabled with a note. */
-const UNSUPPORTED: ReadonlySet<MapFeature> = new Set(['split', 'graticule', 'annotation']);
+const UNSUPPORTED: ReadonlySet<MapFeature> = new Set(['graticule', 'annotation']);
 
 const TERRAIN_KEY = 'bowser.maplibre.terrain';
 function loadTerrain(): { enabled: boolean; exaggeration: number } {
@@ -332,7 +333,7 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
   }, [ready]);
 
   return (
-    <div className="map-container" style={{ position: 'relative' }}>
+    <div className={`map-container${state.splitScreen ? ' split-active' : ''}`} style={{ position: 'relative' }}>
       {toolbarsVisible ? (
         <>
           <MapLeftToolbar measureActive={measureActive} onToggleMeasure={() => setMeasureActive(v => !v)}
@@ -352,6 +353,7 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
       <div ref={containerRef} data-testid="maplibre-map" style={{ height: '100%', width: '100%' }} />
       <MapLibreProfile map={mapRef.current} ready={ready} />
       <MapLibreMeasure map={mapRef.current} ready={ready} active={measureActive} onDeactivate={() => setMeasureActive(false)} />
+      {state.splitScreen && <MapLibreSplit main={mapRef.current} mainReady={ready} terrain={terrain} />}
       {mapError && (
         <div role="alert" style={{
           position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',

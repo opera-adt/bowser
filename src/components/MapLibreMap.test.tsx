@@ -38,7 +38,12 @@ const { FakeMap, FakeMarker, FakePopup, dispatch, mockState } = vi.hoisted(() =>
     }
     removeLayer(id: string) { this.layers = this.layers.filter(l => l.id !== id); }
     getLayer(id: string) { return this.layers.find(l => l.id === id); }
-    getStyle() { return { layers: this.layers }; }
+    getStyle() { return { layers: this.layers, sources: Object.fromEntries(this.sources) }; }
+    camera: any = null;
+    jumpTo(o: any) { this.camera = o; }
+    getCenter() { return { lng: -117.67, lat: 33.96 }; }
+    getZoom() { return 12; }
+    getBearing() { return 0; }
     setPaintProperty(id: string, k: string, v: unknown) { const l = this.getLayer(id); if (l) l.paint = { ...l.paint, [k]: v }; }
     isSourceLoaded() { return true; }
     fitBounds(b: unknown) { this.fitted = b; }
@@ -206,7 +211,7 @@ describe('MapLibreMap', () => {
   it('shows the shared toolbars with the not-yet-ported tools disabled', async () => {
     const { view } = await mount();
     const off = [...view.container.querySelectorAll('[data-unsupported]')].map(e => e.getAttribute('data-unsupported'));
-    expect(off.sort()).toEqual(['annotation', 'graticule', 'split']);
+    expect(off.sort()).toEqual(['annotation', 'graticule']);
     expect(view.getByTitle(/Draw profile line/).hasAttribute('disabled')).toBe(false);
     expect(view.getByTitle('Toggle spatial re-referencing')).toBeTruthy();
     expect(view.getByTitle('3D terrain')).toBeTruthy();
@@ -256,5 +261,42 @@ describe('MapLibreMap', () => {
     expect(map.sources.get('measure-tool').data.features).toHaveLength(0);
     act(() => map.fire('click', { lngLat: { lat: 33.958, lng: -117.674 }, point: { x: 1, y: 1 } }));
     expect(dispatch.mock.calls.map(c => c[0].type)).toContain('ADD_TIME_SERIES_POINT');   // picking is back
+  });
+
+  it('split screen: a passive right-hand map, clipped at the divider, follows the camera and mirrors the tools', async () => {
+    const { view, map } = await mount();
+    Object.assign(mockState, { splitScreen: true, splitDataset: 'displacement', splitColormap: 'viridis',
+      splitVmin: 0, splitVmax: 1, splitOpacity: 0.6, splitTimeIndex: 0, splitPosition: 0.3 });
+    view.rerender(<MapLibreMap />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+    const right = FakeMap.last;
+    expect(right).not.toBe(map);
+    expect(right.opts.interactive).toBe(false);
+    expect(view.getByTestId('maplibre-split').style.clipPath).toBe('inset(0 0 0 30.00%)');
+    expect(view.container.querySelector('.map-container')!.classList.contains('split-active')).toBe(true);
+
+    // its own basemap and the right-panel dataset (own colormap/time step), the tool overlays on top
+    const rightData = right.layers.find(l => l.id.startsWith('data-'))!;
+    expect(right.sources.get(rightData.id).tiles[0]).toMatch(/^http:\/\/h\/t\//);
+    expect(right.sources.get(rightData.id).tiles[0]).not.toBe(map.sources.get(map.layers[1].id).tiles[0]);
+    expect(rightData.paint['raster-opacity']).toBe(0.6);
+    expect(right.layers.map(l => l.id)).toEqual([
+      'basemap-bottom', rightData.id, 'profile-corridor', 'profile-preview', 'profile-line', 'profile-hover',
+      'measure-line', 'measure-points',
+    ]);
+    const tileRequests = (fetch as any).mock.calls.map((c: any[]) => c[0]).filter((u: string) => u.startsWith('/md/'));
+    expect(tileRequests.some((u: string) => u.includes('viridis'))).toBe(true);
+
+    act(() => map.fire('move', {}));
+    expect(right.camera).toEqual({ center: { lng: -117.67, lat: 33.96 }, zoom: 12, bearing: 0, pitch: 0 });
+
+    await act(async () => { fireEvent.click(view.getByTitle(/Measure distance/)); });
+    act(() => map.fire('click', { lngLat: { lat: 33.96289, lng: -117.67984 }, point: { x: 1, y: 1 } }));
+    act(() => map.fire('data', { dataType: 'source', sourceId: 'measure-tool' }));
+    expect(right.sources.get('measure-tool').data.features).toHaveLength(1);
+
+    mockState.splitScreen = false;
+    view.rerender(<MapLibreMap />);
+    expect(view.queryByTestId('maplibre-split')).toBeNull();
   });
 });
