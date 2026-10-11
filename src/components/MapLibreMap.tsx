@@ -13,7 +13,8 @@
  * (double-buffered so a new time step never flashes blank), point picking, time-series
  * and reference markers, pixel inspect, cursor position, scale bar, fit to the data.
  * Profile and measure tools: MapLibreProfile, MapLibreMeasure; split screen: MapLibreSplit;
- * graticule: MapLibreGraticule; annotations: MapLibreAnnotations. Still Leaflet-only: overlays/WMS, buffer circles.
+ * graticule: MapLibreGraticule; annotations: MapLibreAnnotations.
+ * User overlays (GeoTIFF/WMS/WMTS) and buffer circles: maplibreLayers.
  */
 import { useEffect, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
@@ -35,7 +36,7 @@ import {
 import {
   EXAGGERATION_DEFAULT, EXAGGERATION_MAX, EXAGGERATION_MIN, TERRAIN_PITCH, clampExaggeration,
 } from '../map/terrain';
-import { applyTerrain, useBasemapLayers, useDataRaster } from './maplibreLayers';
+import { applyTerrain, useBasemapLayers, useBufferCircles, useDataRaster, useOverlayLayers } from './maplibreLayers';
 import { MapLeftToolbar, MapTopRightToolbar, type MapFeature } from './MapToolbars';
 import MapLibreProfile from './MapLibreProfile';
 import MapLibreMeasure from './MapLibreMeasure';
@@ -237,6 +238,8 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
 
   // ── basemaps, data raster (double-buffered) ────────────────────────────────
   useBasemapLayers(mapRef.current, ready);
+  useOverlayLayers(mapRef.current, ready, 'main');
+  useBufferCircles(mapRef.current, ready);
   useDataRaster(mapRef.current, ready, useRasterTileUrl(), state.opacity, datasetBounds(state));
 
   // Loading indicator: any source still loading.

@@ -38,6 +38,7 @@ const { FakeMap, FakeMarker, FakePopup, dispatch, mockState } = vi.hoisted(() =>
       if (i >= 0) this.layers.splice(i, 0, l); else this.layers.push(l);
     }
     removeLayer(id: string) { this.layers = this.layers.filter(l => l.id !== id); }
+    moveLayer(id: string, before?: string) { const l = this.getLayer(id)!; this.removeLayer(id); this.addLayer(l, before); }
     getLayer(id: string) { return this.layers.find(l => l.id === id); }
     getStyle() { return { layers: this.layers, sources: Object.fromEntries(this.sources) }; }
     camera: any = null;
@@ -115,7 +116,7 @@ beforeEach(() => {
     refEnabled: false, layerMasks: [], customMaskPath: null, wrapEnabled: false, wrapWavelength: null,
     wrapPeriod: 0.0277, complexMode: 'phase', opacity: 0.8, selectedBasemap: 'esriSatellite',
     secondaryBasemap: null, basemapSwapped: false, basemapOpacity: 1, secondaryBasemapOpacity: 0.5,
-    timeSeriesPoints: [], selectedPointId: null, refMarkerVisible: true, annotationMode: false, annotations: [],
+    timeSeriesPoints: [], selectedPointId: null, refMarkerVisible: true, annotationMode: false, annotations: [], overlays: [], bufferEnabled: false, bufferRadius: 0,
     pointPickingEnabled: true, showChart: false, pixelInspectEnabled: false, splitScreen: false,
     splitDataset: null, splitPosition: 0.5, splitTimeIndex: 0, refBufferEnabled: false, refBufferRadius: 0,
     viewBounds: null, viewBoundsApplySeq: 0, showColorbar: false, showLosIndicator: false, graticuleMode: 'off',
@@ -158,7 +159,7 @@ describe('MapLibreMap', () => {
     // basemap at the bottom, data above it, tool overlays (profile, measure) on top
     expect(map.layers.map(l => l.id)).toEqual([
       'basemap-bottom', 'data-1', 'profile-corridor', 'profile-preview', 'profile-line', 'profile-hover',
-      'measure-line', 'measure-points',
+      'measure-line', 'measure-points', 'buffer-fill', 'buffer-line',
     ]);
     expect(map.getLayer('data-1')!.paint['raster-opacity']).toBe(0.8);
   });
@@ -168,7 +169,7 @@ describe('MapLibreMap', () => {
     mockState.currentTimeIndex = 0;
     view.rerender(<MapLibreMap />);
     await act(async () => { await vi.advanceTimersByTimeAsync(300); });
-    const ids = () => map.layers.map(l => l.id).filter(id => !/^(profile|measure)-/.test(id));
+    const ids = () => map.layers.map(l => l.id).filter(id => !/^(profile|measure|buffer)-/.test(id));
     expect(ids()).toEqual(['basemap-bottom', 'data-1', 'data-2']);
     act(() => map.fire('sourcedata', { sourceId: 'data-2' }));
     expect(ids()).toEqual(['basemap-bottom', 'data-2']);
@@ -305,7 +306,7 @@ describe('MapLibreMap', () => {
     expect(rightData.paint['raster-opacity']).toBe(0.6);
     expect(right.layers.map(l => l.id)).toEqual([
       'basemap-bottom', rightData.id, 'profile-corridor', 'profile-preview', 'profile-line', 'profile-hover',
-      'measure-line', 'measure-points',
+      'measure-line', 'measure-points', 'buffer-fill', 'buffer-line',
     ]);
     const tileRequests = (fetch as any).mock.calls.map((c: any[]) => c[0]).filter((u: string) => u.startsWith('/md/'));
     expect(tileRequests.some((u: string) => u.includes('viridis'))).toBe(true);
@@ -395,5 +396,59 @@ describe('MapLibreMap', () => {
     expect(cursor.textContent).toBe('33.9581 : -117.674');
     act(() => map.fire('mouseout', {}));
     expect(cursor.textContent).toBe('Unavailable');
+  });
+
+  it('user overlays: between basemap and data in list order, side-aware in split screen, opacity live', async () => {
+    const { view, map } = await mount();
+    const tif = { id: 'a', name: 'dem', type: 'geotiff', visible: true, opacity: 0.5, path: '/x/dem.tif', mode: 'rgb' };
+    const wms = { id: 'b', name: 'roads', type: 'wms', visible: true, opacity: 1, url: 'https://w/wms', wmsLayers: 'r',
+      maxNativeZoom: 14, side: 'right' };
+    mockState.overlays = [tif, wms];
+    view.rerender(<MapLibreMap />);
+    await act(async () => {});
+    const order = () => map.layers.map(l => l.id).filter(id => !/^(profile|measure|buffer)-/.test(id));
+    expect(order()).toEqual(['basemap-bottom', 'overlay-a', 'overlay-b', 'data-1']);
+    // same-origin titiler paths made absolute for MapLibre's worker
+    expect(map.sources.get('overlay-a').tiles[0]).toBe(`${window.location.origin}/overlay/tiles/WebMercatorQuad/{z}/{x}/{y}.png?url=%2Fx%2Fdem.tif`);
+    expect(map.sources.get('overlay-b').tiles[0]).toMatch(/^https:\/\/w\/wms\?service=WMS&.*&bbox=\{bbox-epsg-3857\}$/);
+    expect(map.sources.get('overlay-b').maxzoom).toBe(14);
+    expect(map.getLayer('overlay-a')!.paint['raster-opacity']).toBe(0.5);
+
+    // reorder + opacity: no reload of unchanged sources
+    const srcA = map.sources.get('overlay-a');
+    mockState.overlays = [{ ...wms }, { ...tif, opacity: 0.2 }];
+    view.rerender(<MapLibreMap />);
+    await act(async () => {});
+    expect(order()).toEqual(['basemap-bottom', 'overlay-b', 'overlay-a', 'data-1']);
+    expect(map.sources.get('overlay-a')).toBe(srcA);
+    expect(map.getLayer('overlay-a')!.paint['raster-opacity']).toBe(0.2);
+
+    // split: the right-side overlay moves to the right map, the 'both' one is on both
+    Object.assign(mockState, { splitScreen: true, splitDataset: null });
+    view.rerender(<MapLibreMap />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+    const right = FakeMap.last;
+    expect(order()).toEqual(['basemap-bottom', 'overlay-a', 'data-1']);
+    expect(right.layers.map(l => l.id).filter(id => id.startsWith('overlay-'))).toEqual(['overlay-b', 'overlay-a']);
+
+    mockState.overlays = [];
+    view.rerender(<MapLibreMap />);
+    await act(async () => {});
+    expect(map.sources.has('overlay-a')).toBe(false);
+  });
+
+  it('buffer circles: one per visible point and the reference buffer, cleared when turned off', async () => {
+    const { view, map } = await mount();
+    Object.assign(mockState, { bufferEnabled: true, bufferRadius: 300, refEnabled: true, refBufferEnabled: true,
+      refBufferRadius: 500, timeSeriesPoints: [{ id: 'p', name: 'p', position: [33.96, -117.67], color: '#123456', visible: true, data: [] }] });
+    view.rerender(<MapLibreMap />);
+    await act(async () => {});
+    const feats = () => map.sources.get('buffer-circles').data.features;
+    expect(feats().map((f: any) => f.properties.color)).toEqual(['#123456', '#e05d6a']);
+    expect(map.getLayer('buffer-line')!.paint['line-color']).toEqual(['get', 'color']);
+    Object.assign(mockState, { bufferEnabled: false, refEnabled: false });
+    view.rerender(<MapLibreMap />);
+    await act(async () => {});
+    expect(feats()).toHaveLength(0);
   });
 });

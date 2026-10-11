@@ -2,7 +2,8 @@
  * Split screen on the MapLibre map. MapLibre can't clip a single layer, so (as
  * maplibre-gl-compare does) a second, passive map sits on top of the main one, clipped
  * to the right of the divider: the same basemaps and terrain, the right-panel dataset,
- * and a copy of the tool overlays (profile, measure). It follows the main map's camera
+ * the user overlays set to show on the right, and a copy of the tool overlays (profile,
+ * measure, buffer circles). It follows the main map's camera
  * and takes no input, so clicks, drags and pixel inspect stay on the main map (which
  * already knows which side the cursor is on). Main-map markers and popups are raised
  * above it in CSS (.split-active).
@@ -11,7 +12,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import { useAppContext } from '../context/AppContext';
 import { useRasterTileUrl } from '../map/useRasterTileUrl';
-import { OVERLAY_PREFIX, applyTerrain, useBasemapLayers, useDataRaster } from './maplibreLayers';
+import { OVERLAY_PREFIX, applyTerrain, useBasemapLayers, useDataRaster, useOverlayLayers } from './maplibreLayers';
 import SplitDivider from './SplitDivider';
 
 const EMPTY_STYLE: maplibregl.StyleSpecification = { version: 8, sources: {}, layers: [] };
@@ -74,6 +75,7 @@ export default function MapLibreSplit({ main, mainReady, terrain }: {
   }, [ready, right, terrain.enabled, terrain.exaggeration]);
 
   useBasemapLayers(right, ready);
+  useOverlayLayers(right, ready, 'right');
   const tileUrl = useRasterTileUrl({
     dataset: state.splitDataset ?? undefined, colormap: state.splitColormap, vmin: state.splitVmin,
     vmax: state.splitVmax, timeIndex: state.splitTimeIndex,

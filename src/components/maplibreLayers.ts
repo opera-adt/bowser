@@ -8,9 +8,14 @@ import { useAppContext } from '../context/AppContext';
 import { baseMaps } from '../basemap';
 import { basemapSource, basemapStack } from '../map/basemapStyle';
 import { TERRAIN_SOURCE, TERRAIN_SOURCE_ID, terrainSpec } from '../map/terrain';
+import { overlayOnMap, overlaySource } from '../map/overlays';
+import { bufferFeatures } from '../map/buffers';
 
-/** Tool overlays (profile, measure) stay on top: data layers are inserted below the first one. */
-export const OVERLAY_PREFIX = /^(profile|measure)-/;
+/**
+ * Tool overlays (profile, measure, buffer circles) stay on top: data layers are inserted
+ * below the first one, and split screen copies them onto the right map.
+ */
+export const OVERLAY_PREFIX = /^(profile|measure|buffer)-/;
 export function firstOverlayId(map: maplibregl.Map): string | undefined {
   return map.getStyle().layers.find((l: { id: string }) => OVERLAY_PREFIX.test(l.id))?.id;
 }
@@ -100,4 +105,65 @@ export function applyTerrain(map: maplibregl.Map, enabled: boolean, exaggeration
   // MapLibre 6 rebuilds the terrain (reading the new exaggeration) but schedules no
   // frame, so without this the slider only shows after the next pan or zoom.
   map.triggerRepaint();
+}
+
+/** MapLibre fetches tiles from a worker, so same-origin paths (/overlay/...) need the origin. */
+function absolute(url: string): string {
+  return url.startsWith('/') ? `${window.location.origin}${url}` : url;
+}
+
+/**
+ * User raster overlays between the basemap and the data, in list order (first = bottom).
+ * `which` is the main map or the split-screen right map (see overlayOnMap).
+ */
+export function useOverlayLayers(map: maplibregl.Map | null, ready: boolean, which: 'main' | 'right') {
+  const { state } = useAppContext();
+  const keysRef = useRef(new Map<string, string>());
+  useEffect(() => {
+    if (!ready || !map) return;
+    const want = state.overlays.filter(o => overlayOnMap(o, state.splitScreen, which)).map(o => {
+      const src = overlaySource(o);
+      return { id: `overlay-${o.id}`, src: { ...src, tiles: src.tiles.map(absolute) }, opacity: o.opacity };
+    });
+    const keys = keysRef.current;
+    // Drop overlays that went away or whose tiles changed.
+    for (const [id, key] of [...keys]) {
+      const w = want.find(x => x.id === id);
+      if (w && JSON.stringify(w.src) === key) continue;
+      if (map.getLayer(id)) map.removeLayer(id);
+      if (map.getSource(id)) map.removeSource(id);
+      keys.delete(id);
+    }
+    // Add the new ones, then stack them in list order just under the data / tools.
+    const anchor = () => map.getStyle().layers.find((l: { id: string }) => l.id.startsWith('data-') || OVERLAY_PREFIX.test(l.id))?.id;
+    for (const w of want) {
+      if (!keys.has(w.id)) {
+        map.addSource(w.id, { type: 'raster', tileSize: 256, ...w.src });
+        map.addLayer({ id: w.id, type: 'raster', source: w.id, paint: { 'raster-opacity': w.opacity } }, anchor());
+        keys.set(w.id, JSON.stringify(w.src));
+      }
+      map.setPaintProperty(w.id, 'raster-opacity', w.opacity);
+      map.moveLayer(w.id, anchor());
+    }
+  }, [ready, map, which, state.overlays, state.splitScreen]);
+}
+
+/** Buffer circles around time-series points and the reference point (dashed, faint fill). */
+export function useBufferCircles(map: maplibregl.Map | null, ready: boolean) {
+  const { state } = useAppContext();
+  useEffect(() => {
+    if (!ready || !map || map.getSource('buffer-circles')) return;
+    map.addSource('buffer-circles', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addLayer({ id: 'buffer-fill', type: 'fill', source: 'buffer-circles',
+      paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.08 } });
+    // Leaflet's dashArray '4 3' at weight 1.5, in line widths.
+    map.addLayer({ id: 'buffer-line', type: 'line', source: 'buffer-circles',
+      paint: { 'line-color': ['get', 'color'], 'line-width': 1.5, 'line-dasharray': [4 / 1.5, 3 / 1.5] } });
+  }, [ready, map]);
+  const data = bufferFeatures(state);
+  const key = JSON.stringify(data);
+  useEffect(() => {
+    const src = map?.getSource('buffer-circles') as maplibregl.GeoJSONSource | undefined;
+    if (ready && src) src.setData(data);
+  }, [ready, map, key]);  // eslint-disable-line react-hooks/exhaustive-deps
 }
