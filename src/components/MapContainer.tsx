@@ -5,6 +5,10 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useApi } from '../hooks/useApi';
 import { buildTileRequest } from '../utils/tileParams';
+import {
+  annotationAction, mapClickActions, markerPopupText, pixelInspectRequest, pixelInspectText,
+  pointClickActions, pointDoubleClickActions, pointDragEndActions, refDragEnd,
+} from '../map/interactions';
 import { useAppContext } from '../context/AppContext';
 import { baseMaps } from '../basemap';
 import { MousePositionControl } from '../mouse';
@@ -33,10 +37,11 @@ function MapEvents({ toolActive }: { toolActive: boolean }) {
 
   useMapEvents({
     click: (e) => {
-      if (toolActive || profileActive) return;
+      const decision = mapClickActions(state, [e.latlng.lat, e.latlng.lng], { toolActive, profileActive });
+      if (decision.kind === 'ignore') return;
 
       // Annotation mode: open an inline popup to enter text
-      if (state.annotationMode) {
+      if (decision.kind === 'annotate') {
         const pos = e.latlng;
         const wrap = document.createElement('div');
         wrap.style.cssText = 'display:flex;flex-direction:column;gap:6px;padding:2px;min-width:180px;';
@@ -83,19 +88,8 @@ function MapEvents({ toolActive }: { toolActive: boolean }) {
         setTimeout(() => input.focus(), 50);
 
         const commit = () => {
-          const text = input.value.trim();
-          if (text) {
-            dispatch({
-              type: 'ADD_ANNOTATION',
-              payload: {
-                id: `ann_${Date.now()}`,
-                position: [pos.lat, pos.lng],
-                text,
-                color: colorPick.value,
-                fontSize: Math.max(8, Math.min(72, parseInt(sizeInput.value) || 13)),
-              },
-            });
-          }
+          const action = annotationAction([pos.lat, pos.lng], input.value, colorPick.value, sizeInput.value);
+          if (action) dispatch(action);
           map.closePopup(popup);
         };
         addBtn.onclick = commit;
@@ -104,12 +98,7 @@ function MapEvents({ toolActive }: { toolActive: boolean }) {
         return;
       }
 
-      if (!state.pointPickingEnabled) return;
-      dispatch({
-        type: 'ADD_TIME_SERIES_POINT',
-        payload: { position: [e.latlng.lat, e.latlng.lng], name: `Point ${Date.now().toString().slice(-4)}` },
-      });
-      if (!state.showChart) dispatch({ type: 'TOGGLE_CHART' });
+      decision.actions.forEach(dispatch);
     },
   });
 
@@ -500,65 +489,25 @@ function MarkerEventHandlers() {
   const map = useMap();
 
   const handleMarkerClick = (position: [number, number], pointName?: string) => {
-    const [lat, lng] = position;
-    const content = pointName
-      ? `${pointName} (lon, lat):\n(${lng.toFixed(6)}, ${lat.toFixed(6)})`
-      : `Reference (lon, lat):\n(${lng.toFixed(6)}, ${lat.toFixed(6)})`;
     L.popup()
-      .setLatLng([lat, lng])
-      .setContent(content)
+      .setLatLng(position)
+      .setContent(markerPopupText(position, pointName))
       .openOn(map);
   };
 
   const handleTsMarkerDragEnd = (pointId: string) => (e: L.DragEndEvent) => {
-    const marker = e.target;
-    const position = marker.getLatLng();
-    dispatch({
-      type: 'UPDATE_TIME_SERIES_POINT',
-      payload: {
-        id: pointId,
-        updates: { position: [position.lat, position.lng] }
-      }
-    });
+    const position = e.target.getLatLng();
+    pointDragEndActions(pointId, [position.lat, position.lng]).forEach(dispatch);
   };
 
   const handleRefMarkerDragEnd = async (e: L.DragEndEvent) => {
-    const marker = e.target;
-    const position = marker.getLatLng();
-    const lat = position.lat;
-    const lng = position.lng;
-    // 1) update position in state
-    dispatch({ type: 'SET_REF_MARKER_POSITION', payload: [lat, lng] });
-
-    // 2) if current dataset uses the "shift" algo, recompute ref values
-    const ds = state.currentDataset;
-    const info = ds ? state.datasetInfo[ds] : null;
-    if (ds && info?.algorithm === 'shift') {
-      try {
-        let values: number[] | undefined;
-        if (state.refBufferEnabled && state.refBufferRadius > 0) {
-          const result = await fetchBufferTimeSeries(lng, lat, ds, state.refBufferRadius, 0);
-          if (result?.median) {
-            const xValues = state.datasetInfo[ds]?.x_values?.map(String) ?? result.labels?.map(String) ?? [];
-            const byX = Object.fromEntries(result.median.map((pt: { x: string; y: number }) => [String(pt.x), pt.y]));
-            values = xValues.map((x: string) => byX[x] ?? NaN);
-          }
-        }
-        if (!values) {
-          values = await fetchPointTimeSeries(lng, lat, ds);
-        }
-        if (values) {
-          dispatch({ type: 'SET_REF_VALUES', payload: { dataset: ds, values } });
-        }
-      } catch (err) {
-        console.error('Error updating reference values after drag:', err);
-      }
-    }
+    const position = e.target.getLatLng();
+    await refDragEnd(state, [position.lat, position.lng], { fetchPointTimeSeries, fetchBufferTimeSeries }, dispatch);
   };
 
   const handleTsMarkerDoubleClick = (pointId: string) => () => {
     // Double-click to remove point
-    dispatch({ type: 'REMOVE_TIME_SERIES_POINT', payload: pointId });
+    pointDoubleClickActions(pointId).forEach(dispatch);
   };
 
   // Create custom colored icons for each point
@@ -591,7 +540,7 @@ function MarkerEventHandlers() {
           eventHandlers={{
             click: () => {
               handleMarkerClick(point.position, point.name);
-              dispatch({ type: 'SET_SELECTED_POINT', payload: point.id });
+              pointClickActions(point.id).forEach(dispatch);
             },
             dragend: handleTsMarkerDragEnd(point.id),
             dblclick: handleTsMarkerDoubleClick(point.id),
@@ -634,14 +583,12 @@ function PixelInspectLayer() {
   useMapEvents({
     mousemove: (e) => {
       if (!state.pixelInspectEnabled || !state.currentDataset) return;
-      const { lat, lng } = e.latlng;
       const { x, y } = e.containerPoint;
 
       // In split screen, choose dataset based on which side the cursor is on.
-      const mapWidth = map.getSize().x;
-      const onRight = state.splitScreen && state.splitDataset &&
-        x > mapWidth * state.splitPosition;
-      const activeDataset = onRight ? state.splitDataset! : state.currentDataset;
+      const req = pixelInspectRequest(state, [e.latlng.lat, e.latlng.lng], x, map.getSize().x);
+      if (!req) return;
+      const { dataset: activeDataset, onRight } = req;
 
       if (timerRef.current) clearTimeout(timerRef.current);
       if (abortRef.current) { abortRef.current.abort(); abortRef.current = null; }
@@ -649,28 +596,14 @@ function PixelInspectLayer() {
         const controller = new AbortController();
         abortRef.current = controller;
         try {
-          const tIdx = onRight ? state.splitTimeIndex : state.currentTimeIndex;
-          const params = new URLSearchParams({
-            dataset_name: activeDataset,
-            lon: lng.toFixed(6),
-            lat: lat.toFixed(6),
-            // Read only the displayed time step — one chunk fetch, not the
-            // whole (~80-shard) time series we then throw 99% of away.
-            time_idx: String(tIdx),
-          });
-          const res = await fetch(`/point?${params}`, { signal: controller.signal });
+          // Reads only the displayed time step — one chunk fetch, not the
+          // whole (~80-shard) time series we then throw 99% of away.
+          const res = await fetch(req.url, { signal: controller.signal });
           if (!res.ok) return;
           const values: number[] = await res.json();
           const val = values[0];  // backend returned only the requested step
-          let text: string;
-          if (val === undefined || val === null || !isFinite(val)) {
-            text = 'nodata';
-          } else {
-            const unit = state.datasetInfo[activeDataset]?.unit ?? '';
-            const valStr = unit ? `${val.toPrecision(4)} ${unit}` : val.toPrecision(4);
-            text = state.splitScreen ? `${onRight ? 'R' : 'L'}: ${valStr}` : valStr;
-          }
-          setTooltip({ x, y, text });
+          const unit = state.datasetInfo[activeDataset]?.unit ?? '';
+          setTooltip({ x, y, text: pixelInspectText(val, unit, state.splitScreen, onRight) });
         } catch (err) {
           if ((err as Error).name !== 'AbortError') setTooltip(null);
         }
