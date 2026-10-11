@@ -109,6 +109,14 @@ function datasetBounds(state: AppState): [number, number, number, number] | null
   return info ? info.latlon_bounds : null;
 }
 
+/** A MapLibre control holding a line of text (the cursor position). */
+class TextControl {
+  el = document.createElement('div');
+  constructor(className: string, text: string) { this.el.className = `maplibregl-ctrl ${className}`; this.el.textContent = text; }
+  onAdd() { return this.el; }
+  onRemove() { this.el.remove(); }
+}
+
 function pointElement(color: string, selected: boolean): HTMLElement {
   const size = selected ? 25 : 20;
   const el = document.createElement('div');
@@ -133,6 +141,7 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
   const { fetchPointTimeSeries, fetchBufferTimeSeries } = useApi();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
+  const cursorControl = useRef(new TextControl('leaflet-control-mouseposition', 'Unavailable'));
   const [ready, setReady] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
   const stateRef = useRef(state);
@@ -165,7 +174,11 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
         + 'Open the page without ?map=maplibre to use the Leaflet map.');
       return;
     }
-    map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
+    // Bottom-left, as on the Leaflet map: metric over imperial scale, cursor position under
+    // them (bottom corners stack the last-added control on top).
+    map.addControl(cursorControl.current, 'bottom-left');
+    map.addControl(new maplibregl.ScaleControl({ unit: 'imperial', maxWidth: 150 }), 'bottom-left');
+    map.addControl(new maplibregl.ScaleControl({ unit: 'metric', maxWidth: 150 }), 'bottom-left');
     // Compass + tilt (no zoom buttons, as on the Leaflet map); needed once terrain is tilted.
     map.addControl(new maplibregl.NavigationControl({ showZoom: false, visualizePitch: true }), 'bottom-right');
     mapRef.current = map;
@@ -299,7 +312,6 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
   }, [ready, state.refMarkerVisible, state.refMarkerPosition, dispatch, fetchPointTimeSeries, fetchBufferTimeSeries]);
 
   // ── cursor position + pixel inspect ────────────────────────────────────────
-  const [cursor, setCursor] = useState<string | null>(null);
   const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string } | null>(null);
   useEffect(() => {
     const map = mapRef.current;
@@ -308,7 +320,8 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
     let controller: AbortController | null = null;
     const cancel = () => { if (timer) clearTimeout(timer); if (controller) controller.abort(); timer = null; controller = null; };
     const onMove = (e: maplibregl.MapMouseEvent) => {
-      setCursor(`${e.lngLat.lat.toFixed(5)} : ${e.lngLat.lng.toFixed(5)}`);
+      // as Leaflet's formatNum: 5 decimals, trailing zeros dropped
+      cursorControl.current.el.textContent = `${+e.lngLat.lat.toFixed(5)} : ${+e.lngLat.lng.toFixed(5)}`;
       const s = stateRef.current;
       cancel();
       if (!s.pixelInspectEnabled) { setTooltip(null); return; }
@@ -328,7 +341,7 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
         }
       }, 150);
     };
-    const onOut = () => { cancel(); setTooltip(null); setCursor(null); };
+    const onOut = () => { cancel(); setTooltip(null); cursorControl.current.el.textContent = 'Unavailable'; };
     map.on('mousemove', onMove);
     map.on('mouseout', onOut);
     return () => { cancel(); map.off('mousemove', onMove); map.off('mouseout', onOut); };
@@ -373,10 +386,6 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
           <i className="fa-solid fa-spinner fa-spin" style={{ fontSize: '0.9em' }} /> Loading…
         </div>
       )}
-      <div className="leaflet-control-mouseposition" style={{
-        position: 'absolute', left: 10, bottom: 34, zIndex: 3000, background: 'rgba(255,255,255,0.8)', padding: '0 5px',
-        fontSize: 11,
-      }}>{cursor ?? 'Unavailable'}</div>
       {state.pixelInspectEnabled && tooltip && (
         <div style={{
           position: 'absolute', left: tooltip.x + 14, top: tooltip.y - 10, background: 'rgba(10,10,10,0.88)',

@@ -23,7 +23,8 @@ const { FakeMap, FakeMarker, FakePopup, dispatch, mockState } = vi.hoisted(() =>
     on(ev: string, h: Handler) { this.handlers.set(ev, [...(this.handlers.get(ev) ?? []), h]); return this; }
     off(ev: string, h: Handler) { this.handlers.set(ev, (this.handlers.get(ev) ?? []).filter(x => x !== h)); return this; }
     fire(ev: string, e: any) { (this.handlers.get(ev) ?? []).forEach(h => h(e)); }
-    addControl() { return this; }
+    controls: [any, string][] = [];
+    addControl(c: any, pos: string) { this.controls.push([c, pos]); return this; }
     addSource(id: string, s: any) {
       this.sources.set(id, s.type === 'geojson' ? { ...s, setData(d: unknown) { this.data = d; } } : s);
     }
@@ -86,7 +87,7 @@ const { FakeMap, FakeMarker, FakePopup, dispatch, mockState } = vi.hoisted(() =>
 });
 
 vi.mock('maplibre-gl', () => ({
-  Map: FakeMap, Marker: FakeMarker, Popup: FakePopup, ScaleControl: class {}, NavigationControl: class {},
+  Map: FakeMap, Marker: FakeMarker, Popup: FakePopup, ScaleControl: class { constructor(public opts: any) {} }, NavigationControl: class {},
   setWorkerUrl: (u: string) => { (globalThis as any).__maplibreWorkerUrl = u; },
 }));
 vi.mock('maplibre-gl/dist/maplibre-gl.css', () => ({}));
@@ -379,5 +380,20 @@ describe('MapLibreMap', () => {
     expect(dispatch).toHaveBeenCalledWith({ type: 'REMOVE_ANNOTATION', payload: 'a1' });
     // a click on the label is not a map click (no new annotation form, no picking)
     expect(dispatch).toHaveBeenCalledTimes(1);
+  });
+
+  it('bottom-left, as on Leaflet: metric and imperial scale over a readable cursor position', async () => {
+    const { map } = await mount();
+    const bl = map.controls.filter(([, pos]) => pos === 'bottom-left').map(([c]) => c);
+    // bottom corners stack the last-added control on top: metric, imperial, then the cursor
+    expect(bl.slice(1).map(c => c.opts.unit)).toEqual(['imperial', 'metric']);
+    const cursor: HTMLElement = bl[0].onAdd();
+    expect(cursor.className).toBe('maplibregl-ctrl leaflet-control-mouseposition');
+    expect(cursor.getAttribute('style')).toBeNull();   // themed by style.css, not a fixed white box
+    expect(cursor.textContent).toBe('Unavailable');
+    act(() => map.fire('mousemove', { lngLat: { lat: 33.9581, lng: -117.674 }, point: { x: 1, y: 1 } }));
+    expect(cursor.textContent).toBe('33.9581 : -117.674');
+    act(() => map.fire('mouseout', {}));
+    expect(cursor.textContent).toBe('Unavailable');
   });
 });
