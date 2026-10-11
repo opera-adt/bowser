@@ -68,7 +68,11 @@ const { FakeMap, FakeMarker, FakePopup, dispatch, mockState } = vi.hoisted(() =>
     remove() { this.removed = true; }
   }
 
-  class FakePopup { setLngLat() { return this; } setText() { return this; } addTo() { return this; } }
+  class FakePopup {
+    static html: string[] = [];
+    setLngLat() { return this; } setText() { return this; } addTo() { return this; } remove() {}
+    setHTML(h: string) { FakePopup.html.push(h); return this; }
+  }
   return { FakeMap, FakeMarker, FakePopup, dispatch: vi.fn(), mockState: {} as Record<string, any> };
 });
 
@@ -141,9 +145,10 @@ describe('MapLibreMap', () => {
     expect(map.sources.get('data-1').bounds).toEqual([-117.68, 33.95, -117.66, 33.97]);
     // the worker URL comes from Vite, not MapLibre's own relative lookup
     expect((globalThis as any).__maplibreWorkerUrl).toBe('/assets/maplibre-worker.js');
-    // basemap at the bottom, data above it, tool overlays (profile) on top
+    // basemap at the bottom, data above it, tool overlays (profile, measure) on top
     expect(map.layers.map(l => l.id)).toEqual([
       'basemap-bottom', 'data-1', 'profile-corridor', 'profile-preview', 'profile-line', 'profile-hover',
+      'measure-line', 'measure-points',
     ]);
     expect(map.getLayer('data-1')!.paint['raster-opacity']).toBe(0.8);
   });
@@ -153,7 +158,7 @@ describe('MapLibreMap', () => {
     mockState.currentTimeIndex = 0;
     view.rerender(<MapLibreMap />);
     await act(async () => { await vi.advanceTimersByTimeAsync(300); });
-    const ids = () => map.layers.map(l => l.id).filter(id => !id.startsWith('profile-'));
+    const ids = () => map.layers.map(l => l.id).filter(id => !/^(profile|measure)-/.test(id));
     expect(ids()).toEqual(['basemap-bottom', 'data-1', 'data-2']);
     act(() => map.fire('sourcedata', { sourceId: 'data-2' }));
     expect(ids()).toEqual(['basemap-bottom', 'data-2']);
@@ -201,7 +206,7 @@ describe('MapLibreMap', () => {
   it('shows the shared toolbars with the not-yet-ported tools disabled', async () => {
     const { view } = await mount();
     const off = [...view.container.querySelectorAll('[data-unsupported]')].map(e => e.getAttribute('data-unsupported'));
-    expect(off.sort()).toEqual(['annotation', 'graticule', 'measure', 'split']);
+    expect(off.sort()).toEqual(['annotation', 'graticule', 'split']);
     expect(view.getByTitle(/Draw profile line/).hasAttribute('disabled')).toBe(false);
     expect(view.getByTitle('Toggle spatial re-referencing')).toBeTruthy();
     expect(view.getByTitle('3D terrain')).toBeTruthy();
@@ -236,5 +241,20 @@ describe('MapLibreMap', () => {
     dispatch.mockReset();
     act(() => map.fire('moveend', {}));
     expect(dispatch).toHaveBeenCalledWith({ type: 'SET_VIEW_BOUNDS', payload: [33.951235, -117.69, 33.97, -117.65] });
+  });
+
+  it('measure: clicks add points with a running total instead of picking, double-click ends it', async () => {
+    const { view, map } = await mount();
+    await act(async () => { fireEvent.click(view.getByTitle(/Measure distance/)); });
+    dispatch.mockReset();
+    act(() => map.fire('click', { lngLat: { lat: 33.96289, lng: -117.67984 }, point: { x: 1, y: 1 } }));
+    act(() => map.fire('click', { lngLat: { lat: 33.95429, lng: -117.66939 }, point: { x: 2, y: 2 } }));
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(map.sources.get('measure-tool').data.features).toHaveLength(3);   // 2 points + the path
+    expect(FakePopup.html[FakePopup.html.length - 1]).toMatch(/^<b>1\.\d\d km<\/b>$/);
+    await act(async () => { map.fire('dblclick', { preventDefault() {}, lngLat: { lat: 0, lng: 0 } }); });
+    expect(map.sources.get('measure-tool').data.features).toHaveLength(0);
+    act(() => map.fire('click', { lngLat: { lat: 33.958, lng: -117.674 }, point: { x: 1, y: 1 } }));
+    expect(dispatch.mock.calls.map(c => c[0].type)).toContain('ADD_TIME_SERIES_POINT');   // picking is back
   });
 });

@@ -12,8 +12,8 @@
  * view sync (fit to dataset, sidebar view buttons), basemaps (primary/secondary, swap, opacity), the data raster layer
  * (double-buffered so a new time step never flashes blank), point picking, time-series
  * and reference markers, pixel inspect, cursor position, scale bar, fit to the data.
- * Profile tool: MapLibreProfile. Still Leaflet-only (next commits): split screen,
- * overlays/WMS, the measure tool, graticule, annotations, buffer circles.
+ * Profile and measure tools: MapLibreProfile, MapLibreMeasure. Still Leaflet-only (next commits): split screen,
+ * overlays/WMS, graticule, annotations, buffer circles.
  */
 import { useEffect, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
@@ -40,11 +40,18 @@ import {
 } from '../map/terrain';
 import { MapLeftToolbar, MapTopRightToolbar, type MapFeature } from './MapToolbars';
 import MapLibreProfile from './MapLibreProfile';
+import MapLibreMeasure from './MapLibreMeasure';
 import { useProfileContext } from './ProfileTool';
 import type { AppState } from '../types';
 
 /** Toolbar features not ported to MapLibre yet: shown disabled with a note. */
-const UNSUPPORTED: ReadonlySet<MapFeature> = new Set(['measure', 'split', 'graticule', 'annotation']);
+const UNSUPPORTED: ReadonlySet<MapFeature> = new Set(['split', 'graticule', 'annotation']);
+
+/** Tool overlays (profile, measure) stay on top: data layers are inserted below the first one. */
+const OVERLAY_PREFIX = /^(profile|measure)-/;
+function firstOverlayId(map: maplibregl.Map): string | undefined {
+  return map.getStyle().layers.find((l: { id: string }) => OVERLAY_PREFIX.test(l.id))?.id;
+}
 
 const TERRAIN_KEY = 'bowser.maplibre.terrain';
 function loadTerrain(): { enabled: boolean; exaggeration: number } {
@@ -139,6 +146,9 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
   const { active: profileActive } = useProfileContext();
   const profileActiveRef = useRef(profileActive);
   profileActiveRef.current = profileActive;
+  const [measureActive, setMeasureActive] = useState(false);
+  const measureActiveRef = useRef(measureActive);
+  measureActiveRef.current = measureActive;
 
   // ── map ────────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -260,7 +270,7 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
     map.addSource(id, { type: 'raster', tiles: [tileUrl], tileSize: 256, maxzoom: 22, ...(b ? { bounds: b } : {}) });
     // Data stays below the tool overlays (profile line etc.).
     map.addLayer({ id, type: 'raster', source: id, paint: { 'raster-opacity': stateRef.current.opacity,
-      'raster-fade-duration': 0 } }, map.getLayer('profile-corridor') ? 'profile-corridor' : undefined);
+      'raster-fade-duration': 0 } }, firstOverlayId(map));
     dataLayerRef.current = id;
     if (!previous) return;
     // Keep the previous layer underneath until the new one has drawn, then drop it.
@@ -298,7 +308,7 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
     if (!ready || !map) return;
     const onClick = (e: maplibregl.MapMouseEvent) => {
       const decision = mapClickActions(stateRef.current, [e.lngLat.lat, e.lngLat.lng],
-        { toolActive: false, profileActive: profileActiveRef.current });
+        { toolActive: measureActiveRef.current, profileActive: profileActiveRef.current });
       if (decision.kind === 'actions') decision.actions.forEach(dispatch);
       // Annotation mode on MapLibre comes with the annotations commit.
     };
@@ -392,7 +402,8 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
     <div className="map-container" style={{ position: 'relative' }}>
       {toolbarsVisible ? (
         <>
-          <MapLeftToolbar measureActive={false} onToggleMeasure={() => {}} onMeasureOff={() => {}} unsupported={UNSUPPORTED} />
+          <MapLeftToolbar measureActive={measureActive} onToggleMeasure={() => setMeasureActive(v => !v)}
+            onMeasureOff={() => setMeasureActive(false)} unsupported={UNSUPPORTED} />
           <MapTopRightToolbar onToggleToolbars={onToggleToolbars} unsupported={UNSUPPORTED}>
             <TerrainButton enabled={terrain.enabled} exaggeration={terrain.exaggeration} onChange={setTerrainState} />
           </MapTopRightToolbar>
@@ -407,6 +418,7 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
       )}
       <div ref={containerRef} data-testid="maplibre-map" style={{ height: '100%', width: '100%' }} />
       <MapLibreProfile map={mapRef.current} ready={ready} />
+      <MapLibreMeasure map={mapRef.current} ready={ready} active={measureActive} onDeactivate={() => setMeasureActive(false)} />
       {mapError && (
         <div role="alert" style={{
           position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
