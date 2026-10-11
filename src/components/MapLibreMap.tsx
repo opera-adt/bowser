@@ -13,7 +13,7 @@
  * (double-buffered so a new time step never flashes blank), point picking, time-series
  * and reference markers, pixel inspect, cursor position, scale bar, fit to the data.
  * Profile and measure tools: MapLibreProfile, MapLibreMeasure; split screen: MapLibreSplit;
- * graticule: MapLibreGraticule. Still Leaflet-only (next commits): overlays/WMS, annotations, buffer circles.
+ * graticule: MapLibreGraticule; annotations: MapLibreAnnotations. Still Leaflet-only: overlays/WMS, buffer circles.
  */
 import { useEffect, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
@@ -41,11 +41,12 @@ import MapLibreProfile from './MapLibreProfile';
 import MapLibreMeasure from './MapLibreMeasure';
 import MapLibreSplit from './MapLibreSplit';
 import MapLibreGraticule from './MapLibreGraticule';
+import MapLibreAnnotations, { openAnnotationCreate } from './MapLibreAnnotations';
 import { useProfileContext } from './ProfileTool';
 import type { AppState } from '../types';
 
 /** Toolbar features not ported to MapLibre yet: shown disabled with a note. */
-const UNSUPPORTED: ReadonlySet<MapFeature> = new Set(['annotation']);
+const UNSUPPORTED: ReadonlySet<MapFeature> = new Set([]);
 
 const TERRAIN_KEY = 'bowser.maplibre.terrain';
 function loadTerrain(): { enabled: boolean; exaggeration: number } {
@@ -245,7 +246,7 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
       const decision = mapClickActions(stateRef.current, [e.lngLat.lat, e.lngLat.lng],
         { toolActive: measureActiveRef.current, profileActive: profileActiveRef.current });
       if (decision.kind === 'actions') decision.actions.forEach(dispatch);
-      // Annotation mode on MapLibre comes with the annotations commit.
+      if (decision.kind === 'annotate') openAnnotationCreate(map, decision.position, dispatch);
     };
     map.on('click', onClick);
     return () => { map.off('click', onClick); };
@@ -356,6 +357,7 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
       <MapLibreMeasure map={mapRef.current} ready={ready} active={measureActive} onDeactivate={() => setMeasureActive(false)} />
       {state.splitScreen && <MapLibreSplit main={mapRef.current} mainReady={ready} terrain={terrain} />}
       <MapLibreGraticule map={mapRef.current} ready={ready} mode={state.graticuleMode} />
+      <MapLibreAnnotations map={mapRef.current} ready={ready} />
       {mapError && (
         <div role="alert" style={{
           position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',

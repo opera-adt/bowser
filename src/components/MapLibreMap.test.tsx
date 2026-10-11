@@ -75,8 +75,12 @@ const { FakeMap, FakeMarker, FakePopup, dispatch, mockState } = vi.hoisted(() =>
 
   class FakePopup {
     static html: string[] = [];
-    setLngLat() { return this; } setText() { return this; } addTo() { return this; } remove() {}
+    setLngLat() { return this; } setText() { return this; } addTo() { return this; }
     setHTML(h: string) { FakePopup.html.push(h); return this; }
+    static dom: HTMLElement[] = [];
+    removed = false;
+    remove() { this.removed = true; }
+    setDOMContent(el: HTMLElement) { FakePopup.dom.push(el); return this; }
   }
   return { FakeMap, FakeMarker, FakePopup, dispatch: vi.fn(), mockState: {} as Record<string, any> };
 });
@@ -110,7 +114,7 @@ beforeEach(() => {
     refEnabled: false, layerMasks: [], customMaskPath: null, wrapEnabled: false, wrapWavelength: null,
     wrapPeriod: 0.0277, complexMode: 'phase', opacity: 0.8, selectedBasemap: 'esriSatellite',
     secondaryBasemap: null, basemapSwapped: false, basemapOpacity: 1, secondaryBasemapOpacity: 0.5,
-    timeSeriesPoints: [], selectedPointId: null, refMarkerVisible: true, annotationMode: false,
+    timeSeriesPoints: [], selectedPointId: null, refMarkerVisible: true, annotationMode: false, annotations: [],
     pointPickingEnabled: true, showChart: false, pixelInspectEnabled: false, splitScreen: false,
     splitDataset: null, splitPosition: 0.5, splitTimeIndex: 0, refBufferEnabled: false, refBufferRadius: 0,
     viewBounds: null, viewBoundsApplySeq: 0, showColorbar: false, showLosIndicator: false, graticuleMode: 'off',
@@ -229,7 +233,7 @@ describe('MapLibreMap', () => {
   it('shows the shared toolbars with the not-yet-ported tools disabled', async () => {
     const { view } = await mount();
     const off = [...view.container.querySelectorAll('[data-unsupported]')].map(e => e.getAttribute('data-unsupported'));
-    expect(off.sort()).toEqual(['annotation']);
+    expect(off).toEqual([]);
     expect(view.getByTitle(/Draw profile line/).hasAttribute('disabled')).toBe(false);
     expect(view.getByTitle('Toggle spatial re-referencing')).toBeTruthy();
     expect(view.getByTitle('3D terrain')).toBeTruthy();
@@ -346,5 +350,34 @@ describe('MapLibreMap', () => {
     mockState.graticuleMode = 'off';
     view.rerender(<MapLibreMap />);
     expect(view.queryByTestId('maplibre-graticule')).toBeNull();
+  });
+
+  it('annotations: annotation-mode click opens the shared form, labels open the edit form', async () => {
+    const { view, map } = await mount();
+    mockState.annotationMode = true;
+    mockState.annotations = [];
+    view.rerender(<MapLibreMap />);
+    dispatch.mockReset();
+    act(() => map.fire('click', { lngLat: { lat: 33.958, lng: -117.674 }, point: { x: 1, y: 1 } }));
+    const create = FakePopup.dom[FakePopup.dom.length - 1];
+    (create.querySelector('input[type=text]') as HTMLInputElement).value = 'Spillway';
+    [...create.querySelectorAll('button')].find(b => b.textContent === 'Add')!.click();
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(dispatch.mock.calls[0][0]).toMatchObject({ type: 'ADD_ANNOTATION',
+      payload: { position: [33.958, -117.674], text: 'Spillway', fontSize: 13 } });
+
+    mockState.annotations = [{ id: 'a1', position: [33.958, -117.674], text: 'Spillway', color: '#ffffff', fontSize: 13 }];
+    view.rerender(<MapLibreMap />);
+    await act(async () => {});
+    const label = FakeMarker.all.filter(m => !m.removed).find(m => m.opts.element.className === 'bowser-annotation')!;
+    expect(label.lngLat).toEqual([-117.674, 33.958]);
+    expect(label.opts.element.textContent).toBe('Spillway');
+    dispatch.mockReset();
+    act(() => label.opts.element.click());
+    const edit = FakePopup.dom[FakePopup.dom.length - 1];
+    (edit.querySelector('button[title="Delete annotation"]') as HTMLButtonElement).click();
+    expect(dispatch).toHaveBeenCalledWith({ type: 'REMOVE_ANNOTATION', payload: 'a1' });
+    // a click on the label is not a map click (no new annotation form, no picking)
+    expect(dispatch).toHaveBeenCalledTimes(1);
   });
 });
