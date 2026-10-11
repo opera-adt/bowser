@@ -27,17 +27,15 @@ import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&ur
 maplibregl.setWorkerUrl(maplibreWorkerUrl);
 import { useAppContext } from '../context/AppContext';
 import { useApi } from '../hooks/useApi';
-import { baseMaps } from '../basemap';
-import { basemapSource, basemapStack } from '../map/basemapStyle';
 import { useRasterTileUrl } from '../map/useRasterTileUrl';
 import {
   mapClickActions, markerPopupText, pixelInspectRequest, pixelInspectText,
   pointClickActions, pointDoubleClickActions, pointDragEndActions, refDragEnd, viewBoundsAction,
 } from '../map/interactions';
 import {
-  EXAGGERATION_DEFAULT, EXAGGERATION_MAX, EXAGGERATION_MIN, TERRAIN_PITCH, TERRAIN_SOURCE, TERRAIN_SOURCE_ID,
-  clampExaggeration, terrainSpec,
+  EXAGGERATION_DEFAULT, EXAGGERATION_MAX, EXAGGERATION_MIN, TERRAIN_PITCH, clampExaggeration,
 } from '../map/terrain';
+import { applyTerrain, useBasemapLayers, useDataRaster } from './maplibreLayers';
 import { MapLeftToolbar, MapTopRightToolbar, type MapFeature } from './MapToolbars';
 import MapLibreProfile from './MapLibreProfile';
 import MapLibreMeasure from './MapLibreMeasure';
@@ -46,12 +44,6 @@ import type { AppState } from '../types';
 
 /** Toolbar features not ported to MapLibre yet: shown disabled with a note. */
 const UNSUPPORTED: ReadonlySet<MapFeature> = new Set(['split', 'graticule', 'annotation']);
-
-/** Tool overlays (profile, measure) stay on top: data layers are inserted below the first one. */
-const OVERLAY_PREFIX = /^(profile|measure)-/;
-function firstOverlayId(map: maplibregl.Map): string | undefined {
-  return map.getStyle().layers.find((l: { id: string }) => OVERLAY_PREFIX.test(l.id))?.id;
-}
 
 const TERRAIN_KEY = 'bowser.maplibre.terrain';
 function loadTerrain(): { enabled: boolean; exaggeration: number } {
@@ -108,7 +100,6 @@ function TerrainButton({ enabled, exaggeration, onChange }: {
 }
 
 const EMPTY_STYLE: maplibregl.StyleSpecification = { version: 8, sources: {}, layers: [] };
-const BASEMAP_IDS = ['basemap-bottom', 'basemap-top'] as const;
 
 function datasetBounds(state: AppState): [number, number, number, number] | null {
   const info = (state.currentDataset && state.datasetInfo[state.currentDataset]) || Object.values(state.datasetInfo)[0];
@@ -221,74 +212,16 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map) return;
-    if (terrain.enabled && !map.getSource(TERRAIN_SOURCE_ID)) map.addSource(TERRAIN_SOURCE_ID, TERRAIN_SOURCE);
-    map.setTerrain(terrainSpec(terrain.enabled, terrain.exaggeration));
-    // MapLibre 6 rebuilds the terrain (reading the new exaggeration) but schedules no
-    // frame, so without this the slider only shows after the next pan or zoom.
-    map.triggerRepaint();
+    applyTerrain(map, terrain.enabled, terrain.exaggeration);
     // Tilt in when terrain comes on (unless already tilted), back to flat when it goes off.
     if (terrain.enabled && !terrainWasOn.current && map.getPitch() < 10) map.easeTo({ pitch: TERRAIN_PITCH });
     if (!terrain.enabled && terrainWasOn.current) map.easeTo({ pitch: 0, bearing: 0 });
     terrainWasOn.current = terrain.enabled;
   }, [ready, terrain]);
 
-  // ── basemaps ───────────────────────────────────────────────────────────────
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!ready || !map) return;
-    const primary = baseMaps[state.selectedBasemap] || baseMaps.esriSatellite;
-    const secondary = state.secondaryBasemap ? baseMaps[state.secondaryBasemap] : null;
-    const stack = basemapStack(primary, secondary, state.basemapSwapped, state.basemapOpacity,
-      state.secondaryBasemapOpacity);
-    const firstOther = map.getStyle().layers.find((l: { id: string }) => !BASEMAP_IDS.includes(l.id as typeof BASEMAP_IDS[number]))?.id;
-    ([['basemap-bottom', stack.bottom, stack.bottomOpacity], ['basemap-top', stack.top, stack.topOpacity]] as const)
-      .forEach(([id, item, opacity]) => {
-        if (map.getLayer(id)) map.removeLayer(id);
-        if (map.getSource(id)) map.removeSource(id);
-        if (!item) return;
-        map.addSource(id, basemapSource(item));
-        map.addLayer({ id, type: 'raster', source: id, paint: { 'raster-opacity': opacity } }, firstOther);
-      });
-  }, [ready, state.selectedBasemap, state.secondaryBasemap, state.basemapSwapped, state.basemapOpacity,
-    state.secondaryBasemapOpacity]);
-
-  // ── data raster (double-buffered) ──────────────────────────────────────────
-  const tileUrl = useRasterTileUrl();
-  const dataLayerRef = useRef<string | null>(null);
-  const nextIdRef = useRef(0);
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!ready || !map) return;
-    const previous = dataLayerRef.current;
-    if (!tileUrl) {
-      if (previous) { map.removeLayer(previous); map.removeSource(previous); dataLayerRef.current = null; }
-      return;
-    }
-    const id = `data-${++nextIdRef.current}`;
-    // Bounds keep MapLibre from asking for tiles outside the data (404s, worst when tilted).
-    const b = datasetBounds(stateRef.current);
-    map.addSource(id, { type: 'raster', tiles: [tileUrl], tileSize: 256, maxzoom: 22, ...(b ? { bounds: b } : {}) });
-    // Data stays below the tool overlays (profile line etc.).
-    map.addLayer({ id, type: 'raster', source: id, paint: { 'raster-opacity': stateRef.current.opacity,
-      'raster-fade-duration': 0 } }, firstOverlayId(map));
-    dataLayerRef.current = id;
-    if (!previous) return;
-    // Keep the previous layer underneath until the new one has drawn, then drop it.
-    const swap = (e: maplibregl.MapSourceDataEvent) => {
-      if (e.sourceId !== id || !map.isSourceLoaded(id)) return;
-      map.off('sourcedata', swap);
-      if (map.getLayer(previous)) map.removeLayer(previous);
-      if (map.getSource(previous)) map.removeSource(previous);
-    };
-    map.on('sourcedata', swap);
-    return () => { map.off('sourcedata', swap); };
-  }, [ready, tileUrl]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    const id = dataLayerRef.current;
-    if (ready && map && id && map.getLayer(id)) map.setPaintProperty(id, 'raster-opacity', state.opacity);
-  }, [ready, state.opacity, tileUrl]);
+  // ── basemaps, data raster (double-buffered) ────────────────────────────────
+  useBasemapLayers(mapRef.current, ready);
+  useDataRaster(mapRef.current, ready, useRasterTileUrl(), state.opacity, datasetBounds(state));
 
   // Loading indicator: any source still loading.
   const [loading, setLoading] = useState(false);
