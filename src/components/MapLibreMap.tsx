@@ -201,6 +201,9 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
     if (!ready || !map) return;
     if (terrain.enabled && !map.getSource(TERRAIN_SOURCE_ID)) map.addSource(TERRAIN_SOURCE_ID, TERRAIN_SOURCE);
     map.setTerrain(terrainSpec(terrain.enabled, terrain.exaggeration));
+    // MapLibre 6 rebuilds the terrain (reading the new exaggeration) but schedules no
+    // frame, so without this the slider only shows after the next pan or zoom.
+    map.triggerRepaint();
     // Tilt in when terrain comes on (unless already tilted), back to flat when it goes off.
     if (terrain.enabled && !terrainWasOn.current && map.getPitch() < 10) map.easeTo({ pitch: TERRAIN_PITCH });
     if (!terrain.enabled && terrainWasOn.current) map.easeTo({ pitch: 0, bearing: 0 });

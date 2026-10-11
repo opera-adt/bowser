@@ -41,7 +41,9 @@ const { FakeMap, FakeMarker, FakePopup, dispatch, mockState } = vi.hoisted(() =>
       terrain: unknown = null;
       pitch = 0;
       eased: any[] = [];
+      repaints = 0;
       setTerrain(t: unknown) { this.terrain = t; }
+      triggerRepaint() { this.repaints += 1; }
       getPitch() { return this.pitch; }
       easeTo(o: any) { this.eased.push(o); if (o.pitch !== undefined) this.pitch = o.pitch; }
       getBounds() { return { getSouth: () => 33.9512345678, getWest: () => -117.69, getNorth: () => 33.97, getEast: () => -117.65 }; }
@@ -197,8 +199,11 @@ describe('MapLibreMap', () => {
     expect(map.sources.get('terrain-dem').type).toBe('raster-dem');
     expect(map.terrain).toEqual({ source: 'terrain-dem', exaggeration: 2 });
     expect(map.eased[map.eased.length - 1]).toEqual({ pitch: 60 });
+    const before = map.repaints;
     await act(async () => { fireEvent.change(view.getByLabelText('Terrain exaggeration'), { target: { value: '4.5' } }); });
     expect(map.terrain).toEqual({ source: 'terrain-dem', exaggeration: 4.5 });
+    // a new exaggeration must redraw now, not on the next pan
+    expect(map.repaints).toBeGreaterThan(before);
     expect(JSON.parse(localStorage.getItem('bowser.maplibre.terrain')!)).toEqual({ enabled: true, exaggeration: 4.5 });
     await act(async () => { fireEvent.click(view.getByRole('checkbox')); });
     expect(map.terrain).toBeNull();
