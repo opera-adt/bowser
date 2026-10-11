@@ -2,6 +2,10 @@ import { useEffect, useState } from 'react';
 import { AppProvider, useAppContext } from '../context/AppContext';
 import { useApi } from '../hooks/useApi';
 import MapContainer from './MapContainer';
+import MapLibreMap from './MapLibreMap';
+
+/** Opt in to the MapLibre map with ``?map=maplibre`` while it reaches parity with Leaflet. */
+const USE_MAPLIBRE = new URLSearchParams(window.location.search).get('map') === 'maplibre';
 import ControlPanel from './ControlPanel';
 import TimeSeriesChart from './TimeSeriesChart';
 import PointManagerPanel from './PointManagerPanel';
@@ -63,7 +67,9 @@ function AppContent() {
         >
           <i className={`fa-solid fa-chevron-${sidebarHidden ? 'right' : 'left'}`} />
         </button>
-        <MapContainer toolbarsVisible={toolbarsVisible} onToggleToolbars={() => setToolbarsVisible(v => !v)} />
+        {USE_MAPLIBRE
+          ? <MapLibreMap />
+          : <MapContainer toolbarsVisible={toolbarsVisible} onToggleToolbars={() => setToolbarsVisible(v => !v)} />}
         {toolbarsVisible && <PointManagerPanel />}
         <RefPointChart />
         <ColormapBar />
