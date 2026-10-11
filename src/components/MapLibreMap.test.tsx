@@ -15,7 +15,11 @@ const { FakeMap, FakeMarker, FakePopup, dispatch, mockState } = vi.hoisted(() =>
     layers: { id: string; paint?: any }[] = [];
     handlers = new Map<string, Handler[]>();
     fitted: unknown = null;
-    constructor(public opts: any) { FakeMap.last = this; setTimeout(() => this.fire('load', {}), 0); }
+    static fail = false;
+    constructor(public opts: any) {
+      if (FakeMap.fail) throw new Error('Failed to initialize WebGL');
+      FakeMap.last = this; setTimeout(() => this.fire('load', {}), 0);
+    }
     on(ev: string, h: Handler) { this.handlers.set(ev, [...(this.handlers.get(ev) ?? []), h]); return this; }
     off(ev: string, h: Handler) { this.handlers.set(ev, (this.handlers.get(ev) ?? []).filter(x => x !== h)); return this; }
     fire(ev: string, e: any) { (this.handlers.get(ev) ?? []).forEach(h => h(e)); }
@@ -97,6 +101,18 @@ async function mount() {
   await act(async () => { await vi.advanceTimersByTimeAsync(300); });
   return { view, map: FakeMap.last };
 }
+
+describe('MapLibreMap without WebGL', () => {
+  it('shows a message instead of crashing the app', () => {
+    FakeMap.fail = true;
+    try {
+      const view = render(<MapLibreMap />);
+      expect(view.getByRole('alert').textContent).toContain('needs WebGL');
+    } finally {
+      FakeMap.fail = false;
+    }
+  });
+});
 
 describe('MapLibreMap', () => {
   it('draws the basemap, fits the data and adds the raster layer on top', async () => {

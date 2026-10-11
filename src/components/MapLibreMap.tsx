@@ -58,6 +58,7 @@ export default function MapLibreMap() {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [ready, setReady] = useState(false);
+  const [mapError, setMapError] = useState<string | null>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
 
@@ -65,14 +66,23 @@ export default function MapLibreMap() {
   useEffect(() => {
     if (!containerRef.current) return;
     const b = datasetBounds(state);
-    const map = new maplibregl.Map({
-      container: containerRef.current,
-      style: EMPTY_STYLE,
-      center: b ? [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2] : [0, 0],
-      zoom: 9,
-      doubleClickZoom: false,
-      attributionControl: { compact: true },
-    });
+    let map: maplibregl.Map;
+    try {
+      map = new maplibregl.Map({
+        container: containerRef.current,
+        style: EMPTY_STYLE,
+        center: b ? [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2] : [0, 0],
+        zoom: 9,
+        doubleClickZoom: false,
+        attributionControl: { compact: true },
+      });
+    } catch (err) {
+      // No WebGL (old GPU driver, remote desktop, some web views): say so instead of
+      // taking the whole app down with an uncaught error.
+      setMapError(`The MapLibre map needs WebGL, which this browser could not start (${(err as Error).message}). `
+        + 'Open the page without ?map=maplibre to use the Leaflet map.');
+      return;
+    }
     map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
     mapRef.current = map;
     map.on('load', () => setReady(true));
@@ -257,6 +267,12 @@ export default function MapLibreMap() {
   return (
     <div className="map-container" style={{ position: 'relative' }}>
       <div ref={containerRef} data-testid="maplibre-map" style={{ height: '100%', width: '100%' }} />
+      {mapError && (
+        <div role="alert" style={{
+          position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: 40, textAlign: 'center', background: '#1b1b1b', color: '#e8e6e3', zIndex: 4000,
+        }}>{mapError}</div>
+      )}
       {loading && (
         <div style={{
           position: 'absolute', bottom: 28, right: 10, zIndex: 3000, background: 'rgba(0,0,0,0.55)', color: '#fff',
