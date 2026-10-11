@@ -17,6 +17,7 @@ import MeasureTool from './MeasureTool';
 import { ProfileToolMap, useProfileContext } from './ProfileTool';
 import Graticule from './Graticule';
 import SplitDivider from './SplitDivider';
+import { geotiffTileUrl, overlayVizKey } from '../map/overlays';
 import { annotationCreateForm, annotationEditForm, annotationLabelHtml } from '../map/annotationForms';
 
 // Fix for default markers in React Leaflet
@@ -496,11 +497,6 @@ function SplitScreenControl() {
   return null;
 }
 
-function hexToRgba(hex: string): [number, number, number, number] {
-  const h = (hex || '#000000').replace('#', '');
-  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16), 255];
-}
-
 // User raster overlays, drawn between the basemap (zIndex 1-2) and the data
 // layer (zIndex 10). Array order = stacking order; index 0 sits just above the
 // basemap. Each overlay is tiled by the /overlay titiler (reprojected on the fly).
@@ -521,29 +517,8 @@ function OverlayLayers() {
           : ['splitLeft', 'splitRight'];
 
         // Resolve the tile URL once (geotiff); WMS uses params.
-        let url = '';
-        let vizKey: string = o.type;
-        if (o.type === 'geotiff') {
-          const vmin = o.vmin ?? 0, vmax = o.vmax ?? 1, nbins = o.nbins ?? 5;
-          const binColors = o.binColors ?? [];
-          // Force PNG so areas outside the raster footprint are transparent.
-          // Without an extension titiler may emit JPEG (no alpha) → opaque black
-          // covering the whole map.
-          const base = `/overlay/tiles/WebMercatorQuad/{z}/{x}/{y}.png?url=${encodeURIComponent(o.path ?? '')}`;
-          url = base;
-          if (o.mode === 'cmap' && o.discrete) {
-            const step = (vmax - vmin) / nbins;
-            const intervals = Array.from({ length: nbins }, (_, k) => {
-              const lo = vmin + k * step;
-              const hi = k === nbins - 1 ? vmax + Math.abs(step) * 1e-3 + 1e-9 : vmin + (k + 1) * step;
-              return [[lo, hi], hexToRgba(binColors[k])];
-            });
-            url = `${base}&colormap=${encodeURIComponent(JSON.stringify(intervals))}`;
-          } else if (o.mode === 'cmap') {
-            url = `${base}&colormap_name=${encodeURIComponent(o.cmap ?? 'viridis')}&rescale=${vmin},${vmax}`;
-          }
-          vizKey = o.mode === 'cmap' ? (o.discrete ? `d${nbins}:${binColors.join('')}` : (o.cmap ?? '')) : 'rgb';
-        }
+        const url = o.type === 'geotiff' ? geotiffTileUrl(o) : '';
+        const vizKey = overlayVizKey(o);
 
         return panes.map((pane) => {
           // Pane name (not index) in the key: react-leaflet can't move a layer
