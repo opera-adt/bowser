@@ -12,8 +12,8 @@
  * view sync (fit to dataset, sidebar view buttons), basemaps (primary/secondary, swap, opacity), the data raster layer
  * (double-buffered so a new time step never flashes blank), point picking, time-series
  * and reference markers, pixel inspect, cursor position, scale bar, fit to the data.
- * Still Leaflet-only (next commits): split screen, overlays/WMS, profile and measure
- * tools, graticule, annotations, buffer circles.
+ * Profile tool: MapLibreProfile. Still Leaflet-only (next commits): split screen,
+ * overlays/WMS, the measure tool, graticule, annotations, buffer circles.
  */
 import { useEffect, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
@@ -39,10 +39,12 @@ import {
   clampExaggeration, terrainSpec,
 } from '../map/terrain';
 import { MapLeftToolbar, MapTopRightToolbar, type MapFeature } from './MapToolbars';
+import MapLibreProfile from './MapLibreProfile';
+import { useProfileContext } from './ProfileTool';
 import type { AppState } from '../types';
 
 /** Toolbar features not ported to MapLibre yet: shown disabled with a note. */
-const UNSUPPORTED: ReadonlySet<MapFeature> = new Set(['measure', 'profile', 'split', 'graticule', 'annotation']);
+const UNSUPPORTED: ReadonlySet<MapFeature> = new Set(['measure', 'split', 'graticule', 'annotation']);
 
 const TERRAIN_KEY = 'bowser.maplibre.terrain';
 function loadTerrain(): { enabled: boolean; exaggeration: number } {
@@ -134,6 +136,9 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
   const [mapError, setMapError] = useState<string | null>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
+  const { active: profileActive } = useProfileContext();
+  const profileActiveRef = useRef(profileActive);
+  profileActiveRef.current = profileActive;
 
   // ── map ────────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -253,8 +258,9 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
     // Bounds keep MapLibre from asking for tiles outside the data (404s, worst when tilted).
     const b = datasetBounds(stateRef.current);
     map.addSource(id, { type: 'raster', tiles: [tileUrl], tileSize: 256, maxzoom: 22, ...(b ? { bounds: b } : {}) });
+    // Data stays below the tool overlays (profile line etc.).
     map.addLayer({ id, type: 'raster', source: id, paint: { 'raster-opacity': stateRef.current.opacity,
-      'raster-fade-duration': 0 } });
+      'raster-fade-duration': 0 } }, map.getLayer('profile-corridor') ? 'profile-corridor' : undefined);
     dataLayerRef.current = id;
     if (!previous) return;
     // Keep the previous layer underneath until the new one has drawn, then drop it.
@@ -292,7 +298,7 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
     if (!ready || !map) return;
     const onClick = (e: maplibregl.MapMouseEvent) => {
       const decision = mapClickActions(stateRef.current, [e.lngLat.lat, e.lngLat.lng],
-        { toolActive: false, profileActive: false });
+        { toolActive: false, profileActive: profileActiveRef.current });
       if (decision.kind === 'actions') decision.actions.forEach(dispatch);
       // Annotation mode on MapLibre comes with the annotations commit.
     };
@@ -400,6 +406,7 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
         ><i className="fa-solid fa-bars"></i></button>
       )}
       <div ref={containerRef} data-testid="maplibre-map" style={{ height: '100%', width: '100%' }} />
+      <MapLibreProfile map={mapRef.current} ready={ready} />
       {mapError && (
         <div role="alert" style={{
           position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',

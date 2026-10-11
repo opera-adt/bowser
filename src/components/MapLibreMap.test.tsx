@@ -24,7 +24,12 @@ const { FakeMap, FakeMarker, FakePopup, dispatch, mockState } = vi.hoisted(() =>
     off(ev: string, h: Handler) { this.handlers.set(ev, (this.handlers.get(ev) ?? []).filter(x => x !== h)); return this; }
     fire(ev: string, e: any) { (this.handlers.get(ev) ?? []).forEach(h => h(e)); }
     addControl() { return this; }
-    addSource(id: string, s: any) { this.sources.set(id, s); }
+    addSource(id: string, s: any) {
+      this.sources.set(id, s.type === 'geojson' ? { ...s, setData(d: unknown) { this.data = d; } } : s);
+    }
+    canvas = { style: {} as Record<string, string> };
+    getCanvas() { return this.canvas; }
+    project([lng, lat]: [number, number]) { return { x: lng * 1e5, y: -lat * 1e5 }; }
     removeSource(id: string) { this.sources.delete(id); }
     getSource(id: string) { return this.sources.get(id); }
     addLayer(l: any, before?: string) {
@@ -136,7 +141,10 @@ describe('MapLibreMap', () => {
     expect(map.sources.get('data-1').bounds).toEqual([-117.68, 33.95, -117.66, 33.97]);
     // the worker URL comes from Vite, not MapLibre's own relative lookup
     expect((globalThis as any).__maplibreWorkerUrl).toBe('/assets/maplibre-worker.js');
-    expect(map.layers.map(l => l.id)).toEqual(['basemap-bottom', 'data-1']);
+    // basemap at the bottom, data above it, tool overlays (profile) on top
+    expect(map.layers.map(l => l.id)).toEqual([
+      'basemap-bottom', 'data-1', 'profile-corridor', 'profile-preview', 'profile-line', 'profile-hover',
+    ]);
     expect(map.getLayer('data-1')!.paint['raster-opacity']).toBe(0.8);
   });
 
@@ -145,9 +153,10 @@ describe('MapLibreMap', () => {
     mockState.currentTimeIndex = 0;
     view.rerender(<MapLibreMap />);
     await act(async () => { await vi.advanceTimersByTimeAsync(300); });
-    expect(map.layers.map(l => l.id)).toEqual(['basemap-bottom', 'data-1', 'data-2']);
+    const ids = () => map.layers.map(l => l.id).filter(id => !id.startsWith('profile-'));
+    expect(ids()).toEqual(['basemap-bottom', 'data-1', 'data-2']);
     act(() => map.fire('sourcedata', { sourceId: 'data-2' }));
-    expect(map.layers.map(l => l.id)).toEqual(['basemap-bottom', 'data-2']);
+    expect(ids()).toEqual(['basemap-bottom', 'data-2']);
     expect(map.sources.has('data-1')).toBe(false);
   });
 
@@ -192,7 +201,8 @@ describe('MapLibreMap', () => {
   it('shows the shared toolbars with the not-yet-ported tools disabled', async () => {
     const { view } = await mount();
     const off = [...view.container.querySelectorAll('[data-unsupported]')].map(e => e.getAttribute('data-unsupported'));
-    expect(off.sort()).toEqual(['annotation', 'graticule', 'measure', 'profile', 'split']);
+    expect(off.sort()).toEqual(['annotation', 'graticule', 'measure', 'split']);
+    expect(view.getByTitle(/Draw profile line/).hasAttribute('disabled')).toBe(false);
     expect(view.getByTitle('Toggle spatial re-referencing')).toBeTruthy();
     expect(view.getByTitle('3D terrain')).toBeTruthy();
   });
