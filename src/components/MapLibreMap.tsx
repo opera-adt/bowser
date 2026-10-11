@@ -1,5 +1,5 @@
 /**
- * The bowser map on MapLibre GL (opt-in: ``?map=maplibre``).
+ * The bowser map on MapLibre GL (the default; ``?map=leaflet`` for the Leaflet map).
  *
  * Everything that decides *what* the map asks for or does lives in map-agnostic
  * modules shared with the Leaflet map and pinned by tests:
@@ -172,7 +172,7 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
       // No WebGL (old GPU driver, remote desktop, some web views): say so instead of
       // taking the whole app down with an uncaught error.
       setMapError(`The MapLibre map needs WebGL, which this browser could not start (${(err as Error).message}). `
-        + 'Open the page without ?map=maplibre to use the Leaflet map.');
+        + 'Add ?map=leaflet to the address to use the Leaflet map.');
       return;
     }
     // Bottom-left, as on the Leaflet map: metric over imperial scale, cursor position under

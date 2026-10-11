@@ -4,8 +4,10 @@ import { useApi } from '../hooks/useApi';
 import MapContainer from './MapContainer';
 import MapLibreMap from './MapLibreMap';
 
-/** Opt in to the MapLibre map with ``?map=maplibre`` while it reaches parity with Leaflet. */
-const USE_MAPLIBRE = new URLSearchParams(window.location.search).get('map') === 'maplibre';
+import { browserHasWebGL2, chooseMap } from '../map/mapChoice';
+
+/** MapLibre by default; Leaflet with ``?map=leaflet`` or when WebGL2 isn't available. */
+const USE_MAPLIBRE = chooseMap(window.location.search, browserHasWebGL2) === 'maplibre';
 import ControlPanel from './ControlPanel';
 import TimeSeriesChart from './TimeSeriesChart';
 import PointManagerPanel from './PointManagerPanel';
