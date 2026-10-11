@@ -8,7 +8,7 @@
  */
 import { renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useApi, withDataset } from './useApi';
+import { datasetRangeUrl, useApi, withDataset } from './useApi';
 
 type Call = { url: string; method: string; body: unknown };
 
@@ -68,6 +68,12 @@ describe('useApi request contract', () => {
       if (c.url.startsWith('/mode') || c.url.startsWith('/config')) continue;
       expect(c.url, c.url).toContain('dataset=prado-034-a-019');
     }
+  });
+
+  it('dataset range is routed to the catalog dataset', () => {
+    expect(datasetRangeUrl('temporal_coherence')).toBe('/dataset_range/temporal_coherence');
+    window.history.replaceState({}, '', '/?dataset=prado-034-a-019');
+    expect(datasetRangeUrl('temporal_coherence')).toBe('/dataset_range/temporal_coherence?dataset=prado-034-a-019');
   });
 
   it('withDataset leaves params alone outside catalog mode', () => {

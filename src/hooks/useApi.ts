@@ -21,6 +21,13 @@ export function withDataset(params: URLSearchParams): URLSearchParams {
   return params;
 }
 
+/** URL for a dataset's value range (colour limits, mask sliders), routed like every call. */
+export function datasetRangeUrl(datasetName: string): string {
+  const qs = withDataset(new URLSearchParams()).toString();
+  const base = `/dataset_range/${encodeURIComponent(datasetName)}`;
+  return qs ? `${base}?${qs}` : base;
+}
+
 export function useApi() {
   const fetchDatasets = useCallback(async () => {
     const url = `/datasets?${withDataset(new URLSearchParams())}`;
