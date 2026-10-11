@@ -7,11 +7,12 @@ const tif = (o: Partial<Overlay>): Overlay => ({ id: 'o1', name: 'n', type: 'geo
 const BASE = '/overlay/tiles/WebMercatorQuad/{z}/{x}/{y}.png?url=%2Fdata%2Fup%2Fa%20b.tif';
 
 describe('overlays', () => {
-  it('GeoTIFF tile URLs (as the Leaflet map built them inline)', () => {
+  it('GeoTIFF tile URLs: RGB as is, colormaps on band 1 (2-band files used to 500)', () => {
     expect(geotiffTileUrl(tif({ mode: 'rgb' }))).toBe(BASE);
     expect(geotiffTileUrl(tif({ mode: 'cmap', cmap: 'terrain', vmin: -2, vmax: 5 })))
-      .toBe(`${BASE}&colormap_name=terrain&rescale=-2,5`);
+      .toBe(`${BASE}&bidx=1&colormap_name=terrain&rescale=-2,5`);
     const d = geotiffTileUrl(tif({ mode: 'cmap', discrete: true, nbins: 2, vmin: 0, vmax: 10, binColors: ['#ff0000', '#00ff00'] }));
+    expect(d.startsWith(`${BASE}&bidx=1&colormap=`)).toBe(true);
     expect(JSON.parse(decodeURIComponent(d.split('&colormap=')[1])))
       .toEqual([[[0, 5], [255, 0, 0, 255]], [[5, 10 + 5e-3 + 1e-9], [0, 255, 0, 255]]]);
     expect(overlayVizKey(tif({ mode: 'cmap', discrete: true, nbins: 2, binColors: ['#a', '#b'] }))).toBe('d2:#a#b');

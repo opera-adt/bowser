@@ -18,6 +18,9 @@ export function geotiffTileUrl(o: Overlay): string {
   // Without an extension titiler may emit JPEG (no alpha) → opaque black
   // covering the whole map.
   const base = `/overlay/tiles/WebMercatorQuad/{z}/{x}/{y}.png?url=${encodeURIComponent(o.path ?? '')}`;
+  // A colormap needs one band: always read band 1 (whose stats set vmin/vmax), so a
+  // 2-band file (e.g. value + weights) doesn't fail with "Source data must be 1 band".
+  const cmapBase = `${base}&bidx=1`;
   if (o.mode === 'cmap' && o.discrete) {
     const step = (vmax - vmin) / nbins;
     const intervals = Array.from({ length: nbins }, (_, k) => {
@@ -25,9 +28,9 @@ export function geotiffTileUrl(o: Overlay): string {
       const hi = k === nbins - 1 ? vmax + Math.abs(step) * 1e-3 + 1e-9 : vmin + (k + 1) * step;
       return [[lo, hi], hexToRgba(binColors[k])];
     });
-    return `${base}&colormap=${encodeURIComponent(JSON.stringify(intervals))}`;
+    return `${cmapBase}&colormap=${encodeURIComponent(JSON.stringify(intervals))}`;
   }
-  if (o.mode === 'cmap') return `${base}&colormap_name=${encodeURIComponent(o.cmap ?? 'viridis')}&rescale=${vmin},${vmax}`;
+  if (o.mode === 'cmap') return `${cmapBase}&colormap_name=${encodeURIComponent(o.cmap ?? 'viridis')}&rescale=${vmin},${vmax}`;
   return base;
 }
 
