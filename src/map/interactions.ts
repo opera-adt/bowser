@@ -131,3 +131,9 @@ export function pixelInspectText(
   const valStr = unit ? `${val.toPrecision(4)} ${unit}` : val.toPrecision(4);
   return splitScreen ? `${onRight ? 'R' : 'L'}: ${valStr}` : valStr;
 }
+
+/** The map moved: report its visible bounds ([south, west, north, east], 6 decimals) to the app. */
+export function viewBoundsAction(south: number, west: number, north: number, east: number): AppAction {
+  const r = (v: number) => parseFloat(v.toFixed(6));
+  return { type: 'SET_VIEW_BOUNDS', payload: [r(south), r(west), r(north), r(east)] };
+}

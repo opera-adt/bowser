@@ -8,7 +8,7 @@ import { useRasterTileUrl } from '../map/useRasterTileUrl';
 import { MapLeftToolbar, MapTopRightToolbar } from './MapToolbars';
 import {
   annotationAction, mapClickActions, markerPopupText, pixelInspectRequest, pixelInspectText,
-  pointClickActions, pointDoubleClickActions, pointDragEndActions, refDragEnd,
+  pointClickActions, pointDoubleClickActions, pointDragEndActions, refDragEnd, viewBoundsAction,
 } from '../map/interactions';
 import { useAppContext } from '../context/AppContext';
 import { baseMaps } from '../basemap';
@@ -255,15 +255,7 @@ function MapViewController() {
   useMapEvents({
     moveend: () => {
       const b = map.getBounds();
-      dispatch({
-        type: 'SET_VIEW_BOUNDS',
-        payload: [
-          parseFloat(b.getSouth().toFixed(6)),
-          parseFloat(b.getWest().toFixed(6)),
-          parseFloat(b.getNorth().toFixed(6)),
-          parseFloat(b.getEast().toFixed(6)),
-        ],
-      });
+      dispatch(viewBoundsAction(b.getSouth(), b.getWest(), b.getNorth(), b.getEast()));
     },
   });
 
