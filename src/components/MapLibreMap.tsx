@@ -8,7 +8,8 @@
  *   basemapStyle                   -> basemap sources
  * This file only translates those into MapLibre sources, layers, markers and events.
  *
- * Covered so far: basemaps (primary/secondary, swap, opacity), the data raster layer
+ * Covered so far: toolbars (shared with Leaflet), 3D terrain with vertical exaggeration,
+ * view sync (fit to dataset, sidebar view buttons), basemaps (primary/secondary, swap, opacity), the data raster layer
  * (double-buffered so a new time step never flashes blank), point picking, time-series
  * and reference markers, pixel inspect, cursor position, scale bar, fit to the data.
  * Still Leaflet-only (next commits): split screen, overlays/WMS, profile and measure
@@ -24,9 +25,71 @@ import { basemapSource, basemapStack } from '../map/basemapStyle';
 import { useRasterTileUrl } from '../map/useRasterTileUrl';
 import {
   mapClickActions, markerPopupText, pixelInspectRequest, pixelInspectText,
-  pointClickActions, pointDoubleClickActions, pointDragEndActions, refDragEnd,
+  pointClickActions, pointDoubleClickActions, pointDragEndActions, refDragEnd, viewBoundsAction,
 } from '../map/interactions';
+import {
+  EXAGGERATION_DEFAULT, EXAGGERATION_MAX, EXAGGERATION_MIN, TERRAIN_PITCH, TERRAIN_SOURCE, TERRAIN_SOURCE_ID,
+  clampExaggeration, terrainSpec,
+} from '../map/terrain';
+import { MapLeftToolbar, MapTopRightToolbar, type MapFeature } from './MapToolbars';
 import type { AppState } from '../types';
+
+/** Toolbar features not ported to MapLibre yet: shown disabled with a note. */
+const UNSUPPORTED: ReadonlySet<MapFeature> = new Set(['measure', 'profile', 'split', 'graticule', 'annotation']);
+
+const TERRAIN_KEY = 'bowser.maplibre.terrain';
+function loadTerrain(): { enabled: boolean; exaggeration: number } {
+  try {
+    const v = JSON.parse(localStorage.getItem(TERRAIN_KEY) ?? 'null');
+    if (v && typeof v.enabled === 'boolean') return { enabled: v.enabled, exaggeration: clampExaggeration(v.exaggeration) };
+  } catch { /* private mode or bad JSON: use defaults */ }
+  return { enabled: false, exaggeration: EXAGGERATION_DEFAULT };
+}
+
+/** Toolbar button + popover: 3D terrain on/off and vertical exaggeration. */
+function TerrainButton({ enabled, exaggeration, onChange }: {
+  enabled: boolean;
+  exaggeration: number;
+  onChange: (enabled: boolean, exaggeration: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as HTMLElement;
+      if (!t.closest('.terrain-popover') && !t.closest('.terrain-trigger')) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+  return (
+    <div style={{ position: 'relative' }}>
+      <button
+        className={`map-tool-btn terrain-trigger${enabled ? ' active' : ''}`}
+        onClick={() => setOpen(v => !v)}
+        title={enabled ? `3D terrain ON (${exaggeration}× exaggeration)` : '3D terrain'}
+      ><i className="fa-solid fa-mountain"></i></button>
+      {open && (
+        <div className="basemap-popover terrain-popover" style={{ minWidth: 220 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8em', marginBottom: 6 }}>
+            <input type="checkbox" checked={enabled} onChange={e => onChange(e.target.checked, exaggeration)} />
+            3D terrain
+          </label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: '0.7em', color: 'var(--sb-muted)', flexShrink: 0 }}>Exaggeration</span>
+            <input type="range" min={EXAGGERATION_MIN} max={EXAGGERATION_MAX} step={0.5} value={exaggeration}
+              aria-label="Terrain exaggeration" disabled={!enabled}
+              onChange={e => onChange(enabled, parseFloat(e.target.value))} style={{ flex: 1 }} />
+            <span style={{ fontSize: '0.7em', color: 'var(--sb-muted)', width: 30, textAlign: 'right' }}>{exaggeration}×</span>
+          </div>
+          <div style={{ fontSize: '0.68em', color: 'var(--sb-muted)', marginTop: 6 }}>
+            Right-drag (or Ctrl+drag) to tilt and rotate.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 const EMPTY_STYLE: maplibregl.StyleSpecification = { version: 8, sources: {}, layers: [] };
 const BASEMAP_IDS = ['basemap-bottom', 'basemap-top'] as const;
@@ -52,7 +115,10 @@ function refElement(): HTMLElement {
   return el;
 }
 
-export default function MapLibreMap() {
+export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars = () => {} }: {
+  toolbarsVisible?: boolean;
+  onToggleToolbars?: () => void;
+}) {
   const { state, dispatch } = useAppContext();
   const { fetchPointTimeSeries, fetchBufferTimeSeries } = useApi();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -84,6 +150,8 @@ export default function MapLibreMap() {
       return;
     }
     map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
+    // Compass + tilt (no zoom buttons, as on the Leaflet map); needed once terrain is tilted.
+    map.addControl(new maplibregl.NavigationControl({ showZoom: false, visualizePitch: true }), 'bottom-right');
     mapRef.current = map;
     map.on('load', () => setReady(true));
     return () => { map.remove(); mapRef.current = null; setReady(false); };
@@ -100,6 +168,44 @@ export default function MapLibreMap() {
     fittedRef.current = true;
     map.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: 40, animate: false });
   }, [ready, state.datasetInfo, state.currentDataset]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── view sync: sidebar / "fit to dataset" requests, and report where we are ─
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map || !state.viewBounds || state.viewBoundsApplySeq === 0) return;
+    const [south, west, north, east] = state.viewBounds;
+    map.fitBounds([[west, south], [east, north]], { animate: true });
+  }, [ready, state.viewBoundsApplySeq]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map) return;
+    const onMoveEnd = () => {
+      const b = map.getBounds();
+      dispatch(viewBoundsAction(b.getSouth(), b.getWest(), b.getNorth(), b.getEast()));
+    };
+    map.on('moveend', onMoveEnd);
+    return () => { map.off('moveend', onMoveEnd); };
+  }, [ready, dispatch]);
+
+  // ── 3D terrain ─────────────────────────────────────────────────────────────
+  const [terrain, setTerrain] = useState(loadTerrain);
+  const setTerrainState = (enabled: boolean, exaggeration: number) => {
+    const next = { enabled, exaggeration: clampExaggeration(exaggeration) };
+    setTerrain(next);
+    try { localStorage.setItem(TERRAIN_KEY, JSON.stringify(next)); } catch { /* not persisted */ }
+  };
+  const terrainWasOn = useRef(false);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map) return;
+    if (terrain.enabled && !map.getSource(TERRAIN_SOURCE_ID)) map.addSource(TERRAIN_SOURCE_ID, TERRAIN_SOURCE);
+    map.setTerrain(terrainSpec(terrain.enabled, terrain.exaggeration));
+    // Tilt in when terrain comes on (unless already tilted), back to flat when it goes off.
+    if (terrain.enabled && !terrainWasOn.current && map.getPitch() < 10) map.easeTo({ pitch: TERRAIN_PITCH });
+    if (!terrain.enabled && terrainWasOn.current) map.easeTo({ pitch: 0, bearing: 0 });
+    terrainWasOn.current = terrain.enabled;
+  }, [ready, terrain]);
 
   // ── basemaps ───────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -266,6 +372,21 @@ export default function MapLibreMap() {
 
   return (
     <div className="map-container" style={{ position: 'relative' }}>
+      {toolbarsVisible ? (
+        <>
+          <MapLeftToolbar measureActive={false} onToggleMeasure={() => {}} onMeasureOff={() => {}} unsupported={UNSUPPORTED} />
+          <MapTopRightToolbar onToggleToolbars={onToggleToolbars} unsupported={UNSUPPORTED}>
+            <TerrainButton enabled={terrain.enabled} exaggeration={terrain.exaggeration} onChange={setTerrainState} />
+          </MapTopRightToolbar>
+        </>
+      ) : (
+        <button
+          className="map-tool-btn"
+          title="Show toolbar"
+          onClick={onToggleToolbars}
+          style={{ position: 'absolute', top: 10, right: 10, zIndex: 3000 }}
+        ><i className="fa-solid fa-bars"></i></button>
+      )}
       <div ref={containerRef} data-testid="maplibre-map" style={{ height: '100%', width: '100%' }} />
       {mapError && (
         <div role="alert" style={{

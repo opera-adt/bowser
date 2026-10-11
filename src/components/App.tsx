@@ -68,7 +68,7 @@ function AppContent() {
           <i className={`fa-solid fa-chevron-${sidebarHidden ? 'right' : 'left'}`} />
         </button>
         {USE_MAPLIBRE
-          ? <MapLibreMap />
+          ? <MapLibreMap toolbarsVisible={toolbarsVisible} onToggleToolbars={() => setToolbarsVisible(v => !v)} />
           : <MapContainer toolbarsVisible={toolbarsVisible} onToggleToolbars={() => setToolbarsVisible(v => !v)} />}
         {toolbarsVisible && <PointManagerPanel />}
         <RefPointChart />
