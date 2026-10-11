@@ -2,6 +2,7 @@
  * Profile tool request and response, independent of the map library.
  * Pinned by profile.test.ts.
  */
+import { withDataset } from '../hooks/useApi';
 
 export interface CentrePoint { dist: number; value: number }
 export interface ProfileResponse {
@@ -20,8 +21,9 @@ export function profileRequest(
   radius: number,
   samplingInterval: number,
 ): { url: string; init: RequestInit } {
+  const qs = withDataset(new URLSearchParams()).toString();
   return {
-    url: '/profile',
+    url: qs ? `/profile?${qs}` : '/profile',
     init: {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

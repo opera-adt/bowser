@@ -16,6 +16,17 @@ describe('profileRequest', () => {
   });
 });
 
+describe('profileRequest in catalog mode', () => {
+  it('routes the profile to ?dataset=<id> like every other request', () => {
+    window.history.replaceState({}, '', '/?dataset=prado-034-a-019');
+    try {
+      expect(profileRequest(LINE, 'displacement', 0, 0, 0).url).toBe('/profile?dataset=prado-034-a-019');
+    } finally {
+      window.history.replaceState({}, '', '/');
+    }
+  });
+});
+
 describe('parseProfileResponse', () => {
   it('accepts a bare centre line', () => {
     expect(parseProfileResponse([{ dist: 0, value: 1 }])).toEqual({
