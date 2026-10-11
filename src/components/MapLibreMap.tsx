@@ -18,6 +18,13 @@
 import { useEffect, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
+// MapLibre decodes tiles (incl. the terrain DEM) in a module worker it locates relative to
+// its own file. Vite's dependency pre-bundling (dev) and bundling (build) don't carry that
+// file along, so the worker failed to load and terrain stayed flat. Let Vite build the
+// worker as its own chunk and hand MapLibre the URL.
+import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
+
+maplibregl.setWorkerUrl(maplibreWorkerUrl);
 import { useAppContext } from '../context/AppContext';
 import { useApi } from '../hooks/useApi';
 import { baseMaps } from '../basemap';
@@ -243,7 +250,9 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
       return;
     }
     const id = `data-${++nextIdRef.current}`;
-    map.addSource(id, { type: 'raster', tiles: [tileUrl], tileSize: 256, maxzoom: 22 });
+    // Bounds keep MapLibre from asking for tiles outside the data (404s, worst when tilted).
+    const b = datasetBounds(stateRef.current);
+    map.addSource(id, { type: 'raster', tiles: [tileUrl], tileSize: 256, maxzoom: 22, ...(b ? { bounds: b } : {}) });
     map.addLayer({ id, type: 'raster', source: id, paint: { 'raster-opacity': stateRef.current.opacity,
       'raster-fade-duration': 0 } });
     dataLayerRef.current = id;

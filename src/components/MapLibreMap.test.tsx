@@ -69,8 +69,10 @@ const { FakeMap, FakeMarker, FakePopup, dispatch, mockState } = vi.hoisted(() =>
 
 vi.mock('maplibre-gl', () => ({
   Map: FakeMap, Marker: FakeMarker, Popup: FakePopup, ScaleControl: class {}, NavigationControl: class {},
+  setWorkerUrl: (u: string) => { (globalThis as any).__maplibreWorkerUrl = u; },
 }));
 vi.mock('maplibre-gl/dist/maplibre-gl.css', () => ({}));
+vi.mock('maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url', () => ({ default: '/assets/maplibre-worker.js' }));
 
 vi.mock('../context/AppContext', () => ({ useAppContext: () => ({ state: mockState, dispatch }) }));
 
@@ -130,6 +132,10 @@ describe('MapLibreMap', () => {
     expect(map.sources.get('basemap-bottom').tiles[0]).toContain('World_Imagery');
     expect(map.fitted).toEqual([[-117.68, 33.95], [-117.66, 33.97]]);
     expect(map.sources.get('data-1').tiles).toEqual(['http://h/t/{z}/{x}/{y}.png?v=1']);
+    // limited to the data so MapLibre doesn't request (404) tiles beyond it
+    expect(map.sources.get('data-1').bounds).toEqual([-117.68, 33.95, -117.66, 33.97]);
+    // the worker URL comes from Vite, not MapLibre's own relative lookup
+    expect((globalThis as any).__maplibreWorkerUrl).toBe('/assets/maplibre-worker.js');
     expect(map.layers.map(l => l.id)).toEqual(['basemap-bottom', 'data-1']);
     expect(map.getLayer('data-1')!.paint['raster-opacity']).toBe(0.8);
   });
