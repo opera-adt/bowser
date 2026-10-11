@@ -159,6 +159,15 @@ describe('pixel inspect', () => {
     expect(pixelInspectRequest(split, P, 300, 800)).toMatchObject({ dataset: 'displacement', onRight: false });
   });
 
+  it('routes the hover to the catalog dataset like every other request', () => {
+    window.history.replaceState({}, '', '/?dataset=prado-034-a-019');
+    try {
+      expect(pixelInspectRequest(st, P, 100, 800)!.url).toContain('dataset=prado-034-a-019');
+    } finally {
+      window.history.replaceState({}, '', '/');
+    }
+  });
+
   it('formats values, units, split sides and nodata', () => {
     expect(pixelInspectText(0.0123456, 'm', false, false)).toBe('0.01235 m');
     expect(pixelInspectText(0.0123456, '', true, true)).toBe('R: 0.01235');

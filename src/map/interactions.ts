@@ -6,6 +6,7 @@
  * today and the MapLibre ones will tomorrow, so both behave identically; the
  * behaviour is pinned by interactions.test.ts.
  */
+import { withDataset } from '../hooks/useApi';
 import type { AppAction, AppState, MapAnnotation } from '../types';
 
 type LatLng = [number, number];
@@ -113,12 +114,12 @@ export function pixelInspectRequest(
   if (!state.currentDataset) return null;
   const onRight = !!(state.splitScreen && state.splitDataset && containerX > mapWidth * state.splitPosition);
   const dataset = onRight ? state.splitDataset! : state.currentDataset;
-  const params = new URLSearchParams({
+  const params = withDataset(new URLSearchParams({
     dataset_name: dataset,
     lon: lng.toFixed(6),
     lat: lat.toFixed(6),
     time_idx: String(onRight ? state.splitTimeIndex : state.currentTimeIndex),
-  });
+  }));
   return { dataset, onRight, url: `/point?${params}` };
 }
 
