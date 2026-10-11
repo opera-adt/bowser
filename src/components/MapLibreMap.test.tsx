@@ -229,7 +229,7 @@ describe('MapLibreMap', () => {
   it('shows the shared toolbars with the not-yet-ported tools disabled', async () => {
     const { view } = await mount();
     const off = [...view.container.querySelectorAll('[data-unsupported]')].map(e => e.getAttribute('data-unsupported'));
-    expect(off.sort()).toEqual(['annotation', 'graticule']);
+    expect(off.sort()).toEqual(['annotation']);
     expect(view.getByTitle(/Draw profile line/).hasAttribute('disabled')).toBe(false);
     expect(view.getByTitle('Toggle spatial re-referencing')).toBeTruthy();
     expect(view.getByTitle('3D terrain')).toBeTruthy();
@@ -316,5 +316,35 @@ describe('MapLibreMap', () => {
     mockState.splitScreen = false;
     view.rerender(<MapLibreMap />);
     expect(view.queryByTestId('maplibre-split')).toBeNull();
+  });
+
+  it('graticule: drawn over the map in screen pixels, redrawn as the camera moves, gone when off', async () => {
+    const { view, map } = await mount();
+    expect(view.queryByTestId('maplibre-graticule')).toBeNull();
+    // an 800 x 600 view of the current bounds
+    map.getContainer = () => ({ clientWidth: 800, clientHeight: 600 });
+    map.project = ([lng, lat]: [number, number]) => {
+      const b = map.getBounds();
+      return { x: (lng - b.getWest()) / (b.getEast() - b.getWest()) * 800, y: (b.getNorth() - lat) / (b.getNorth() - b.getSouth()) * 600 };
+    };
+    mockState.graticuleMode = 'plain';
+    view.rerender(<MapLibreMap />);
+    await act(async () => {});
+    const svg = view.getByTestId('maplibre-graticule');
+    const labels = () => [...svg.querySelectorAll('text')].map(t => t.textContent);
+    expect(labels()).toContain('117.665°W');
+    expect(labels()).toContain('33.960°N');
+    const before = svg.innerHTML;
+    map.getBounds = () => ({ getSouth: () => 34.1, getWest: () => -117.5, getNorth: () => 34.2, getEast: () => -117.4 });
+    act(() => map.fire('move', {}));
+    expect(svg.innerHTML).not.toBe(before);
+    expect(labels().filter(l => l!.endsWith('N')).every(l => l!.startsWith('34.1'))).toBe(true);
+    mockState.graticuleMode = 'zebra';
+    view.rerender(<MapLibreMap />);
+    await act(async () => {});
+    expect(view.getByTestId('maplibre-graticule').querySelectorAll('rect').length).toBeGreaterThan(4);
+    mockState.graticuleMode = 'off';
+    view.rerender(<MapLibreMap />);
+    expect(view.queryByTestId('maplibre-graticule')).toBeNull();
   });
 });

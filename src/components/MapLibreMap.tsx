@@ -12,8 +12,8 @@
  * view sync (fit to dataset, sidebar view buttons), basemaps (primary/secondary, swap, opacity), the data raster layer
  * (double-buffered so a new time step never flashes blank), point picking, time-series
  * and reference markers, pixel inspect, cursor position, scale bar, fit to the data.
- * Profile and measure tools: MapLibreProfile, MapLibreMeasure; split screen: MapLibreSplit.
- * Still Leaflet-only (next commits): overlays/WMS, graticule, annotations, buffer circles.
+ * Profile and measure tools: MapLibreProfile, MapLibreMeasure; split screen: MapLibreSplit;
+ * graticule: MapLibreGraticule. Still Leaflet-only (next commits): overlays/WMS, annotations, buffer circles.
  */
 import { useEffect, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
@@ -40,11 +40,12 @@ import { MapLeftToolbar, MapTopRightToolbar, type MapFeature } from './MapToolba
 import MapLibreProfile from './MapLibreProfile';
 import MapLibreMeasure from './MapLibreMeasure';
 import MapLibreSplit from './MapLibreSplit';
+import MapLibreGraticule from './MapLibreGraticule';
 import { useProfileContext } from './ProfileTool';
 import type { AppState } from '../types';
 
 /** Toolbar features not ported to MapLibre yet: shown disabled with a note. */
-const UNSUPPORTED: ReadonlySet<MapFeature> = new Set(['graticule', 'annotation']);
+const UNSUPPORTED: ReadonlySet<MapFeature> = new Set(['annotation']);
 
 const TERRAIN_KEY = 'bowser.maplibre.terrain';
 function loadTerrain(): { enabled: boolean; exaggeration: number } {
@@ -354,6 +355,7 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
       <MapLibreProfile map={mapRef.current} ready={ready} />
       <MapLibreMeasure map={mapRef.current} ready={ready} active={measureActive} onDeactivate={() => setMeasureActive(false)} />
       {state.splitScreen && <MapLibreSplit main={mapRef.current} mainReady={ready} terrain={terrain} />}
+      <MapLibreGraticule map={mapRef.current} ready={ready} mode={state.graticuleMode} />
       {mapError && (
         <div role="alert" style={{
           position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
