@@ -4,7 +4,7 @@ import { MapContainer as LeafletMapContainer, TileLayer, WMSTileLayer, Marker, u
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useApi } from '../hooks/useApi';
-import { buildTileRequest } from '../utils/tileParams';
+import { useRasterTileUrl } from '../map/useRasterTileUrl';
 import {
   annotationAction, mapClickActions, markerPopupText, pixelInspectRequest, pixelInspectText,
   pointClickActions, pointDoubleClickActions, pointDragEndActions, refDragEnd,
@@ -325,67 +325,16 @@ function RasterTileLayer({
   overrideTimeIndex?: number;
 }) {
   const { state } = useAppContext();
-  const [tileUrl, setTileUrl] = useState<string | null>(null);
+  const tileUrl = useRasterTileUrl({
+    dataset: overrideDataset, colormap: overrideColormap, vmin: overrideVmin,
+    vmax: overrideVmax, timeIndex: overrideTimeIndex,
+  });
   const [active, setActive] = useState<{ url: string; id: number } | null>(null);
   const [pending, setPending] = useState<{ url: string; id: number } | null>(null);
   const nextIdRef = useRef(0);
 
-  const effectiveDataset = overrideDataset ?? state.currentDataset;
-  const effectiveColormap = overrideColormap ?? state.colormap;
-  const effectiveVmin = overrideVmin ?? state.vmin;
-  const effectiveVmax = overrideVmax ?? state.vmax;
   const effectiveOpacity = overrideOpacity ?? state.opacity;
-  const effectiveTimeIndex = overrideTimeIndex ?? state.currentTimeIndex;
 
-  useEffect(() => {
-    if (!effectiveDataset || !state.datasetInfo[effectiveDataset] || !state.dataMode) return;
-    if (state.dataMode !== 'md' && state.dataMode !== 'cog') return;
-
-    const controller = new AbortController();
-    const signal = controller.signal;
-
-    const updateTileLayer = async () => {
-      const { endpoint } = buildTileRequest({
-        dataset: effectiveDataset,
-        dsInfo: state.datasetInfo[effectiveDataset],
-        timeIndex: effectiveTimeIndex,
-        vmin: effectiveVmin,
-        vmax: effectiveVmax,
-        colormap: effectiveColormap,
-        state,
-        datasetId: new URLSearchParams(window.location.search).get('dataset'),
-      });
-
-      try {
-        const response = await fetch(endpoint, { signal });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const tileInfo = await response.json();
-        if (!signal.aborted) setTileUrl(tileInfo.tiles[0]);
-      } catch (err) {
-        if ((err as any).name !== 'AbortError') console.error('Error fetching tile info:', err);
-      }
-    };
-
-    const debounceTimer = setTimeout(() => updateTileLayer(), 80);
-    return () => { clearTimeout(debounceTimer); controller.abort(); };
-  }, [
-    effectiveDataset,
-    effectiveTimeIndex,
-    state.datasetInfo,
-    state.dataMode,
-    state.refValues,
-    state.refMarkerPosition,
-    state.refEnabled,
-    effectiveColormap,
-    effectiveVmin,
-    effectiveVmax,
-    state.layerMasks,
-    state.customMaskPath,
-    state.wrapEnabled,
-    state.wrapWavelength,
-    state.wrapPeriod,
-    state.complexMode,
-  ]);
 
   useEffect(() => {
     if (!tileUrl) { setActive(null); setPending(null); return; }
