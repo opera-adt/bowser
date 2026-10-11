@@ -6,15 +6,8 @@ import L from 'leaflet';
 import { useAppContext } from '../context/AppContext';
 import { useDraggableResizable } from '../hooks/useDraggableResizable';
 import { downloadChartAsPng } from '../utils/screenshot';
+import { parseProfileResponse, profileRequest, type ProfileResponse } from '../map/profile';
 
-interface CentrePoint { dist: number; value: number }
-interface ProfileResponse {
-  centre: CentrePoint[];
-  median: CentrePoint[] | null;
-  samples: CentrePoint[][];
-  binned?: boolean;
-  bin_width?: number;
-}
 
 interface ProfileState {
   data: ProfileResponse | null;
@@ -129,32 +122,10 @@ export function ProfileToolMap() {
     if (pts.length < 2 || !state.currentDataset) return;
     _setLoading(true);
     try {
-      const res = await fetch('/profile', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          coords: pts.map(p => [p.lng, p.lat]),
-          dataset_name: state.currentDataset,
-          time_index: state.currentTimeIndex,
-          n_samples: 200,
-          radius: r,
-          n_random: 5,
-          sampling_interval: si,
-        }),
-      });
+      const req = profileRequest(pts.map(p => [p.lng, p.lat]), state.currentDataset, state.currentTimeIndex, r, si);
+      const res = await fetch(req.url, req.init);
       if (!res.ok) return;
-      const json = await res.json();
-      if (Array.isArray(json)) {
-        _setData({ centre: json, median: null, samples: [], binned: false });
-      } else {
-        _setData({
-          centre: json.centre ?? [],
-          median: json.median ?? null,
-          samples: json.samples ?? [],
-          binned: json.binned ?? false,
-          bin_width: json.bin_width,
-        });
-      }
+      _setData(parseProfileResponse(await res.json()));
     } finally {
       _setLoading(false);
     }
