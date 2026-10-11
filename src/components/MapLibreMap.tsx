@@ -118,12 +118,21 @@ class TextControl {
   onRemove() { this.el.remove(); }
 }
 
+/**
+ * Time-series point marker, built like the Leaflet icon: the dot is an inner div, because
+ * style.css's .custom-colored-marker strips background and border (!important) from the
+ * element carrying the class.
+ */
 function pointElement(color: string, selected: boolean): HTMLElement {
   const size = selected ? 25 : 20;
   const el = document.createElement('div');
   el.className = 'custom-colored-marker';
-  el.style.cssText = `width:${size}px;height:${size}px;background-color:${color};`
-    + `border:${selected ? '3px' : '2px'} solid white;border-radius:50%;box-shadow:0 2px 4px rgba(0,0,0,0.3);cursor:pointer;`;
+  el.style.cursor = 'pointer';
+  const dot = document.createElement('div');
+  dot.className = 'point-dot';
+  dot.style.cssText = `width:${size}px;height:${size}px;background-color:${color};`
+    + `border:${selected ? '3px' : '2px'} solid white;border-radius:50%;box-shadow:0 2px 4px rgba(0,0,0,0.3);`;
+  el.appendChild(dot);
   return el;
 }
 
@@ -143,7 +152,11 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const cursorControl = useRef(new TextControl('leaflet-control-mouseposition', 'Unavailable'));
-  const [ready, setReady] = useState(false);
+  // The map instance that has loaded. `ready` means *this* map has: on a hot reload the
+  // map is recreated, and effects running in that same commit must not touch the new,
+  // still-loading map ("Style is not done loading").
+  const [loadedMap, setLoadedMap] = useState<maplibregl.Map | null>(null);
+  const ready = loadedMap !== null && loadedMap === mapRef.current;
   const [mapError, setMapError] = useState<string | null>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -183,8 +196,8 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
     // Compass + tilt (no zoom buttons, as on the Leaflet map); needed once terrain is tilted.
     map.addControl(new maplibregl.NavigationControl({ showZoom: false, visualizePitch: true }), 'bottom-right');
     mapRef.current = map;
-    map.on('load', () => setReady(true));
-    return () => { map.remove(); mapRef.current = null; setReady(false); };
+    map.on('load', () => setLoadedMap(map));
+    return () => { map.remove(); mapRef.current = null; setLoadedMap(null); };
     // The map is created once; data-dependent setup happens in the effects below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

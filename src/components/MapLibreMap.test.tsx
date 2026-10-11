@@ -18,14 +18,16 @@ const { FakeMap, FakeMarker, FakePopup, dispatch, mockState } = vi.hoisted(() =>
     static fail = false;
     constructor(public opts: any) {
       if (FakeMap.fail) throw new Error('Failed to initialize WebGL');
-      FakeMap.last = this; setTimeout(() => this.fire('load', {}), 0);
+      FakeMap.last = this; setTimeout(() => { this.loaded = true; this.fire('load', {}); }, 0);
     }
     on(ev: string, h: Handler) { this.handlers.set(ev, [...(this.handlers.get(ev) ?? []), h]); return this; }
     off(ev: string, h: Handler) { this.handlers.set(ev, (this.handlers.get(ev) ?? []).filter(x => x !== h)); return this; }
     fire(ev: string, e: any) { (this.handlers.get(ev) ?? []).forEach(h => h(e)); }
     controls: [any, string][] = [];
     addControl(c: any, pos: string) { this.controls.push([c, pos]); return this; }
+    loaded = false;
     addSource(id: string, s: any) {
+      if (!this.loaded) throw new Error('Style is not done loading.');   // as MapLibre
       this.sources.set(id, s.type === 'geojson' ? { ...s, setData(d: unknown) { this.data = d; } } : s);
     }
     canvas = { style: {} as Record<string, string> };
@@ -209,6 +211,10 @@ describe('MapLibreMap', () => {
     expect(pointMarkers).toHaveLength(1);
     const m = pointMarkers[0];
     expect(m.lngLat).toEqual([-117.674, 33.958]);
+    // style.css strips background/border from .custom-colored-marker: the dot must be an inner element
+    expect(m.opts.element.style.backgroundColor).toBe('');
+    const dot = m.opts.element.querySelector('.point-dot') as HTMLElement;
+    expect([dot.style.backgroundColor, dot.style.border, dot.style.width]).toEqual(['rgb(255, 0, 0)', '2px solid white', '20px']);
     m.lngLat = [-117.6, 33.9];
     act(() => m.handlers.get('dragend')!({}));
     m.opts.element.dispatchEvent(new MouseEvent('dblclick'));

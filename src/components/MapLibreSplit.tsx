@@ -42,7 +42,8 @@ export default function MapLibreSplit({ main, mainReady, terrain }: {
   const { state } = useAppContext();
   const containerRef = useRef<HTMLDivElement>(null);
   const [right, setRight] = useState<maplibregl.Map | null>(null);
-  const [ready, setReady] = useState(false);
+  const [loadedMap, setLoadedMap] = useState<maplibregl.Map | null>(null);
+  const ready = loadedMap !== null && loadedMap === right;   // as on the main map: this instance has loaded
 
   useEffect(() => {
     if (!mainReady || !main || !containerRef.current) return;
@@ -50,9 +51,9 @@ export default function MapLibreSplit({ main, mainReady, terrain }: {
       container: containerRef.current, style: EMPTY_STYLE, interactive: false, attributionControl: false,
       center: main.getCenter(), zoom: main.getZoom(), bearing: main.getBearing(), pitch: main.getPitch(),
     });
-    map.on('load', () => setReady(true));
+    map.on('load', () => setLoadedMap(map));
     setRight(map);
-    return () => { map.remove(); setRight(null); setReady(false); };
+    return () => { map.remove(); setRight(null); setLoadedMap(null); };
   }, [main, mainReady]);
 
   // Follow the main camera; copy the tool overlays whenever they change.
