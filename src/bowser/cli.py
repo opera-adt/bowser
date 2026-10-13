@@ -1255,3 +1255,25 @@ def _sniff_bbox(uri: str) -> tuple[float, float, float, float]:
     lon_min, lat_min = tr.transform(minx, miny)
     lon_max, lat_max = tr.transform(maxx, maxy)
     return (float(lon_min), float(lat_min), float(lon_max), float(lat_max))
+
+
+@cli_app.command("view-cube")
+@click.argument("source", type=str)
+@click.argument("output", type=click.Path(path_type=Path))
+@click.option(
+    "--zoom",
+    type=int,
+    default=None,
+    help="Web Mercator zoom of the grid (default: the native zoom, whose pixels are "
+    "no larger on the ground than the source pixels).",
+)
+def view_cube(source: str, output: Path, zoom: int | None):
+    """Write the Web Mercator view cube of a GeoZarr cube (see docs/view-cube-spec.md).
+
+    Values are resampled nearest-neighbour, so every value is a source value; the
+    source cube is left unchanged.
+    """
+    from bowser.view_cube import make_view_cube  # lazy: pulls in xarray/pyproj
+
+    out = make_view_cube(source, output, zoom=zoom)
+    click.echo(f"Wrote {out}")
