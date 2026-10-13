@@ -20,6 +20,7 @@ from pathlib import Path
 
 import numpy as np
 import xarray as xr
+import zarr
 from pyproj import CRS, Transformer
 
 TILE = 256
@@ -189,34 +190,33 @@ def make_view_cube(
     valid = row >= 0
     r, c = np.where(valid, row, 0), np.where(valid, col, 0)
 
-    out = xr.Dataset(coords={"y": ("y", grid.y()), "x": ("x", grid.x())})
-    for name, var in src.data_vars.items():
-        if name == "spatial_ref":
-            continue
+    def resampled(var: xr.DataArray) -> xr.DataArray:
+        """Nearest-neighbour onto the view grid, one 2-D slice at a time."""
+        # Drop non-dimension coordinates: some stacks carry spatial_ref as a
+        # time-dependent coordinate; the view cube writes its own spatial_ref.
+        var = var.reset_coords(drop=True)
         if var.dims[-2:] != ("y", "x"):
-            out[name] = var.load()
-            continue
+            return var.load()
         lead = var.dims[:-2]
-        dtype = (
-            var.dtype if np.issubdtype(var.dtype, np.floating) else np.dtype(np.float32)
-        )
-        lead_shape = tuple(src.sizes[d] for d in lead)
-        res = np.empty(lead_shape + grid.shape, dtype=dtype)
-        # One 2-D slice at a time keeps memory to a slice, whatever the stack length.
-        for idx in np.ndindex(*lead_shape):
+        floating = np.issubdtype(var.dtype, np.floating)
+        dtype = var.dtype if floating else np.dtype(np.float32)
+        res = np.empty(var.shape[:-2] + grid.shape, dtype=dtype)
+        for idx in np.ndindex(*var.shape[:-2]):
             res[idx] = var[idx].values[r, c]
             res[idx][~valid] = np.nan
         attrs = {k: v for k, v in var.attrs.items() if k != "grid_mapping"}
         attrs["grid_mapping"] = "spatial_ref"
-        out[name] = (lead + ("y", "x"), res, attrs)
-    for d in src.coords:
-        if d not in ("x", "y") and d in src.dims:
-            out = out.assign_coords({d: src[d].values})
+        coords = {d: var[d].values for d in lead if d in var.coords}
+        return xr.DataArray(res, dims=lead + ("y", "x"), coords=coords, attrs=attrs)
+
+    names = [n for n in src.data_vars if n != "spatial_ref"]
+    timed = [n for n in names if "time" in src[n].dims]
+    static = [n for n in names if n not in timed]
+    nt = src.sizes.get("time", 0)
+    yx = {"y": ("y", grid.y()), "x": ("x", grid.x())}
 
     merc = CRS.from_epsg(3857)
-    out["spatial_ref"] = xr.DataArray(
-        0, attrs={**merc.to_cf(), "spatial_ref": merc.to_wkt()}
-    )
+    spatial_ref = xr.DataArray(0, attrs={**merc.to_cf(), "spatial_ref": merc.to_wkt()})
     attrs = dict(src.attrs)
     attrs.update(
         {
@@ -245,14 +245,35 @@ def make_view_cube(
         lon, lat = json.loads(lonlat) if isinstance(lonlat, str) else lonlat
         rr, cc = _lonlat_to_view_rowcol(lon, lat, grid)
         attrs["reference_row"], attrs["reference_col"] = rr, cc
-    out.attrs = attrs
 
-    encoding = {}
-    for name, var in out.data_vars.items():
-        if name == "spatial_ref":
-            continue
-        if var.dims[-2:] == ("y", "x"):
-            chunks = (1,) * (var.ndim - 2) + (TILE, TILE)
-            encoding[name] = {"chunks": chunks}
-    out.to_zarr(output, mode="w-", encoding=encoding, consolidated=True, zarr_format=3)
+    # Static layers and the first time step, then one time step per append: memory
+    # stays at one slice per variable, whatever the stack length.
+    first = xr.Dataset({n: resampled(src[n]) for n in static}, coords=yx)
+    if timed and nt:
+        step0 = {n: resampled(src[n].isel(time=[0])) for n in timed}
+        first = first.assign(step0)
+    first["spatial_ref"] = spatial_ref
+    first.attrs = attrs
+    encoding = {
+        n: {"chunks": (1,) * (v.ndim - 2) + (TILE, TILE)}
+        for n, v in first.data_vars.items()
+        if v.dims[-2:] == ("y", "x")
+    }
+    # Exact datetimes, chosen up front: from the first step alone xarray picks units
+    # (e.g. whole days) that later appended steps with other times of day overflow.
+    for n, v in {**first.coords, **first.data_vars}.items():
+        if np.issubdtype(v.dtype, np.datetime64):
+            encoding.setdefault(n, {}).update(
+                units="nanoseconds since 1970-01-01", dtype="int64"
+            )
+    first.to_zarr(
+        output, mode="w-", encoding=encoding, consolidated=False, zarr_format=3
+    )
+    for t in range(1, nt if timed else 0):
+        step = xr.Dataset(
+            {n: resampled(src[n].isel(time=[t])) for n in timed}, coords=yx
+        )
+        step.attrs = attrs  # appending rewrites the root attributes
+        step.to_zarr(output, append_dim="time", consolidated=False)
+    zarr.consolidate_metadata(output)
     return output

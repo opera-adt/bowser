@@ -17,9 +17,14 @@ from bowser.view_cube import (
 )
 
 
-@pytest.fixture
-def utm_cube(tmp_path):
-    """Return a 10 m UTM 11N cube near Prado Dam; every pixel value is unique."""
+@pytest.fixture(params=["scalar_spatial_ref", "time_spatial_ref"])
+def utm_cube(tmp_path, request):
+    """Return a 10 m UTM 11N cube near Prado Dam; every pixel value is unique.
+
+    Two layouts seen in real cubes: ``spatial_ref`` as a scalar variable (the dams
+    GeoZarr cubes), or as a time-dependent coordinate on every time-varying
+    variable (dolphin S1 stacks, e.g. Baldhill F36281).
+    """
     ny, nx, nt = 50, 60, 3
     x = 436970.0 + 5 + 10 * np.arange(nx)
     y = 3758470.0 - 5 - 10 * np.arange(ny)
@@ -39,7 +44,7 @@ def utm_cube(tmp_path):
                 ("time",),
                 pd.date_range("2026-01-01", periods=nt, freq="12D"),
             ),
-            "spatial_ref": ((), 0, {"crs_wkt": crs.to_wkt()}),
+            "perpendicular_baseline": (("time",), np.linspace(-50, 50, nt)),
         },
         coords={
             "time": pd.date_range("2026-01-13", periods=nt, freq="12D"),
@@ -54,6 +59,21 @@ def utm_cube(tmp_path):
             "reference_col": "2",
         },
     )
+    if request.param == "scalar_spatial_ref":
+        ds["spatial_ref"] = ((), 0, {"crs_wkt": crs.to_wkt()})
+    else:
+        # ... and acquisition times with sub-second parts, as in those stacks
+        times = pd.to_datetime(
+            [
+                "2016-08-05 00:23:10.325204992",
+                "2016-08-17 00:23:11.014",
+                "2016-08-29 00:23:09.5",
+            ]
+        )
+        ds = ds.assign_coords(
+            time=times,
+            spatial_ref=("time", np.zeros(nt, int), {"crs_wkt": crs.to_wkt()}),
+        )
     path = tmp_path / "utm.zarr"
     ds.to_zarr(path, zarr_format=3)
     return path
@@ -104,6 +124,12 @@ def test_view_cube_keeps_every_value_at_its_place(utm_cube, tmp_path):
     )
     np.testing.assert_array_equal(disp[1][rows, cols], expect)
 
+    # Every time step (written one append at a time) keeps all its source values.
+    for step in range(src.sizes["time"]):
+        got = disp[step][np.isfinite(disp[step])]
+        want = src["displacement"].isel(time=step).values
+        np.testing.assert_array_equal(np.unique(got), np.sort(want[np.isfinite(want)]))
+
     # Every source pixel is kept (the view grid is finer than the source).
     kept = np.unique(disp[0][np.isfinite(disp[0])])
     source = src["displacement"].isel(time=0).values
@@ -115,6 +141,10 @@ def test_view_cube_keeps_every_value_at_its_place(utm_cube, tmp_path):
         v["reference_time"].values, src["reference_time"].values
     )
     np.testing.assert_array_equal(v["time"].values, src["time"].values)
+    np.testing.assert_array_equal(
+        v["perpendicular_baseline"].values, src["perpendicular_baseline"].values
+    )
+    assert v["spatial_ref"].dims == ()  # the view grid's own, whatever the source had
 
     # The reference pixel is recomputed for the new grid and contains the reference.
     lon, lat = -117.67, 33.95
