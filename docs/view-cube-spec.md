@@ -71,7 +71,7 @@ Native zoom `n`; map tile `(z, tx, ty)`.
 
 ## Validation (2026-10-13)
 
-All 10 dams cubes (7 NISAR, 2 S1, 1 S1 stripmap): `00_tools/dams/view/`.
+All 10 dams cubes (9 NISAR, 1 Sentinel-1 with 101 dates): `00_tools/dams/view/`.
 
 | | Result |
 |---|---|
@@ -79,7 +79,7 @@ All 10 dams cubes (7 NISAR, 2 S1, 1 S1 stripmap): `00_tools/dams/view/`.
 | Time series at 20 random view pixels per cube | identical to the UTM cube (xarray nearest lookup), 10/10 cubes |
 | Valid source pixels present | 100% in every cube |
 | Reference pixel | holds the source reference value in every cube |
-| Size | 5.30 GB against 4.48 GB in UTM (×1.18); ×1.05 at Prado, up to ×1.45 for the Baldhill stripmap stack |
+| Size | 5.30 GB against 4.48 GB in UTM (×1.18); ×1.05 at Prado, up to ×1.45 for the Baldhill Sentinel-1 stack (T136 F36281) |
 
 Prado (NISAR ASC 034_A_019) in more detail:
 
