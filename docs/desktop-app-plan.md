@@ -94,12 +94,13 @@ Then review the diff before committing.
   - The grid is snapped to the global tile grid at the native zoom, so a tile at that zoom is one chunk.
   - float32 is kept. float16 and a time-series-chunked copy are deferred; the spec gives the reasons.
 - [x] Converter: `bowser view-cube SOURCE OUTPUT` (`src/bowser/view_cube.py`, `tests/test_view_cube.py`). It reads an existing cube, so `to_geozarr.py` doesn't need to change.
-- [ ] Convert the dams cubes. 10 exist today; 7 S1 cubes wait on an AWS login.
-  - **Measured: view cubes are not smaller** (Prado 548 MB against 510 MB). The finer native grid has 2.3× the pixels. The gain is no GDAL, not size.
-- [x] Validate (Prado):
-  - 20 random points give identical series;
+- [x] Converted the 10 dams cubes that exist into `00_tools/dams/view/`. The 7 S1 cubes still wait on an AWS login.
+  - **Measured: view cubes are not smaller** (×1.18 overall, 5.3 GB against 4.5 GB). The finer native grid has 2–3× the pixels. The gain is no GDAL, not size.
+- [x] Validate, on all 10 cubes:
+  - 20 random points per cube give identical series;
   - every valid source pixel is present;
-  - today's bowser serves the same `/chart_point` series from both cubes.
+  - the reference pixel matches;
+  - today's bowser serves the same `/chart_point` series from both (checked on Prado).
 
 **Done when:** every dams cube has a view cube, and point values match the UTM cube at the nearest pixel.
 

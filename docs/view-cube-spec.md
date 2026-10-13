@@ -37,6 +37,8 @@ Write one with `bowser view-cube SOURCE OUTPUT` (`src/bowser/view_cube.py`). Tod
 
 - **Chunks:** `(1, …, 256, 256)`, one per time step and tile, aligned to the tile grid.
 - **Format:** Zarr v3 with consolidated metadata, and xarray's default compression.
+- **Datetimes** (`time`, `reference_time`): int64 nanoseconds since 1970-01-01, which is exact.
+- **Writing:** static layers and the first time step first, then one step per append. Memory stays at one slice per variable: a 101-date, 1792×1792 stack peaks at 1.5 GB.
 
 ## Root attributes
 
@@ -67,7 +69,20 @@ Native zoom `n`; map tile `(z, tx, ty)`.
   - `row = ⌊(y0 - y)/res⌋`
   - `col = ⌊(x - x0)/res⌋`
 
-## Validation (Prado, NISAR ASC 034_A_019, 2026-10-13)
+## Validation (2026-10-13)
+
+All 10 dams cubes (7 NISAR, 2 S1, 1 S1 stripmap): `00_tools/dams/view/`.
+
+| | Result |
+|---|---|
+| Native zoom | 14 for all (Prado 34° N, Oahe 44° N, Baldhill 47° N) |
+| Time series at 20 random view pixels per cube | identical to the UTM cube (xarray nearest lookup), 10/10 cubes |
+| Valid source pixels present | 100% in every cube |
+| Reference pixel | holds the source reference value in every cube |
+| Size | 5.30 GB against 4.48 GB in UTM (×1.18); ×1.05 at Prado, up to ×1.45 for the Baldhill stripmap stack |
+
+Prado (NISAR ASC 034_A_019) in more detail:
+
 
 - Time series at 20 random view pixels are identical to the UTM cube, looked up independently with xarray's nearest-neighbour selection.
 - All 1,011,124 valid source pixels are present in the view cube.
@@ -76,6 +91,6 @@ Native zoom `n`; map tile `(z, tx, ty)`.
 
 ## Not in version 1 (decided by measurement)
 
-- **Size:** view cubes are *not* smaller than the UTM cubes: Prado is 548 MB against 510 MB. The finer native grid has 2.3× as many pixels, and compression recovers most of that. The plan's "3–5× smaller" was wrong. The gain is no GDAL, not size.
+- **Size:** view cubes are *not* smaller than the UTM cubes (×1.18 over the dams set). The finer native grid has 2.3–3× as many pixels, and compression recovers most of that. The plan's "3–5× smaller" was wrong. The gain is no GDAL, not size.
 - **float16:** would roughly halve the size, but it rounds displacement at the 0.1–1 mm level. Left out until we decide which layers can afford it (coherence and similarity in [0, 1] can).
 - **A second, time-series-chunked copy of `displacement`:** deferred until bowser-lite shows point reads are too slow. A point read today is one 256×256 chunk per time step, from local disk.
