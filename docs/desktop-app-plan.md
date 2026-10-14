@@ -94,9 +94,9 @@ Then review the diff before committing.
   - The grid is snapped to the global tile grid at the native zoom, so a tile at that zoom is one chunk.
   - float32 is kept. float16 and a time-series-chunked copy are deferred; the spec gives the reasons.
 - [x] Converter: `bowser view-cube SOURCE OUTPUT` (`src/bowser/view_cube.py`, `tests/test_view_cube.py`). It reads an existing cube, so `to_geozarr.py` doesn't need to change.
-- [x] Converted the 10 dams cubes that exist into `00_tools/dams/view/`. The 7 S1 cubes still wait on an AWS login.
-  - **Measured: view cubes are not smaller** (×1.18 overall, 5.3 GB against 4.5 GB). The finer native grid has 2–3× the pixels. The gain is no GDAL, not size.
-- [x] Validate, on all 10 cubes:
+- [x] Converted all 17 dams cubes into `00_tools/dams/view/`.
+  - **Measured: view cubes are not smaller** (×1.37 overall, 31 GB against 22.7 GB; Sentinel-1 ×1.4–1.5). The finer native grid has 2–3× the pixels. The gain is no GDAL, not size. float16 for the [0, 1] layers is the obvious lever.
+- [x] Validate, on all 17 cubes:
   - 20 random points per cube give identical series;
   - every valid source pixel is present;
   - the reference pixel matches;

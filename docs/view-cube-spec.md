@@ -71,15 +71,15 @@ Native zoom `n`; map tile `(z, tx, ty)`.
 
 ## Validation (2026-10-13)
 
-All 10 dams cubes (9 NISAR, 1 Sentinel-1 with 101 dates): `00_tools/dams/view/`.
+All 17 dams cubes (9 NISAR, 8 Sentinel-1 with 24–422 dates): `00_tools/dams/view/`.
 
 | | Result |
 |---|---|
 | Native zoom | 14 for all (Prado 34° N, Oahe 44° N, Baldhill 47° N) |
-| Time series at 20 random view pixels per cube | identical to the UTM cube (xarray nearest lookup), 10/10 cubes |
+| Time series at 20 random view pixels per cube | identical to the UTM cube (xarray nearest lookup), 17/17 cubes |
 | Valid source pixels present | 100% in every cube |
 | Reference pixel | holds the source reference value in every cube |
-| Size | 5.30 GB against 4.48 GB in UTM (×1.18); ×1.05 at Prado, up to ×1.45 for the Baldhill Sentinel-1 stack (T136 F36281) |
+| Size | 31.0 GB against 22.7 GB in UTM (×1.37). NISAR ×1.05–1.09; Sentinel-1 ×1.38–1.47, Prado included. Sentinel-1 compresses less, so the 2.3–3× more pixels cost more |
 
 Prado (NISAR ASC 034_A_019) in more detail:
 
@@ -91,6 +91,6 @@ Prado (NISAR ASC 034_A_019) in more detail:
 
 ## Not in version 1 (decided by measurement)
 
-- **Size:** view cubes are *not* smaller than the UTM cubes (×1.18 over the dams set). The finer native grid has 2.3–3× as many pixels, and compression recovers most of that. The plan's "3–5× smaller" was wrong. The gain is no GDAL, not size.
+- **Size:** view cubes are *not* smaller than the UTM cubes (×1.37 over the 17 dams cubes; ×1.4–1.5 for Sentinel-1). The finer native grid has 2.3–3× as many pixels, and compression recovers most of that. The plan's "3–5× smaller" was wrong. The gain is no GDAL, not size.
 - **float16:** would roughly halve the size, but it rounds displacement at the 0.1–1 mm level. Left out until we decide which layers can afford it (coherence and similarity in [0, 1] can).
 - **A second, time-series-chunked copy of `displacement`:** deferred until bowser-lite shows point reads are too slow. A point read today is one 256×256 chunk per time step, from local disk.
