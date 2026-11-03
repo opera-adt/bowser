@@ -1563,7 +1563,9 @@ async def upload_mask(file: UploadFile):
 @app.post(
     "/upload_raster",
     response_class=JSONResponse,
-    responses={200: {"description": "Upload a raster overlay; returns path + metadata"}},
+    responses={
+        200: {"description": "Upload a raster overlay; returns path + metadata"}
+    },
 )
 async def upload_raster(file: UploadFile):
     """Accept a GeoTIFF overlay upload, store it, and return tiling metadata.
@@ -1614,7 +1616,9 @@ async def upload_raster(file: UploadFile):
 @app.get(
     "/wms_capabilities",
     response_class=JSONResponse,
-    responses={200: {"description": "Named layers advertised by a WMS GetCapabilities"}},
+    responses={
+        200: {"description": "Named layers advertised by a WMS GetCapabilities"}
+    },
 )
 def wms_capabilities(url: str = Query(..., description="WMS base URL")):
     """Proxy a WMS GetCapabilities and return its requestable named layers.
@@ -1625,7 +1629,7 @@ def wms_capabilities(url: str = Query(..., description="WMS base URL")):
     """
     import ssl  # noqa: PLC0415
     import urllib.request  # noqa: PLC0415
-    import xml.etree.ElementTree as ET  # noqa: PLC0415
+    from xml.etree import ElementTree  # noqa: PLC0415
 
     # Use certifi's CA bundle — some hosts (e.g. our dev box) have an incomplete
     # system trust store and otherwise fail with CERTIFICATE_VERIFY_FAILED.
@@ -1646,8 +1650,8 @@ def wms_capabilities(url: str = Query(..., description="WMS base URL")):
             status_code=502, detail=f"Could not fetch WMS capabilities: {exc}"
         ) from exc
     try:
-        root = ET.fromstring(raw)
-    except ET.ParseError as exc:
+        root = ElementTree.fromstring(raw)
+    except ElementTree.ParseError as exc:
         raise HTTPException(
             status_code=502, detail=f"Invalid WMS capabilities XML: {exc}"
         ) from exc
