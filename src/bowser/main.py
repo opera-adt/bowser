@@ -1625,7 +1625,7 @@ _UPLOAD_RETENTION_S = int(os.environ.get("BOWSER_UPLOAD_RETENTION_H", "24")) * 3
 
 
 def _sweep_upload_dir() -> None:
-    """Delete uploads older than the retention window so the dir can't grow without bound."""
+    """Delete uploads older than the retention window, so the dir stays bounded."""
     cutoff = time.time() - _UPLOAD_RETENTION_S
     for f in _UPLOAD_DIR.glob("*"):
         try:
@@ -1651,7 +1651,7 @@ async def _save_upload(file: "UploadFile", dest: Path) -> None:
                 if total > _MAX_UPLOAD_BYTES:
                     raise HTTPException(
                         status_code=413,
-                        detail=f"Upload exceeds {_MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit",
+                        detail=f"Upload exceeds {_MAX_UPLOAD_BYTES >> 20} MB limit",
                     )
                 out.write(chunk)
     except BaseException:
