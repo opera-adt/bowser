@@ -244,9 +244,7 @@ def _reference_point_to_lonlat(
     if src_crs.to_epsg() == 4326:
         lon, lat = x, y
     else:
-        lon, lat = Transformer.from_crs(
-            src_crs, 4326, always_xy=True
-        ).transform(x, y)
+        lon, lat = Transformer.from_crs(src_crs, 4326, always_xy=True).transform(x, y)
 
     if not (np.isfinite(lon) and np.isfinite(lat)) or abs(lon) > 180 or abs(lat) > 90:
         raise ValueError(
