@@ -174,4 +174,8 @@ plugins = ["pydantic.mypy"]
 
 [tool.pytest.ini_options]
 addopts = "-W ignore::PendingDeprecationWarning "
-filterwarnings = ["error"]
+filterwarnings = [
+  "error",
+  # zarr 3 warns on every consolidated v3 store; Bowser's cubes are written that way.
+  "ignore:Consolidated metadata is currently not part:UserWarning",
+]
