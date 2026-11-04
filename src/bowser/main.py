@@ -6,6 +6,7 @@ import logging
 import os
 import time
 import warnings
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Annotated, Any, Callable, Optional
 
@@ -167,7 +168,27 @@ if settings.BOWSER_HTPASSWD_FILE:
     logger.info(f"Basic auth enabled from {settings.BOWSER_HTPASSWD_FILE}")
 
 
-state = BowserState.load(settings)
+_default_state = BowserState.load(settings)
+# The catalog entry a request asked for (``?dataset=<id>``), set per request by
+# ``_route_dataset`` below; ``None`` means the default single-dataset state.
+_request_state: ContextVar[BowserState | None] = ContextVar(
+    "bowser_request_state", default=None
+)
+
+
+class _StateProxy:
+    """``state`` as seen by endpoints: the request's catalog entry, else the default.
+
+    Many MD helpers (point, chart_point, multi_point, trend, buffer, profile, ...)
+    read the module-level ``state`` directly. Routing it per request means every
+    one of them honours ``?dataset=`` without threading a parameter through each.
+    """
+
+    def __getattr__(self, name: str):
+        return getattr(_request_state.get() or _default_state, name)
+
+
+state = _StateProxy()
 # Multi-dataset registry (empty unless BOWSER_CATALOG_FILE is set). Every MD
 # endpoint that accepts a ``dataset`` query param routes through this; when
 # ``dataset`` is omitted, callers fall back to the single ``state`` above so
@@ -177,6 +198,26 @@ print(
     f"Data loading complete in {time.time() - t0:.1f} sec. "
     f"Mode: {state.mode}, catalog entries: {len(registry.ids())}"
 )
+
+
+@app.middleware("http")
+async def _route_dataset(request: Request, call_next):
+    """Point ``state`` at the catalog entry named by ``?dataset=`` for this request."""
+    name = request.query_params.get("dataset")
+    token = None
+    if name and registry.ids():
+        if name not in registry.ids():
+            from starlette.responses import JSONResponse
+
+            return JSONResponse(
+                {"detail": f"unknown dataset id {name!r}"}, status_code=404
+            )
+        token = _request_state.set(registry.get(name))
+    try:
+        return await call_next(request)
+    finally:
+        if token is not None:
+            _request_state.reset(token)
 
 
 def _resolve_state(dataset: str | None) -> BowserState:
@@ -193,7 +234,7 @@ def _resolve_state(dataset: str | None) -> BowserState:
     catalog.
     """
     if dataset is None:
-        return state
+        return _request_state.get() or _default_state
     try:
         return registry.get(dataset)
     except KeyError as e:
@@ -487,9 +528,22 @@ async def get_mode():
 
 
 @app.get("/config")
-async def get_config():
-    """Return app configuration for the frontend."""
-    return {"title": settings.BOWSER_TITLE}
+async def get_config(request: Request, dataset: str | None = Query(None)):
+    """Return app configuration for the frontend.
+
+    With a catalog dataset (``?dataset=<id>`` on this request, or on the page
+    that made it, read from the Referer since the bundled frontend fetches
+    ``/config`` bare) the title is that catalog entry's name, so each
+    dataset's page is labelled with what it shows.
+    """
+    if dataset is None and (ref := request.headers.get("referer")):
+        from urllib.parse import parse_qs, urlparse
+
+        values = parse_qs(urlparse(ref).query).get("dataset")
+
+        dataset = values[0] if values else None
+    entry = registry.catalog.get(dataset) if dataset else None
+    return {"title": entry.name if entry is not None else settings.BOWSER_TITLE}
 
 
 @app.get("/catalog")
