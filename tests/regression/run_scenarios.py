@@ -229,7 +229,10 @@ def main() -> None:
         algorithm_params=json.dumps({"shift": 0.001}),
     ).json()
     if isinstance(tj, dict) and tj.get("tiles"):
-        out["tilejson"]["body"] = norm({k: v for k, v in tj.items() if k != "tiles"})
+        # "tilejson" is the spec version, which differs between titiler releases.
+        out["tilejson"]["body"] = norm(
+            {k: v for k, v in tj.items() if k not in ("tiles", "tilejson")}
+        )
         template = tj["tiles"][0].split("://", 1)[-1].split("/", 1)[1]
         for z in (14, 16):
             zz, x, y = tile_xyz(lon, lat, z)
