@@ -475,7 +475,8 @@ function RasterTileLayer({
           {...(pane ? { pane } : {})}
           eventHandlers={{
             tileloadstart: () => onTileStart?.(),
-            load: () => onTileEnd?.(),
+            tileload: () => onTileEnd?.(),
+            tileerror: () => onTileEnd?.(),
           }}
         />
       )}
@@ -485,6 +486,8 @@ function RasterTileLayer({
           {...(pane ? { pane } : {})}
           eventHandlers={{
             tileloadstart: () => onTileStart?.(),
+            tileload: () => onTileEnd?.(),
+            tileerror: () => onTileEnd?.(),
             load: () => {
               onTileEnd?.();
               setPending(cur => {
@@ -1149,9 +1152,19 @@ export default function MapContainer({ toolbarsVisible, onToggleToolbars }: { to
   const hasDatasets = Object.keys(state.datasetInfo).length > 0;
   const [measureActive, setMeasureActive] = useState(false);
   const [tileLoading, setTileLoading] = useState(false);
-  const tileCountRef = useRef(0);
-  const onTileStart = () => { tileCountRef.current++; setTileLoading(true); };
-  const onTileEnd   = () => { if (--tileCountRef.current <= 0) { tileCountRef.current = 0; setTileLoading(false); } };
+  // Debounce-settle instead of a counter: a per-tile counter leaked (tile errors
+  // never fired the end event, and layer swaps dropped in-flight tiles) so the
+  // spinner stuck on forever. Show "loading" on any tile start; clear it once no
+  // tile has started/ended for a short settle window. Leak-proof.
+  const settleRef = useRef<number | null>(null);
+  const onTileStart = () => {
+    if (settleRef.current) { window.clearTimeout(settleRef.current); settleRef.current = null; }
+    setTileLoading(true);
+  };
+  const onTileEnd = () => {
+    if (settleRef.current) window.clearTimeout(settleRef.current);
+    settleRef.current = window.setTimeout(() => setTileLoading(false), 400);
+  };
   const { active: profileActive, setActive: setProfileActive } = useProfileContext();
 
   return (
@@ -1222,7 +1235,7 @@ export default function MapContainer({ toolbarsVisible, onToggleToolbars }: { to
         opacity={bottomOp}
         maxZoom={22}
         zIndex={1}
-        eventHandlers={{ tileloadstart: onTileStart, load: onTileEnd }}
+        eventHandlers={{ tileloadstart: onTileStart, tileload: onTileEnd, tileerror: onTileEnd }}
       />
       {topBm && (
         <TileLayer
@@ -1232,7 +1245,7 @@ export default function MapContainer({ toolbarsVisible, onToggleToolbars }: { to
           opacity={topOp}
           maxZoom={22}
           zIndex={2}
-          eventHandlers={{ tileloadstart: onTileStart, load: onTileEnd }}
+          eventHandlers={{ tileloadstart: onTileStart, tileload: onTileEnd, tileerror: onTileEnd }}
         />
       )}
       <OverlayLayers />
