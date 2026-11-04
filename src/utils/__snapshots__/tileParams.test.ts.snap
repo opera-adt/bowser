@@ -1,0 +1,21 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`buildTileRequest > matches the pinned request for every UI state 1`] = `
+{
+  "catalog_dataset": "/md/WebMercatorQuad/tilejson.json?variable=displacement&time_idx=1&rescale=-0.02%2C0.02&colormap_name=rdbu_r&algorithm=shift&dataset=prado-034-a-019",
+  "cog_with_masks": "/cog/WebMercatorQuad/tilejson.json?variable=displacement&time_idx=1&rescale=-0.02%2C0.02&colormap_name=rdbu_r&algorithm=shift&url=b.tif&mask=mb.tif&mask_min_value=0.5&custom_mask=%2Ftmp%2Fmask.tif",
+  "complex_amplitude": "/md/WebMercatorQuad/tilejson.json?variable=displacement&time_idx=1&rescale=-0.02%2C0.02&colormap_name=rdbu_r&algorithm=amplitude",
+  "complex_phase": "/md/WebMercatorQuad/tilejson.json?variable=displacement&time_idx=1&rescale=-0.02%2C0.02&colormap_name=rdbu_r&algorithm=phase",
+  "complex_rewrap": "/md/WebMercatorQuad/tilejson.json?variable=displacement&time_idx=1&rescale=-0.02%2C0.02&colormap_name=rdbu_r&algorithm=rewrap&algorithm_params=%7B%22wrap_range%22%3A0.0277%7D",
+  "layer_masks": "/md/WebMercatorQuad/tilejson.json?variable=displacement&time_idx=1&rescale=-0.02%2C0.02&colormap_name=rdbu_r&algorithm=shift&layer_masks=%5B%7B%22dataset%22%3A%22temporal_coherence%22%2C%22threshold%22%3A0.7%2C%22mode%22%3A%22min%22%7D%5D",
+  "md_custom_mask": "/md/WebMercatorQuad/tilejson.json?variable=displacement&time_idx=1&rescale=-0.02%2C0.02&colormap_name=rdbu_r&algorithm=shift&custom_mask_path=%2Ftmp%2Fmask.tif",
+  "md_shift_layer": "/md/WebMercatorQuad/tilejson.json?variable=displacement&time_idx=1&rescale=-0.02%2C0.02&colormap_name=rdbu_r&algorithm=shift",
+  "no_algorithm": "/md/WebMercatorQuad/tilejson.json?variable=displacement&time_idx=1&rescale=-0.02%2C0.02&colormap_name=rdbu_r",
+  "reference_point_shift": "/md/WebMercatorQuad/tilejson.json?variable=displacement&time_idx=1&rescale=-0.02%2C0.02&colormap_name=rdbu_r&algorithm=shift&algorithm_params=%7B%22shift%22%3A0.004%7D",
+  "rewrap_by_period": "/md/WebMercatorQuad/tilejson.json?variable=displacement&time_idx=1&rescale=-0.02%2C0.02&colormap_name=rdbu_r&algorithm=rewrap&algorithm_params=%7B%22wrap_range%22%3A0.0277%7D",
+  "rewrap_by_wavelength": "/md/WebMercatorQuad/tilejson.json?variable=displacement&time_idx=1&rescale=-0.02%2C0.02&colormap_name=rdbu_r&algorithm=rewrap&algorithm_params=%7B%22scale_factor%22%3A226.42109215061572%2C%22wrap_range%22%3A6.283185307179586%7D",
+  "rewrap_with_reference": "/md/WebMercatorQuad/tilejson.json?variable=displacement&time_idx=1&rescale=-0.02%2C0.02&colormap_name=rdbu_r&algorithm=rewrap&algorithm_params=%7B%22shift%22%3A1%2C%22wrap_range%22%3A0.0277%7D",
+  "time_index_clamped_high": "/md/WebMercatorQuad/tilejson.json?variable=displacement&time_idx=2&rescale=-0.02%2C0.02&colormap_name=rdbu_r&algorithm=shift",
+  "time_index_clamped_low": "/md/WebMercatorQuad/tilejson.json?variable=displacement&time_idx=0&rescale=-0.02%2C0.02&colormap_name=rdbu_r&algorithm=shift",
+}
+`;

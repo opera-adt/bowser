@@ -1,0 +1,187 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`useApi request contract > catalog mode routes every call to ?dataset=<id> 1`] = `
+[
+  {
+    "body": null,
+    "method": "GET",
+    "url": "/datasets?dataset=prado-034-a-019",
+  },
+  {
+    "body": null,
+    "method": "GET",
+    "url": "/mode",
+  },
+  {
+    "body": null,
+    "method": "GET",
+    "url": "/config",
+  },
+  {
+    "body": null,
+    "method": "GET",
+    "url": "/point?dataset_name=displacement&lon=-117.67462&lat=33.95859&dataset=prado-034-a-019",
+  },
+  {
+    "body": null,
+    "method": "GET",
+    "url": "/chart_point?lon=-117.67462&lat=33.95859&dataset_name=displacement&dataset=prado-034-a-019",
+  },
+  {
+    "body": null,
+    "method": "GET",
+    "url": "/chart_point?lon=-117.67462&lat=33.95859&dataset_name=displacement&ref_lat=33.96289&ref_lon=-117.67984&dataset=prado-034-a-019",
+  },
+  {
+    "body": {
+      "calculate_trends": true,
+      "dataset_name": "displacement",
+      "layer_masks": [
+        {
+          "dataset": "temporal_coherence",
+          "mode": "min",
+          "threshold": 0.7,
+        },
+      ],
+      "points": [
+        {
+          "color": "#f00",
+          "id": "p1",
+          "lat": 33.95859,
+          "lon": -117.67462,
+          "name": "dam",
+        },
+      ],
+      "ref_buffer_m": 50,
+      "ref_lat": 33.96289,
+      "ref_lon": -117.67984,
+    },
+    "method": "POST",
+    "url": "/multi_point?dataset=prado-034-a-019",
+  },
+  {
+    "body": null,
+    "method": "GET",
+    "url": "/trend_analysis/displacement?lon=-117.67462&lat=33.95859&ref_lat=33.96289&ref_lon=-117.67984&dataset=prado-034-a-019",
+  },
+  {
+    "body": null,
+    "method": "GET",
+    "url": "/datasets/displacement/time_bounds?dataset=prado-034-a-019",
+  },
+  {
+    "body": {
+      "buffer_m": 90,
+      "dataset_name": "displacement",
+      "lat": 33.95859,
+      "layer_masks": [
+        {
+          "dataset": "temporal_coherence",
+          "mode": "min",
+          "threshold": 0.7,
+        },
+      ],
+      "lon": -117.67462,
+      "n_samples": 5,
+      "ref_buffer_m": 30,
+      "ref_lat": 33.96289,
+      "ref_lon": -117.67984,
+    },
+    "method": "POST",
+    "url": "/buffer_timeseries?dataset=prado-034-a-019",
+  },
+]
+`;
+
+exports[`useApi request contract > single-dataset mode (no ?dataset=) 1`] = `
+[
+  {
+    "body": null,
+    "method": "GET",
+    "url": "/datasets?",
+  },
+  {
+    "body": null,
+    "method": "GET",
+    "url": "/mode",
+  },
+  {
+    "body": null,
+    "method": "GET",
+    "url": "/config",
+  },
+  {
+    "body": null,
+    "method": "GET",
+    "url": "/point?dataset_name=displacement&lon=-117.67462&lat=33.95859",
+  },
+  {
+    "body": null,
+    "method": "GET",
+    "url": "/chart_point?lon=-117.67462&lat=33.95859&dataset_name=displacement",
+  },
+  {
+    "body": null,
+    "method": "GET",
+    "url": "/chart_point?lon=-117.67462&lat=33.95859&dataset_name=displacement&ref_lat=33.96289&ref_lon=-117.67984",
+  },
+  {
+    "body": {
+      "calculate_trends": true,
+      "dataset_name": "displacement",
+      "layer_masks": [
+        {
+          "dataset": "temporal_coherence",
+          "mode": "min",
+          "threshold": 0.7,
+        },
+      ],
+      "points": [
+        {
+          "color": "#f00",
+          "id": "p1",
+          "lat": 33.95859,
+          "lon": -117.67462,
+          "name": "dam",
+        },
+      ],
+      "ref_buffer_m": 50,
+      "ref_lat": 33.96289,
+      "ref_lon": -117.67984,
+    },
+    "method": "POST",
+    "url": "/multi_point",
+  },
+  {
+    "body": null,
+    "method": "GET",
+    "url": "/trend_analysis/displacement?lon=-117.67462&lat=33.95859&ref_lat=33.96289&ref_lon=-117.67984",
+  },
+  {
+    "body": null,
+    "method": "GET",
+    "url": "/datasets/displacement/time_bounds",
+  },
+  {
+    "body": {
+      "buffer_m": 90,
+      "dataset_name": "displacement",
+      "lat": 33.95859,
+      "layer_masks": [
+        {
+          "dataset": "temporal_coherence",
+          "mode": "min",
+          "threshold": 0.7,
+        },
+      ],
+      "lon": -117.67462,
+      "n_samples": 5,
+      "ref_buffer_m": 30,
+      "ref_lat": 33.96289,
+      "ref_lon": -117.67984,
+    },
+    "method": "POST",
+    "url": "/buffer_timeseries",
+  },
+]
+`;
