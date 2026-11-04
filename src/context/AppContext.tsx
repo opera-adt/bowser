@@ -1,5 +1,8 @@
 import React, { createContext, useContext, useReducer, ReactNode } from 'react';
 import { AppState, AppAction, LegacyAppAction, TimeSeriesPoint, ChartWindow } from '../types';
+import { withDrawings } from '../map/overlays';
+import { DEFAULT_FIT } from '../map/fitSettings';
+import { readUnitSystem, saveUnitSystem } from '../utils/units';
 
 // Color palette for different points
 const POINT_COLORS = [
@@ -43,6 +46,14 @@ const initialState: AppState = {
   layerMasks: [],
   customMaskPath: null,
   overlays: [],
+  overlayMessage: null,
+  drawingEnabled: false,
+  fitSettings: DEFAULT_FIT,
+  identifyEnabled: false,
+  identify: null,
+  gnssChartStation: null,
+  units: readUnitSystem(),
+  dateBadge: 'off',
   bufferEnabled: false,
   bufferRadius: 500,
   bufferSamples: 10,
@@ -251,15 +262,27 @@ function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppSt
           o.id === action.payload.id ? { ...o, ...action.payload.updates } : o
         ),
       };
-    case 'REORDER_OVERLAY': {
-      const idx = state.overlays.findIndex(o => o.id === action.payload.id);
-      if (idx < 0) return state;
-      const swap = action.payload.direction === 'up' ? idx + 1 : idx - 1;
-      if (swap < 0 || swap >= state.overlays.length) return state;
-      const overlays = [...state.overlays];
-      [overlays[idx], overlays[swap]] = [overlays[swap], overlays[idx]];
-      return { ...state, overlays };
-    }
+    case 'SET_OVERLAYS':
+      return { ...state, overlays: action.payload };
+    case 'SET_OVERLAY_MESSAGE':
+      return { ...state, overlayMessage: action.payload };
+    case 'TOGGLE_DATE_BADGE':
+      return { ...state, dateBadge: state.dateBadge === 'off' ? 'full' : state.dateBadge === 'full' ? 'date' : 'off' };
+    case 'SET_UNITS':
+      saveUnitSystem(action.payload);
+      return { ...state, units: action.payload };
+    case 'TOGGLE_IDENTIFY':
+      return { ...state, identifyEnabled: !state.identifyEnabled, identify: state.identifyEnabled ? null : state.identify };
+    case 'SET_IDENTIFY':
+      return { ...state, identify: action.payload };
+    case 'OPEN_GNSS_CHART':
+      return { ...state, gnssChartStation: action.payload };
+    case 'SET_FIT_SETTINGS':
+      return { ...state, fitSettings: { ...state.fitSettings, ...action.payload } };
+    case 'SET_DRAWING_ENABLED':
+      return { ...state, drawingEnabled: action.payload };
+    case 'SET_DRAWINGS':
+      return { ...state, overlays: withDrawings(state.overlays, action.payload) };
     case 'TOGGLE_BUFFER':
       return { ...state, bufferEnabled: !state.bufferEnabled };
     case 'SET_BUFFER_RADIUS':

@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { useAppContext } from '../context/AppContext';
+import { chartLayerFor } from '../utils/chartLayers';
 
 export default function PointManagerPanel() {
   const { state, dispatch } = useAppContext();
   const [showPanel, setShowPanel] = useState(false);
+  const trendDs = chartLayerFor(state.currentDataset, state.datasetInfo) ?? '';
 
   const handleTogglePointVisibility = (pointId: string) => {
     const point = state.timeSeriesPoints.find(p => p.id === pointId);
@@ -84,9 +86,9 @@ export default function PointManagerPanel() {
           title="Toggle trend display"
         >
           <i className={`fa-solid ${state.showTrends ? 'fa-eye-slash' : 'fa-eye'}`}></i>
-          {state.showTrends ? 'Hide' : 'Show'} Trends
+          {state.showTrends ? 'Hide' : 'Show'} model
         </button>
-        
+
         {state.timeSeriesPoints.length > 0 && (
           <button
             className="pure-button button-warning"
@@ -131,13 +133,13 @@ export default function PointManagerPanel() {
           </div>
         ) : (
           state.timeSeriesPoints.map((point) => (
-            <div 
-              key={point.id} 
+            <div
+              key={point.id}
               className={`point-item ${state.selectedPointId === point.id ? 'selected' : ''}`}
               onClick={() => handleSelectPoint(point.id)}
             >
               <div className="point-item-header">
-                <div 
+                <div
                   className="point-color-indicator"
                   style={{ backgroundColor: point.color }}
                 ></div>
@@ -149,25 +151,25 @@ export default function PointManagerPanel() {
                   onClick={(e) => e.stopPropagation()}
                 />
               </div>
-              
+
               <div className="point-item-info">
                 <div className="point-coordinates">
                   <small>
-                    Lat: {point.position[0].toFixed(6)}, 
+                    Lat: {point.position[0].toFixed(6)},
                     Lon: {point.position[1].toFixed(6)}
                   </small>
                 </div>
-                
-                {state.showTrends && point.trendData && point.trendData[state.currentDataset] && (
+
+                {state.showTrends && point.trendData && point.trendData[trendDs] && (
                   <div className="point-trend-info">
                     <small>
-                      Rate: {point.trendData[state.currentDataset].mmPerYear?.toFixed(2) || 'N/A'} mm/year
-                      (R²: {point.trendData[state.currentDataset].rSquared.toFixed(3)})
+                      Rate: {point.trendData[trendDs].mmPerYear?.toFixed(2) || 'N/A'} {point.trendData[trendDs].rateUnit ?? 'mm'}/year
+                      (R²: {point.trendData[trendDs].rSquared.toFixed(3)})
                     </small>
                   </div>
                 )}
               </div>
-              
+
               <div className="point-item-controls">
                 <button
                   onClick={(e) => {
@@ -194,7 +196,7 @@ export default function PointManagerPanel() {
           ))
         )}
       </div>
-      
+
       <div className="point-manager-help">
         <small>
           • Click map to add points<br/>

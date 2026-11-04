@@ -1,0 +1,70 @@
+import { useEffect, useRef, useState } from 'react';
+import { useAppContext } from '../context/AppContext';
+import { LINES, MARKERS, type LineStyle, type MarkerShape } from '../map/seriesStyle';
+import type { TimeSeriesPoint } from '../types';
+
+const MARKER_LABEL: Record<MarkerShape, string> = {
+  circle: '● circle', square: '■ square', triangle: '▲ triangle', diamond: '◆ diamond', star: '★ star', cross: '✕ cross', none: 'no marker',
+};
+const LINE_LABEL: Record<LineStyle, string> = { solid: 'line', dashed: 'dashed', none: 'no line' };
+
+/** The chart header's Style button: colour, marker and line for each point, and the marker size. */
+export default function SeriesStylePopover() {
+  const { state, dispatch } = useAppContext();
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const update = (id: string, updates: Partial<TimeSeriesPoint>) => dispatch({ type: 'UPDATE_TIME_SERIES_POINT', payload: { id, updates } });
+  const all = (updates: Partial<TimeSeriesPoint>) => state.timeSeriesPoints.forEach(p => update(p.id, updates));
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => { if (!rootRef.current?.contains(e.target as Node)) setOpen(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [open]);
+
+  return (
+    <div className="series-style" ref={rootRef}>
+      <button className={`chart-btn${open ? ' active' : ''}`} aria-expanded={open} onClick={() => setOpen(o => !o)}
+        title="Style the points: colour, marker, line and size">
+        <i className="fa-solid fa-palette"></i>
+      </button>
+      {open && (
+        <div className="series-style-pop" onMouseDown={e => e.stopPropagation()}>
+          <div className="series-style-row series-style-head">
+            <span>Marker size</span>
+            <input type="range" min={1} max={12} step={1} value={state.markerSize} aria-label="Marker size"
+              onChange={e => dispatch({ type: 'SET_MARKER_SIZE', payload: Number(e.target.value) })} />
+            <span className="slider-value">{state.markerSize}px</span>
+          </div>
+          {state.timeSeriesPoints.length === 0 && <div className="row-label">No points yet.</div>}
+          {state.timeSeriesPoints.map(p => (
+            <div key={p.id} className="series-style-row">
+              <input type="color" value={p.color} aria-label={`Colour of ${p.name}`} onChange={e => update(p.id, { color: e.target.value })} />
+              <span className="series-style-name" title={p.name}>{p.name}</span>
+              <select className="sidebar-select" aria-label={`Marker of ${p.name}`} value={p.marker ?? 'circle'}
+                onChange={e => update(p.id, { marker: e.target.value as MarkerShape })}>
+                {MARKERS.map(m => <option key={m} value={m}>{MARKER_LABEL[m]}</option>)}
+              </select>
+              <select className="sidebar-select" aria-label={`Line of ${p.name}`} value={p.line ?? 'solid'}
+                onChange={e => update(p.id, { line: e.target.value as LineStyle })}>
+                {LINES.map(l => <option key={l} value={l}>{LINE_LABEL[l]}</option>)}
+              </select>
+            </div>
+          ))}
+          {state.timeSeriesPoints.length > 1 && (
+            <div className="series-style-row">
+              <span className="row-label">All points:</span>
+              <button type="button" className="hist-btn" onClick={() => all({ line: 'none' })}>Markers only</button>
+              <button type="button" className="hist-btn" onClick={() => all({ marker: 'none', line: 'solid' })}>Lines only</button>
+              <button type="button" className="hist-btn" onClick={() => all({ marker: 'circle', line: 'solid' })}>Both</button>
+            </div>
+          )}
+          <div className="row-label" style={{ fontSize: '0.9em' }}>A point's colour is also its marker on the map.</div>
+        </div>
+      )}
+    </div>
+  );
+}

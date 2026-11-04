@@ -5,6 +5,11 @@ import MapContainer from './MapContainer';
 import MapLibreMap from './MapLibreMap';
 
 import { browserHasWebGL2, chooseMap } from '../map/mapChoice';
+import { chartLayerFor } from '../utils/chartLayers';
+import { defaultMasks } from '../utils/defaultMasks';
+import { applyTheme, readThemeChoice } from '../utils/theme';
+
+applyTheme(readThemeChoice());
 
 /** MapLibre by default; Leaflet with ``?map=leaflet`` or when WebGL2 isn't available. */
 const USE_MAPLIBRE = chooseMap(window.location.search, browserHasWebGL2) === 'maplibre';
@@ -13,6 +18,11 @@ import TimeSeriesChart from './TimeSeriesChart';
 import PointManagerPanel from './PointManagerPanel';
 import RefPointChart from './RefPointChart';
 import ColormapBar from './ColormapBar';
+import FileDrop from './FileDrop';
+import IdentifyPanel from './IdentifyPanel';
+import GnssChartWindow from './GnssChartWindow';
+import MapLegend from './MapLegend';
+import DateBadge from './DateBadge';
 import LosIndicator from './LosIndicator';
 import { ProfileProvider, ProfileChart } from './ProfileTool';
 import '../style.css';
@@ -21,6 +31,8 @@ function AppContent() {
   const { state, dispatch } = useAppContext();
   const { fetchDatasets, fetchDataMode, fetchConfig } = useApi();
   const [appTitle, setAppTitle] = useState('');
+  // The Bowser mark unless the server asks for the OPERA emblem (bowser run --opera-logo).
+  const [operaLogo, setOperaLogo] = useState(false);
   const [sidebarHidden, setSidebarHidden] = useState(false);
   const [toolbarsVisible, setToolbarsVisible] = useState(true);
 
@@ -29,6 +41,7 @@ function AppContent() {
       try {
         // Fetch config (title), data mode, and datasets
         const [config, mode] = await Promise.all([fetchConfig(), fetchDataMode()]);
+        setOperaLogo(config.opera_logo === true);
 
         if (config.title) {
           setAppTitle(config.title);
@@ -39,8 +52,10 @@ function AppContent() {
 
         const datasets = await fetchDatasets();
         dispatch({ type: 'SET_DATASETS', payload: datasets });
+        defaultMasks(datasets).forEach(mask => dispatch({ type: 'ADD_LAYER_MASK', payload: mask }));
 
-        const firstDataset = Object.keys(datasets)[0];
+        // Open on displacement rather than whichever variable the cube lists first.
+        const firstDataset = chartLayerFor('', datasets) ?? Object.keys(datasets)[0];
         if (firstDataset) {
           dispatch({ type: 'SET_CURRENT_DATASET', payload: firstDataset });
 
@@ -60,7 +75,7 @@ function AppContent() {
 
   return (
     <div className={`app-container${sidebarHidden ? ' sidebar-hidden' : ''}`}>
-      <ControlPanel title={appTitle} />
+      <ControlPanel title={appTitle} operaLogo={operaLogo} />
       <div className="map-container">
         <button
           className="sidebar-toggle-btn"
@@ -74,6 +89,11 @@ function AppContent() {
           : <MapContainer toolbarsVisible={toolbarsVisible} onToggleToolbars={() => setToolbarsVisible(v => !v)} />}
         {toolbarsVisible && <PointManagerPanel />}
         <RefPointChart />
+        <FileDrop />
+        <MapLegend />
+        <DateBadge />
+        <IdentifyPanel />
+        <GnssChartWindow />
         <ColormapBar />
         <LosIndicator />
         <ProfileChart />

@@ -32,3 +32,11 @@ export function clampExaggeration(x: number): number {
 export function terrainSpec(enabled: boolean, exaggeration: number): { source: string; exaggeration: number } | null {
   return enabled ? { source: TERRAIN_SOURCE_ID, exaggeration: clampExaggeration(exaggeration) } : null;
 }
+
+/** Tilting past this (degrees) counts as going 3D. */
+export const TILT_ON = 10;
+
+/** Turn terrain on when a flat map is tilted, unless it is already on. */
+export function terrainOnTilt(wasFlat: boolean, pitch: number, enabled: boolean): boolean {
+  return wasFlat && pitch >= TILT_ON && !enabled;
+}

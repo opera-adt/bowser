@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   EXAGGERATION_DEFAULT, EXAGGERATION_MAX, EXAGGERATION_MIN, TERRAIN_SOURCE, TERRAIN_SOURCE_ID,
-  clampExaggeration, terrainSpec,
-} from './terrain';
+  clampExaggeration, terrainSpec, terrainOnTilt } from './terrain';
 
 describe('terrain', () => {
   it('uses a key-free Terrarium DEM source', () => {
@@ -22,5 +21,16 @@ describe('terrain', () => {
     expect(terrainSpec(false, 3)).toBeNull();
     expect(terrainSpec(true, 3)).toEqual({ source: TERRAIN_SOURCE_ID, exaggeration: 3 });
     expect(terrainSpec(true, 99)).toEqual({ source: TERRAIN_SOURCE_ID, exaggeration: EXAGGERATION_MAX });
+  });
+});
+
+describe('terrainOnTilt', () => {
+  it('turns terrain on when a flat map is tilted', () => {
+    expect(terrainOnTilt(true, 45, false)).toBe(true);
+  });
+  it('leaves it alone otherwise: still flat, already tilted (turned off by hand), or already on', () => {
+    expect(terrainOnTilt(true, 5, false)).toBe(false);
+    expect(terrainOnTilt(false, 45, false)).toBe(false);
+    expect(terrainOnTilt(true, 45, true)).toBe(false);
   });
 });

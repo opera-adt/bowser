@@ -106,6 +106,16 @@ def cli_app():
     ),
 )
 @click.option(
+    "--opera-logo/--no-opera-logo",
+    "opera_logo",
+    default=False,
+    show_default=True,
+    help=(
+        "Show the OPERA emblem at the top of the side panel instead of the "
+        "Bowser mark."
+    ),
+)
+@click.option(
     "--allow-open/--no-allow-open",
     "allow_open",
     default=None,
@@ -130,6 +140,7 @@ def run(
     ssl_keyfile,
     htpasswd_file,
     s3_anon,
+    opera_logo,
     allow_open,
 ):
     """Run the web server."""
@@ -164,6 +175,7 @@ def run(
             err=True,
         )
     os.environ["BOWSER_ALLOW_OPEN"] = str(allow_open).lower()
+    os.environ["BOWSER_OPERA_LOGO"] = str(opera_logo).lower()
 
     protocol = "https" if ssl_certfile else "http"
     display_host = "localhost" if host in ("127.0.0.1", "0.0.0.0") else host

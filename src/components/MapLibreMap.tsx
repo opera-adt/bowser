@@ -34,9 +34,14 @@ import {
   pointClickActions, pointDoubleClickActions, pointDragEndActions, refDragEnd, viewBoundsAction,
 } from '../map/interactions';
 import {
-  EXAGGERATION_DEFAULT, EXAGGERATION_MAX, EXAGGERATION_MIN, TERRAIN_PITCH, clampExaggeration,
-} from '../map/terrain';
+  EXAGGERATION_DEFAULT, EXAGGERATION_MAX, EXAGGERATION_MIN, TERRAIN_PITCH, clampExaggeration, TILT_ON, terrainOnTilt } from '../map/terrain';
 import { applyTerrain, useBasemapLayers, useBufferCircles, useDataRaster, useOverlayLayers } from './maplibreLayers';
+import { useDrawTools } from './drawTools';
+import { useIdentify } from './identifyTool';
+import { registerPmtiles } from '../map/pmtiles';
+
+// Custom PMTiles archives (Overlays › Services) are read through pmtiles://.
+registerPmtiles(maplibregl.addProtocol as never);
 import { MapLeftToolbar, MapTopRightToolbar, type MapFeature } from './MapToolbars';
 import MapLibreProfile from './MapLibreProfile';
 import MapLibreMeasure from './MapLibreMeasure';
@@ -238,6 +243,21 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
     setTerrain(next);
     try { localStorage.setItem(TERRAIN_KEY, JSON.stringify(next)); } catch { /* not persisted */ }
   };
+  // Tilting a flat map turns 3D terrain on; turning it off while tilted stays off.
+  const terrainRef = useRef(terrain);
+  terrainRef.current = terrain;
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map) return;
+    let flat = map.getPitch() < TILT_ON;
+    const onPitchEnd = () => {
+      const pitch = map.getPitch();
+      if (terrainOnTilt(flat, pitch, terrainRef.current.enabled)) setTerrainState(true, terrainRef.current.exaggeration);
+      flat = pitch < TILT_ON;
+    };
+    map.on('pitchend', onPitchEnd);
+    return () => { map.off('pitchend', onPitchEnd); };
+  }, [ready]);  // eslint-disable-line react-hooks/exhaustive-deps
   const terrainWasOn = useRef(false);
   useEffect(() => {
     const map = mapRef.current;
@@ -253,6 +273,8 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
   useBasemapLayers(mapRef.current, ready);
   useOverlayLayers(mapRef.current, ready, 'main');
   useBufferCircles(mapRef.current, ready);
+  useDrawTools(mapRef.current, ready);
+  useIdentify(mapRef.current, ready);
   useDataRaster(mapRef.current, ready, useRasterTileUrl(), state.opacity, datasetBounds(state));
 
   // Loading indicator: any source still loading.

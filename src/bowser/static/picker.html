@@ -3,68 +3,118 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>bowser — dataset picker</title>
+  <title>Bowser</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
         integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <link rel="icon" type="image/svg+xml" href="/bowser-mark.svg" />
+  <script>
+    // Same theme as the app (Project › Appearance, or the rail toggle).
+    try { const t = localStorage.getItem("bowser-theme"); if (t) document.documentElement.setAttribute("data-theme", t); } catch {}
+  </script>
   <style>
-    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #e4e4e7; background: #18181b; }
+    /* Bowser's graphite and teal, as in the app. */
+    :root {
+      --bg: #f5f4f1; --surface: #ffffff; --surface2: #eceae5; --border: #cbc9c3;
+      --text: #1d1e20; --muted: #5c5e62; --accent: #0a7d7b; --accent2: #065c5a; --on-accent: #ffffff; --red: #b3261e;
+      --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, sans-serif;
+      --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #1a1b1e; --surface: #23252a; --surface2: #30333a; --border: #444750;
+        --text: #e8e6e3; --muted: #9a9a9e; --accent: #5bc0be; --accent2: #85d5d4; --on-accent: #072a2d; --red: #e07b7b;
+        color-scheme: dark;
+      }
+    }
+    :root[data-theme="dark"] {
+      --bg: #1a1b1e; --surface: #23252a; --surface2: #30333a; --border: #444750;
+      --text: #e8e6e3; --muted: #9a9a9e; --accent: #5bc0be; --accent2: #85d5d4; --on-accent: #072a2d; --red: #e07b7b;
+      color-scheme: dark;
+    }
+    body { margin: 0; font-family: var(--font); color: var(--text); background: var(--bg); }
     #map { position: fixed; inset: 0; }
     #panel {
-      position: fixed; top: 1rem; left: 1rem; right: 1rem; z-index: 1000;
-      max-width: 28rem; padding: 1rem 1.25rem;
-      background: rgba(24, 24, 27, 0.92); border: 1px solid #3f3f46; border-radius: 0.5rem;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+      position: fixed; top: 16px; left: 16px; z-index: 1000;
+      width: min(26rem, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow-y: auto; box-sizing: border-box;
+      display: flex; flex-direction: column; gap: 14px; padding: 18px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
     }
-    h1 { margin: 0 0 0.25rem; font-size: 1.05rem; font-weight: 600; }
-    .subtitle { margin: 0 0 0.75rem; color: #a1a1aa; font-size: 0.85rem; }
-    #list { list-style: none; margin: 0; padding: 0; max-height: 50vh; overflow-y: auto; }
+    .brand { display: flex; align-items: center; gap: 10px; }
+    .brand img { width: 34px; height: 34px; }
+    h1 { margin: 0; font-size: 1.25rem; font-weight: 600; letter-spacing: -0.01em; }
+    .subtitle { margin: 0; color: var(--muted); font-size: 0.85rem; }
+    .section-label { margin: 0 0 6px; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+    #list { list-style: none; margin: 0; padding: 0; max-height: 40vh; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
     #list li {
-      padding: 0.5rem 0.75rem; margin-bottom: 0.4rem; border: 1px solid #3f3f46; border-radius: 0.375rem;
-      background: #27272a; cursor: pointer; transition: background 120ms;
+      padding: 9px 11px; border-radius: 10px; background: var(--surface2); cursor: pointer;
+      border: 1px solid transparent; transition: border-color 120ms;
     }
-    #list li:hover { background: #3f3f46; }
-    #list .id { font-family: ui-monospace, monospace; color: #a5f3fc; font-size: 0.8rem; }
-    #list .name { font-weight: 500; }
-    #list .desc { color: #a1a1aa; font-size: 0.8rem; margin-top: 0.125rem; }
-    .paste {
-      margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid #3f3f46;
-      font-size: 0.85rem;
-    }
+    #list li:hover { border-color: var(--accent); }
+    #list li.empty { cursor: default; background: none; padding: 4px 0; }
+    #list li.empty:hover { border-color: transparent; }
+    #list .name { font-weight: 600; font-size: 0.9rem; }
+    #list .id { font-family: var(--mono); color: var(--muted); font-size: 0.74rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #list .desc { color: var(--muted); font-size: 0.8rem; margin-top: 2px; }
+    .paste { display: flex; flex-direction: column; gap: 6px; font-size: 0.85rem; }
+    .paste label { color: var(--muted); font-size: 0.8rem; }
     .paste input {
-      width: 100%; box-sizing: border-box; margin-top: 0.25rem; padding: 0.4rem 0.6rem;
-      background: #27272a; color: #e4e4e7; border: 1px solid #52525b; border-radius: 0.25rem;
-      font-family: ui-monospace, monospace; font-size: 0.8rem;
+      width: 100%; box-sizing: border-box; padding: 8px 10px;
+      background: var(--surface2); color: var(--text); border: 1px solid var(--border); border-radius: 8px;
+      font-family: var(--mono); font-size: 0.8rem;
     }
+    .paste input:focus { outline: 2px solid var(--accent); outline-offset: 0; border-color: transparent; }
+    .row { display: flex; gap: 6px; }
+    .row input { flex: 1; min-width: 0; }
     .paste button {
-      margin-top: 0.4rem; padding: 0.35rem 0.9rem;
-      background: #2563eb; color: white; border: 0; border-radius: 0.25rem; cursor: pointer;
-      font-size: 0.85rem;
+      flex: none; padding: 8px 14px; background: var(--accent); color: var(--on-accent);
+      border: 0; border-radius: 8px; cursor: pointer; font: inherit; font-weight: 600;
     }
-    .paste button:hover:not(:disabled) { background: #1d4ed8; }
+    .paste button.secondary { background: var(--surface2); color: var(--text); font-weight: 500; }
+    .paste button:hover:not(:disabled) { filter: brightness(1.08); }
     .paste button:disabled, .paste input:disabled { opacity: 0.5; cursor: not-allowed; }
-    .empty { color: #a1a1aa; font-size: 0.85rem; padding: 0.5rem; }
+    #folder-row { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+    #folder-row[hidden] { display: none; }
+    #open-error { color: var(--red); }
+    .empty { color: var(--muted); font-size: 0.85rem; }
+    .leaflet-container { background: var(--bg); }
   </style>
 </head>
 <body>
   <div id="map"></div>
   <div id="panel">
-    <h1>Pick a dataset</h1>
-    <p class="subtitle">Click a bounding box or a list entry to launch bowser against it.</p>
-    <ul id="list"><li class="empty">Loading catalog…</li></ul>
+    <div class="brand"><img src="/bowser-mark.svg" alt="" /><h1>Bowser</h1></div>
+    <p class="subtitle">Open an InSAR cube: pick one below or on the map, open a path or link, or find the cubes in a folder.</p>
+    <div>
+      <p class="section-label">Datasets</p>
+      <ul id="list"><li class="empty">Loading catalog…</li></ul>
+    </div>
     <div class="paste">
-      <label for="uri">Or open a zarr store by URI:</label>
-      <input id="uri" type="text"
-             placeholder="s3://bucket/path.zarr  |  /local/cube.zarr"
-             disabled title="Ad-hoc URI loading isn't wired up on the server yet." />
-      <button id="open-uri" disabled
-              title="Coming soon — use `bowser register` on the server instead.">Open</button>
+      <p class="section-label">Open a cube</p>
+      <div class="row">
+        <input id="uri" type="text" aria-label="Path or link to a .zarr cube"
+               placeholder="/path/to/cube.zarr  or  s3://…  or  https://…"
+               disabled title="Opening data from the page is off on this server." />
+        <button id="open-uri" disabled
+                title="Opening data from the page is off on this server.">Open</button>
+      </div>
+      <p id="open-error" class="subtitle" hidden></p>
+      <div id="folder-row" hidden>
+        <p class="section-label">Find cubes in a folder</p>
+        <div class="row">
+          <input id="folder" type="text" aria-label="Folder to search" placeholder="/path/to/folder" />
+          <button id="choose-folder" class="secondary" hidden>Choose…</button>
+          <button id="search-folder" class="secondary">Search</button>
+        </div>
+      </div>
     </div>
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
           integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <script>
-    const map = L.map("map", { zoomControl: true }).setView([20, 0], 2);
+    const map = L.map("map", { zoomControl: false }).setView([20, 0], 2);
+    L.control.zoom({ position: "topright" }).addTo(map);  // the panel covers the top left
     L.tileLayer(
       "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
       { attribution: "© OpenStreetMap", maxZoom: 19 }
@@ -95,10 +145,13 @@
 
     async function loadCatalog() {
       const res = await fetch("/catalog");
-      const { datasets } = await res.json();
+      const { datasets, allow_open } = await res.json();
+      enableOpen(!!allow_open);
 
       if (!datasets.length) {
-        setEmpty("Catalog is empty. Add entries with `bowser register` on the server.");
+        setEmpty(allow_open
+          ? "Nothing opened yet. Give the path or URL of a .zarr store below."
+          : "Catalog is empty. Add entries with `bowser register` on the server.");
         return;
       }
 
@@ -110,7 +163,7 @@
         const [minX, minY, maxX, maxY] = d.bbox;
         const poly = L.rectangle(
           [[minY, minX], [maxY, maxX]],
-          { color: "#2563eb", weight: 2, fillOpacity: 0.15 }
+          { color: getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#0a7d7b", weight: 2, fillOpacity: 0.15 }
         );
         const tip = document.createElement("div");
         tip.appendChild(mkEl("strong", null, d.name));
@@ -134,9 +187,103 @@
       if (bounds.isValid()) map.fitBounds(bounds.pad(0.2));
     }
 
-    // The URI paste/Open control is disabled until the server grows a
-    // handler for ``?stack=<uri>`` that loads a store into the registry on
-    // the fly. See TECH_DEBT.md.
+    // Open a store by path or URL (POST /catalog/open), when the server allows
+    // it (`bowser run` does for a local single-worker server).
+    function enableOpen(allowed) {
+      const input = document.getElementById("uri");
+      const button = document.getElementById("open-uri");
+      if (!allowed) return;
+      input.disabled = button.disabled = false;
+      input.title = button.title = "Path on this computer, or an s3:// or https:// URL";
+      const error = document.getElementById("open-error");
+      const open = async () => {
+        const uri = input.value.trim();
+        if (!uri) return;
+        button.disabled = true;
+        button.textContent = "Opening…";
+        error.hidden = true;
+        try {
+          const res = await fetch("/catalog/open", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ uri }),
+          });
+          const body = await res.json();
+          if (!res.ok) throw new Error(body.detail || `HTTP ${res.status}`);
+          launch(body.id);
+        } catch (err) {
+          error.textContent = err.message || String(err);
+          error.hidden = false;
+          button.disabled = false;
+          button.textContent = "Open";
+        }
+      };
+      button.addEventListener("click", open);
+      input.addEventListener("keydown", (e) => { if (e.key === "Enter") open(); });
+      enableFolders(error);
+    }
+
+    // Folder search (POST /catalog/scan); in the desktop app a native chooser fills the folder.
+    function enableFolders(error) {
+      const row = document.getElementById("folder-row");
+      const folder = document.getElementById("folder");
+      const choose = document.getElementById("choose-folder");
+      row.hidden = false;
+      try { folder.value = localStorage.getItem("bowser-search-folder") || ""; } catch { /* first visit */ }
+      const search = async () => {
+        const dir = folder.value.trim();
+        if (!dir) return;
+        error.hidden = true;
+        setEmpty(`Searching ${dir}…`);
+        try {
+          const res = await fetch("/catalog/scan", {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dir }),
+          });
+          const body = await res.json();
+          if (!res.ok) throw new Error(body.detail || `HTTP ${res.status}`);
+          try { localStorage.setItem("bowser-search-folder", dir); } catch { /* not kept */ }
+          showFound(body.cubes, dir, body.truncated);
+        } catch (err) {
+          setEmpty("Search failed.");
+          error.textContent = err.message || String(err);
+          error.hidden = false;
+        }
+      };
+      document.getElementById("search-folder").addEventListener("click", search);
+      folder.addEventListener("keydown", (e) => { if (e.key === "Enter") search(); });
+      const showChooser = () => {
+        if (!window.pywebview?.api?.pick_folder) return;
+        choose.hidden = false;
+      };
+      showChooser();
+      window.addEventListener("pywebviewready", showChooser);
+      choose.addEventListener("click", async () => {
+        const picked = await window.pywebview.api.pick_folder();
+        if (picked) { folder.value = picked; search(); }
+      });
+    }
+
+    function showFound(cubes, dir, truncated) {
+      const list = document.getElementById("list");
+      list.textContent = "";
+      if (!cubes.length) { setEmpty(`No .zarr cubes in ${dir}.`); return; }
+      for (const c of cubes) {
+        const li = document.createElement("li");
+        li.appendChild(mkEl("div", "name", c.title || c.name));
+        li.appendChild(mkEl("div", "id", c.path));
+        li.addEventListener("click", async () => {
+          li.appendChild(mkEl("div", "desc", "Opening…"));
+          const res = await fetch("/catalog/open", {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ uri: c.path }),
+          });
+          const body = await res.json();
+          if (res.ok) launch(body.id);
+          else li.appendChild(mkEl("div", "desc", body.detail || `HTTP ${res.status}`));
+        });
+        list.appendChild(li);
+      }
+      if (truncated) list.appendChild(mkEl("li", "empty", `Showing the first ${cubes.length}; search a smaller folder for the rest.`));
+    }
 
     loadCatalog().catch((err) => {
       setEmpty("Failed to load catalog: " + (err.message || String(err)));

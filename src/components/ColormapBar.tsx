@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { useDraggableResizable } from '../hooks/useDraggableResizable';
 import { downloadElementAsPng } from '../utils/screenshot';
+import { displayUnit } from '../utils/units';
 
 export default function ColormapBar() {
   const { state, dispatch } = useAppContext();
@@ -64,7 +65,10 @@ export default function ColormapBar() {
   if (!state.showColorbar) return null;
 
   const dsInfo = state.currentDataset ? state.datasetInfo[state.currentDataset] : null;
-  const autoUnit  = dsInfo?.unit  ?? '';
+  // Labels follow Project › Units (inches in imperial); the colour range stays in data units.
+  // Rewrapped values are phase (radians or the wrap period), not lengths.
+  const shown = state.wrapEnabled ? { factor: 1, label: state.wrapWavelength ? 'rad' : '' } : displayUnit(dsInfo?.unit, state.units);
+  const autoUnit  = shown.label;
   const unit = customUnit ?? autoUnit;
   const autoLabel = dsInfo?.label ?? state.currentDataset ?? '';
   const label = customLabel ?? autoLabel;
@@ -76,7 +80,9 @@ export default function ColormapBar() {
     return parseFloat(v.toPrecision(4)).toString();
   };
 
-  const mid = (state.vmin + state.vmax) / 2;
+  const vmin = state.vmin * shown.factor;
+  const vmax = state.vmax * shown.factor;
+  const mid = (vmin + vmax) / 2;
 
   const HEADER_H = 26;
 
@@ -232,12 +238,12 @@ export default function ColormapBar() {
             />
             {/* Labels: vmin left | mid+unit stacked center | vmax right */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <span style={numStyle}>{fmt(state.vmin)}</span>
+              <span style={numStyle}>{fmt(vmin)}</span>
               <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
                 <span style={midStyle}>{fmt(mid)}</span>
                 {unit && <span style={unitStyle}>{unit}</span>}
               </span>
-              <span style={numStyle}>{fmt(state.vmax)}</span>
+              <span style={numStyle}>{fmt(vmax)}</span>
             </div>
             {/* Bar height slider — collapsible */}
             <div style={{ marginTop: 'auto', flexShrink: 0 }}>
@@ -277,7 +283,7 @@ export default function ColormapBar() {
                 minWidth: 0,
                 flex: 1,
               }}>
-                <span style={{ ...numStyle, position: 'absolute', top: 0, left: 0 }}>{fmt(state.vmax)}</span>
+                <span style={{ ...numStyle, position: 'absolute', top: 0, left: 0 }}>{fmt(vmax)}</span>
                 {/* mid value: aligned with vmin/vmax, not rotated */}
                 <span style={{
                   ...midStyle,
@@ -293,7 +299,7 @@ export default function ColormapBar() {
                   whiteSpace: 'nowrap',
                   display: 'inline-block',
                 }}>{unit}</span>}
-                <span style={{ ...numStyle, position: 'absolute', bottom: 0, left: 0 }}>{fmt(state.vmin)}</span>
+                <span style={{ ...numStyle, position: 'absolute', bottom: 0, left: 0 }}>{fmt(vmin)}</span>
               </div>
             </div>
             {/* Bar width slider — collapsible */}

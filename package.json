@@ -30,6 +30,7 @@
     "vitest": "^3.2.4"
   },
   "dependencies": {
+    "@geoman-io/maplibre-geoman-free": "^0.9.2",
     "chart.js": "^4.4.1",
     "chartjs-adapter-date-fns": "^3.0.0",
     "chartjs-plugin-zoom": "^2.2.0",
@@ -37,9 +38,12 @@
     "html-to-image": "^1.11.13",
     "leaflet": "^1.9.4",
     "maplibre-gl": "^6.13.0",
+    "maplibre-gl-geo-editor": "^0.11.1",
+    "pmtiles": "^4.5.0",
     "react": "^18.2.0",
     "react-chartjs-2": "^5.2.0",
     "react-dom": "^18.2.0",
-    "react-leaflet": "^4.2.1"
+    "react-leaflet": "^4.2.1",
+    "shpjs": "^6.2.0"
   }
 }

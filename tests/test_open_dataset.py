@@ -104,3 +104,22 @@ def test_open_by_path_then_route_by_id(tmp_path):
 
 def test_open_is_refused_unless_allowed(tmp_path):
     _run(DISABLED, tmp_path, "false")
+
+
+LOGO = textwrap.dedent(
+    """
+    import sys
+    from fastapi.testclient import TestClient
+    from bowser.main import app
+
+    config = TestClient(app).get("/config").json()
+    assert config["opera_logo"] is (sys.argv[1] == "true")
+    print("OK")
+"""
+)
+
+
+@pytest.mark.parametrize("shown", ["true", "false"])
+def test_opera_logo_follows_the_setting(tmp_path, shown, monkeypatch):
+    monkeypatch.setenv("BOWSER_OPERA_LOGO", shown)
+    _run(LOGO, tmp_path, "false", shown)
