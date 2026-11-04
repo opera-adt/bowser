@@ -705,16 +705,19 @@ function PixelInspectLayer() {
         const controller = new AbortController();
         abortRef.current = controller;
         try {
+          const tIdx = onRight ? state.splitTimeIndex : state.currentTimeIndex;
           const params = new URLSearchParams({
             dataset_name: activeDataset,
             lon: lng.toFixed(6),
             lat: lat.toFixed(6),
+            // Read only the displayed time step — one chunk fetch, not the
+            // whole (~80-shard) time series we then throw 99% of away.
+            time_idx: String(tIdx),
           });
           const res = await fetch(`/point?${params}`, { signal: controller.signal });
           if (!res.ok) return;
           const values: number[] = await res.json();
-          const tIdx = onRight ? state.splitTimeIndex : state.currentTimeIndex;
-          const val = values[tIdx];
+          const val = values[0];  // backend returned only the requested step
           let text: string;
           if (val === undefined || val === null || !isFinite(val)) {
             text = 'nodata';
