@@ -45,7 +45,40 @@ export default function ControlPanel({ title }: { title: string }) {
     buffer: true,
     overlays: true,
     export: true,
+    project: true,
   });
+
+  // ── Project save/load: persist points, reference, annotations and masks. ──
+  const PROJECT_KEYS = [
+    'currentDataset', 'currentTimeIndex', 'colormap', 'vmin', 'vmax',
+    'refMarkerPosition', 'refEnabled', 'refMarkerVisible',
+    'timeSeriesPoints', 'annotations', 'layerMasks', 'customMaskPath',
+  ] as const;
+  const saveProject = useCallback(() => {
+    const project: Record<string, unknown> = { bowser_project: 1, saved: new Date().toISOString() };
+    PROJECT_KEYS.forEach(k => {
+      // Drop cached time-series/trend values from points — they refetch on load.
+      project[k] = k === 'timeSeriesPoints'
+        ? state.timeSeriesPoints.map(({ data, trendData, ...rest }) => rest)
+        : (state as any)[k];
+    });
+    const blob = new Blob([JSON.stringify(project, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `bowser-project-${new Date().toISOString().slice(0, 16).replace(/[:.]/g, '-')}.json`;
+    document.body.appendChild(a); a.click(); a.remove();
+  }, [state]);
+  const loadProject = useCallback(async (file: File) => {
+    try {
+      const p = JSON.parse(await file.text());
+      if (!p || typeof p !== 'object') throw new Error('not a bowser project file');
+      const payload: Record<string, unknown> = {};
+      PROJECT_KEYS.forEach(k => { if (k in p) payload[k] = p[k]; });
+      dispatch({ type: 'LOAD_PROJECT', payload });
+    } catch (err) {
+      alert(`Could not load project: ${(err as Error).message}`);
+    }
+  }, [dispatch]);
   const toggleSection = (key: string) => setCollapsed(c => ({ ...c, [key]: !c[key] }));
   const [exporting, setExporting] = useState(false);
 
@@ -1025,6 +1058,30 @@ export default function ControlPanel({ title }: { title: string }) {
                 )}
               </div>
             ))}
+          </>
+        )}
+      </div>
+
+      {/* ── PROJECT (save/load) ── */}
+      <div className="sidebar-section">
+        <SectionHeader icon="fa-floppy-disk" label="Project" collapseKey="project" />
+        {!collapsed.project && (
+          <>
+            <div style={{ display: 'flex', gap: 4 }}>
+              <button className="hist-btn" style={{ flex: 1 }} onClick={saveProject}
+                title="Save points, reference, annotations & masks to a file">
+                <i className="fa-solid fa-download" style={{ marginRight: 5 }}></i>Save
+              </button>
+              <label className="hist-btn" style={{ flex: 1, cursor: 'pointer', textAlign: 'center' }}
+                title="Load a saved project">
+                <i className="fa-solid fa-upload" style={{ marginRight: 5 }}></i>Load
+                <input type="file" accept=".json,application/json" style={{ display: 'none' }}
+                  onChange={e => { const f = e.target.files?.[0]; if (f) loadProject(f); e.currentTarget.value = ''; }} />
+              </label>
+            </div>
+            <div style={{ fontSize: '0.7em', color: 'var(--sb-muted)', marginTop: 4, textAlign: 'center' }}>
+              points · reference · annotations · masks
+            </div>
           </>
         )}
       </div>

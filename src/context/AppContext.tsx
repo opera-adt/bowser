@@ -237,6 +237,9 @@ function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppSt
       };
     case 'SET_CUSTOM_MASK_PATH':
       return { ...state, customMaskPath: action.payload };
+    case 'LOAD_PROJECT':
+      // Restore a saved project — merge the saved slices over current state.
+      return { ...state, ...action.payload };
     case 'ADD_OVERLAY':
       return { ...state, overlays: [...state.overlays, action.payload] };
     case 'REMOVE_OVERLAY':
