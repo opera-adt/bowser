@@ -1560,6 +1560,120 @@ async def upload_mask(file: UploadFile):
     return JSONResponse({"path": str(dest)})
 
 
+@app.post(
+    "/upload_raster",
+    response_class=JSONResponse,
+    responses={
+        200: {"description": "Upload a raster overlay; returns path + metadata"}
+    },
+)
+async def upload_raster(file: UploadFile):
+    """Accept a GeoTIFF overlay upload, store it, and return tiling metadata.
+
+    The saved file is served through the ``/overlay`` tiler (reprojected on the
+    fly). We return the band count and per-band min/max/percentiles so the
+    frontend can pick sensible defaults: RGB for 3-band, colormap + rescale for
+    single-band. WGS84 bounds come from the tiler's tilejson on the client side.
+    """
+    import uuid  # noqa: PLC0415
+
+    suffix = Path(file.filename or "").suffix or ".tif"
+    dest = _UPLOAD_DIR / f"overlay_{uuid.uuid4().hex}{suffix}"
+    dest.write_bytes(await file.read())
+
+    from rio_tiler.io import Reader  # noqa: PLC0415
+
+    try:
+        with Reader(str(dest)) as r:
+            band_count = r.info().count
+            stats = r.statistics()
+    except Exception as exc:  # noqa: BLE001
+        dest.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=400, detail=f"Could not read raster: {exc}"
+        ) from exc
+
+    bands = [
+        {
+            "name": name,
+            "min": float(s.min),
+            "max": float(s.max),
+            "p2": float(s.percentile_2),
+            "p98": float(s.percentile_98),
+        }
+        for name, s in stats.items()
+    ]
+    return JSONResponse(
+        {
+            "path": str(dest),
+            "name": file.filename or dest.name,
+            "band_count": band_count,
+            "bands": bands,
+        }
+    )
+
+
+@app.get(
+    "/wms_capabilities",
+    response_class=JSONResponse,
+    responses={
+        200: {"description": "Named layers advertised by a WMS GetCapabilities"}
+    },
+)
+def wms_capabilities(url: str = Query(..., description="WMS base URL")):
+    """Proxy a WMS GetCapabilities and return its requestable named layers.
+
+    Done server-side because browsers are usually blocked by CORS from reading a
+    foreign WMS's capabilities. Returns ``[{name, title}]`` for every ``<Layer>``
+    that has a ``<Name>`` (only named layers can be requested via GetMap).
+    """
+    import ssl  # noqa: PLC0415
+    import urllib.request  # noqa: PLC0415
+    from xml.etree import ElementTree  # noqa: PLC0415
+
+    # Use certifi's CA bundle — some hosts (e.g. our dev box) have an incomplete
+    # system trust store and otherwise fail with CERTIFICATE_VERIFY_FAILED.
+    try:
+        import certifi  # noqa: PLC0415
+
+        ctx = ssl.create_default_context(cafile=certifi.where())
+    except Exception:  # noqa: BLE001
+        ctx = ssl.create_default_context()
+
+    sep = "&" if "?" in url else "?"
+    cap_url = f"{url}{sep}service=WMS&request=GetCapabilities"
+    try:
+        with urllib.request.urlopen(cap_url, timeout=20, context=ctx) as resp:  # noqa: S310
+            raw = resp.read()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502, detail=f"Could not fetch WMS capabilities: {exc}"
+        ) from exc
+    try:
+        root = ElementTree.fromstring(raw)
+    except ElementTree.ParseError as exc:
+        raise HTTPException(
+            status_code=502, detail=f"Invalid WMS capabilities XML: {exc}"
+        ) from exc
+
+    layers: list[dict] = []
+    seen: set[str] = set()
+    for el in root.iter():
+        if el.tag.split("}")[-1] != "Layer":
+            continue
+        name = title = None
+        for child in el:
+            tag = child.tag.split("}")[-1]
+            if tag == "Name" and name is None:
+                name = (child.text or "").strip()
+            elif tag == "Title" and title is None:
+                title = (child.text or "").strip()
+        if name and name not in seen:
+            seen.add(name)
+            layers.append({"name": name, "title": title or name})
+    return JSONResponse({"layers": layers})
+
+
 # Set up CORS
 app.add_middleware(
     CORSMiddleware,
@@ -1668,6 +1782,17 @@ app.include_router(
     cog_endpoints.router, prefix="/cog", tags=["Cloud Optimized GeoTIFF"]
 )
 logger.info("Configured COG endpoints at /cog/*")
+
+# User raster overlays: a *plain* titiler tiler (standard rio_tiler reader, no
+# DISP masking). Serves any GDAL raster the user uploads as WebMercator tiles —
+# reprojecting on the fly — with the standard render params (colormap_name,
+# rescale=min,max, bidx for RGB). Also exposes /overlay/info, /overlay/statistics
+# and /overlay/WebMercatorQuad/tilejson.json that the frontend uses for metadata.
+overlay_endpoints = TilerFactory(router_prefix="/overlay")
+app.include_router(
+    overlay_endpoints.router, prefix="/overlay", tags=["User raster overlays"]
+)
+logger.info("Configured overlay endpoints at /overlay/*")
 
 
 # MD mode: use xarray approach

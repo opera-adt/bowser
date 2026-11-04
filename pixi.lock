@@ -2303,8 +2303,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/9a/22/f1925cdda983ab66fc8ec6ec8014b959262747e58bdca26a4e3d1da29d56/python_multipart-0.0.26-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ad/59/fab64b94bdba99b738047653d34469cac634965b1cba02578413946f5fb8/rio_tiler-9.0.6-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/20/05/ed9b2571bbf38f1a2425391f18e3ac11cb1e91482c22d644a1640dea9da7/simplejson-3.20.2-cp312-cp312-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl
-      - pypi: https://files.pythonhosted.org/packages/81/0d/13d1d239a25cbfb19e740db83143e95c772a1fe10202dda4b76792b114dd/starlette-0.52.1-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/09/43/5d579dc290d43b9cfd0ca82765c0a571a550c3e1f9f52cd86b87a3c45c34/starlette_cramjam-0.6.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/be/72/2db2f49247d0a18b4f1bb9a5a39a0162869acf235f3a96418363947b3d46/starlette-0.48.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/48/c8/3ad3cc9e2c431234fb940f31486f7ce3ebf3fe248d6d50a1e338ed2ecccf/starlette_cramjam-0.5.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/a8/45/a132b9074aa18e799b891b91ad72133c98d8042c70f6240e4c5f9dabee2f/structlog-25.5.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ba/32/68b4c9f81e8b1cf0dc57d03a4159d0118decda94af41fdf5a98a2b2ced25/titiler_core-2.0.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/8e/53/1cb5c09c8cf4e04a341ecc8afc4eb99b369db7a9dae1a089ffe89e43c739/titiler_xarray-2.0.1-py3-none-any.whl
@@ -2601,8 +2601,8 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/9a/22/f1925cdda983ab66fc8ec6ec8014b959262747e58bdca26a4e3d1da29d56/python_multipart-0.0.26-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ad/59/fab64b94bdba99b738047653d34469cac634965b1cba02578413946f5fb8/rio_tiler-9.0.6-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ad/f1/efd09efcc1e26629e120fef59be059ce7841cc6e1f949a4db94f1ae8a918/simplejson-3.20.2-cp312-cp312-macosx_11_0_arm64.whl
-      - pypi: https://files.pythonhosted.org/packages/81/0d/13d1d239a25cbfb19e740db83143e95c772a1fe10202dda4b76792b114dd/starlette-0.52.1-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/09/43/5d579dc290d43b9cfd0ca82765c0a571a550c3e1f9f52cd86b87a3c45c34/starlette_cramjam-0.6.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/be/72/2db2f49247d0a18b4f1bb9a5a39a0162869acf235f3a96418363947b3d46/starlette-0.48.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/48/c8/3ad3cc9e2c431234fb940f31486f7ce3ebf3fe248d6d50a1e338ed2ecccf/starlette_cramjam-0.5.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/a8/45/a132b9074aa18e799b891b91ad72133c98d8042c70f6240e4c5f9dabee2f/structlog-25.5.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ba/32/68b4c9f81e8b1cf0dc57d03a4159d0118decda94af41fdf5a98a2b2ced25/titiler_core-2.0.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/8e/53/1cb5c09c8cf4e04a341ecc8afc4eb99b369db7a9dae1a089ffe89e43c739/titiler_xarray-2.0.1-py3-none-any.whl
@@ -4358,11 +4358,11 @@ packages:
   timestamp: 1773797822026
 - pypi: ./
   name: bowser-insar
-  version: 0.5.1.post1.dev1+gfe657a1bc.d20261104
-  sha256: c51208ff89c4b6f118bd1ea4bea601e0a5de903d34c2a8c8bd40192256acf47a
+  version: 0.5.1.post1.dev16+g766b930b7
+  sha256: b5ec67340443fa109b0c434f2e2bc00795d08e9e998f2aacaf559cc9a40e3518
   requires_dist:
   - titiler-xarray[http,minimal]
-  - starlette-cramjam
+  - starlette-cramjam<0.6
   - boto3
   - uvicorn
   - typing-extensions
@@ -4375,7 +4375,7 @@ packages:
   - s3fs>=2024.1.0
   - aiobotocore>=2.13.0
   - python-multipart
-  - starlette>=0.40.0,<1.0.0
+  - starlette>=0.46.0,<0.49
   - pytest ; extra == 'test'
   - httpx ; extra == 'test'
   - ipython ; extra == 'test'
@@ -16220,10 +16220,10 @@ packages:
   - python-multipart>=0.0.18 ; extra == 'full'
   - pyyaml ; extra == 'full'
   requires_python: '>=3.9'
-- pypi: https://files.pythonhosted.org/packages/81/0d/13d1d239a25cbfb19e740db83143e95c772a1fe10202dda4b76792b114dd/starlette-0.52.1-py3-none-any.whl
+- pypi: https://files.pythonhosted.org/packages/be/72/2db2f49247d0a18b4f1bb9a5a39a0162869acf235f3a96418363947b3d46/starlette-0.48.0-py3-none-any.whl
   name: starlette
-  version: 0.52.1
-  sha256: 0029d43eb3d273bc4f83a08720b4912ea4b071087a3b48db01b7c839f7954d74
+  version: 0.48.0
+  sha256: 0764ca97b097582558ecb498132ed0c7d942f233f365b86ba37770e026510659
   requires_dist:
   - anyio>=3.6.2,<5
   - typing-extensions>=4.10.0 ; python_full_version < '3.13'
@@ -16232,7 +16232,7 @@ packages:
   - jinja2 ; extra == 'full'
   - python-multipart>=0.0.18 ; extra == 'full'
   - pyyaml ; extra == 'full'
-  requires_python: '>=3.10'
+  requires_python: '>=3.9'
 - pypi: https://files.pythonhosted.org/packages/bc/d6/dc0827918b19c836afd58904c8b856b9bba18b4a0ce0b4866f8f6b4cb42b/starlette_cramjam-0.5.0-py3-none-any.whl
   name: starlette-cramjam
   version: 0.5.0
@@ -16248,14 +16248,21 @@ packages:
   - brotlipy ; extra == 'test'
   - zstandard ; extra == 'test'
   requires_python: '>=3.7'
-- pypi: https://files.pythonhosted.org/packages/09/43/5d579dc290d43b9cfd0ca82765c0a571a550c3e1f9f52cd86b87a3c45c34/starlette_cramjam-0.6.0-py3-none-any.whl
+- pypi: https://files.pythonhosted.org/packages/48/c8/3ad3cc9e2c431234fb940f31486f7ce3ebf3fe248d6d50a1e338ed2ecccf/starlette_cramjam-0.5.1-py3-none-any.whl
   name: starlette-cramjam
-  version: 0.6.0
-  sha256: 9a4a408207c9a0a93ef781bb397710fe5b5be4be88beac99c38d153fabfeae58
+  version: 0.5.1
+  sha256: d3488b5648c7b3263c6b7d0f41d7856af6d6566c0cbd851f165838db0692c324
   requires_dist:
-  - cramjam>=2.4,<2.12
   - starlette
-  requires_python: '>=3.11'
+  - cramjam>=2.4,<2.12
+  - pre-commit ; extra == 'dev'
+  - bump-my-version ; extra == 'dev'
+  - pytest ; extra == 'test'
+  - pytest-cov ; extra == 'test'
+  - httpx ; extra == 'test'
+  - brotlipy ; extra == 'test'
+  - zstandard ; extra == 'test'
+  requires_python: '>=3.9'
 - pypi: https://files.pythonhosted.org/packages/a8/45/a132b9074aa18e799b891b91ad72133c98d8042c70f6240e4c5f9dabee2f/structlog-25.5.0-py3-none-any.whl
   name: structlog
   version: 25.5.0

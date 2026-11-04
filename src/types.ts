@@ -82,6 +82,46 @@ export interface ChartWindow {
   dsNames: string[];  // datasets shown in this window; empty = follow currentDataset
 }
 
+export interface OverlayBand {
+  name: string;
+  min: number;
+  max: number;
+  p2: number;
+  p98: number;
+}
+
+// A user overlay shown between the basemap and the data layer. Either an
+// uploaded GeoTIFF (tiled by our /overlay titiler) or an external WMS/WMTS
+// service. Stacking order is the index in AppState.overlays (first = bottom).
+export interface Overlay {
+  id: string;
+  name: string;
+  type: 'geotiff' | 'wms' | 'wmts';
+  visible: boolean;
+  opacity: number;       // 0..1
+  side?: 'left' | 'right' | 'both';  // which half to show in split-screen (default both)
+
+  // --- geotiff ---
+  path?: string;         // server path returned by /upload_raster
+  bandCount?: number;
+  bands?: OverlayBand[];
+  bounds?: [number, number, number, number] | null;  // WGS84 [west, south, east, north]
+  mode?: 'rgb' | 'cmap'; // rgb for multi-band, cmap for single-band
+  cmap?: string;         // colormap_name (continuous cmap mode)
+  vmin?: number;
+  vmax?: number;
+  // Discrete/categorical binning (single-band): split [vmin,vmax] into `nbins`
+  // equal classes, each drawn with its own color (titiler interval colormap).
+  discrete?: boolean;
+  nbins?: number;
+  binColors?: string[];  // hex per bin, length === nbins
+
+  // --- external (wms / wmts / xyz) ---
+  url?: string;          // WMS base URL, or WMTS/XYZ tile template with {z}/{x}/{y}
+  wmsLayers?: string;    // WMS LAYERS parameter
+  maxNativeZoom?: number; // highest zoom the service has tiles for; upsample past it
+}
+
 export interface AppState {
   datasetInfo: { [key: string]: RasterGroup };
   timeSeriesPoints: TimeSeriesPoint[];
@@ -106,6 +146,7 @@ export interface AppState {
   showResiduals: boolean;
   layerMasks: LayerMask[];
   customMaskPath: string | null;
+  overlays: Overlay[];
   bufferEnabled: boolean;
   bufferRadius: number;
   bufferSamples: number;
@@ -170,6 +211,10 @@ export type AppAction =
   | { type: 'SET_SELECTED_POINT'; payload: string | null }
   | { type: 'TOGGLE_TRENDS' }
   | { type: 'TOGGLE_RESIDUALS' }
+  | { type: 'ADD_OVERLAY'; payload: Overlay }
+  | { type: 'REMOVE_OVERLAY'; payload: string }
+  | { type: 'UPDATE_OVERLAY'; payload: { id: string; updates: Partial<Overlay> } }
+  | { type: 'REORDER_OVERLAY'; payload: { id: string; direction: 'up' | 'down' } }
   | { type: 'ADD_LAYER_MASK'; payload: LayerMask }
   | { type: 'REMOVE_LAYER_MASK'; payload: string }
   | { type: 'UPDATE_LAYER_MASK'; payload: { id: string; updates: Partial<LayerMask> } }
