@@ -105,6 +105,16 @@ def cli_app():
         "AWS credential chain (AWS_PROFILE / env keys / instance role)."
     ),
 )
+@click.option(
+    "--allow-open/--no-allow-open",
+    "allow_open",
+    default=None,
+    help=(
+        "Let the page open any GeoZarr path or URL the server can read "
+        "(Project > Open data). Default: on for a local (127.0.0.1/localhost) "
+        "single-worker server, off otherwise."
+    ),
+)
 def run(
     stack_file,
     rasters_file,
@@ -120,6 +130,7 @@ def run(
     ssl_keyfile,
     htpasswd_file,
     s3_anon,
+    allow_open,
 ):
     """Run the web server."""
     import uvicorn
@@ -144,6 +155,15 @@ def run(
         os.environ["BOWSER_TITLE"] = title
     if htpasswd_file:
         os.environ["BOWSER_HTPASSWD_FILE"] = htpasswd_file
+    if allow_open is None:
+        allow_open = host in ("127.0.0.1", "localhost", "::1") and workers == 1
+    elif allow_open and workers > 1:
+        click.echo(
+            "Warning: with several workers, data opened from the page exists in "
+            "only one of them; requests that reach the others will fail.",
+            err=True,
+        )
+    os.environ["BOWSER_ALLOW_OPEN"] = str(allow_open).lower()
 
     protocol = "https" if ssl_certfile else "http"
     display_host = "localhost" if host in ("127.0.0.1", "0.0.0.0") else host

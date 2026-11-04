@@ -551,15 +551,113 @@ async def get_catalog():
     """Return the registered dataset catalog as JSON for the picker UI.
 
     Entries come from the TOML file at ``BOWSER_CATALOG_FILE`` (if set) —
-    each with ``{id, name, uri, bbox, description}``. Returns an empty list
-    when no catalog is configured or the file is missing.
+    each with ``{id, name, uri, bbox, description}`` — then any opened at
+    runtime with ``POST /catalog/open``. ``allow_open`` says whether that
+    endpoint is enabled.
     """
     from .catalog import load_catalog  # noqa: PLC0415
 
-    if not settings.BOWSER_CATALOG_FILE:
-        return {"datasets": []}
-    entries = load_catalog(settings.BOWSER_CATALOG_FILE)
-    return {"datasets": [e.to_dict() for e in entries]}
+    entries = (
+        load_catalog(settings.BOWSER_CATALOG_FILE)
+        if settings.BOWSER_CATALOG_FILE
+        else []
+    )
+    listed = {e.id for e in entries}
+    entries += [e for e in registry.catalog.values() if e.id not in listed]
+    return {
+        "datasets": [e.to_dict() for e in entries],
+        "allow_open": settings.BOWSER_ALLOW_OPEN,
+    }
+
+
+def _opened_id(name: str, uri: str) -> str:
+    """Return a catalog id for a store opened at runtime: its name and a URI hash."""
+    import re  # noqa: PLC0415
+
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:40] or "cube"
+    return f"{slug}-{hashlib.sha1(uri.encode()).hexdigest()[:8]}"
+
+
+@app.post("/catalog/scan")
+def scan_folder(body: dict = Body(...)):
+    """List the GeoZarr cubes under a folder (to open with ``POST /catalog/open``).
+
+    Off unless ``BOWSER_ALLOW_OPEN`` is set, like opening: it lets a client list the
+    server's folders.
+    """
+    from .scan import find_cubes  # noqa: PLC0415
+
+    if not settings.BOWSER_ALLOW_OPEN:
+        raise HTTPException(
+            status_code=403,
+            detail="Searching folders from the page is off on this server.",
+        )
+    folder = str(body.get("dir") or "").strip()
+    if not folder:
+        raise HTTPException(status_code=400, detail="Give a folder to search.")
+    try:
+        return find_cubes(folder)
+    except NotADirectoryError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/catalog/open")
+async def open_dataset(body: dict = Body(...)):
+    """Open a GeoZarr store by path or URL and add it to the catalog.
+
+    Returns ``{id, name}``; the page then loads ``/?dataset=<id>``. Disabled
+    (403) unless ``BOWSER_ALLOW_OPEN`` is set, because it lets a client make
+    the server read any path or URL it can reach. The entry lasts until the
+    server restarts.
+    """
+    from .catalog import CatalogEntry  # noqa: PLC0415
+
+    if not settings.BOWSER_ALLOW_OPEN:
+        raise HTTPException(
+            status_code=403,
+            detail="Opening data from the page is off on this server "
+            "(set BOWSER_ALLOW_OPEN=true, or run `bowser run` locally).",
+        )
+    uri = str(body.get("uri") or "").strip()
+    if not uri:
+        raise HTTPException(
+            status_code=400, detail="Give a path or URL to a .zarr store."
+        )
+    if "://" not in uri:
+        path = Path(uri).expanduser()
+        if not path.exists():
+            raise HTTPException(
+                status_code=400, detail=f"No such file or folder: {path}"
+            )
+        uri = str(path.resolve())
+    try:
+        state = BowserState.load_zarr(uri)
+        ds = state.dataset
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=400, detail=f"Could not open {uri} as a GeoZarr cube: {exc}"
+        ) from exc
+    name = str(
+        ds.attrs.get("title") or Path(uri.rstrip("/")).name.removesuffix(".zarr")
+    )
+    try:
+        from rasterio.warp import transform_bounds  # noqa: PLC0415
+
+        bounds = transform_bounds(ds.rio.crs, "EPSG:4326", *ds.rio.bounds())
+    except Exception:  # noqa: BLE001
+        bounds = (0.0, 0.0, 0.0, 0.0)  # the picker can't place it on its map
+    entry = CatalogEntry(
+        id=_opened_id(name, uri), name=name, uri=uri, bbox=tuple(bounds)
+    )
+    registry.register(entry, state)
+    if settings.BOWSER_REMEMBER_OPENED and settings.BOWSER_CATALOG_FILE:
+        from .catalog import load_catalog, save_catalog  # noqa: PLC0415
+
+        kept = [
+            e for e in load_catalog(settings.BOWSER_CATALOG_FILE) if e.id != entry.id
+        ]
+        save_catalog([*kept, entry], settings.BOWSER_CATALOG_FILE)
+    return {"id": entry.id, "name": entry.name}
 
 
 @app.get("/variables")

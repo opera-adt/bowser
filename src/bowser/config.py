@@ -31,6 +31,14 @@ class Settings(BaseSettings):
     # Path to an htpasswd-format file for HTTP Basic Auth (empty = no auth)
     BOWSER_HTPASSWD_FILE: str = ""
 
+    # Let the page open any GeoZarr path or URL the server can read
+    # (POST /catalog/open).
+    # Off unless set: `bowser run` turns it on only for a local single-worker server.
+    BOWSER_ALLOW_OPEN: bool = False
+    # Keep cubes opened from the page in BOWSER_CATALOG_FILE, so they are listed
+    # next time (the desktop app).
+    BOWSER_REMEMBER_OPENED: bool = False
+
     # --- runtime behaviour flags (previously read via os.getenv "YES"/"NO") ---
     BOWSER_USE_SPATIAL_REFERENCE_DISP: bool = True
 
