@@ -209,6 +209,117 @@ def _setup_gdal_env(ignore_sidecar_files: bool = False):
 
 
 @cli_app.command()
+@click.option(
+    "--browser", is_flag=True, help="Use the default browser instead of an app window."
+)
+@click.option(
+    "--lite/--full",
+    "lite",
+    default=None,
+    help=(
+        "Server to run: bowser-lite (GeoZarr cubes, no GDAL; the default) or the "
+        "full server (adds GeoTIFF uploads, exports, COG stacks). Default: "
+        "$BOWSER_SERVER, else lite."
+    ),
+)
+def desktop(browser, lite):
+    """Run Bowser as a desktop app: a window with a start screen, no setup needed."""
+    from .desktop import run as run_desktop  # noqa: PLC0415
+
+    run_desktop(
+        browser=browser, server=None if lite is None else ("lite" if lite else "full")
+    )
+
+
+@cli_app.command()
+@click.option("-s", "--stack-file", help="GeoZarr cube (.zarr) to serve.")
+@click.option(
+    "--catalog-file",
+    default=None,
+    help="Catalog (TOML) of cubes, chosen with ?dataset=<id>.",
+)
+@click.option(
+    "--host", default="127.0.0.1", show_default=True, help="Interface to bind."
+)
+@click.option(
+    "--port",
+    "-p",
+    default=None,
+    type=int,
+    help="Port (default: the first free from 8000).",
+)
+@click.option(
+    "--log-level",
+    default="warning",
+    type=click.Choice(["error", "warning", "info", "debug"]),
+    show_default=True,
+)
+@click.option(
+    "--no-spatial-reference",
+    "--ns",
+    is_flag=True,
+    help="No moving spatial reference point.",
+)
+@click.option("--title", default="", help="Title to display on the map.")
+@click.option(
+    "--htpasswd-file", default=None, help="htpasswd file for HTTP Basic Auth."
+)
+@click.option(
+    "--opera-logo/--no-opera-logo", "opera_logo", default=False, show_default=True
+)
+@click.option(
+    "--allow-open/--no-allow-open",
+    "allow_open",
+    default=None,
+    help="Let the page open any GeoZarr path. Default: on for 127.0.0.1/localhost.",
+)
+def lite(
+    stack_file,
+    catalog_file,
+    host,
+    port,
+    log_level,
+    no_spatial_reference,
+    title,
+    htpasswd_file,
+    opera_logo,
+    allow_open,
+):
+    """Run bowser-lite: the GeoZarr web UI, without GDAL, rio-tiler or matplotlib.
+
+    Same page and API as `bowser run -s cube.zarr`; GeoTIFF uploads, exports and
+    COG stacks need `bowser run`.
+    """
+    import uvicorn  # noqa: PLC0415
+
+    if not stack_file and not catalog_file:
+        raise click.UsageError(
+            "Give a cube (--stack-file) or a catalog (--catalog-file)."
+        )
+    if port is None:
+        port = _find_available_port(8000)
+    env = {
+        "BOWSER_STACK_DATA_FILE": stack_file or "",
+        "BOWSER_CATALOG_FILE": catalog_file or "",
+        "BOWSER_USE_SPATIAL_REFERENCE_DISP": str(not no_spatial_reference).lower(),
+        "BOWSER_ALLOW_OPEN": str(
+            host in ("127.0.0.1", "localhost", "::1")
+            if allow_open is None
+            else allow_open
+        ).lower(),
+        "BOWSER_OPERA_LOGO": str(opera_logo).lower(),
+    }
+    if title:
+        env["BOWSER_TITLE"] = title
+    if htpasswd_file:
+        env["BOWSER_HTPASSWD_FILE"] = htpasswd_file
+    os.environ.update(env)
+    display_host = "localhost" if host in ("127.0.0.1", "0.0.0.0") else host
+    print(f"Setting up bowser-lite on http://{display_host}:{port}")
+    uvicorn.run("bowser.lite.main:app", host=host, port=port, log_level=log_level)
+
+
+@cli_app.command()
 # @click.argument("name")
 # @click.argument("files", nargs=-1)
 @click.option(

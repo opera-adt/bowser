@@ -1,0 +1,11 @@
+# What the desktop app needs at run time (bowser-lite), plus the build tools.
+numpy
+xarray
+zarr
+numcodecs
+pyproj
+fastapi
+uvicorn
+pydantic-settings
+pywebview
+pyinstaller

@@ -77,7 +77,51 @@ The map moves from Leaflet to **MapLibre GL**: GPU rendering, smooth zoom and ro
 
 Then review the diff before committing.
 
-## Recommendation
+## Revision, 2026-11-03: bowser-lite reads the cubes we already have
+
+Phase 0 showed view cubes are **not smaller**: ×1.37 overall (31 GB against 22.7 GB), because the finer
+Web Mercator grid has 2–3× the pixels. Making users convert every cube before the app opens it adds a step
+and disk space for no size gain. So bowser-lite changes course:
+
+- **Input:** the existing UTM GeoZarr cubes, opened as they are. View cubes stay optional.
+- **Reprojection without GDAL:** tiles are cut by nearest-neighbour lookup in numpy, using pyproj
+  (already a dependency, about 15 MB) to map each tile's pixel centres into the cube's CRS. Points,
+  series and profiles need only the single-point transform bowser does today.
+- **Dropped from lite, or moved:** what needs GDAL today.
+  - Uploading a GeoTIFF overlay: read in the browser instead (geotiff.js, as the portal does).
+  - Exporting the data layer as GeoTIFF: written with `tifffile` (pure Python).
+  - Custom mask uploads: use layer masks, or the same browser-side GeoTIFF reader.
+- **Size target:** about 70 MB installed, 30–40 MB download, plus about 15 MB for pyproj.
+- **One app:** the installers ship bowser-lite only. The full `bowser` stays the server for hosted and
+  large deployments.
+
+The desktop shell is done (`bowser desktop`, `src/bowser/desktop.py`):
+- the start screen, with a native folder chooser and folder search;
+- a remembered catalog in the user's settings folder;
+- the server stops when the window closes.
+
+It runs on today's server, and switches to bowser-lite once that exists.
+
+### Release artifacts on GitHub
+
+Each app is built by GitHub Actions on its own platform and published from the repository:
+
+| Platform | Runner | Artifact |
+|---|---|---|
+| Windows 10/11 (x64) | `windows-latest` | `Bowser-<version>-windows-x64-setup.exe` (Inno Setup), plus a portable `.zip` |
+| macOS (Apple silicon) | `macos-14` | `Bowser-<version>-macos-arm64.dmg` |
+| macOS (Intel) | `macos-13` | `Bowser-<version>-macos-x64.dmg` |
+| Linux (x64) | `ubuntu-latest` | `Bowser-<version>-linux-x86_64.AppImage` |
+
+- **Every workflow run** uploads the four files as workflow artifacts (kept 14 days), for testing a
+  branch before release.
+- **A tag `v*`** creates a GitHub Release with the four files attached, the size of each and SHA-256
+  checksums, and release notes from the changelog.
+- **Smoke test before upload:** on each runner, start the packaged app headless (`--browser` mode),
+  open a small sample cube, and fetch one tile and one point.
+- **Unsigned at first:** the release notes give the one-step first-launch instruction for Windows
+  SmartScreen and macOS Gatekeeper. Signing and notarisation come in phase 4.
+
 
 1. Do **phases 0–2 first**: the view-cube format, bowser-lite and the desktop shell.
    - We then try the app here on the dams cubes before investing in release packaging.
