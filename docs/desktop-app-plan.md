@@ -1,6 +1,6 @@
 # Bowser Desktop: plan
 
-*Draft, 2026-10-10.*
+*Draft, 2026-10-10; updated 2026-10-13.*
 
 **Goal:** a double-click app for Windows, macOS and Linux that opens DISP GeoZarr cubes in the bowser UI.
 - The user never touches a terminal.
@@ -55,18 +55,11 @@ The map moves from Leaflet to **MapLibre GL**: GPU rendering, smooth zoom and ro
 - The system web engines support WebGL: WebView2, WKWebView and WebKitGTK.
 - Leaflet code today is about 2,300 lines in six files: `MapContainer.tsx` (1,284), `ProfileTool.tsx`, `Graticule.tsx`, `MeasureTool.tsx`, `mouse.ts` and `basemap.ts`.
 
-The migration goes in steps that each keep the regression suite green:
-1. **Map-independent logic out of the components.** The tile request is done (`utils/tileParams.ts`). Next: the click, marker-drag and profile-line handlers, as hooks that take lon/lat and know nothing of the map library.
-2. **A small `MapAdapter` interface:**
-   - raster source;
-   - markers;
-   - click, drag and hover events;
-   - fit bounds;
-   - overlays.
-
-   Leaflet implements it first. Component tests run against a mock adapter.
-3. **A MapLibre implementation of the adapter**, swapped in with no change to the tests.
-4. Remove Leaflet once MapLibre passes everything and a manual check in a real browser.
+**Status, 2026-10-13: done.** MapLibre has every feature the Leaflet map had and is the default.
+- `?map=leaflet` still gives the Leaflet map, and browsers without WebGL2 fall back to it automatically.
+- Leaflet is kept on purpose for now; remove it only on request.
+- How it was done: map-independent logic moved to `src/map/` (shared by both maps, pinned by tests), then MapLibre components were built against it.
+- 85 Vitest tests; the backend goldens are unchanged.
 
 ## Regression safety net (in place)
 
@@ -75,7 +68,7 @@ The migration goes in steps that each keep the regression suite green:
 | Backend goldens | The response to every request the UI makes, in single and catalog mode | `tests/regression/` (pytest) |
 | Request contract | URL, method and body of every `useApi` call | `src/hooks/useApi.test.ts` (Vitest) |
 | Tile requests | The tilejson URL for 15 UI states (algorithms, reference shift, rewrap, masks, catalog) | `src/utils/tileParams.test.ts` |
-| Interactions (next) | Click → point/chart, reference drag → reference values, profile line → `/profile`, through the mock adapter | to come with step 1 |
+| Map behaviour | Click, markers, reference drag, profile, measure, split screen, overlays, graticule, annotations, terrain, on a faked maplibre-gl | `src/components/MapLibre*.test.tsx`, `src/map/*.test.ts` |
 | End to end (CI) | Real browser with software WebGL (Chromium + SwiftShader) on a GitHub runner | phase 3; WebGL doesn't run on the current dev host |
 
 **How to update on purpose:**
@@ -97,14 +90,17 @@ Then review the diff before committing.
 
 ### Phase 0: view-cube format (1–2 days)
 
-- [ ] Write a one-page spec, `docs/view-cube-spec.md`. It covers:
-  - grid: EPSG:3857, square pixels, origin and size in attrs;
-  - variables and dtypes: float16 where precision allows; displacement in metres;
-  - chunking: `(1, 256, 256)` for tiles, plus a time-series-friendly copy of `displacement`, chunked `(all, 32, 32)`;
-  - root attributes: `title`, `reference_lonlat`, LOS attrs, the colour range per variable, `source_cube`.
-- [ ] Add a `view` output to `to_geozarr.py`: nearest-neighbour resampling from UTM, keeping the exact values.
-- [ ] Convert the 17 dams cubes and compare sizes with the UTM cubes; we expect 3–5× smaller.
-- [ ] Validate: compare the time series at 20 random points against the UTM cube, at the nearest pixel.
+- [x] Spec: `docs/view-cube-spec.md`.
+  - The grid is snapped to the global tile grid at the native zoom, so a tile at that zoom is one chunk.
+  - float32 is kept. float16 and a time-series-chunked copy are deferred; the spec gives the reasons.
+- [x] Converter: `bowser view-cube SOURCE OUTPUT` (`src/bowser/view_cube.py`, `tests/test_view_cube.py`). It reads an existing cube, so `to_geozarr.py` doesn't need to change.
+- [x] Converted all 17 dams cubes into `00_tools/dams/view/`.
+  - **Measured: view cubes are not smaller** (×1.37 overall, 31 GB against 22.7 GB; Sentinel-1 ×1.4–1.5). The finer native grid has 2–3× the pixels. The gain is no GDAL, not size. float16 for the [0, 1] layers is the obvious lever.
+- [x] Validate, on all 17 cubes:
+  - 20 random points per cube give identical series;
+  - every valid source pixel is present;
+  - the reference pixel matches;
+  - today's bowser serves the same `/chart_point` series from both (checked on Prado).
 
 **Done when:** every dams cube has a view cube, and point values match the UTM cube at the nearest pixel.
 
@@ -167,7 +163,7 @@ Then review the diff before committing.
 | Windows needs the WebView2 runtime | It ships with Windows 10/11; link Microsoft's small installer for older systems |
 | Unsigned apps trigger OS warnings | Give a one-line first-launch instruction until phase 4 |
 | Untested on Windows/macOS so far | The CI matrix with smoke tests (phase 3) and manual tries in phase 2 |
-| Large cube folders (~20 GB for the dams) | View cubes are smaller; S3/https links avoid copying data |
+| Large cube folders (~20 GB for the dams) | View cubes are about the same size as the UTM cubes (measured); S3/https links avoid copying data. float16 for [0, 1] layers would help |
 
 ## Decisions needed
 
@@ -178,5 +174,4 @@ Then review the diff before committing.
 
 ## Prerequisites
 
-- Commit the catalog fix on `fix/catalog-dataset-routing` (per-request dataset routing, and the title in `/config`).
 - Finish the 7 remaining S1 dams cubes (they need an AWS login), so phase 0 can convert the full set.
