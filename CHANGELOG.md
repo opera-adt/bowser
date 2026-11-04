@@ -8,6 +8,22 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `bowser desktop` runs Bowser as a desktop app (pywebview window, start screen
+  to open cubes), with installer builds for Windows, macOS and Linux on `v*`
+  tags (#88).
+- bowser-lite (`bowser lite`): a server for GeoZarr cubes without GDAL,
+  rio-tiler or matplotlib, with the same API for cubes; uploads, exports and COG
+  stacks still need `bowser run` (#87).
+- A tabbed side panel (Main, Overlays, GNSS, Project) with vector and raster
+  overlays, drawing, context services (land cover, soils, geology, PMTiles),
+  GNSS stations in the line of sight, model fits on time series, metric or
+  imperial units and a light/dark theme. `--opera-logo` shows the OPERA emblem
+  instead of the Bowser mark (#86).
+- GNSS endpoints: `/gnss/stations` and `/gnss/series/{station}` from UNR, with
+  steps and monuments (#85).
+- Open and scan local cubes from the page (`POST /catalog/open`,
+  `POST /catalog/scan`), gated by `BOWSER_ALLOW_OPEN`; `bowser run` turns it on
+  only for a local single-worker server (#84).
 - `bowser view-cube` writes a Web Mercator display copy of a cube, snapped to
   the tile grid at its native zoom, so a tile is one chunk (#83).
 - Regression tests pin every API response the UI asks for (golden JSON) and
