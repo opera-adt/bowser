@@ -282,6 +282,21 @@ class DatasetRegistry:
                 logger.info(f"DatasetRegistry evicted {evicted!r}")
         return state
 
+    def register(self, entry: CatalogEntry, state: BowserState | None = None) -> None:
+        """Add (or replace) one entry at runtime, with its state if already open.
+
+        Runtime entries live in this process only: they are gone after a restart,
+        and other uvicorn workers never see them.
+        """
+        with self._lock:
+            self.catalog[entry.id] = entry
+            if state is not None:
+                self._cache[entry.id] = state
+                self._cache.move_to_end(entry.id)
+                while len(self._cache) > self.maxsize:
+                    evicted, _ = self._cache.popitem(last=False)
+                    logger.info(f"DatasetRegistry evicted {evicted!r}")
+
     def ids(self) -> list[str]:
         """Return the list of catalog-registered dataset ids."""
         return list(self.catalog)
