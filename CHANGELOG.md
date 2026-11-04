@@ -8,6 +8,15 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Raster overlays: upload a GeoTIFF or add a WMS/WMTS/XYZ layer, drawn between
+  the basemap and the data, with opacity, order, discrete classes and a
+  split-screen side (#73).
+- The time-series CSV gives each point's lat/lon, x/y, dataset and velocity
+  with its standard error (#75).
+- The reference marker starts at the cube's reference point, and
+  `bowser tifs-to-geozarr --reference-point X,Y` stores one (#75).
+- Project save and load: points, reference, annotations, masks and the
+  displayed layer's appearance (#76, #78).
 - Producers can now declare whether a variable takes a moving spatial reference
   point with a `bowser_uses_spatial_ref` boolean attr on the variable. It
   overrides every heuristic, and is the only way to express exceptions such as
@@ -16,6 +25,11 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Hover reads only the displayed time step at a point (`/point?time_idx=`),
+  one chunk fetch instead of the whole series (#72).
+- Response compression is off by default; `BOWSER_COMPRESSION=1` turns it back
+  on (#74).
+- GeoTIFF exports are named by date, `<var>_2020-06-15.tif` (#77).
 - Spatial-reference eligibility is inferred from CF `units` instead of matching
   substrings of the variable name. Length and angle quantities (`meters`,
   `radians`, `meters / year`, …) are relative measurements and get a reference
@@ -34,6 +48,14 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The server starts without a built frontend, serving the API only (#74).
+- The "Loading…" spinner no longer sticks after tile errors (#74).
+- `calculate_trend` no longer divides by zero, bad project files no longer blank
+  the app, and uploads are streamed with a size cap
+  (`BOWSER_MAX_UPLOAD_MB`, default 500) and expire after
+  `BOWSER_UPLOAD_RETENTION_H` (default 24 h) (#77).
+- `pixi.lock` matches `pyproject.toml` again, so CI and the Docker build pass
+  (#79).
 - `bowser tifs-to-geozarr` no longer imports `osgeo.gdal`. 0.5.0 made the GDAL
   Python bindings an undeclared hard dependency of the writer; rasterio maps
   every GDAL dtype the converter handles, including `float16`, as of 1.5.0.
