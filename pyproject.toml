@@ -115,6 +115,12 @@ aiobotocore = ">=2.13.0"
 # in `[tool.pixi.feature.writer.pypi-dependencies]` trips the "already a
 # dependency" error on pixi install --locked.
 pydantic = ">=2.12"
+# The extra above asks PyPI for rasterio>=1.5.0; ask conda for it too, or the
+# conda solve settles on an older rasterio and the PyPI solve fails.
+rasterio = ">=1.5.0"
+# Same Python as the default and test envs: on 3.14, cramjam, color-operations
+# and numexpr only come as source builds (cramjam needs Rust).
+python = "3.12.*"
 
 [tool.pixi.environments]
 default = { solve-group = "default" }
