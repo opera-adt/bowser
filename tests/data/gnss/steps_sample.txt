@@ -1,0 +1,5 @@
+P056  19MAR27  1  Elevation_Cutoff_Changed
+P056  21NOV18  1  Antenna_Type_Changed
+P056  21NOV18  1  Receiver_Make_and_Model_Changed
+P056  10APR04  2   645.654   541.411  7.2 ci14607652
+XXXX  BADDATE  1  Antenna_Type_Changed

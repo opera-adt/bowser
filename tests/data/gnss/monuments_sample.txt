@@ -1,0 +1,4 @@
+Site    : Monument Description                          : Height of Monument (m)  : Monument Foundation                     : Foundation Depth (m) : Geologic Characteristic    
+================================================================================================================================================================================
+MACC    : PERMANENT STATION UNSPECIFIED                 :                         :  UNKNOWN                                :                      :                                   
+EBPT    : DEEP DRILLED BRACED                           :  1.40                   :  STAINLESS STEEL RODS                   :                      :                                   
