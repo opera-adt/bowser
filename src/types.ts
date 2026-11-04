@@ -27,6 +27,10 @@ export interface RasterGroup {
   unit?: string;
   reference_date?: string | null;
   los_metadata?: LosMetadata;
+  // Default spatial reference point [lon, lat] recorded in the cube (DISP-S1
+  // reference_point / tifs-to-geozarr --reference-point). Seeds the moving
+  // reference marker; null when the cube carries none.
+  reference_lonlat?: [number, number] | null;
 }
 
 export interface TimeSeriesPoint {
@@ -36,7 +40,7 @@ export interface TimeSeriesPoint {
   color: string;
   visible: boolean;
   data?: { [dataset: string]: number[] };
-  trendData?: { [dataset: string]: { slope: number; intercept: number; rSquared: number; mmPerYear: number } };
+  trendData?: { [dataset: string]: { slope: number; intercept: number; rSquared: number; mmPerYear: number; stdMmPerYear?: number } };
 }
 
 export interface MultiPointTimeSeriesData {
@@ -47,11 +51,16 @@ export interface MultiPointTimeSeriesData {
     data: Array<{ x: string; y: number }>;
     borderColor: string;
     backgroundColor: string;
+    // Point coordinates in the dataset's native CRS (e.g. UTM easting/northing);
+    // null when the cube is geographic or the transform is unavailable.
+    x?: number | null;
+    y?: number | null;
     trend?: {
       slope: number;
       intercept: number;
       rSquared: number;
       mmPerYear: number;
+      stdMmPerYear?: number;
     };
   }[];
 }
@@ -192,7 +201,7 @@ export type AppAction =
   | { type: 'REMOVE_TIME_SERIES_POINT'; payload: string }
   | { type: 'UPDATE_TIME_SERIES_POINT'; payload: { id: string; updates: Partial<TimeSeriesPoint> } }
   | { type: 'SET_POINT_DATA'; payload: { pointId: string; dataset: string; data: number[] } }
-  | { type: 'SET_POINT_TREND_DATA'; payload: { pointId: string; dataset: string; trend: { slope: number; intercept: number; rSquared: number; mmPerYear: number } } }
+  | { type: 'SET_POINT_TREND_DATA'; payload: { pointId: string; dataset: string; trend: { slope: number; intercept: number; rSquared: number; mmPerYear: number; stdMmPerYear?: number } } }
   | { type: 'SET_REF_MARKER_POSITION'; payload: [number, number] }
   | { type: 'SET_CURRENT_DATASET'; payload: string }
   | { type: 'SET_TIME_INDEX'; payload: number }
