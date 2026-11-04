@@ -51,7 +51,7 @@ SCRIPT = textwrap.dedent(
     assert m.status_code == 200, m.text
 
     cfg = c.get("/config", headers={"referer": "http://localhost/?dataset=cube-b"})
-    assert cfg.json() == {"title": "Cube B"}, cfg.json()
+    assert cfg.json() == {"title": "Cube B", "opera_logo": False}, cfg.json()
     assert c.get("/config").json()["title"] != "Cube B"
 
     assert c.get("/point", params={**q, "dataset": "nope"}).status_code == 404

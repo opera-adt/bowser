@@ -5,7 +5,10 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useApi } from '../hooks/useApi';
 import { useRasterTileUrl } from '../map/useRasterTileUrl';
-import { MapLeftToolbar, MapTopRightToolbar } from './MapToolbars';
+import { MapLeftToolbar, MapTopRightToolbar, type MapFeature } from './MapToolbars';
+
+/** Identify reads MapLibre's rendered features, so the Leaflet fallback has no identify tool. */
+const LEAFLET_UNSUPPORTED: ReadonlySet<MapFeature> = new Set(['identify']);
 import {
   mapClickActions, markerPopupText, pixelInspectRequest, pixelInspectText,
   pointClickActions, pointDoubleClickActions, pointDragEndActions, refDragEnd, viewBoundsAction,
@@ -506,7 +509,7 @@ function OverlayLayers() {
   return (
     <>
       {state.overlays.flatMap((o, i) => {
-        if (!o.visible) return [];
+        if (!o.visible || o.type === 'vector' || o.type === 'context' || o.type === 'pmtiles') return [];
         const zIndex = Math.min(3 + i, 9);
         // In split-screen, draw into the left/right (clipped) pane(s) per `side`.
         const side = o.side ?? 'both';
@@ -607,6 +610,7 @@ export default function MapContainer({ toolbarsVisible, onToggleToolbars }: { to
             measureActive={measureActive}
             onToggleMeasure={() => setMeasureActive(v => !v)}
             onMeasureOff={() => setMeasureActive(false)}
+            unsupported={LEAFLET_UNSUPPORTED}
           />
           <MapTopRightToolbar onToggleToolbars={onToggleToolbars} />
         </>

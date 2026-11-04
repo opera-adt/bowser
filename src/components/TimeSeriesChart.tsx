@@ -8,6 +8,14 @@ import { useAppContext } from '../context/AppContext';
 import { useApi } from '../hooks/useApi';
 import { MultiPointTimeSeriesData } from '../types';
 import { downloadChartAsPng } from '../utils/screenshot';
+import { chartLayerFor, timeSeriesLayers } from '../utils/chartLayers';
+import { LayerOptions } from './panel/controls';
+import ModelCard, { type PickKind } from './ModelCard';
+import SeriesStylePopover from './SeriesStylePopover';
+import { seriesStyle } from '../map/seriesStyle';
+import { describeFit, fitSeries, modelCurve, modelLabel, rSquared } from '../map/fitSettings';
+import type { FitResult } from '../map/fit';
+import { displayUnit } from '../utils/units';
 
 // Chart.js plugin to wire legend-click visibility to all related datasets (raw, trend,
 // residual, samples, median) that share the same base label.
@@ -104,13 +112,17 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
   const { panelRef, panelStyle, onDragMouseDown, resizeGrip } = useDraggableResizable({
     defaultWidth: Math.min(560, window.innerWidth * 0.38),
     defaultHeight: 420,
+    fitContent: true,
   });
 
+  // Only layers with a time axis can be charted (velocity and other 2-D layers can't).
+  const allDsNames = timeSeriesLayers(state.datasetInfo);
   // Datasets for this window: window's dsNames if set, else follow currentDataset
-  const winDsNames = window_?.dsNames ?? [];
+  const winDsNames = (window_?.dsNames ?? []).filter(ds => allDsNames.includes(ds));
+  const followedDs = chartLayerFor(state.currentDataset, state.datasetInfo);
   const activeDatasetsForChart: string[] = winDsNames.length > 0
     ? winDsNames
-    : (state.currentDataset ? [state.currentDataset] : []);
+    : (followedDs ? [followedDs] : []);
 
   const updateChart = useCallback(async () => {
     if (!state.showChart || !state.currentDataset || state.timeSeriesPoints.length === 0) {
@@ -124,12 +136,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
       setIsLoading(false);
       return;
     }
-    // Skip datasets that have no time dimension (e.g. velocity, coherence scalars)
-    const timeDatasets = activeDatasetsForChart.filter(ds => {
-      const info = state.datasetInfo[ds];
-      return info && Array.isArray(info.x_values) && info.x_values.length > 0;
-    });
-    if (timeDatasets.length === 0) {
+    if (activeDatasetsForChart.length === 0) {
       setChartDataMap({});
       setIsLoading(false);
       return;
@@ -143,14 +150,15 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     }));
     try {
       const results = await Promise.all(
-        timeDatasets.map(async dsName => {
+        activeDatasetsForChart.map(async dsName => {
           const dsInfo = state.datasetInfo[dsName];
           let refLon: number | undefined, refLat: number | undefined;
           if (dsInfo?.uses_spatial_ref && state.refEnabled) {
             [refLat, refLon] = state.refMarkerPosition;
           }
+          // Trends come from the model fitted below (fitSeries), not the server.
           const tsData = await fetchMultiPointTimeSeries(
-            apiPoints, dsName, refLon, refLat, state.showTrends,
+            apiPoints, dsName, refLon, refLat, false,
             state.layerMasks,
             state.refEnabled && state.refBufferEnabled ? state.refBufferRadius : 0,
           );
@@ -159,25 +167,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
       );
       const newMap: { [ds: string]: MultiPointTimeSeriesData } = {};
       results.forEach(({ dsName, tsData }) => {
-        if (tsData) {
-          newMap[dsName] = tsData;
-          if (state.showTrends) {
-            setTimeout(() => {
-              tsData.datasets.forEach(dataset => {
-                if (dataset.trend) {
-                  dispatch({
-                    type: 'SET_POINT_TREND_DATA',
-                    payload: {
-                      pointId: dataset.pointId,
-                      dataset: dsName,
-                      trend: dataset.trend,
-                    },
-                  });
-                }
-              });
-            }, 0);
-          }
-        }
+        if (tsData) newMap[dsName] = tsData;
       });
       setChartDataMap(newMap);
     } catch (error) {
@@ -193,7 +183,6 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     state.refMarkerPosition,
     state.refEnabled,
     state.datasetInfo,
-    state.showTrends,
     state.layerMasks,
     fetchMultiPointTimeSeries,
   ]);
@@ -209,13 +198,9 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     const visiblePoints = state.timeSeriesPoints.filter(p => p.visible);
     if (visiblePoints.length === 0) { setBufferData({}); return; }
 
-    const timeDatasets = activeDatasetsForChart.filter(ds => {
-      const info = state.datasetInfo[ds];
-      return info && Array.isArray(info.x_values) && info.x_values.length > 0;
-    });
-    if (timeDatasets.length === 0) { setBufferData({}); return; }
+    if (activeDatasetsForChart.length === 0) { setBufferData({}); return; }
     Promise.all(
-      timeDatasets.flatMap(dsName => {
+      activeDatasetsForChart.flatMap(dsName => {
         const dsInfo = state.datasetInfo[dsName];
         let refLon: number | undefined, refLat: number | undefined;
         if (dsInfo?.uses_spatial_ref && state.refEnabled) {
@@ -259,13 +244,55 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
   // Use the first available dataset as the canonical labels source
   const firstDs = Object.values(chartDataMap)[0] ?? null;
 
-  const handleChartClick = useCallback((_event: any, elements: InteractionItem[]) => {
+  // ── Trend model (the portal's fit): one fit per series over the shown date range ──
+  const [picking, setPicking] = useState<PickKind | null>(null);
+  const fits = useMemo(() => {
+    const out: Record<string, { fit: FitResult | null; points: { x: string; y: number }[] }> = {};
+    if (!state.showTrends) return out;
+    const from = state.dateRangeStart ?? '';
+    const to = state.dateRangeEnd ?? '9999';
+    for (const [ds, cd] of Object.entries(chartDataMap)) {
+      const k = displayUnit(state.datasetInfo[ds]?.unit, state.units).factor;
+      for (const d of cd.datasets) {
+        const points = d.data.map(p => ({ x: toIsoDate(p.x as string), y: p.y * k }))
+          .filter(p => p.x.slice(0, 10) >= from && p.x.slice(0, 10) <= to);
+        out[`${ds}::${d.pointId}`] = { fit: fitSeries(points, state.fitSettings), points };
+      }
+    }
+    return out;
+  }, [chartDataMap, state.showTrends, state.fitSettings, state.dateRangeStart, state.dateRangeEnd, state.units, state.datasetInfo]);
+
+  // The fitted rate is what the Points panel and the CSV report.
+  useEffect(() => {
+    for (const [key, { fit, points }] of Object.entries(fits)) {
+      if (!fit || fit.model.polyOrder < 1) continue;
+      const [dataset, pointId] = key.split('::');
+      const unit = displayUnit(state.datasetInfo[dataset]?.unit, state.units);
+      const k = unit.rate?.factor ?? 1;
+      dispatch({ type: 'SET_POINT_TREND_DATA', payload: { pointId, dataset, trend: {
+        slope: 0, intercept: 0, rSquared: rSquared(points, fit), mmPerYear: fit.rate * k, stdMmPerYear: fit.rateStd * k,
+        rateUnit: unit.rate?.label ?? unit.label,
+      } } });
+    }
+  }, [fits]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleChartClick = useCallback((event: any, elements: InteractionItem[]) => {
+    if (picking) {
+      const t = chartRef.current?.scales.x?.getValueForPixel(event.x);
+      if (typeof t === 'number' && Number.isFinite(t)) {
+        const iso = new Date(t).toISOString().slice(0, 10);
+        const key = picking === 'step' ? 'steps' : 'breaks';
+        dispatch({ type: 'SET_FIT_SETTINGS', payload: { [key]: [...new Set([...state.fitSettings[key], iso])].sort().slice(0, 20) } });
+      }
+      setPicking(null);
+      return;
+    }
     if (elements.length === 0 || !firstDs) return;
     const dataIndex = elements[0].index;
     if (dataIndex !== undefined && dataIndex < firstDs.labels.length) {
       dispatch({ type: 'SET_TIME_INDEX', payload: dataIndex });
     }
-  }, [firstDs, dispatch]);
+  }, [firstDs, dispatch, picking, state.fitSettings]);
 
   const handleExportToCSV = useCallback(() => {
     if (!firstDs) return;
@@ -283,13 +310,18 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     // x/y are the point's coordinates in the cube's native CRS (e.g. UTM
     // easting/northing) — useful when the data isn't geographic; blank when the
     // backend couldn't supply them.
-    const metaHeader = '# series,lat,lon,x,y,dataset,velocity_mm_per_yr,velocity_std_mm_per_yr';
+    const metaHeader = '# series,lat,lon,x,y,dataset,velocity_mm_per_yr,velocity_std_mm_per_yr,model';
     const metaRows = allDatasets.map(d => {
       const p = ptById[d.pointId];
-      const t = d.trend;
+      const fit = fits[`${d._dsName}::${d.pointId}`]?.fit;
+      // The fit is in the displayed units; the CSV is always metric (data units, mm/yr).
+      const unit = state.datasetInfo[d._dsName]?.unit;
+      const k = (displayUnit(unit, 'metric').rate?.factor ?? 1) / displayUnit(unit, state.units).factor;
+      const rate = fit && fit.model.polyOrder >= 1 ? fit.rate * k : undefined;
+      const std = fit && fit.model.polyOrder >= 1 ? fit.rateStd * k : undefined;
       return `# ${colName(d)},${p ? num(p.position[0], 6) : ''},${p ? num(p.position[1], 6) : ''},` +
         `${num(d.x ?? undefined, 3)},${num(d.y ?? undefined, 3)},` +
-        `${d._dsName},${num(t?.mmPerYear, 3)},${num(t?.stdMmPerYear, 3)}`;
+        `${d._dsName},${num(rate, 3)},${num(std, 3)},${fit ? modelLabel(state.fitSettings) : ''}`;
     });
 
     // ── Time × series value matrix ──
@@ -314,12 +346,12 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     const blob = new Blob([out], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     link.setAttribute('href', URL.createObjectURL(blob));
-    link.setAttribute('download', `time-series-${state.currentDataset}-${new Date().toISOString().slice(0, 16).replace(/[:.]/g, '-')}.csv`);
+    link.setAttribute('download', `time-series-${activeDatasetsForChart[0]}-${new Date().toISOString().slice(0, 16).replace(/[:.]/g, '-')}.csv`);
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  }, [chartDataMap, firstDs, activeDatasetsForChart, state.currentDataset, state.timeSeriesPoints]);
+  }, [chartDataMap, firstDs, activeDatasetsForChart, state.timeSeriesPoints, fits, state.fitSettings, state.datasetInfo, state.units]);
 
   // Ordered list of dataset names currently in chartDataMap
   const activeChartDs = Object.keys(chartDataMap);
@@ -329,8 +361,8 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     const mutedColor = cssVar('--sb-muted',  '#7880a8');
     const gridColor  = cssVar('--sb-border', '#2c2f4a');
 
-    const referenceDate = state.currentDataset
-      ? state.datasetInfo[state.currentDataset]?.reference_date
+    const referenceDate = activeChartDs.length > 0
+      ? state.datasetInfo[activeChartDs[0]]?.reference_date
       : null;
 
     // Determine x-axis scale type from label format of the first active dataset:
@@ -374,9 +406,10 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
 
     activeChartDs.forEach((ds, i) => {
       const info = state.datasetInfo[ds];
-      const yLabel = info?.label && info?.unit
-        ? `${info.label} (${info.unit})`
-        : info?.label || info?.unit || ds;
+      const shownUnit = displayUnit(info?.unit, state.units).label;
+      const yLabel = info?.label && shownUnit
+        ? `${info.label} (${shownUnit})`
+        : info?.label || shownUnit || ds;
       const axisColor = dsColorOverrides[ds] ?? (i === 0 ? mutedColor : mutedColor);
       const offset = dsOffsets[ds] ?? 0;
       const lim = dsYLimits[ds];
@@ -426,11 +459,12 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
                 .map(({ ds, index }: any) => {
                   const baseLabel = (ds as any)._baseLabel || ds.label;
                   const trendMmPerYear = (ds as any)._trendMmPerYear;
+                  const rateUnit = (ds as any)._rateUnit ?? 'mm';
                   const displayText = baseLabel + (trendMmPerYear !== undefined && state.showTrends
-                    ? ` (${trendMmPerYear.toFixed(1)} mm/yr)` : '');
+                    ? ` (${trendMmPerYear.toFixed(rateUnit === 'in' ? 2 : 1)} ${rateUnit}/yr)` : '');
                   return {
                     text: displayText,
-                    pointStyle: 'circle' as const,
+                    pointStyle: (ds.pointStyle ?? 'circle') as any,
                     fillStyle: ds.borderColor,
                     strokeStyle: ds.borderColor,
                     fontColor: textColor,
@@ -451,7 +485,8 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
               const unit = (ds as any)._unit || 'm';
               let label = `${(ds as any)._baseLabel || ds.label}: ${context.parsed.y.toFixed(4)} ${unit}`;
               const mmPy = (ds as any)._trendMmPerYear;
-              if (mmPy !== undefined && state.showTrends) label += ` (${mmPy.toFixed(1)} mm/yr)`;
+              const rateUnit = (ds as any)._rateUnit ?? 'mm';
+              if (mmPy !== undefined && state.showTrends) label += ` (${mmPy.toFixed(rateUnit === 'in' ? 2 : 1)} ${rateUnit}/yr)`;
               return label;
             },
           },
@@ -470,12 +505,11 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
       onClick: handleChartClick,
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [themeVersion, state.showTrends, state.vmin, state.vmax, state.datasetInfo, state.bufferEnabled, handleChartClick, JSON.stringify(activeChartDs), JSON.stringify(dsOffsets), JSON.stringify(dsColorOverrides), JSON.stringify(dsYLimits), JSON.stringify(Object.fromEntries(Object.entries(chartDataMap).map(([k, v]) => [k, v.datasets.flatMap(d => d.data.map(pt => pt.y))]))) ]);
+  }, [themeVersion, state.units, state.showTrends, state.vmin, state.vmax, state.datasetInfo, state.bufferEnabled, handleChartClick, JSON.stringify(activeChartDs), JSON.stringify(dsOffsets), JSON.stringify(dsColorOverrides), JSON.stringify(dsYLimits), JSON.stringify(Object.fromEntries(Object.entries(chartDataMap).map(([k, v]) => [k, v.datasets.flatMap(d => d.data.map(pt => pt.y))]))) ]);
 
   if (!state.showChart) return null;
 
   // Dataset selector helpers
-  const allDsNames = Object.keys(state.datasetInfo);
   const setWinDs = (dsNames: string[]) =>
     dispatch({ type: 'SET_CHART_WINDOW_DS', payload: { id: windowId, dsNames } });
   const addWinDs = (ds: string) => { if (!winDsNames.includes(ds)) setWinDs([...winDsNames, ds]); };
@@ -491,9 +525,11 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
       <div className="chart-header" onMouseDown={onDragMouseDown} style={{ cursor: 'grab' }}>
         <h4 style={{ margin: 0, fontSize: '0.9em' }}>Time Series</h4>
         <div className="chart-controls">
-          <button className="chart-btn" onClick={() => dispatch({ type: 'TOGGLE_TRENDS' })} title="Toggle trend analysis">
+          <button className={`chart-btn${state.showTrends ? ' active' : ''}`} onClick={() => dispatch({ type: 'TOGGLE_TRENDS' })}
+            aria-pressed={state.showTrends}
+            title={state.showTrends ? `Model: ${modelLabel(state.fitSettings)}` : 'Fit a model: polynomial, seasonal terms, steps and segments (as in the OPERA DISP portal)'}>
             <i className={`fa-solid ${state.showTrends ? 'fa-chart-line' : 'fa-chart-simple'}`}></i>
-            {state.showTrends ? 'Trends ✓' : 'Trends'}
+            <span className="chart-btn-label">{state.showTrends ? `Model: ${modelLabel(state.fitSettings)}` : 'Model'}</span>
           </button>
           {state.showTrends && (
             <button className="chart-btn" onClick={() => dispatch({ type: 'TOGGLE_RESIDUALS' })} title="Show residuals">
@@ -506,12 +542,13 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
               <i className="fa-solid fa-magnifying-glass-minus"></i>
             </button>
           )}
+          <SeriesStylePopover />
           <button className="chart-btn" onClick={handleExportToCSV} title="Export CSV">
             <i className="fa-solid fa-download"></i>
           </button>
           <button className="chart-btn" title="Save as PNG (transparent background)" onClick={() => {
             const canvas = chartRef.current?.canvas;
-            if (canvas) downloadChartAsPng(canvas, `timeseries-${state.currentDataset}-${Date.now()}.png`);
+            if (canvas) downloadChartAsPng(canvas, `timeseries-${activeDatasetsForChart[0]}-${Date.now()}.png`);
           }}>
             <i className="fa-solid fa-camera"></i>
           </button>
@@ -525,20 +562,22 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
       </div>
       <div className="chart-sliders" style={{ marginBottom: 4, paddingBottom: 4, flexWrap: 'wrap' }}>
         {winDsNames.length === 0 ? (
-          state.currentDataset ? (
+          followedDs ? (
             <span style={{
               display: 'inline-flex', alignItems: 'center', gap: 3, padding: '1px 6px',
               background: 'var(--sb-surface2)', border: '1px solid var(--sb-border)',
               borderRadius: 10, fontSize: '0.72em', color: 'var(--sb-text)', flexShrink: 0,
             }}>
-              {state.currentDataset}
-              <button onClick={() => setWinDs(allDsNames.filter(d => d !== state.currentDataset))} style={{
-                background: 'none', border: 'none', cursor: 'pointer', padding: 0,
-                color: 'var(--sb-muted)', fontSize: '0.9em', lineHeight: 1,
-              }} title={`Remove ${state.currentDataset}`}>✕</button>
+              {followedDs}
+              {allDsNames.length > 1 && (
+                <button onClick={() => setWinDs(allDsNames.filter(d => d !== followedDs))} style={{
+                  background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+                  color: 'var(--sb-muted)', fontSize: '0.9em', lineHeight: 1,
+                }} title={`Remove ${followedDs}`}>✕</button>
+              )}
             </span>
           ) : (
-            <span style={{ fontSize: '0.75em', color: 'var(--sb-muted)' }}>No layer selected</span>
+            <span style={{ fontSize: '0.75em', color: 'var(--sb-muted)' }}>No time-series layer</span>
           )
         ) : (
           winDsNames.map(ds => (
@@ -556,19 +595,14 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
           ))
         )}
         {(() => {
-          const excluded = winDsNames.length === 0
-            ? [...winDsNames, state.currentDataset].filter(Boolean)
-            : winDsNames;
-          const available = allDsNames.filter((ds: string) => !excluded.includes(ds));
+          const available = allDsNames.filter((ds: string) => !activeDatasetsForChart.includes(ds));
           return available.length > 0 ? (
             <select className="sidebar-select"
               style={{ fontSize: '0.72em', padding: '1px 4px', height: 22, flex: '0 0 auto', maxWidth: 130 }}
               value="" onChange={e => { if (e.target.value) { addWinDs(e.target.value); e.currentTarget.value = ''; } }}
             >
               <option value="">＋ layer…</option>
-              {available.map((ds: string) => (
-                <option key={ds} value={ds}>{ds}</option>
-              ))}
+              <LayerOptions names={available} />
             </select>
           ) : null;
         })()}
@@ -577,6 +611,10 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
             onClick={() => setWinDs([])} title="Reset to map layer">↺ reset</button>
         )}
       </div>
+      {state.showTrends && (
+        <ModelCard settings={state.fitSettings} picking={picking} onPick={setPicking}
+          onChange={patch => dispatch({ type: 'SET_FIT_SETTINGS', payload: patch })} />
+      )}
     </>
   );
 
@@ -602,18 +640,26 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     );
   }
 
-  if (Object.keys(chartDataMap).length === 0) {
-    const allNoTime = activeDatasetsForChart.every((ds: string) => {
-      const info = state.datasetInfo[ds];
-      return info && Array.isArray(info.x_values) && info.x_values.length === 0;
-    });
+  // A masked point comes back as a dataset with no points: that is no data too.
+  if (!Object.values(chartDataMap).some(d => d.datasets.some(series => series.data.length > 0))) {
     return (
       <div id="chart-container" ref={panelRef} style={panelStyle}>
         {headerContent}
         <div className="chart-placeholder">
-          {allNoTime
-            ? <><p>Selected layer has no time dimension.</p><p><small>Switch to a time-series dataset to view the chart.</small></p></>
-            : <p>No data for selected points.</p>
+          {activeDatasetsForChart.length === 0
+            ? <p>No layer here has a time dimension.</p>
+            : state.layerMasks.length > 0
+              ? (
+                <>
+                  <p>Masking hides every date at the selected points.</p>
+                  <p><small>Masks on: {state.layerMasks.map(m => m.dataset).join(', ')} (Main › Masking).</small></p>
+                  <button type="button" className="hist-btn" style={{ flex: 'none', marginTop: 6 }}
+                    onClick={() => state.layerMasks.forEach(m => dispatch({ type: 'REMOVE_LAYER_MASK', payload: m.id }))}>
+                    Remove the masks
+                  </button>
+                </>
+              )
+              : <p>No data for selected points.</p>
           }
         </div>
         {resizeGrip}
@@ -636,23 +682,34 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     return t >= dateStart && t <= dateEnd;
   });
 
-  const day0 = allIsoLabels.length > 0 ? new Date(allIsoLabels[0]).getTime() / 86400000 : 0;
-  const isoToDay = (iso: string) => new Date(iso).getTime() / 86400000 - day0;
   const ms = state.markerSize;
 
   const datasetList: any[] = [];
+  /** The fitted rate for the legend (mm/yr or in/yr), when the data is a length. */
+  const trendRate = (dsName: string, pointId: string): number | undefined => {
+    const fit = fits[`${dsName}::${pointId}`]?.fit;
+    const rate = displayUnit(state.datasetInfo[dsName]?.unit, state.units).rate;
+    return fit && rate && fit.model.polyOrder >= 1 ? fit.rate * rate.factor : undefined;
+  };
 
   Object.entries(chartDataMap).forEach(([dsName, cd]) => {
     const dsInfo = state.datasetInfo[dsName];
-    const unit = dsInfo?.unit;
+    // Values are drawn in the chosen units (inches in imperial); the data stays in its own.
+    const shown = displayUnit(dsInfo?.unit, state.units);
+    const unit = shown.label;
+    const rateUnit = shown.rate?.label;
+    const k = shown.factor;
     const colorOverride = dsColorOverrides[dsName] ?? null;
     const axisIdx = activeChartDs.indexOf(dsName);
     const yAxisID = `y${axisIdx}`;
 
     cd.datasets.forEach(dataset => {
       const baseLabel = multiDs ? `${dataset.label} [${dsName}]` : dataset.label;
-      const borderColor = colorOverride ?? dataset.borderColor;
-      const backgroundColor = colorOverride ? colorOverride + '20' : dataset.backgroundColor;
+      // The point's own colour and style (Style button); a per-layer colour wins when several layers share the chart.
+      const point = state.timeSeriesPoints.find(p => p.id === dataset.pointId);
+      const borderColor = colorOverride ?? point?.color ?? dataset.borderColor;
+      const backgroundColor = `${borderColor}33`;
+      const look = seriesStyle(point?.marker, point?.line, ms);
 
       if (state.bufferEnabled) {
         const buf = bufferData[`${dsName}::${dataset.pointId}`];
@@ -665,7 +722,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
             _unit: unit,
             yAxisID,
             data: sample
-              .map(pt => ({ x: toIsoDate(pt.x), y: pt.y }))
+              .map(pt => ({ x: toIsoDate(pt.x), y: pt.y * k }))
               .filter(pt => { const t = new Date(pt.x).getTime(); return t >= dateStart && t <= dateEnd; }),
             borderColor: borderColor + '28',
             backgroundColor: 'transparent',
@@ -674,7 +731,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
         });
 
         const medianData = buf.median
-          .map((pt: { x: string; y: number }) => ({ x: toIsoDate(pt.x), y: pt.y }))
+          .map((pt: { x: string; y: number }) => ({ x: toIsoDate(pt.x), y: pt.y * k }))
           .filter((pt: { x: string; y: number }) => { const t = new Date(pt.x).getTime(); return t >= dateStart && t <= dateEnd; });
         datasetList.push({
           label: `${baseLabel} median`,
@@ -683,37 +740,44 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
           yAxisID,
           data: medianData,
           borderColor, backgroundColor: borderColor,
-          borderWidth: 0, showLine: false, pointStyle: 'circle',
-          pointRadius: ms, pointHoverRadius: ms + 2, fill: false,
+          borderWidth: 0, fill: false,
+          ...look, showLine: false, pointRadius: look.pointRadius || ms,
         });
       } else {
         const isoData = dataset.data
-          .map(pt => ({ x: toIsoDate(pt.x as string), y: pt.y }))
+          .map(pt => ({ x: toIsoDate(pt.x as string), y: pt.y * k }))
           .filter(pt => { const t = new Date(pt.x).getTime(); return t >= dateStart && t <= dateEnd; });
 
         datasetList.push({
           label: baseLabel,
           _baseLabel: baseLabel,
           _unit: unit,
-          _trendMmPerYear: dataset.trend?.mmPerYear,
+          _trendMmPerYear: trendRate(dsName, dataset.pointId),
+          _rateUnit: rateUnit,
           yAxisID,
           data: isoData,
           borderColor,
           backgroundColor,
-          borderWidth: 2, pointRadius: ms, pointHoverRadius: ms + 2, tension: 0.1, fill: false,
+          borderWidth: 2, tension: 0.1, fill: false,
+          ...look,
         });
 
-        if (state.showTrends && dataset.trend && isoData.length > 1) {
-          const { slope, intercept, mmPerYear } = dataset.trend;
+        const fit = fits[`${dsName}::${dataset.pointId}`]?.fit;
+        if (state.showTrends && fit && isoData.length > 1) {
           datasetList.push({
             label: `${baseLabel} trend`,
             _baseLabel: baseLabel,
             _unit: unit,
-            _trendMmPerYear: mmPerYear,
+            _trendMmPerYear: trendRate(dsName, dataset.pointId),
             yAxisID,
-            data: isoData.map(pt => ({ x: pt.x, y: slope * isoToDay(pt.x) + intercept })),
-            borderColor, backgroundColor: 'transparent',
-            borderWidth: 1.5, borderDash: [6, 4], pointRadius: 0, pointHoverRadius: 0, tension: 0, fill: false,
+            data: modelCurve(fit),
+            spanGaps: false,
+            // Drawn in front of the points (Chart.js draws the lowest order last), in the point's colour
+            // so each model reads with its point; thick and dashed so it stands out from the markers.
+            order: -1,
+            borderColor,
+            backgroundColor: 'transparent',
+            borderWidth: 2.5, borderDash: [8, 4], pointRadius: 0, pointHoverRadius: 0, tension: 0, fill: false,
           });
 
           if (state.showResiduals) {
@@ -722,7 +786,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
               _baseLabel: baseLabel,
               _unit: unit,
               yAxisID,
-              data: isoData.map(pt => ({ x: pt.x, y: pt.y - (slope * isoToDay(pt.x) + intercept) })),
+              data: isoData.map(pt => ({ x: pt.x, y: pt.y - fit.predict(Date.parse(`${pt.x.slice(0, 10)}T00:00:00Z`)) })),
               borderColor, backgroundColor,
               borderWidth: 1, borderDash: [2, 3],
               pointRadius: ms > 2 ? ms - 1 : 2, pointHoverRadius: ms + 1, tension: 0, fill: false,
@@ -779,8 +843,8 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
         const baseColor = chartDataMap[ds]?.datasets[0]?.borderColor ?? '#7880a8';
         const color = dsColorOverrides[ds] ?? baseColor;
         const info = state.datasetInfo[ds];
-        const unit = info?.unit || '';
-        const allY = chartDataMap[ds]?.datasets.flatMap(d => d.data.map(pt => pt.y)) ?? [];
+        const unit = displayUnit(info?.unit, state.units).label;
+        const allY = chartDataMap[ds]?.datasets.flatMap(d => d.data.map(pt => pt.y * displayUnit(info?.unit, state.units).factor)) ?? [];
         const dataSpan = allY.length > 1 ? Math.max(...allY) - Math.min(...allY) : 1;
         const sliderRange = Math.max(dataSpan * 2, 0.001);
         const step = parseFloat((sliderRange / 500).toPrecision(2));
@@ -836,9 +900,19 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
       <div className="chart-content">
         <Line ref={chartRef} data={formattedChartData} options={chartOptions as any} />
       </div>
+      {state.showTrends && Object.keys(fits).length > 0 && (
+        <div className="model-summary">
+          {Object.entries(fits).map(([key, { fit }]) => {
+            const [dsName, pointId] = key.split('::');
+            const name = state.timeSeriesPoints.find(p => p.id === pointId)?.name ?? pointId;
+            const shown = displayUnit(state.datasetInfo[dsName]?.unit, state.units);
+            return <div key={key}><b>{multiDs ? `${name} [${dsName}]` : name}</b>: {describeFit(fit, shown.rate?.factor ?? null, shown.rate?.label ?? shown.label)}</div>;
+          })}
+        </div>
+      )}
       <div className="chart-help">
         <small>
-          Scroll to zoom · Drag to pan · Click points to sync map time
+          {picking ? `Click the chart where the ${picking} goes · ` : ''}Scroll to zoom · Drag to pan · Click points to sync map time
           {state.bufferEnabled && Object.keys(bufferData).length > 0 && (
             <> · Buffer: {Object.values(bufferData).map((b: any) => b.n_pixels).join(', ')} px</>
           )}

@@ -13,11 +13,11 @@ type LatLng = [number, number];
 
 /** Map click: add a time-series point (and open the chart), unless something else owns the click. */
 export function mapClickActions(
-  state: Pick<AppState, 'annotationMode' | 'pointPickingEnabled' | 'showChart'>,
+  state: Pick<AppState, 'annotationMode' | 'pointPickingEnabled' | 'showChart'> & Partial<Pick<AppState, 'drawingEnabled' | 'identifyEnabled'>>,
   position: LatLng,
   opts: { toolActive: boolean; profileActive: boolean; now?: number },
 ): { kind: 'ignore' } | { kind: 'annotate'; position: LatLng } | { kind: 'actions'; actions: AppAction[] } {
-  if (opts.toolActive || opts.profileActive) return { kind: 'ignore' };
+  if (opts.toolActive || opts.profileActive || state.drawingEnabled || state.identifyEnabled) return { kind: 'ignore' };
   if (state.annotationMode) return { kind: 'annotate', position };
   if (!state.pointPickingEnabled) return { kind: 'ignore' };
   const now = opts.now ?? Date.now();

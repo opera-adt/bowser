@@ -543,7 +543,10 @@ async def get_config(request: Request, dataset: str | None = Query(None)):
 
         dataset = values[0] if values else None
     entry = registry.catalog.get(dataset) if dataset else None
-    return {"title": entry.name if entry is not None else settings.BOWSER_TITLE}
+    return {
+        "title": entry.name if entry is not None else settings.BOWSER_TITLE,
+        "opera_logo": settings.BOWSER_OPERA_LOGO,
+    }
 
 
 @app.get("/catalog")
@@ -1146,7 +1149,11 @@ async def get_colorbar(cmap_name: str):
     "/dataset_range/{dataset_name}",
     response_class=JSONResponse,
     responses={
-        200: {"description": "Return min/max/p2/p98 for a dataset (first time slice)"}
+        200: {
+            "description": (
+                "Return min/max/p2/p98/p5/p95 for a dataset (first time slice)"
+            )
+        }
     },
 )
 async def get_dataset_range(
@@ -1186,6 +1193,8 @@ async def get_dataset_range(
             "max": float(valid.max()),
             "p2": float(np.percentile(valid, 2)),
             "p98": float(np.percentile(valid, 98)),
+            "p5": float(np.percentile(valid, 5)),
+            "p95": float(np.percentile(valid, 95)),
         }
     )
 
@@ -1853,7 +1862,7 @@ async def upload_raster(file: UploadFile):
     try:
         with Reader(str(dest)) as r:
             band_count = r.info().count
-            stats = r.statistics()
+            stats = r.statistics(percentiles=[2, 5, 95, 98])
     except Exception as exc:  # noqa: BLE001
         dest.unlink(missing_ok=True)
         raise HTTPException(
@@ -1867,6 +1876,8 @@ async def upload_raster(file: UploadFile):
             "max": float(s.max),
             "p2": float(s.percentile_2),
             "p98": float(s.percentile_98),
+            "p5": float(s.percentile_5),
+            "p95": float(s.percentile_95),
         }
         for name, s in stats.items()
     ]

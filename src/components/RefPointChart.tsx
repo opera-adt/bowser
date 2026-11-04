@@ -3,6 +3,7 @@ import { Line } from 'react-chartjs-2';
 import { useAppContext } from '../context/AppContext';
 import { useApi } from '../hooks/useApi';
 import { useDraggableResizable } from '../hooks/useDraggableResizable';
+import { chartLayerFor } from '../utils/chartLayers';
 
 interface BufferResult {
   labels: string[];
@@ -24,8 +25,10 @@ export default function RefPointChart() {
     initialBottom: 20,
   });
 
+  const chartDs = chartLayerFor(state.currentDataset, state.datasetInfo);
+
   useEffect(() => {
-    if (!state.refBufferEnabled || !state.showRefChart || !state.currentDataset) {
+    if (!state.refBufferEnabled || !state.showRefChart || !chartDs) {
       setBufferData(null);
       return;
     }
@@ -37,7 +40,7 @@ export default function RefPointChart() {
     const [lat, lng] = state.refMarkerPosition;
 
     setLoading(true);
-    fetchBufferTimeSeries(lng, lat, state.currentDataset, state.refBufferRadius, 20)
+    fetchBufferTimeSeries(lng, lat, chartDs, state.refBufferRadius, 20)
       .then(data => {
         if (!ctrl.signal.aborted && data) setBufferData(data);
       })
@@ -47,7 +50,7 @@ export default function RefPointChart() {
   }, [
     state.refBufferEnabled,
     state.showRefChart,
-    state.currentDataset,
+    chartDs,
     state.refMarkerPosition,
     state.refBufferRadius,
   ]);
@@ -67,7 +70,7 @@ export default function RefPointChart() {
   // Use dataset info x_values as the authoritative label source — identical to
   // what the main time series chart uses, guaranteeing the axes match.
   const rawLabels: string[] =
-    (state.datasetInfo[state.currentDataset]?.x_values ?? bufferData.labels).map(String);
+    ((chartDs && state.datasetInfo[chartDs]?.x_values) || bufferData.labels).map(String);
   const n = rawLabels.length;
 
   const toDisplay = (l: string) => {
@@ -185,7 +188,7 @@ export default function RefPointChart() {
         grid: { color: 'rgba(255,255,255,0.08)' },
       },
       y: {
-        title: { display: true, text: state.currentDataset, color: '#aaa' },
+        title: { display: true, text: chartDs ?? '', color: '#aaa' },
         ticks: { color: '#aaa' },
         grid: { color: 'rgba(255,255,255,0.08)' },
       },

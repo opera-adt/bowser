@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 
 interface Options {
   defaultWidth: number;
@@ -9,9 +9,11 @@ interface Options {
   initialBottom?: number;
   minWidth?: number;
   minHeight?: number;
+  /** Grow the window when its content gets taller than it (kept on screen); a smaller size the user picks stays until the content grows again. */
+  fitContent?: boolean;
 }
 
-export function useDraggableResizable({ defaultWidth, defaultHeight, initialRight = 20, initialBottom = 20, minWidth = 320, minHeight = 180 }: Options) {
+export function useDraggableResizable({ defaultWidth, defaultHeight, initialRight = 20, initialBottom = 20, minWidth = 320, minHeight = 180, fitContent = false }: Options) {
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
   const [size, setSize] = useState({ width: defaultWidth, height: defaultHeight });
   const panelRef = useRef<HTMLDivElement>(null);
@@ -61,9 +63,24 @@ export function useDraggableResizable({ defaultWidth, defaultHeight, initialRigh
     window.addEventListener('mouseup', onUp);
   };
 
+  // Content that grew (a card opened, a summary added) makes the window taller, never past the screen.
+  const contentHeight = useRef(0);
+  useLayoutEffect(() => {
+    const el = panelRef.current;
+    if (!fitContent || !el) return;
+    const need = el.scrollHeight;
+    if (need > contentHeight.current + 1 && need > el.clientHeight + 1) {
+      const height = Math.min(need + 2, window.innerHeight - 16);
+      setSize(s => ({ ...s, height }));
+    }
+    contentHeight.current = need;
+  });
+
   const resolvedPos = pos ?? { left: window.innerWidth - defaultWidth - initialRight, top: window.innerHeight - defaultHeight - initialBottom };
+  // A window that grew to fit its content moves up rather than run off the bottom of the screen.
+  const top = fitContent ? Math.max(8, Math.min(resolvedPos.top, window.innerHeight - size.height - 8)) : resolvedPos.top;
   const panelStyle: React.CSSProperties = {
-    left: resolvedPos.left, top: resolvedPos.top,
+    left: resolvedPos.left, top,
     width: size.width, height: size.height,
     bottom: 'auto', right: 'auto', transform: 'none',
   };

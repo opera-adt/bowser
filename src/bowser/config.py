@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     # next time (the desktop app).
     BOWSER_REMEMBER_OPENED: bool = False
 
+    # Show the OPERA emblem at the top of the side panel instead of the Bowser mark
+    # (`bowser run --opera-logo`).
+    BOWSER_OPERA_LOGO: bool = False
+
     # --- runtime behaviour flags (previously read via os.getenv "YES"/"NO") ---
     BOWSER_USE_SPATIAL_REFERENCE_DISP: bool = True
 

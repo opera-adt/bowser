@@ -92,6 +92,7 @@ const { FakeMap, FakeMarker, FakePopup, dispatch, mockState } = vi.hoisted(() =>
 vi.mock('maplibre-gl', () => ({
   Map: FakeMap, Marker: FakeMarker, Popup: FakePopup, ScaleControl: class { constructor(public opts: any) {} }, NavigationControl: class {},
   setWorkerUrl: (u: string) => { (globalThis as any).__maplibreWorkerUrl = u; },
+  addProtocol: (name: string) => { (globalThis as any).__maplibreProtocols = [...((globalThis as any).__maplibreProtocols ?? []), name]; },
 }));
 vi.mock('maplibre-gl/dist/maplibre-gl.css', () => ({}));
 vi.mock('maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url', () => ({ default: '/assets/maplibre-worker.js' }));
@@ -135,6 +136,12 @@ async function mount() {
   await act(async () => { await vi.advanceTimersByTimeAsync(300); });
   return { view, map: FakeMap.last };
 }
+
+describe('custom PMTiles', () => {
+  it('registers the pmtiles:// protocol for archives added in Services', () => {
+    expect((globalThis as any).__maplibreProtocols).toContain('pmtiles');
+  });
+});
 
 describe('MapLibreMap without WebGL', () => {
   it('shows a message instead of crashing the app', () => {

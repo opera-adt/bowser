@@ -1,3 +1,10 @@
+import type { FitSettings } from './map/fitSettings';
+import type { IdentifyResult } from './map/identify';
+import type { GnssStation } from './map/gnss';
+import type { UnitSystem } from './utils/units';
+import type { LineStyle, MarkerShape } from './map/seriesStyle';
+import type { PointMarker } from './map/markers';
+
 export interface LosMetadata {
   // Satellite ground-track heading, degrees clockwise from north
   heading_deg: number;
@@ -39,8 +46,12 @@ export interface TimeSeriesPoint {
   position: [number, number]; // [lat, lng]
   color: string;
   visible: boolean;
+  /** How it is drawn in the chart (default circle markers joined by a line). */
+  marker?: MarkerShape;
+  line?: LineStyle;
   data?: { [dataset: string]: number[] };
-  trendData?: { [dataset: string]: { slope: number; intercept: number; rSquared: number; mmPerYear: number; stdMmPerYear?: number } };
+  // mmPerYear is in rateUnit/yr (mm in metric, in in imperial); the name is kept for saved projects.
+  trendData?: { [dataset: string]: { slope: number; intercept: number; rSquared: number; mmPerYear: number; stdMmPerYear?: number; rateUnit?: string } };
 }
 
 export interface MultiPointTimeSeriesData {
@@ -97,24 +108,33 @@ export interface OverlayBand {
   max: number;
   p2: number;
   p98: number;
+  p5?: number;
+  p95?: number;
 }
 
-// A user overlay shown between the basemap and the data layer. Either an
-// uploaded GeoTIFF (tiled by our /overlay titiler) or an external WMS/WMTS
-// service. Stacking order is the index in AppState.overlays (first = bottom).
+export interface OverlayFeatures {
+  type: 'FeatureCollection';
+  features: unknown[];
+}
+
+// A user overlay: an uploaded GeoTIFF (tiled by our /overlay titiler), an external
+// WMS/WMTS service, vector features read in the browser, or an OpenFreeMap context layer. Stacking order is the
+// index in AppState.overlays (first = bottom); aboveData is which side of the data
+// layer it is drawn on (see overlayRows, MapLibre only).
 export interface Overlay {
   id: string;
   name: string;
-  type: 'geotiff' | 'wms' | 'wmts';
+  type: 'geotiff' | 'wms' | 'wmts' | 'vector' | 'context' | 'pmtiles';
   visible: boolean;
   opacity: number;       // 0..1
   side?: 'left' | 'right' | 'both';  // which half to show in split-screen (default both)
+  aboveData?: boolean;
+  bounds?: [number, number, number, number] | null;  // WGS84 [west, south, east, north]
 
   // --- geotiff ---
   path?: string;         // server path returned by /upload_raster
   bandCount?: number;
   bands?: OverlayBand[];
-  bounds?: [number, number, number, number] | null;  // WGS84 [west, south, east, north]
   mode?: 'rgb' | 'cmap'; // rgb for multi-band, cmap for single-band
   cmap?: string;         // colormap_name (continuous cmap mode)
   vmin?: number;
@@ -129,6 +149,32 @@ export interface Overlay {
   url?: string;          // WMS base URL, or WMTS/XYZ tile template with {z}/{x}/{y}
   wmsLayers?: string;    // WMS LAYERS parameter
   maxNativeZoom?: number; // highest zoom the service has tiles for; upsample past it
+
+  // --- vector ---
+  data?: OverlayFeatures;
+  color?: string;
+  lineWidth?: number;
+  pointRadius?: number;
+  marker?: PointMarker;  // point shape (circle unless set)
+
+  // --- context (OpenFreeMap roads, buildings, boundaries) ---
+  contextKey?: 'roads' | 'buildings' | 'boundaries';
+  scale?: number;  // line width or building height multiplier
+
+  // --- fixed-style tiles (land cover) ---
+  landCoverYear?: number;
+  legend?: [string, string][];  // [label, color]
+  attribution?: string;
+  serviceKey?: string;  // which Services entry added it (geology, soils)
+
+  // --- pmtiles (a custom archive; url is the archive) ---
+  pmtilesKind?: 'raster' | 'vector';
+  sourceLayers?: string[];
+  minzoom?: number;
+  // vector colour by an attribute: text classes, or numeric classes split at `breaks`
+  classColors?: { property: string; classes: [string, string][]; breaks?: number[]; other?: string };
+  soilField?: string;  // soils: the attribute it is coloured by
+  maxClasses?: number;
 }
 
 export interface AppState {
@@ -156,6 +202,15 @@ export interface AppState {
   layerMasks: LayerMask[];
   customMaskPath: string | null;
   overlays: Overlay[];
+  overlayMessage: string | null;
+  drawingEnabled: boolean;
+  fitSettings: FitSettings;
+  identifyEnabled: boolean;
+  identify: IdentifyResult | null;
+  gnssChartStation: GnssStation | null;
+  units: UnitSystem;
+  /** The date on the map: off, the badge with its controls, or the date alone (clicking the panel's date cycles). */
+  dateBadge: 'off' | 'full' | 'date';
   bufferEnabled: boolean;
   bufferRadius: number;
   bufferSamples: number;
@@ -201,7 +256,7 @@ export type AppAction =
   | { type: 'REMOVE_TIME_SERIES_POINT'; payload: string }
   | { type: 'UPDATE_TIME_SERIES_POINT'; payload: { id: string; updates: Partial<TimeSeriesPoint> } }
   | { type: 'SET_POINT_DATA'; payload: { pointId: string; dataset: string; data: number[] } }
-  | { type: 'SET_POINT_TREND_DATA'; payload: { pointId: string; dataset: string; trend: { slope: number; intercept: number; rSquared: number; mmPerYear: number; stdMmPerYear?: number } } }
+  | { type: 'SET_POINT_TREND_DATA'; payload: { pointId: string; dataset: string; trend: { slope: number; intercept: number; rSquared: number; mmPerYear: number; stdMmPerYear?: number; rateUnit?: string } } }
   | { type: 'LOAD_PROJECT'; payload: Partial<AppState> }
   | { type: 'SET_REF_MARKER_POSITION'; payload: [number, number] }
   | { type: 'SET_CURRENT_DATASET'; payload: string }
@@ -224,7 +279,16 @@ export type AppAction =
   | { type: 'ADD_OVERLAY'; payload: Overlay }
   | { type: 'REMOVE_OVERLAY'; payload: string }
   | { type: 'UPDATE_OVERLAY'; payload: { id: string; updates: Partial<Overlay> } }
-  | { type: 'REORDER_OVERLAY'; payload: { id: string; direction: 'up' | 'down' } }
+  | { type: 'SET_OVERLAYS'; payload: Overlay[] }
+  | { type: 'SET_OVERLAY_MESSAGE'; payload: string | null }
+  | { type: 'SET_DRAWING_ENABLED'; payload: boolean }
+  | { type: 'SET_FIT_SETTINGS'; payload: Partial<FitSettings> }
+  | { type: 'TOGGLE_IDENTIFY' }
+  | { type: 'SET_UNITS'; payload: UnitSystem }
+  | { type: 'TOGGLE_DATE_BADGE' }
+  | { type: 'SET_IDENTIFY'; payload: IdentifyResult | null }
+  | { type: 'OPEN_GNSS_CHART'; payload: GnssStation | null }
+  | { type: 'SET_DRAWINGS'; payload: OverlayFeatures }
   | { type: 'ADD_LAYER_MASK'; payload: LayerMask }
   | { type: 'REMOVE_LAYER_MASK'; payload: string }
   | { type: 'UPDATE_LAYER_MASK'; payload: { id: string; updates: Partial<LayerMask> } }

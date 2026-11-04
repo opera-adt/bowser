@@ -8,7 +8,7 @@ import { useAppContext } from '../context/AppContext';
 import { baseMaps } from '../basemap';
 import { useProfileContext } from './ProfileTool';
 
-export type MapFeature = 'measure' | 'profile' | 'split' | 'graticule' | 'annotation';
+export type MapFeature = 'measure' | 'profile' | 'split' | 'graticule' | 'annotation' | 'identify';
 const NONE: ReadonlySet<MapFeature> = new Set();
 
 /** Props that disable a button for a feature this map doesn't support (nothing otherwise). */
@@ -45,6 +45,19 @@ export function MapLeftToolbar({ measureActive, onToggleMeasure, onMeasureOff, u
       <i className="fa-solid fa-chart-area"></i>
     </button>
     <button
+      className={`map-tool-btn${state.identifyEnabled ? ' active' : ''}`}
+      title={state.identifyEnabled
+        ? 'Identify ON: click a GNSS station for its time series, or anywhere for geology, soil, land cover and layer attributes'
+        : 'Identify: what is under a click (GNSS stations, geology, soil, land cover, layers)'}
+        {...gate(unsupported, 'identify')}
+      onClick={() => {
+        dispatch({ type: 'TOGGLE_IDENTIFY' });
+        dispatch({ type: 'SET_OVERLAY_MESSAGE', payload: state.identifyEnabled
+          ? 'Identify off: map clicks add time-series points again.'
+          : 'Identify on: map clicks show what is there, not time-series points (click the arrow again to turn off).' });
+      }}
+    ><i className="fa-solid fa-arrow-pointer"></i></button>
+    <button
       className={`map-tool-btn${state.refEnabled ? ' active' : ''}`}
       onClick={() => dispatch({ type: 'TOGGLE_REF_ENABLED' })}
       title="Toggle spatial re-referencing"
@@ -52,7 +65,9 @@ export function MapLeftToolbar({ measureActive, onToggleMeasure, onMeasureOff, u
     <button
       className={`map-tool-btn${!state.pointPickingEnabled ? ' active' : ''}`}
       onClick={() => dispatch({ type: 'TOGGLE_POINT_PICKING' })}
-      title={state.pointPickingEnabled ? 'Point picking ON — click to disable' : 'Point picking OFF — click to enable'}
+      title={state.drawingEnabled || state.identifyEnabled
+        ? `Point picking is paused while ${state.drawingEnabled ? 'the drawing tools are' : 'identify is'} on`
+        : state.pointPickingEnabled ? 'Point picking ON — click to disable' : 'Point picking OFF — click to enable'}
       style={!state.pointPickingEnabled ? { opacity: 0.5 } : undefined}
     ><i className="fa-solid fa-location-dot"></i></button>
   </div>

@@ -8,7 +8,11 @@ import { useAppContext } from '../context/AppContext';
 import { baseMaps } from '../basemap';
 import { basemapSource, basemapStack } from '../map/basemapStyle';
 import { TERRAIN_SOURCE, TERRAIN_SOURCE_ID, terrainSpec } from '../map/terrain';
-import { overlayOnMap, overlaySource } from '../map/overlays';
+import { DRAWINGS_ID, overlayOnMap, overlaySource, vectorLayerSpecs } from '../map/overlays';
+import { contextLayerSpec, OFM_ATTRIBUTION, OFM_TILEJSON } from '../map/contextLayers';
+import { pmtilesVectorSpecs } from '../map/pmtiles';
+import { ensureMarker } from '../map/markers';
+import type { Overlay } from '../types';
 import { bufferFeatures } from '../map/buffers';
 
 /**
@@ -18,6 +22,12 @@ import { bufferFeatures } from '../map/buffers';
 export const OVERLAY_PREFIX = /^(profile|measure|buffer)-/;
 export function firstOverlayId(map: maplibregl.Map): string | undefined {
   return map.getStyle().layers.find((l: { id: string }) => OVERLAY_PREFIX.test(l.id))?.id;
+}
+
+/** Data layers go below tool overlays and below user overlays drawn above the data. */
+function firstAboveDataId(map: maplibregl.Map): string | undefined {
+  return map.getStyle().layers.find((l: { id: string; metadata?: unknown }) =>
+    OVERLAY_PREFIX.test(l.id) || (l.metadata as { aboveData?: boolean } | undefined)?.aboveData)?.id;
 }
 
 const BASEMAP_IDS = ['basemap-bottom', 'basemap-top'] as const;
@@ -72,7 +82,7 @@ export function useDataRaster(
     map.addSource(id, { type: 'raster', tiles: [tileUrl], tileSize: 256, maxzoom: 22, ...(b ? { bounds: b } : {}) });
     // Data stays below the tool overlays (profile line etc.).
     map.addLayer({ id, type: 'raster', source: id, paint: { 'raster-opacity': opacityRef.current,
-      'raster-fade-duration': 0 } }, firstOverlayId(map));
+      'raster-fade-duration': 0 } }, firstAboveDataId(map));
     layerRef.current = id;
     if (!previous) return;
     // Drop *every* older data layer, not just the last one: a change made before the
@@ -112,40 +122,99 @@ function absolute(url: string): string {
   return url.startsWith('/') ? `${window.location.origin}${url}` : url;
 }
 
+/** The MapLibre layers of an overlay, to stack together. */
+function overlayLayerIds(o: Overlay): string[] {
+  if (o.type === 'vector') return vectorLayerSpecs(o).map(l => l.id);
+  if (o.pmtilesKind === 'vector') return pmtilesVectorSpecs(o).map(l => l.id);
+  return [`overlay-${o.id}`];
+}
+
+/** What needs the source and layers rebuilt; paint changes are applied in place. */
+function overlayKey(o: Overlay): string {
+  const src = o.type === 'vector' || o.type === 'context' ? '' : o.type === 'pmtiles' ? o.url ?? '' : JSON.stringify(overlaySource(o));
+  // A marker other than a circle is a symbol layer, so changing it rebuilds the layers.
+  return `${src}:${!!o.aboveData}:${o.marker && o.marker !== 'circle' ? 'symbol' : 'circle'}`;
+}
+
 /**
- * User raster overlays between the basemap and the data, in list order (first = bottom).
- * `which` is the main map or the split-screen right map (see overlayOnMap).
+ * User overlays in list order (first = bottom), each below or above the data, always under
+ * the tools. `which` is the main map or the split-screen right map (see overlayOnMap).
  */
 export function useOverlayLayers(map: maplibregl.Map | null, ready: boolean, which: 'main' | 'right') {
   const { state } = useAppContext();
-  const keysRef = useRef(new Map<string, string>());
+  const builtRef = useRef(new Map<string, { key: string; layers: string[] }>());
   useEffect(() => {
     if (!ready || !map) return;
-    const want = state.overlays.filter(o => overlayOnMap(o, state.splitScreen, which)).map(o => {
-      const src = overlaySource(o);
-      return { id: `overlay-${o.id}`, src: { ...src, tiles: src.tiles.map(absolute) }, opacity: o.opacity };
-    });
-    const keys = keysRef.current;
-    // Drop overlays that went away or whose tiles changed.
-    for (const [id, key] of [...keys]) {
-      const w = want.find(x => x.id === id);
-      if (w && JSON.stringify(w.src) === key) continue;
-      if (map.getLayer(id)) map.removeLayer(id);
-      if (map.getSource(id)) map.removeSource(id);
-      keys.delete(id);
+    // While drawing, Geoman draws the shapes itself.
+    const want = state.overlays.filter(o => overlayOnMap(o, state.splitScreen, which)
+      && !(state.drawingEnabled && o.id === DRAWINGS_ID));
+    const built = builtRef.current;
+    // Drop overlays that went away or whose source or side changed.
+    for (const [source, entry] of [...built]) {
+      const o = want.find(x => `overlay-${x.id}` === source);
+      if (o && overlayKey(o) === entry.key) continue;
+      entry.layers.forEach(id => { if (map.getLayer(id)) map.removeLayer(id); });
+      if (map.getSource(source)) map.removeSource(source);
+      built.delete(source);
     }
-    // Add the new ones, then stack them in list order just under the data / tools.
-    const anchor = () => map.getStyle().layers.find((l: { id: string }) => l.id.startsWith('data-') || OVERLAY_PREFIX.test(l.id))?.id;
-    for (const w of want) {
-      if (!keys.has(w.id)) {
-        map.addSource(w.id, { type: 'raster', tileSize: 256, ...w.src });
-        map.addLayer({ id: w.id, type: 'raster', source: w.id, paint: { 'raster-opacity': w.opacity } }, anchor());
-        keys.set(w.id, JSON.stringify(w.src));
+    const belowData = () => map.getStyle().layers.find((l: { id: string }) => l.id.startsWith('data-'))?.id ?? firstAboveDataId(map);
+    // Add the new ones, then stack them in list order just under their anchor.
+    for (const o of want) {
+      const source = `overlay-${o.id}`;
+      const metadata = { aboveData: !!o.aboveData };
+      const anchor = () => (o.aboveData ? firstOverlayId(map) : belowData());
+      if (!built.has(source)) {
+        if (o.type === 'vector') {
+          map.addSource(source, { type: 'geojson', data: (o.data ?? { type: 'FeatureCollection', features: [] }) as never });
+          if (o.marker && o.marker !== 'circle') ensureMarker(map, o.marker);
+          for (const l of vectorLayerSpecs(o)) {
+            map.addLayer({ id: l.id, type: l.type, source, filter: l.filter, paint: l.paint, ...(l.layout ? { layout: l.layout } : {}), metadata } as never, anchor());
+          }
+        } else if (o.type === 'pmtiles') {
+          const url = `pmtiles://${o.url}`;
+          if (o.pmtilesKind === 'vector') {
+            map.addSource(source, { type: 'vector', url, ...(o.attribution ? { attribution: o.attribution } : {}) });
+            if (o.marker && o.marker !== 'circle') ensureMarker(map, o.marker);
+            for (const l of pmtilesVectorSpecs(o)) {
+              map.addLayer({ id: l.id, type: l.type, source, 'source-layer': l.sourceLayer, filter: l.filter, paint: l.paint,
+                ...(l.layout ? { layout: l.layout } : {}), metadata } as never, anchor());
+            }
+          } else {
+            map.addSource(source, { type: 'raster', url, tileSize: 256, ...(o.attribution ? { attribution: o.attribution } : {}) });
+            map.addLayer({ id: source, type: 'raster', source, paint: { 'raster-opacity': o.opacity }, metadata }, anchor());
+          }
+        } else if (o.type === 'context') {
+          const l = contextLayerSpec(o);
+          map.addSource(source, { type: 'vector', url: OFM_TILEJSON, attribution: OFM_ATTRIBUTION });
+          map.addLayer({ id: l.id, type: l.type, source, 'source-layer': l.sourceLayer, paint: l.paint, metadata,
+            ...(l.filter ? { filter: l.filter } : {}), ...(l.minzoom ? { minzoom: l.minzoom } : {}) } as never, anchor());
+        } else {
+          const src = overlaySource(o);
+          // With bounds, MapLibre doesn't ask for tiles outside the raster (404s).
+          map.addSource(source, { type: 'raster', tileSize: 256, ...src, tiles: src.tiles.map(absolute),
+            ...(o.bounds ? { bounds: o.bounds } : {}), ...(o.attribution ? { attribution: o.attribution } : {}) });
+          map.addLayer({ id: source, type: 'raster', source, paint: { 'raster-opacity': o.opacity }, metadata }, anchor());
+        }
+        built.set(source, { key: overlayKey(o), layers: overlayLayerIds(o) });
       }
-      map.setPaintProperty(w.id, 'raster-opacity', w.opacity);
-      map.moveLayer(w.id, anchor());
+      if (o.type === 'vector') {
+        for (const l of vectorLayerSpecs(o)) {
+          for (const [prop, value] of Object.entries(l.paint)) map.setPaintProperty(l.id, prop as never, value as never);
+          for (const [prop, value] of Object.entries(l.layout ?? {})) map.setLayoutProperty(l.id, prop as never, value as never);
+        }
+      } else if (o.pmtilesKind === 'vector') {
+        for (const l of pmtilesVectorSpecs(o)) {
+          for (const [prop, value] of Object.entries(l.paint)) map.setPaintProperty(l.id, prop as never, value as never);
+          for (const [prop, value] of Object.entries(l.layout ?? {})) map.setLayoutProperty(l.id, prop as never, value as never);
+        }
+      } else if (o.type === 'context') {
+        for (const [prop, value] of Object.entries(contextLayerSpec(o).paint)) map.setPaintProperty(source, prop as never, value as never);
+      } else {
+        map.setPaintProperty(source, 'raster-opacity', o.opacity);
+      }
+      overlayLayerIds(o).forEach(id => map.moveLayer(id, anchor()));
     }
-  }, [ready, map, which, state.overlays, state.splitScreen]);
+  }, [ready, map, which, state.overlays, state.splitScreen, state.drawingEnabled]);
 }
 
 /** Buffer circles around time-series points and the reference point (dashed, faint fill). */

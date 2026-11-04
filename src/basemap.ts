@@ -10,6 +10,13 @@ const baseMaps: { [key: string]: BaseMapItem } = {
         url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
         attribution: 'Tiles © Esri — Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
     },
+    // Google's public tile endpoint (imagery + roads and labels). Google's terms allow
+    // map tiles only through its Map Tiles API, so this suits personal and internal use.
+    googleHybrid: {
+        label: 'Google Hybrid',
+        url: 'https://mt1.google.com/vt/lyrs=y&z={z}&x={x}&y={y}',
+        attribution: 'Imagery and map data © Google',
+    },
     esriDark: {
         label: 'Dark',
         url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',

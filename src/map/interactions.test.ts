@@ -183,3 +183,15 @@ describe('view bounds', () => {
     });
   });
 });
+
+describe('map click while drawing', () => {
+  it('leaves the click to the identify tool', () => {
+    expect(mapClickActions({ ...picking, identifyEnabled: true }, [35, -90], { toolActive: false, profileActive: false }))
+      .toEqual({ kind: 'ignore' });
+  });
+
+  it('leaves the click to the drawing tools', () => {
+    expect(mapClickActions({ ...picking, drawingEnabled: true }, [35, -90], { toolActive: false, profileActive: false }))
+      .toEqual({ kind: 'ignore' });
+  });
+});
