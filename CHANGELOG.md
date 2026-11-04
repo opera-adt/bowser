@@ -6,6 +6,8 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-04
+
 ### Added
 
 - `bowser desktop` runs Bowser as a desktop app (pywebview window, start screen
@@ -37,11 +39,6 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `bowser tifs-to-geozarr --reference-point X,Y` stores one (#75).
 - Project save and load: points, reference, annotations, masks and the
   displayed layer's appearance (#76, #78).
-- Producers can now declare whether a variable takes a moving spatial reference
-  point with a `bowser_uses_spatial_ref` boolean attr on the variable. It
-  overrides every heuristic, and is the only way to express exceptions such as
-  DISP-S1 `short_wavelength_displacement`. `bowser tifs-to-geozarr` stamps it
-  from the `uses_spatial_ref` key in `bowser_rasters.json`.
 
 ### Changed
 
@@ -53,6 +50,34 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Response compression is off by default; `BOWSER_COMPRESSION=1` turns it back
   on (#74).
 - GeoTIFF exports are named by date, `<var>_2020-06-15.tif` (#77).
+
+### Fixed
+
+- In catalog mode, every multi-dimensional endpoint routes by `?dataset=`, and
+  an unknown id returns 404 instead of an error (#80).
+- Pixel inspect, profile and mask-range requests send `?dataset=` in catalog
+  mode (#82).
+- The server starts without a built frontend, serving the API only (#74).
+- The "Loading…" spinner no longer sticks after tile errors (#74).
+- `calculate_trend` no longer divides by zero, bad project files no longer blank
+  the app, and uploads are streamed with a size cap
+  (`BOWSER_MAX_UPLOAD_MB`, default 500) and expire after
+  `BOWSER_UPLOAD_RETENTION_H` (default 24 h) (#77).
+- `pixi.lock` matches `pyproject.toml` again, so CI and the Docker build pass
+  (#79).
+
+## [0.5.1] - 2026-08-06
+
+### Added
+
+- Producers can now declare whether a variable takes a moving spatial reference
+  point with a `bowser_uses_spatial_ref` boolean attr on the variable. It
+  overrides every heuristic, and is the only way to express exceptions such as
+  DISP-S1 `short_wavelength_displacement`. `bowser tifs-to-geozarr` stamps it
+  from the `uses_spatial_ref` key in `bowser_rasters.json`.
+
+### Changed
+
 - Spatial-reference eligibility is inferred from CF `units` instead of matching
   substrings of the variable name. Length and angle quantities (`meters`,
   `radians`, `meters / year`, …) are relative measurements and get a reference
@@ -71,18 +96,6 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- In catalog mode, every multi-dimensional endpoint routes by `?dataset=`, and
-  an unknown id returns 404 instead of an error (#80).
-- Pixel inspect, profile and mask-range requests send `?dataset=` in catalog
-  mode (#82).
-- The server starts without a built frontend, serving the API only (#74).
-- The "Loading…" spinner no longer sticks after tile errors (#74).
-- `calculate_trend` no longer divides by zero, bad project files no longer blank
-  the app, and uploads are streamed with a size cap
-  (`BOWSER_MAX_UPLOAD_MB`, default 500) and expire after
-  `BOWSER_UPLOAD_RETENTION_H` (default 24 h) (#77).
-- `pixi.lock` matches `pyproject.toml` again, so CI and the Docker build pass
-  (#79).
 - `bowser tifs-to-geozarr` no longer imports `osgeo.gdal`. 0.5.0 made the GDAL
   Python bindings an undeclared hard dependency of the writer; rasterio maps
   every GDAL dtype the converter handles, including `float16`, as of 1.5.0.
@@ -211,4 +224,7 @@ the diff — see [`v0.4.0...v0.5.0`](https://github.com/opera-adt/bowser/compare
   dependency tree pulls them in, so a pip-only install of the writer extra will
   fail at run time.
 
+[Unreleased]: https://github.com/opera-adt/bowser/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/opera-adt/bowser/compare/v0.5.1...v0.6.0
+[0.5.1]: https://github.com/opera-adt/bowser/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/opera-adt/bowser/compare/v0.4.0...v0.5.0
