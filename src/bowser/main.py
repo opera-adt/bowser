@@ -1880,6 +1880,54 @@ async def upload_raster(file: UploadFile):
     )
 
 
+@app.get("/gnss/stations")
+def gnss_stations(
+    west: float = Query(...),
+    south: float = Query(...),
+    east: float = Query(...),
+    north: float = Query(...),
+):
+    """List UNR GNSS stations in a lon/lat box, nearest the centre first.
+
+    Velocities are MIDAS, NA fixed, in mm/yr.
+    """
+    from . import gnss  # noqa: PLC0415
+
+    try:
+        rows = gnss.midas_rows()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502, detail=f"Could not read UNR's station list: {exc}"
+        ) from exc
+    return {
+        "source": gnss.MIDAS_URL,
+        "stations": gnss.stations_in(rows, west, south, east, north),
+    }
+
+
+@app.get("/gnss/series/{station}")
+def gnss_series(station: str):
+    """Return a UNR station's daily east, north and up (mm from day one), NA fixed."""
+    import urllib.error  # noqa: PLC0415
+
+    from . import gnss  # noqa: PLC0415
+
+    try:
+        return gnss.station_series(station)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except urllib.error.HTTPError as exc:
+        status = 404 if exc.code == 404 else 502
+        raise HTTPException(
+            status_code=status,
+            detail=f"UNR has no NA-fixed series for {station.upper()}",
+        ) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502, detail=f"Could not read UNR's series: {exc}"
+        ) from exc
+
+
 @app.get(
     "/wms_capabilities",
     response_class=JSONResponse,
