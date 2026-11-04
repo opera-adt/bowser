@@ -209,6 +209,29 @@ def _setup_gdal_env(ignore_sidecar_files: bool = False):
 
 
 @cli_app.command()
+@click.option(
+    "--browser", is_flag=True, help="Use the default browser instead of an app window."
+)
+@click.option(
+    "--lite/--full",
+    "lite",
+    default=None,
+    help=(
+        "Server to run: bowser-lite (GeoZarr cubes, no GDAL; the default) or the "
+        "full server (adds GeoTIFF uploads, exports, COG stacks). Default: "
+        "$BOWSER_SERVER, else lite."
+    ),
+)
+def desktop(browser, lite):
+    """Run Bowser as a desktop app: a window with a start screen, no setup needed."""
+    from .desktop import run as run_desktop  # noqa: PLC0415
+
+    run_desktop(
+        browser=browser, server=None if lite is None else ("lite" if lite else "full")
+    )
+
+
+@cli_app.command()
 @click.option("-s", "--stack-file", help="GeoZarr cube (.zarr) to serve.")
 @click.option(
     "--catalog-file",
