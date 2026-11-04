@@ -2,6 +2,12 @@ import { useEffect, useState } from 'react';
 import { AppProvider, useAppContext } from '../context/AppContext';
 import { useApi } from '../hooks/useApi';
 import MapContainer from './MapContainer';
+import MapLibreMap from './MapLibreMap';
+
+import { browserHasWebGL2, chooseMap } from '../map/mapChoice';
+
+/** MapLibre by default; Leaflet with ``?map=leaflet`` or when WebGL2 isn't available. */
+const USE_MAPLIBRE = chooseMap(window.location.search, browserHasWebGL2) === 'maplibre';
 import ControlPanel from './ControlPanel';
 import TimeSeriesChart from './TimeSeriesChart';
 import PointManagerPanel from './PointManagerPanel';
@@ -63,7 +69,9 @@ function AppContent() {
         >
           <i className={`fa-solid fa-chevron-${sidebarHidden ? 'right' : 'left'}`} />
         </button>
-        <MapContainer toolbarsVisible={toolbarsVisible} onToggleToolbars={() => setToolbarsVisible(v => !v)} />
+        {USE_MAPLIBRE
+          ? <MapLibreMap toolbarsVisible={toolbarsVisible} onToggleToolbars={() => setToolbarsVisible(v => !v)} />
+          : <MapContainer toolbarsVisible={toolbarsVisible} onToggleToolbars={() => setToolbarsVisible(v => !v)} />}
         {toolbarsVisible && <PointManagerPanel />}
         <RefPointChart />
         <ColormapBar />

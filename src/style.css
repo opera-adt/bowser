@@ -1057,3 +1057,9 @@ img.huechange { filter: hue-rotate(120deg); }
   outline: none;
   border-color: var(--sb-accent);
 }
+
+/* MapLibre split screen: keep the main map's markers and popups above the right-hand map. */
+.map-container.split-active .maplibregl-marker,
+.map-container.split-active .maplibregl-popup {
+  z-index: 2;
+}

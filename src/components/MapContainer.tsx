@@ -4,13 +4,21 @@ import { MapContainer as LeafletMapContainer, TileLayer, WMSTileLayer, Marker, u
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useApi } from '../hooks/useApi';
-import { buildTileRequest } from '../utils/tileParams';
+import { useRasterTileUrl } from '../map/useRasterTileUrl';
+import { MapLeftToolbar, MapTopRightToolbar } from './MapToolbars';
+import {
+  mapClickActions, markerPopupText, pixelInspectRequest, pixelInspectText,
+  pointClickActions, pointDoubleClickActions, pointDragEndActions, refDragEnd, viewBoundsAction,
+} from '../map/interactions';
 import { useAppContext } from '../context/AppContext';
 import { baseMaps } from '../basemap';
 import { MousePositionControl } from '../mouse';
 import MeasureTool from './MeasureTool';
 import { ProfileToolMap, useProfileContext } from './ProfileTool';
 import Graticule from './Graticule';
+import SplitDivider from './SplitDivider';
+import { geotiffTileUrl, overlayVizKey } from '../map/overlays';
+import { annotationCreateForm, annotationEditForm, annotationLabelHtml } from '../map/annotationForms';
 
 // Fix for default markers in React Leaflet
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -33,83 +41,20 @@ function MapEvents({ toolActive }: { toolActive: boolean }) {
 
   useMapEvents({
     click: (e) => {
-      if (toolActive || profileActive) return;
+      const decision = mapClickActions(state, [e.latlng.lat, e.latlng.lng], { toolActive, profileActive });
+      if (decision.kind === 'ignore') return;
 
       // Annotation mode: open an inline popup to enter text
-      if (state.annotationMode) {
+      if (decision.kind === 'annotate') {
         const pos = e.latlng;
-        const wrap = document.createElement('div');
-        wrap.style.cssText = 'display:flex;flex-direction:column;gap:6px;padding:2px;min-width:180px;';
-
-        const row1 = document.createElement('div');
-        row1.style.cssText = 'display:flex;gap:6px;align-items:center;';
-        const input = document.createElement('input');
-        input.type = 'text';
-        input.placeholder = 'Annotation text…';
-        input.style.cssText = 'flex:1;padding:3px 6px;border:1px solid #888;border-radius:4px;font-size:12px;min-width:0;';
-        const colorPick = document.createElement('input');
-        colorPick.type = 'color';
-        colorPick.value = '#ffffff';
-        colorPick.style.cssText = 'width:26px;height:22px;padding:0;border:none;cursor:pointer;background:none;flex-shrink:0;';
-        const sizeLabel = document.createElement('span');
-        sizeLabel.textContent = 'px';
-        sizeLabel.style.cssText = 'font-size:11px;color:#aaa;flex-shrink:0;';
-        const sizeInput = document.createElement('input');
-        sizeInput.type = 'number';
-        sizeInput.value = '13';
-        sizeInput.min = '8';
-        sizeInput.max = '72';
-        sizeInput.style.cssText = 'width:40px;padding:2px 4px;border:1px solid #888;border-radius:4px;font-size:12px;flex-shrink:0;';
-        row1.appendChild(input);
-        row1.appendChild(colorPick);
-        row1.appendChild(sizeInput);
-        row1.appendChild(sizeLabel);
-
-        const row2 = document.createElement('div');
-        row2.style.cssText = 'display:flex;gap:4px;justify-content:flex-end;';
-        const addBtn = document.createElement('button');
-        addBtn.textContent = 'Add';
-        addBtn.style.cssText = 'padding:2px 10px;cursor:pointer;font-size:12px;border:none;background:#5bc0be;color:#072a2d;border-radius:4px;font-weight:600;';
-        const cancelBtn = document.createElement('button');
-        cancelBtn.textContent = 'Cancel';
-        cancelBtn.style.cssText = 'padding:2px 10px;cursor:pointer;font-size:12px;border:1px solid #888;background:none;color:#ccc;border-radius:4px;';
-        row2.appendChild(cancelBtn);
-        row2.appendChild(addBtn);
-        wrap.appendChild(row1);
-        wrap.appendChild(row2);
-
-        const popup = L.popup({ closeButton: false, closeOnClick: false })
-          .setLatLng(pos).setContent(wrap).openOn(map);
-        setTimeout(() => input.focus(), 50);
-
-        const commit = () => {
-          const text = input.value.trim();
-          if (text) {
-            dispatch({
-              type: 'ADD_ANNOTATION',
-              payload: {
-                id: `ann_${Date.now()}`,
-                position: [pos.lat, pos.lng],
-                text,
-                color: colorPick.value,
-                fontSize: Math.max(8, Math.min(72, parseInt(sizeInput.value) || 13)),
-              },
-            });
-          }
-          map.closePopup(popup);
-        };
-        addBtn.onclick = commit;
-        cancelBtn.onclick = () => map.closePopup(popup);
-        input.onkeydown = ev => { if (ev.key === 'Enter') commit(); if (ev.key === 'Escape') map.closePopup(popup); };
+        let popup: L.Popup | null = null;
+        const form = annotationCreateForm([pos.lat, pos.lng], { dispatch, close: () => { if (popup) map.closePopup(popup); } });
+        popup = L.popup({ closeButton: false, closeOnClick: false })
+          .setLatLng(pos).setContent(form.el).openOn(map);
+        setTimeout(() => form.focus(), 50);
         return;
       }
-
-      if (!state.pointPickingEnabled) return;
-      dispatch({
-        type: 'ADD_TIME_SERIES_POINT',
-        payload: { position: [e.latlng.lat, e.latlng.lng], name: `Point ${Date.now().toString().slice(-4)}` },
-      });
-      if (!state.showChart) dispatch({ type: 'TOGGLE_CHART' });
+      decision.actions.forEach(dispatch);
     },
   });
 
@@ -124,116 +69,18 @@ function AnnotationLayer() {
   useEffect(() => {
     const markers: L.Marker[] = [];
     state.annotations.forEach(ann => {
-      const icon = L.divIcon({
-        className: '',
-        html: `<div style="
-          color:${ann.color};font-size:${ann.fontSize}px;font-weight:600;white-space:nowrap;
-          text-shadow:0 0 3px rgba(0,0,0,0.9),0 0 3px rgba(0,0,0,0.9);
-          cursor:move;user-select:none;padding:2px 5px;
-          background:rgba(0,0,0,0.35);border-radius:3px;
-          border:1px solid rgba(255,255,255,0.15);
-        ">${ann.text}</div>`,
-        iconAnchor: [0, 0],
-      });
+      const icon = L.divIcon({ className: '', html: annotationLabelHtml(ann), iconAnchor: [0, 0] });
       const m = L.marker(ann.position, { icon, draggable: true })
         .addTo(map);
       m.on('click', (ev) => {
         L.DomEvent.stop(ev);
 
-        const wrap = document.createElement('div');
-        wrap.style.cssText = 'display:flex;flex-direction:column;gap:7px;min-width:190px;font-size:12px;';
-
-        // ── Label input ──
-        const textRow = document.createElement('div');
-        textRow.style.cssText = 'display:flex;flex-direction:column;gap:2px;';
-        const textLbl = document.createElement('label');
-        textLbl.textContent = 'Label';
-        textLbl.style.cssText = 'font-size:10px;color:#aaa;';
-        const textInput = document.createElement('input');
-        textInput.type = 'text';
-        textInput.value = ann.text;
-        textInput.style.cssText = 'padding:3px 6px;border:1px solid #666;border-radius:4px;font-size:12px;width:100%;box-sizing:border-box;background:#2a2d35;color:#e8e6e3;';
-        textRow.appendChild(textLbl);
-        textRow.appendChild(textInput);
-
-        // ── Color + font-size row ──
-        const row2 = document.createElement('div');
-        row2.style.cssText = 'display:flex;gap:8px;align-items:flex-end;';
-
-        const colorCol = document.createElement('div');
-        colorCol.style.cssText = 'display:flex;flex-direction:column;gap:2px;';
-        const colorLbl = document.createElement('label');
-        colorLbl.textContent = 'Color';
-        colorLbl.style.cssText = 'font-size:10px;color:#aaa;';
-        const colorInput = document.createElement('input');
-        colorInput.type = 'color';
-        colorInput.value = ann.color;
-        colorInput.style.cssText = 'width:36px;height:26px;padding:0;border:none;cursor:pointer;background:none;';
-        colorCol.appendChild(colorLbl);
-        colorCol.appendChild(colorInput);
-
-        const sizeCol = document.createElement('div');
-        sizeCol.style.cssText = 'display:flex;flex-direction:column;gap:2px;flex:1;';
-        const sizeLbl = document.createElement('label');
-        sizeLbl.textContent = 'Font size (px)';
-        sizeLbl.style.cssText = 'font-size:10px;color:#aaa;';
-        const sizeInput = document.createElement('input');
-        sizeInput.type = 'number';
-        sizeInput.value = String(ann.fontSize);
-        sizeInput.min = '8';
-        sizeInput.max = '72';
-        sizeInput.style.cssText = 'padding:3px 6px;border:1px solid #666;border-radius:4px;font-size:12px;width:100%;box-sizing:border-box;background:#2a2d35;color:#e8e6e3;';
-        sizeCol.appendChild(sizeLbl);
-        sizeCol.appendChild(sizeInput);
-
-        row2.appendChild(colorCol);
-        row2.appendChild(sizeCol);
-
-        // ── Action buttons ──
-        const btnRow = document.createElement('div');
-        btnRow.style.cssText = 'display:flex;gap:6px;';
-
-        const applyBtn = document.createElement('button');
-        applyBtn.innerHTML = '<i class="fa-solid fa-check" style="margin-right:4px"></i>Apply';
-        applyBtn.style.cssText = 'flex:1;padding:4px 0;cursor:pointer;font-size:12px;border:1px solid #5bc0be;background:rgba(91,192,190,0.15);color:#5bc0be;border-radius:4px;font-weight:600;';
-        applyBtn.onclick = () => {
-          dispatch({
-            type: 'UPDATE_ANNOTATION',
-            payload: {
-              id: ann.id,
-              updates: {
-                text: textInput.value.trim() || ann.text,
-                color: colorInput.value,
-                fontSize: Math.max(8, Math.min(72, parseInt(sizeInput.value) || ann.fontSize)),
-              },
-            },
-          });
-          map.closePopup();
-        };
-
-        const delBtn = document.createElement('button');
-        delBtn.innerHTML = '<i class="fa-solid fa-trash"></i>';
-        delBtn.title = 'Delete annotation';
-        delBtn.style.cssText = 'padding:4px 10px;cursor:pointer;font-size:12px;border:1px solid #e07b7b;background:rgba(224,123,123,0.15);color:#e07b7b;border-radius:4px;';
-        delBtn.onclick = () => {
-          dispatch({ type: 'REMOVE_ANNOTATION', payload: ann.id });
-          map.closePopup();
-        };
-
-        btnRow.appendChild(applyBtn);
-        btnRow.appendChild(delBtn);
-
-        wrap.appendChild(textRow);
-        wrap.appendChild(row2);
-        wrap.appendChild(btnRow);
-
+        const form = annotationEditForm(ann, { dispatch, close: () => map.closePopup() });
         L.popup({ closeButton: true, offset: [0, -4], minWidth: 200 })
           .setLatLng(m.getLatLng())
-          .setContent(wrap)
+          .setContent(form.el)
           .openOn(map);
-
-        setTimeout(() => { textInput.focus(); textInput.select(); }, 50);
-        textInput.onkeydown = e => { if (e.key === 'Enter') applyBtn.click(); if (e.key === 'Escape') map.closePopup(); };
+        setTimeout(() => form.focus(), 50);
       });
       markers.push(m);
     });
@@ -265,15 +112,7 @@ function MapViewController() {
   useMapEvents({
     moveend: () => {
       const b = map.getBounds();
-      dispatch({
-        type: 'SET_VIEW_BOUNDS',
-        payload: [
-          parseFloat(b.getSouth().toFixed(6)),
-          parseFloat(b.getWest().toFixed(6)),
-          parseFloat(b.getNorth().toFixed(6)),
-          parseFloat(b.getEast().toFixed(6)),
-        ],
-      });
+      dispatch(viewBoundsAction(b.getSouth(), b.getWest(), b.getNorth(), b.getEast()));
     },
   });
 
@@ -336,67 +175,16 @@ function RasterTileLayer({
   overrideTimeIndex?: number;
 }) {
   const { state } = useAppContext();
-  const [tileUrl, setTileUrl] = useState<string | null>(null);
+  const tileUrl = useRasterTileUrl({
+    dataset: overrideDataset, colormap: overrideColormap, vmin: overrideVmin,
+    vmax: overrideVmax, timeIndex: overrideTimeIndex,
+  });
   const [active, setActive] = useState<{ url: string; id: number } | null>(null);
   const [pending, setPending] = useState<{ url: string; id: number } | null>(null);
   const nextIdRef = useRef(0);
 
-  const effectiveDataset = overrideDataset ?? state.currentDataset;
-  const effectiveColormap = overrideColormap ?? state.colormap;
-  const effectiveVmin = overrideVmin ?? state.vmin;
-  const effectiveVmax = overrideVmax ?? state.vmax;
   const effectiveOpacity = overrideOpacity ?? state.opacity;
-  const effectiveTimeIndex = overrideTimeIndex ?? state.currentTimeIndex;
 
-  useEffect(() => {
-    if (!effectiveDataset || !state.datasetInfo[effectiveDataset] || !state.dataMode) return;
-    if (state.dataMode !== 'md' && state.dataMode !== 'cog') return;
-
-    const controller = new AbortController();
-    const signal = controller.signal;
-
-    const updateTileLayer = async () => {
-      const { endpoint } = buildTileRequest({
-        dataset: effectiveDataset,
-        dsInfo: state.datasetInfo[effectiveDataset],
-        timeIndex: effectiveTimeIndex,
-        vmin: effectiveVmin,
-        vmax: effectiveVmax,
-        colormap: effectiveColormap,
-        state,
-        datasetId: new URLSearchParams(window.location.search).get('dataset'),
-      });
-
-      try {
-        const response = await fetch(endpoint, { signal });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const tileInfo = await response.json();
-        if (!signal.aborted) setTileUrl(tileInfo.tiles[0]);
-      } catch (err) {
-        if ((err as any).name !== 'AbortError') console.error('Error fetching tile info:', err);
-      }
-    };
-
-    const debounceTimer = setTimeout(() => updateTileLayer(), 80);
-    return () => { clearTimeout(debounceTimer); controller.abort(); };
-  }, [
-    effectiveDataset,
-    effectiveTimeIndex,
-    state.datasetInfo,
-    state.dataMode,
-    state.refValues,
-    state.refMarkerPosition,
-    state.refEnabled,
-    effectiveColormap,
-    effectiveVmin,
-    effectiveVmax,
-    state.layerMasks,
-    state.customMaskPath,
-    state.wrapEnabled,
-    state.wrapWavelength,
-    state.wrapPeriod,
-    state.complexMode,
-  ]);
 
   useEffect(() => {
     if (!tileUrl) { setActive(null); setPending(null); return; }
@@ -500,65 +288,25 @@ function MarkerEventHandlers() {
   const map = useMap();
 
   const handleMarkerClick = (position: [number, number], pointName?: string) => {
-    const [lat, lng] = position;
-    const content = pointName
-      ? `${pointName} (lon, lat):\n(${lng.toFixed(6)}, ${lat.toFixed(6)})`
-      : `Reference (lon, lat):\n(${lng.toFixed(6)}, ${lat.toFixed(6)})`;
     L.popup()
-      .setLatLng([lat, lng])
-      .setContent(content)
+      .setLatLng(position)
+      .setContent(markerPopupText(position, pointName))
       .openOn(map);
   };
 
   const handleTsMarkerDragEnd = (pointId: string) => (e: L.DragEndEvent) => {
-    const marker = e.target;
-    const position = marker.getLatLng();
-    dispatch({
-      type: 'UPDATE_TIME_SERIES_POINT',
-      payload: {
-        id: pointId,
-        updates: { position: [position.lat, position.lng] }
-      }
-    });
+    const position = e.target.getLatLng();
+    pointDragEndActions(pointId, [position.lat, position.lng]).forEach(dispatch);
   };
 
   const handleRefMarkerDragEnd = async (e: L.DragEndEvent) => {
-    const marker = e.target;
-    const position = marker.getLatLng();
-    const lat = position.lat;
-    const lng = position.lng;
-    // 1) update position in state
-    dispatch({ type: 'SET_REF_MARKER_POSITION', payload: [lat, lng] });
-
-    // 2) if current dataset uses the "shift" algo, recompute ref values
-    const ds = state.currentDataset;
-    const info = ds ? state.datasetInfo[ds] : null;
-    if (ds && info?.algorithm === 'shift') {
-      try {
-        let values: number[] | undefined;
-        if (state.refBufferEnabled && state.refBufferRadius > 0) {
-          const result = await fetchBufferTimeSeries(lng, lat, ds, state.refBufferRadius, 0);
-          if (result?.median) {
-            const xValues = state.datasetInfo[ds]?.x_values?.map(String) ?? result.labels?.map(String) ?? [];
-            const byX = Object.fromEntries(result.median.map((pt: { x: string; y: number }) => [String(pt.x), pt.y]));
-            values = xValues.map((x: string) => byX[x] ?? NaN);
-          }
-        }
-        if (!values) {
-          values = await fetchPointTimeSeries(lng, lat, ds);
-        }
-        if (values) {
-          dispatch({ type: 'SET_REF_VALUES', payload: { dataset: ds, values } });
-        }
-      } catch (err) {
-        console.error('Error updating reference values after drag:', err);
-      }
-    }
+    const position = e.target.getLatLng();
+    await refDragEnd(state, [position.lat, position.lng], { fetchPointTimeSeries, fetchBufferTimeSeries }, dispatch);
   };
 
   const handleTsMarkerDoubleClick = (pointId: string) => () => {
     // Double-click to remove point
-    dispatch({ type: 'REMOVE_TIME_SERIES_POINT', payload: pointId });
+    pointDoubleClickActions(pointId).forEach(dispatch);
   };
 
   // Create custom colored icons for each point
@@ -591,7 +339,7 @@ function MarkerEventHandlers() {
           eventHandlers={{
             click: () => {
               handleMarkerClick(point.position, point.name);
-              dispatch({ type: 'SET_SELECTED_POINT', payload: point.id });
+              pointClickActions(point.id).forEach(dispatch);
             },
             dragend: handleTsMarkerDragEnd(point.id),
             dblclick: handleTsMarkerDoubleClick(point.id),
@@ -634,14 +382,12 @@ function PixelInspectLayer() {
   useMapEvents({
     mousemove: (e) => {
       if (!state.pixelInspectEnabled || !state.currentDataset) return;
-      const { lat, lng } = e.latlng;
       const { x, y } = e.containerPoint;
 
       // In split screen, choose dataset based on which side the cursor is on.
-      const mapWidth = map.getSize().x;
-      const onRight = state.splitScreen && state.splitDataset &&
-        x > mapWidth * state.splitPosition;
-      const activeDataset = onRight ? state.splitDataset! : state.currentDataset;
+      const req = pixelInspectRequest(state, [e.latlng.lat, e.latlng.lng], x, map.getSize().x);
+      if (!req) return;
+      const { dataset: activeDataset, onRight } = req;
 
       if (timerRef.current) clearTimeout(timerRef.current);
       if (abortRef.current) { abortRef.current.abort(); abortRef.current = null; }
@@ -649,28 +395,14 @@ function PixelInspectLayer() {
         const controller = new AbortController();
         abortRef.current = controller;
         try {
-          const tIdx = onRight ? state.splitTimeIndex : state.currentTimeIndex;
-          const params = new URLSearchParams({
-            dataset_name: activeDataset,
-            lon: lng.toFixed(6),
-            lat: lat.toFixed(6),
-            // Read only the displayed time step — one chunk fetch, not the
-            // whole (~80-shard) time series we then throw 99% of away.
-            time_idx: String(tIdx),
-          });
-          const res = await fetch(`/point?${params}`, { signal: controller.signal });
+          // Reads only the displayed time step — one chunk fetch, not the
+          // whole (~80-shard) time series we then throw 99% of away.
+          const res = await fetch(req.url, { signal: controller.signal });
           if (!res.ok) return;
           const values: number[] = await res.json();
           const val = values[0];  // backend returned only the requested step
-          let text: string;
-          if (val === undefined || val === null || !isFinite(val)) {
-            text = 'nodata';
-          } else {
-            const unit = state.datasetInfo[activeDataset]?.unit ?? '';
-            const valStr = unit ? `${val.toPrecision(4)} ${unit}` : val.toPrecision(4);
-            text = state.splitScreen ? `${onRight ? 'R' : 'L'}: ${valStr}` : valStr;
-          }
-          setTooltip({ x, y, text });
+          const unit = state.datasetInfo[activeDataset]?.unit ?? '';
+          setTooltip({ x, y, text: pixelInspectText(val, unit, state.splitScreen, onRight) });
         } catch (err) {
           if ((err as Error).name !== 'AbortError') setTooltip(null);
         }
@@ -765,226 +497,6 @@ function SplitScreenControl() {
   return null;
 }
 
-// DOM component (not Leaflet): draggable divider + right-panel dataset selector.
-function SplitDivider() {
-  const { state, dispatch } = useAppContext();
-  const dragging = useRef(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const onMove = (e: MouseEvent) => {
-      if (!dragging.current) return;
-      const parent = containerRef.current?.parentElement;
-      if (!parent) return;
-      const rect = parent.getBoundingClientRect();
-      const pos = Math.max(0.1, Math.min(0.9, (e.clientX - rect.left) / rect.width));
-      dispatch({ type: 'SET_SPLIT_POSITION', payload: pos });
-    };
-    const onUp = () => { dragging.current = false; };
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-    return () => {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-    };
-  }, [dispatch]);
-
-  const datasets = Object.keys(state.datasetInfo);
-  const pct = `${(state.splitPosition * 100).toFixed(2)}%`;
-
-  return (
-    <div ref={containerRef} style={{ position: 'absolute', top: 0, bottom: 0, left: pct, width: 0, zIndex: 1500, pointerEvents: 'none' }}>
-      {/* vertical rule */}
-      <div style={{ position: 'absolute', top: 0, bottom: 0, left: -1, width: 2, background: 'rgba(255,255,255,0.85)', boxShadow: '0 0 6px rgba(0,0,0,0.5)', pointerEvents: 'none' }} />
-
-      {/* drag handle */}
-      <div
-        onMouseDown={e => { e.preventDefault(); dragging.current = true; }}
-        style={{
-          position: 'absolute', top: '50%', left: -18, transform: 'translateY(-50%)',
-          width: 36, height: 36, background: 'var(--toolbar-bg)',
-          border: '1px solid var(--sb-border)', borderRadius: '50%',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          cursor: 'ew-resize', boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
-          fontSize: 13, color: 'var(--sb-text)', pointerEvents: 'all',
-        }}
-      >
-        <i className="fa-solid fa-arrows-left-right" />
-      </div>
-
-      {/* right-panel dataset selector */}
-      <div style={{
-        position: 'absolute', top: 10, left: 8,
-        background: 'var(--toolbar-bg)', border: '1px solid var(--sb-border)',
-        borderRadius: 6, padding: '4px 8px', fontSize: '0.78em',
-        color: 'var(--sb-text)', whiteSpace: 'nowrap',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.3)', pointerEvents: 'all',
-      }}>
-        <select
-          value={state.splitDataset || ''}
-          onChange={e => dispatch({ type: 'SET_SPLIT_DATASET', payload: e.target.value || null })}
-          style={{ background: 'transparent', border: 'none', color: 'inherit', fontSize: 'inherit', cursor: 'pointer', outline: 'none', maxWidth: 160 }}
-        >
-          <option value="">— right layer —</option>
-          {datasets.map(ds => (
-            <option key={ds} value={ds}>{state.datasetInfo[ds].label || ds}</option>
-          ))}
-        </select>
-      </div>
-    </div>
-  );
-}
-
-function MapTopRightToolbar({ onToggleToolbars }: { onToggleToolbars: () => void }) {
-  const { state, dispatch } = useAppContext();
-  const [basemapOpen, setBasemapOpen] = useState(false);
-  const info = state.currentDataset ? state.datasetInfo[state.currentDataset] : null;
-
-  const fitDataset = () => {
-    if (!info) return;
-    const b = info.latlon_bounds; // [w, s, e, n]
-    dispatch({ type: 'APPLY_VIEW_BOUNDS', payload: [b[1], b[0], b[3], b[2]] });
-  };
-
-  // Close basemap popover on outside click
-  useEffect(() => {
-    if (!basemapOpen) return;
-    const onDown = (e: MouseEvent) => {
-      const t = e.target as HTMLElement;
-      if (!t.closest('.basemap-popover') && !t.closest('.basemap-trigger')) setBasemapOpen(false);
-    };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, [basemapOpen]);
-
-  return (
-    <div className="map-toolbar-right">
-      <button className="map-tool-btn" onClick={fitDataset} title="Fit view to dataset" disabled={!info}>
-        <i className="fa-solid fa-arrows-to-circle"></i>
-      </button>
-      <div style={{ position: 'relative' }}>
-        <button className="map-tool-btn basemap-trigger" onClick={() => setBasemapOpen(v => !v)} title="Basemap">
-          <i className="fa-solid fa-map"></i>
-        </button>
-        {basemapOpen && (
-          <div className="basemap-popover" style={{ minWidth: 220 }}>
-            {/* ── Layer 1 (bottom) ── */}
-            <div style={{ fontSize: '0.7em', color: 'var(--sb-muted)', marginBottom: 4 }}>
-              Layer 1 {state.basemapSwapped ? '(top)' : '(bottom)'}
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
-              {Object.entries(baseMaps).map(([key, bm]) => (
-                <button
-                  key={key}
-                  className={`basemap-option${state.selectedBasemap === key ? ' active' : ''}`}
-                  onClick={() => dispatch({ type: 'SET_BASEMAP', payload: key })}
-                  style={{ padding: '2px 7px', fontSize: '0.78em' }}
-                >{bm.label ?? key}</button>
-              ))}
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-              <span style={{ fontSize: '0.7em', color: 'var(--sb-muted)', flexShrink: 0 }}>Opacity</span>
-              <input type="range" min={0} max={1} step={0.05}
-                value={state.basemapOpacity}
-                onChange={e => dispatch({ type: 'SET_BASEMAP_OPACITY', payload: parseFloat(e.target.value) })}
-                style={{ flex: 1 }} />
-              <span style={{ fontSize: '0.7em', color: 'var(--sb-muted)', width: 28, textAlign: 'right' }}>
-                {Math.round(state.basemapOpacity * 100)}%
-              </span>
-            </div>
-
-            {/* ── Swap button ── */}
-            <button
-              onClick={() => dispatch({ type: 'TOGGLE_BASEMAP_SWAP' })}
-              title="Swap layer order"
-              style={{
-                width: '100%', marginBottom: 8, padding: '3px 0',
-                background: 'var(--sb-surface2)', border: '1px solid var(--sb-border)',
-                borderRadius: 4, color: 'var(--sb-text)', cursor: 'pointer', fontSize: '0.75em',
-              }}
-            >⇅ Swap order</button>
-
-            {/* ── Layer 2 (top) ── */}
-            <div style={{ fontSize: '0.7em', color: 'var(--sb-muted)', marginBottom: 4 }}>
-              Layer 2 {state.basemapSwapped ? '(bottom)' : '(top)'}
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
-              <button
-                className={`basemap-option${state.secondaryBasemap === null ? ' active' : ''}`}
-                onClick={() => dispatch({ type: 'SET_SECONDARY_BASEMAP', payload: null })}
-                style={{ padding: '2px 7px', fontSize: '0.78em' }}
-              >None</button>
-              {Object.entries(baseMaps).map(([key, bm]) => (
-                <button
-                  key={key}
-                  className={`basemap-option${state.secondaryBasemap === key ? ' active' : ''}`}
-                  onClick={() => dispatch({ type: 'SET_SECONDARY_BASEMAP', payload: key })}
-                  style={{ padding: '2px 7px', fontSize: '0.78em' }}
-                >{bm.label ?? key}</button>
-              ))}
-            </div>
-            {state.secondaryBasemap && (
-              <>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                  <span style={{ fontSize: '0.7em', color: 'var(--sb-muted)', flexShrink: 0 }}>Opacity</span>
-                  <input type="range" min={0} max={1} step={0.05}
-                    value={state.secondaryBasemapOpacity}
-                    onChange={e => dispatch({ type: 'SET_SECONDARY_BASEMAP_OPACITY', payload: parseFloat(e.target.value) })}
-                    style={{ flex: 1 }} />
-                  <span style={{ fontSize: '0.7em', color: 'var(--sb-muted)', width: 28, textAlign: 'right' }}>
-                    {Math.round(state.secondaryBasemapOpacity * 100)}%
-                  </span>
-                </div>
-              </>
-            )}
-          </div>
-        )}
-      </div>
-      <button
-        className={`map-tool-btn${state.splitScreen ? ' active' : ''}`}
-        onClick={() => dispatch({ type: 'TOGGLE_SPLIT_SCREEN' })}
-        title="Split screen — compare two layers"
-      ><i className="fa-solid fa-table-columns"></i></button>
-      <button
-        className={`map-tool-btn${state.showColorbar ? ' active' : ''}`}
-        onClick={() => dispatch({ type: 'TOGGLE_COLORBAR' })}
-        title="Toggle colorbar on map"
-      ><i className="fa-solid fa-palette"></i></button>
-      <button
-        className={`map-tool-btn${state.showLosIndicator ? ' active' : ''}`}
-        onClick={() => dispatch({ type: 'TOGGLE_LOS_INDICATOR' })}
-        title="Toggle LOS geometry indicator"
-      ><i className="fa-solid fa-satellite"></i></button>
-      <button
-        className={`map-tool-btn${state.graticuleMode !== 'off' ? ' active' : ''}`}
-        onClick={() => dispatch({ type: 'CYCLE_GRATICULE' })}
-        title={`Lat/lon grid: ${state.graticuleMode} (click to cycle)`}
-      ><i className="fa-solid fa-border-all"></i></button>
-      <button
-        className={`map-tool-btn${state.annotationMode ? ' active' : ''}`}
-        onClick={() => dispatch({ type: 'TOGGLE_ANNOTATION_MODE' })}
-        title={state.annotationMode ? 'Annotation mode ON — click map to place label (double-click label to delete)' : 'Toggle annotation mode'}
-      ><i className="fa-solid fa-pen-to-square"></i></button>
-      <button
-        className={`map-tool-btn${state.pixelInspectEnabled ? ' active' : ''}`}
-        onClick={() => dispatch({ type: 'TOGGLE_PIXEL_INSPECT' })}
-        title="Inspect pixel value on hover"
-      ><i className="fa-solid fa-eye-dropper"></i></button>
-      <button
-        className="map-tool-btn"
-        onClick={onToggleToolbars}
-        title="Hide toolbar"
-        style={{ marginTop: 4, opacity: 0.6 }}
-      ><i className="fa-solid fa-chevron-right"></i></button>
-    </div>
-  );
-}
-
-function hexToRgba(hex: string): [number, number, number, number] {
-  const h = (hex || '#000000').replace('#', '');
-  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16), 255];
-}
-
 // User raster overlays, drawn between the basemap (zIndex 1-2) and the data
 // layer (zIndex 10). Array order = stacking order; index 0 sits just above the
 // basemap. Each overlay is tiled by the /overlay titiler (reprojected on the fly).
@@ -1005,29 +517,8 @@ function OverlayLayers() {
           : ['splitLeft', 'splitRight'];
 
         // Resolve the tile URL once (geotiff); WMS uses params.
-        let url = '';
-        let vizKey: string = o.type;
-        if (o.type === 'geotiff') {
-          const vmin = o.vmin ?? 0, vmax = o.vmax ?? 1, nbins = o.nbins ?? 5;
-          const binColors = o.binColors ?? [];
-          // Force PNG so areas outside the raster footprint are transparent.
-          // Without an extension titiler may emit JPEG (no alpha) → opaque black
-          // covering the whole map.
-          const base = `/overlay/tiles/WebMercatorQuad/{z}/{x}/{y}.png?url=${encodeURIComponent(o.path ?? '')}`;
-          url = base;
-          if (o.mode === 'cmap' && o.discrete) {
-            const step = (vmax - vmin) / nbins;
-            const intervals = Array.from({ length: nbins }, (_, k) => {
-              const lo = vmin + k * step;
-              const hi = k === nbins - 1 ? vmax + Math.abs(step) * 1e-3 + 1e-9 : vmin + (k + 1) * step;
-              return [[lo, hi], hexToRgba(binColors[k])];
-            });
-            url = `${base}&colormap=${encodeURIComponent(JSON.stringify(intervals))}`;
-          } else if (o.mode === 'cmap') {
-            url = `${base}&colormap_name=${encodeURIComponent(o.cmap ?? 'viridis')}&rescale=${vmin},${vmax}`;
-          }
-          vizKey = o.mode === 'cmap' ? (o.discrete ? `d${nbins}:${binColors.join('')}` : (o.cmap ?? '')) : 'rgb';
-        }
+        const url = o.type === 'geotiff' ? geotiffTileUrl(o) : '';
+        const vizKey = overlayVizKey(o);
 
         return panes.map((pane) => {
           // Pane name (not index) in the key: react-leaflet can't move a layer
@@ -1058,7 +549,7 @@ function OverlayLayers() {
 }
 
 export default function MapContainer({ toolbarsVisible, onToggleToolbars }: { toolbarsVisible: boolean; onToggleToolbars: () => void }) {
-  const { state, dispatch } = useAppContext();
+  const { state } = useAppContext();
 
   // Calculate initial center from first dataset bounds
   const getInitialCenter = (): [number, number] => {
@@ -1106,39 +597,17 @@ export default function MapContainer({ toolbarsVisible, onToggleToolbars }: { to
     if (settleRef.current) window.clearTimeout(settleRef.current);
     settleRef.current = window.setTimeout(() => setTileLoading(false), 400);
   };
-  const { active: profileActive, setActive: setProfileActive } = useProfileContext();
+  const { active: profileActive } = useProfileContext();
 
   return (
     <div className="map-container">
       {toolbarsVisible ? (
         <>
-          <div className="map-toolbar">
-            <button
-              className={`map-tool-btn${measureActive ? ' active' : ''}`}
-              title="Measure distance (click points, double-click to finish)"
-              onClick={() => { setMeasureActive(v => !v); setProfileActive(false); }}
-            >
-              <i className="fa-solid fa-ruler"></i>
-            </button>
-            <button
-              className={`map-tool-btn${profileActive ? ' active' : ''}`}
-              title="Draw profile line (click start, click end, double-click to extract)"
-              onClick={() => { setProfileActive(!profileActive); setMeasureActive(false); }}
-            >
-              <i className="fa-solid fa-chart-area"></i>
-            </button>
-            <button
-              className={`map-tool-btn${state.refEnabled ? ' active' : ''}`}
-              onClick={() => dispatch({ type: 'TOGGLE_REF_ENABLED' })}
-              title="Toggle spatial re-referencing"
-            ><i className="fa-solid fa-crosshairs"></i></button>
-            <button
-              className={`map-tool-btn${!state.pointPickingEnabled ? ' active' : ''}`}
-              onClick={() => dispatch({ type: 'TOGGLE_POINT_PICKING' })}
-              title={state.pointPickingEnabled ? 'Point picking ON — click to disable' : 'Point picking OFF — click to enable'}
-              style={!state.pointPickingEnabled ? { opacity: 0.5 } : undefined}
-            ><i className="fa-solid fa-location-dot"></i></button>
-          </div>
+          <MapLeftToolbar
+            measureActive={measureActive}
+            onToggleMeasure={() => setMeasureActive(v => !v)}
+            onMeasureOff={() => setMeasureActive(false)}
+          />
           <MapTopRightToolbar onToggleToolbars={onToggleToolbars} />
         </>
       ) : (

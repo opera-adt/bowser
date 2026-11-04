@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useMap } from 'react-leaflet';
 import L from 'leaflet';
+import { formatDistance, pathLength } from '../map/measure';
 
 interface MeasureToolProps {
   active: boolean;
@@ -14,7 +15,6 @@ export default function MeasureTool({ active, onDeactivate }: MeasureToolProps) 
   const markersRef = useRef<L.CircleMarker[]>([]);
   const labelRef = useRef<L.Popup | null>(null);
 
-  const fmtDist = (m: number) => m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${m.toFixed(0)} m`;
 
   const clearAll = () => {
     linesRef.current.forEach(l => l.remove());
@@ -46,12 +46,12 @@ export default function MeasureTool({ active, onDeactivate }: MeasureToolProps) 
         }).addTo(map);
         linesRef.current.push(seg);
 
-        const total = pts.reduce((acc, p, i) => i === 0 ? 0 : acc + pts[i - 1].distanceTo(p), 0);
+        const total = pathLength(pts.map(p => [p.lat, p.lng] as [number, number]));
 
         if (labelRef.current) labelRef.current.remove();
         labelRef.current = L.popup({ closeButton: false, autoClose: false, closeOnClick: false })
           .setLatLng(e.latlng)
-          .setContent(`<b>${fmtDist(total)}</b>`)
+          .setContent(`<b>${formatDistance(total)}</b>`)
           .openOn(map);
       }
     };

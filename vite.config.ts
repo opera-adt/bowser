@@ -15,7 +15,8 @@ const API_ROUTES = [
 	'static',
 ]
 
-const apiProxyPattern = `^/(${API_ROUTES.join('|')})(/|$)`
+// A route is followed by a path, a query string or nothing.
+const apiProxyPattern = `^/(${API_ROUTES.join('|')})([/?]|$)`
 
 export default defineConfig({
 	plugins: [react()],
@@ -42,5 +43,6 @@ export default defineConfig({
 	test: {
 		environment: 'jsdom',
 		include: ['src/**/*.test.{ts,tsx}'],
+		setupFiles: ['src/test/setup.ts'],
 	},
 })

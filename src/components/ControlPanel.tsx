@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useAppContext } from '../context/AppContext';
-import { useApi } from '../hooks/useApi';
+import { useApi, datasetRangeUrl } from '../hooks/useApi';
 import Histogram from './Histogram';
 
 const colormapOptions = [
@@ -287,7 +287,7 @@ export default function ControlPanel({ title }: { title: string }) {
     const unique = [...new Set(missing)];
     unique.forEach(async ds => {
       try {
-        const res = await fetch(`/dataset_range/${encodeURIComponent(ds)}`);
+        const res = await fetch(datasetRangeUrl(ds));
         if (res.ok) {
           const data = await res.json();
           setDatasetRanges(prev => ({ ...prev, [ds]: data }));

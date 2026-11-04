@@ -6,15 +6,9 @@ import L from 'leaflet';
 import { useAppContext } from '../context/AppContext';
 import { useDraggableResizable } from '../hooks/useDraggableResizable';
 import { downloadChartAsPng } from '../utils/screenshot';
+import { parseProfileResponse, profileRequest, type ProfileResponse } from '../map/profile';
+import { corridorRing, dropTrailingDuplicates, pointAtDistance, type LatLng } from '../map/profileGeometry';
 
-interface CentrePoint { dist: number; value: number }
-interface ProfileResponse {
-  centre: CentrePoint[];
-  median: CentrePoint[] | null;
-  samples: CentrePoint[][];
-  binned?: boolean;
-  bin_width?: number;
-}
 
 interface ProfileState {
   data: ProfileResponse | null;
@@ -85,30 +79,66 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-// ── Map-only component (inside Leaflet MapContainer, renders null) ─────────────
-/** Interpolate a lat/lng position at `targetDist` metres along a polyline. */
-function latlngAtDist(pts: L.LatLng[], targetDist: number): L.LatLng | null {
-  if (pts.length < 2) return null;
-  let cum = 0;
-  for (let i = 0; i < pts.length - 1; i++) {
-    const segLen = pts[i].distanceTo(pts[i + 1]);
-    if (cum + segLen >= targetDist) {
-      const frac = segLen > 0 ? (targetDist - cum) / segLen : 0;
-      return L.latLng(
-        pts[i].lat + frac * (pts[i + 1].lat - pts[i].lat),
-        pts[i].lng + frac * (pts[i + 1].lng - pts[i].lng),
-      );
+// ── Shared by both maps: fetch the profile, refetch when inputs change ──────────
+/**
+ * ``fetchProfile(pts)`` requests the profile for a finished line ([lat, lng] vertices)
+ * and stores it in the context; the profile is refetched for the current line when the
+ * time step, the corridor radius or the sampling interval changes. ``getLine`` returns
+ * the finished line, or null while drawing / idle.
+ */
+export function useProfileFetch(getLine: () => LatLng[] | null) {
+  const { state } = useAppContext();
+  const { active, radius, samplingInterval, _setData, _setLoading } = useContext(ProfileContext);
+  const radiusRef = useRef(radius);
+  const siRef = useRef(samplingInterval);
+  useEffect(() => { radiusRef.current = radius; }, [radius]);
+  useEffect(() => { siRef.current = samplingInterval; }, [samplingInterval]);
+  const lineRef = useRef(getLine);
+  lineRef.current = getLine;
+
+  const run = useCallback(async (pts: LatLng[], r: number, si: number) => {
+    if (pts.length < 2 || !state.currentDataset) return;
+    _setLoading(true);
+    try {
+      const req = profileRequest(pts.map(([lat, lng]) => [lng, lat]), state.currentDataset, state.currentTimeIndex, r, si);
+      const res = await fetch(req.url, req.init);
+      if (!res.ok) return;
+      _setData(parseProfileResponse(await res.json()));
+    } finally {
+      _setLoading(false);
     }
-    cum += segLen;
-  }
-  return pts[pts.length - 1];
+  }, [state.currentDataset, state.currentTimeIndex, _setData, _setLoading]);
+  const runRef = useRef(run);
+  runRef.current = run;
+
+  // Re-fetch when time index changes
+  useEffect(() => {
+    const line = lineRef.current();
+    if (active && line && line.length >= 2) runRef.current(line, radiusRef.current, siRef.current);
+  }, [state.currentTimeIndex, active]);
+
+  // Re-fetch when radius changes
+  useEffect(() => {
+    const line = lineRef.current();
+    if (active && line && line.length >= 2) runRef.current(line, radius, siRef.current);
+  }, [radius, active]);
+
+  // Re-fetch when samplingInterval changes
+  useEffect(() => {
+    const line = lineRef.current();
+    if (active && line && line.length >= 2) runRef.current(line, radiusRef.current, samplingInterval);
+  }, [samplingInterval, active]);
+
+  return useCallback((pts: LatLng[]) => runRef.current(pts, radiusRef.current, siRef.current), []);
 }
+
+// ── Map-only component (inside Leaflet MapContainer, renders null) ─────────────
+const toLL = (p: L.LatLng): LatLng => [p.lat, p.lng];
 
 export function ProfileToolMap() {
   const map = useMap();
-  const { state } = useAppContext();
   const ctx = useContext(ProfileContext);
-  const { active, radius, samplingInterval, hoverDist, _setData, _setLoading, clearAll: ctxClearAll } = ctx;
+  const { active, radius, hoverDist, clearAll: ctxClearAll } = ctx;
 
   const polyRef    = useRef<L.Polyline | null>(null);
   const previewRef = useRef<L.Polyline | null>(null);
@@ -117,50 +147,7 @@ export function ProfileToolMap() {
   const modeRef    = useRef<'idle' | 'drawing' | 'ready'>('idle');
   const hoverDotRef = useRef<L.CircleMarker | null>(null);
 
-  // Always-current refs so Leaflet handlers don't close over stale values
-  const radiusRef = useRef(radius);
-  const siRef     = useRef(samplingInterval);
-  useEffect(() => { radiusRef.current = radius; }, [radius]);
-  useEffect(() => { siRef.current = samplingInterval; }, [samplingInterval]);
-
-  const fetchFnRef = useRef<(pts: L.LatLng[], r: number, si: number) => Promise<void>>();
-
-  const fetchProfile = useCallback(async (pts: L.LatLng[], r: number, si: number) => {
-    if (pts.length < 2 || !state.currentDataset) return;
-    _setLoading(true);
-    try {
-      const res = await fetch('/profile', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          coords: pts.map(p => [p.lng, p.lat]),
-          dataset_name: state.currentDataset,
-          time_index: state.currentTimeIndex,
-          n_samples: 200,
-          radius: r,
-          n_random: 5,
-          sampling_interval: si,
-        }),
-      });
-      if (!res.ok) return;
-      const json = await res.json();
-      if (Array.isArray(json)) {
-        _setData({ centre: json, median: null, samples: [], binned: false });
-      } else {
-        _setData({
-          centre: json.centre ?? [],
-          median: json.median ?? null,
-          samples: json.samples ?? [],
-          binned: json.binned ?? false,
-          bin_width: json.bin_width,
-        });
-      }
-    } finally {
-      _setLoading(false);
-    }
-  }, [state.currentDataset, state.currentTimeIndex, _setData, _setLoading]);
-
-  fetchFnRef.current = fetchProfile;
+  const fetchLine = useProfileFetch(() => (modeRef.current === 'ready' ? ptsRef.current.map(toLL) : null));
 
   const updatePoly = (pts: L.LatLng[]) => {
     if (polyRef.current) polyRef.current.setLatLngs(pts);
@@ -178,7 +165,7 @@ export function ProfileToolMap() {
       m.on('drag', () => { ptsRef.current[idx] = m.getLatLng(); updatePoly(ptsRef.current); });
       m.on('dragend', () => {
         ptsRef.current[idx] = m.getLatLng();
-        fetchFnRef.current?.(ptsRef.current, radiusRef.current, siRef.current);
+        fetchLine(ptsRef.current.map(toLL));
       });
       return m;
     });
@@ -202,8 +189,9 @@ export function ProfileToolMap() {
       hoverDotRef.current = null;
       return;
     }
-    const pos = latlngAtDist(ptsRef.current, hoverDist);
-    if (!pos) return;
+    const at = pointAtDistance(ptsRef.current.map(toLL), hoverDist);
+    if (!at) return;
+    const pos = L.latLng(at[0], at[1]);
     if (hoverDotRef.current) {
       hoverDotRef.current.setLatLng(pos);
     } else {
@@ -214,43 +202,11 @@ export function ProfileToolMap() {
     }
   }, [hoverDist, map]);
 
-  // Re-fetch when time index changes
-  useEffect(() => {
-    if (active && modeRef.current === 'ready' && ptsRef.current.length >= 2)
-      fetchFnRef.current?.(ptsRef.current, radiusRef.current, siRef.current);
-  }, [state.currentTimeIndex, active]);
-
-  // Re-fetch when radius changes
-  useEffect(() => {
-    if (active && modeRef.current === 'ready' && ptsRef.current.length >= 2)
-      fetchFnRef.current?.(ptsRef.current, radius, siRef.current);
-  }, [radius, active]);
-
-  // Re-fetch when samplingInterval changes
-  useEffect(() => {
-    if (active && modeRef.current === 'ready' && ptsRef.current.length >= 2)
-      fetchFnRef.current?.(ptsRef.current, radiusRef.current, samplingInterval);
-  }, [samplingInterval, active]);
-
   // Buffer corridor visualization
   useEffect(() => {
     if (!active || radius <= 0 || ptsRef.current.length < 2) return;
-    const pts = ptsRef.current;
-    const offsetPoints: L.LatLng[][] = [[], []];
-    for (let i = 0; i < pts.length; i++) {
-      const bearingRad = i < pts.length - 1
-        ? Math.atan2(pts[i+1].lng - pts[i].lng, pts[i+1].lat - pts[i].lat)
-        : Math.atan2(pts[i].lng - pts[i-1].lng, pts[i].lat - pts[i-1].lat);
-      const lat = pts[i].lat;
-      const mPerDegLat = 111320;
-      const mPerDegLng = 111320 * Math.cos((lat * Math.PI) / 180);
-      const perp = bearingRad + Math.PI / 2;
-      const dLat = (radius / mPerDegLat) * Math.cos(perp);
-      const dLng = (radius / mPerDegLng) * Math.sin(perp);
-      offsetPoints[0].push(L.latLng(pts[i].lat + dLat, pts[i].lng + dLng));
-      offsetPoints[1].push(L.latLng(pts[i].lat - dLat, pts[i].lng - dLng));
-    }
-    const poly = L.polygon([...offsetPoints[0], ...offsetPoints[1].reverse()], {
+    const ring = corridorRing(ptsRef.current.map(toLL), radius);
+    const poly = L.polygon(ring, {
       color: '#f0a500', fillColor: '#f0a500', fillOpacity: 0.12, weight: 1, dashArray: '4 3',
     }).addTo(map);
     return () => { poly.remove(); };
@@ -281,21 +237,18 @@ export function ProfileToolMap() {
       // get here. Collapse any trailing vertices that land on the same
       // screen pixel so the finish gesture doesn't leave phantom points
       // stacked at the end.
-      const DUP_PX = 5;
-      while (ptsRef.current.length >= 2) {
-        const n = ptsRef.current.length;
-        const a = map.latLngToContainerPoint(ptsRef.current[n - 1]);
-        const b = map.latLngToContainerPoint(ptsRef.current[n - 2]);
-        if (a.distanceTo(b) <= DUP_PX) ptsRef.current = ptsRef.current.slice(0, -1);
-        else break;
-      }
+      const kept = dropTrailingDuplicates(ptsRef.current.map(toLL), p => {
+        const c = map.latLngToContainerPoint(L.latLng(p[0], p[1]));
+        return [c.x, c.y];
+      });
+      ptsRef.current = ptsRef.current.slice(0, kept.length);
       if (modeRef.current !== 'drawing' || ptsRef.current.length < 2) return;
       previewRef.current?.remove(); previewRef.current = null;
       updatePoly(ptsRef.current);
       modeRef.current = 'ready';
       map.getContainer().style.cursor = 'default';
       rebuildMarkers(ptsRef.current);
-      fetchFnRef.current?.(ptsRef.current, radiusRef.current, siRef.current);
+      fetchLine(ptsRef.current.map(toLL));
     };
 
     map.on('click', onClick);
@@ -309,7 +262,7 @@ export function ProfileToolMap() {
       map.doubleClickZoom.enable();
       map.getContainer().style.cursor = '';
     };
-  }, [active, map, clearAll]);
+  }, [active, map, clearAll, fetchLine]);
 
   return null;
 }
