@@ -8,6 +8,10 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `bowser view-cube` writes a Web Mercator display copy of a cube, snapped to
+  the tile grid at its native zoom, so a tile is one chunk (#83).
+- Regression tests pin every API response the UI asks for (golden JSON) and
+  every UI request (snapshots) (#81).
 - Raster overlays: upload a GeoTIFF or add a WMS/WMTS/XYZ layer, drawn between
   the basemap and the data, with opacity, order, discrete classes and a
   split-screen side (#73).
@@ -25,6 +29,9 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- MapLibre GL is the default map, with 3D terrain, split screen, profile,
+  measure, graticule, annotations and overlays. `?map=leaflet` gives the old
+  map, which is also used when WebGL2 is not available (#82).
 - Hover reads only the displayed time step at a point (`/point?time_idx=`),
   one chunk fetch instead of the whole series (#72).
 - Response compression is off by default; `BOWSER_COMPRESSION=1` turns it back
@@ -48,6 +55,10 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- In catalog mode, every multi-dimensional endpoint routes by `?dataset=`, and
+  an unknown id returns 404 instead of an error (#80).
+- Pixel inspect, profile and mask-range requests send `?dataset=` in catalog
+  mode (#82).
 - The server starts without a built frontend, serving the API only (#74).
 - The "Loading…" spinner no longer sticks after tile errors (#74).
 - `calculate_trend` no longer divides by zero, bad project files no longer blank
