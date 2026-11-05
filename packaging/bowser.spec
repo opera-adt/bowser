@@ -1,6 +1,7 @@
 # PyInstaller spec for the Bowser desktop app (one folder per platform).
 #   pyinstaller packaging/bowser.spec --noconfirm
-# The app runs bowser-lite, so GDAL, titiler, matplotlib and the S3 stack are left out.
+# The app runs bowser-lite, so GDAL, titiler and matplotlib are left out. s3fs is kept,
+# so s3:// cubes open (anonymous by default; BOWSER_S3_ANON=0 uses AWS credentials).
 import sys
 from pathlib import Path
 
@@ -9,7 +10,7 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 ROOT = Path(SPECPATH).parent
 HEAVY = [
     "rasterio", "rio_tiler", "titiler", "matplotlib", "scipy", "dask", "distributed", "bokeh",
-    "s3fs", "botocore", "aiobotocore", "boto3", "opera_utils", "geopandas", "shapely", "pyarrow", "IPython",
+    "boto3", "opera_utils", "geopandas", "shapely", "pyarrow", "IPython",
 ]
 
 datas = collect_data_files("bowser", includes=["dist/**/*", "static/**/*", "lite/*.npz", "lite/*.json"])
@@ -19,7 +20,10 @@ a = Analysis(
     [str(ROOT / "packaging" / "bowser_app.py")],
     pathex=[str(ROOT / "src")],
     datas=datas,
-    hiddenimports=collect_submodules("uvicorn") + collect_submodules("bowser.lite") + ["bowser.desktop"],
+    hiddenimports=collect_submodules("uvicorn")
+    + collect_submodules("bowser.lite")
+    + collect_submodules("s3fs")  # fsspec loads it by name for s3:// URIs
+    + ["bowser.desktop", "fsspec.implementations.local"],
     excludes=HEAVY,
     noarchive=False,
 )

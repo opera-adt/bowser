@@ -7,5 +7,7 @@ pyproj
 fastapi
 uvicorn
 pydantic-settings
+fsspec
+s3fs  # s3:// cubes
 pywebview
 pyinstaller
