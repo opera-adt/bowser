@@ -39,14 +39,14 @@ describe('useRasterTileUrl', () => {
     const { result } = renderHook(() => useRasterTileUrl());
     expect(result.current).toBeNull();
     await settle();
-    expect(urls).toEqual(['/md/WebMercatorQuad/tilejson.json?variable=displacement&time_idx=1&rescale=-0.01%2C0.01&colormap_name=rdbu_r&algorithm=shift']);
+    expect(urls).toEqual(['/md/WebMercatorQuad/tilejson.json?variable=displacement&time_idx=1&rescale=-0.01%2C0.01&colormap_name=rdbu_r&tilesize=256&algorithm=shift']);
     expect(result.current).toBe('http://h/md/tiles/{z}/{x}/{y}.png?n=1');
   });
 
   it('uses the split-screen overrides', async () => {
     renderHook(() => useRasterTileUrl({ dataset: 'velocity', colormap: 'viridis', vmin: 0, vmax: 1, timeIndex: 0 }));
     await settle();
-    expect(urls[0]).toBe('/md/WebMercatorQuad/tilejson.json?variable=velocity&time_idx=0&rescale=0%2C1&colormap_name=viridis');
+    expect(urls[0]).toBe('/md/WebMercatorQuad/tilejson.json?variable=velocity&time_idx=0&rescale=0%2C1&colormap_name=viridis&tilesize=256');
   });
 
   it('asks for nothing without a dataset or with an unknown data mode', async () => {

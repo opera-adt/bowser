@@ -49,7 +49,10 @@ def replay_requests(app, specs: list[dict], out: Path) -> dict:
         params = {**s.get("params", {}), **({"dataset": dataset} if dataset else {})}
         if "tile" in s:
             z, x, y = s["tile"]
-            method, path = "GET", f"/md/tiles/WebMercatorQuad/{z}/{x}/{y}@1x.png"
+            # Unsuffixed paths work with both TiTiler generations. Pin the
+            # browser's tile size instead of relying on dependency defaults.
+            method, path = "GET", f"/md/tiles/WebMercatorQuad/{z}/{x}/{y}.png"
+            params = {"tilesize": 256, **params}
         else:
             method, path = s.get("method", "GET"), s["path"]
         t = time.perf_counter()
