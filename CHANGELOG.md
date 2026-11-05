@@ -6,6 +6,25 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-11-05
+
+First release with desktop installers attached.
+
+### Added
+
+- The desktop app opens `s3://` cubes, anonymously unless `BOWSER_S3_ANON=0`
+  (#91).
+- The desktop app uses the Bowser mark as its icon; `packaging/make_icons.py`
+  draws `bowser.icns` and `bowser.ico` (#92).
+
+### Fixed
+
+- Desktop builds: macOS apps build again (the smoke-test cube installs rasterio
+  from wheels, Intel builds run on `macos-15-intel`, and `hdiutil` is retried),
+  and the `.dmg` opens to Bowser.app next to an Applications link (#90).
+- A `v*` tag attaches the builds to a draft release instead of publishing one,
+  so publishing to PyPI stays a manual step (#90).
+
 ## [0.6.0] - 2026-11-04
 
 ### Added
@@ -224,7 +243,8 @@ the diff — see [`v0.4.0...v0.5.0`](https://github.com/opera-adt/bowser/compare
   dependency tree pulls them in, so a pip-only install of the writer extra will
   fail at run time.
 
-[Unreleased]: https://github.com/opera-adt/bowser/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/opera-adt/bowser/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/opera-adt/bowser/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/opera-adt/bowser/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/opera-adt/bowser/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/opera-adt/bowser/compare/v0.4.0...v0.5.0
