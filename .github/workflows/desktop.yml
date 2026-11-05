@@ -74,7 +74,13 @@ jobs:
           # The usual drag-to-install window: Bowser.app next to an Applications link.
           cp -R dist/Bowser.app dmg/
           ln -s /Applications dmg/Applications
-          hdiutil create -volname Bowser -srcfolder dmg -ov -format UDZO "release/Bowser-${{ steps.version.outputs.version }}-${{ matrix.name }}.dmg"
+          # hdiutil sometimes fails with "Resource busy" on the hosted runners: retry.
+          for i in 1 2 3 4 5; do
+            hdiutil create -volname Bowser -srcfolder dmg -ov -format UDZO \
+              "release/Bowser-${{ steps.version.outputs.version }}-${{ matrix.name }}.dmg" && break
+            [ "$i" = 5 ] && exit 1
+            echo "hdiutil failed (try $i); retrying in 10 s"; sleep 10
+          done
       - name: Package (Linux tar.gz)
         if: runner.os == 'Linux'
         run: |
