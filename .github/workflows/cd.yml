@@ -6,7 +6,9 @@ name: CD
 on:
   workflow_dispatch:
   release:
-    types: [created]
+    # "published", not "created": a release drafted first (as the Desktop app
+    # workflow and our release flow do) never sends "created".
+    types: [published]
 
 jobs:
   pypi-publish:
