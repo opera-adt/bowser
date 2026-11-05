@@ -99,6 +99,9 @@ Commands:
 
 ## Developer setup
 
+For the full/lite tile request convention and deterministic image tests, see
+[map tile dimensions and regression images](docs/tile-request-contract.md).
+
 ```bash
 git clone git@github.com:opera-adt/bowser.git && cd bowser
 pixi install            # default env: runtime deps
