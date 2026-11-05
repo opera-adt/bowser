@@ -37,4 +37,5 @@ exe = EXE(
 coll = COLLECT(exe, a.binaries, a.datas, name="Bowser")
 if sys.platform == "darwin":
     app = BUNDLE(coll, name="Bowser.app", bundle_identifier="org.opera-adt.bowser",
+                 icon=str(ROOT / "packaging" / "bowser.icns"),
                  info_plist={"NSHighResolutionCapable": True, "CFBundleShortVersionString": "0.0.0"})
