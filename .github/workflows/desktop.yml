@@ -70,8 +70,11 @@ jobs:
       - name: Package (macOS dmg)
         if: runner.os == 'macOS'
         run: |
-          mkdir -p release
-          hdiutil create -volname Bowser -srcfolder dist/Bowser.app -ov -format UDZO "release/Bowser-${{ steps.version.outputs.version }}-${{ matrix.name }}.dmg"
+          mkdir -p release dmg
+          # The usual drag-to-install window: Bowser.app next to an Applications link.
+          cp -R dist/Bowser.app dmg/
+          ln -s /Applications dmg/Applications
+          hdiutil create -volname Bowser -srcfolder dmg -ov -format UDZO "release/Bowser-${{ steps.version.outputs.version }}-${{ matrix.name }}.dmg"
       - name: Package (Linux tar.gz)
         if: runner.os == 'Linux'
         run: |
