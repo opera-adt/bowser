@@ -616,7 +616,11 @@ class CustomReader(BaseReader):
             **kwargs,
         )
 
-        combined_mask = img.mask == 0  # True = invalid
+        # ImageData.mask is dtype-dependent in rio-tiler 9 (invalid floating
+        # pixels use the dtype minimum, not zero). Preserve the original
+        # per-band Boolean masks instead of inferring support from alpha codes.
+        source_mask = np.ma.getmaskarray(img.array)
+        combined_mask = source_mask.copy()  # True = invalid
 
         # Apply primary mask
         if self.mask is not None:
@@ -629,12 +633,9 @@ class CustomReader(BaseReader):
                 **kwargs,
             )
             filled = np.squeeze(mask_layer_img.array.filled(0))
-            combined_mask = np.logical_or.reduce(
-                [
-                    combined_mask,
-                    filled == 0,
-                    filled < self.input["mask_min_value"],
-                ]
+            combined_mask = np.logical_or(
+                combined_mask,
+                (filled == 0) | (filled < self.input["mask_min_value"]),
             )
 
         # Apply extra masks (custom uploaded masks — binary: > 0 = valid)
@@ -653,7 +654,7 @@ class CustomReader(BaseReader):
             except Exception:
                 pass  # tile outside bounds — skip
 
-        if np.any(combined_mask != (img.mask == 0)):
+        if np.any(combined_mask != source_mask):
             img = ImageData(
                 np.ma.MaskedArray(img.data, mask=combined_mask),
                 assets=img.assets,
