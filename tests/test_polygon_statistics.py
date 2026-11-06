@@ -284,6 +284,15 @@ def test_missing_coordinates_cannot_be_inferred_from_array_indices():
         )
 
 
+def test_close_percentiles_retain_distinct_keys(source):
+    percentiles = [2.0000001, 2.0000002]
+    request = PolygonRequest(
+        variable="field", geometry=geometry(), percentiles=percentiles
+    )
+    result = summarize_xarray(source, request, ["a", "b", "c"])
+    assert set(result["statistics"][0]["percentiles"]) == {str(p) for p in percentiles}
+
+
 @pytest.mark.parametrize("change", ["units", "transform", "crs"])
 def test_raster_group_incompatibility_rejected(source, tmp_path, change):
     group = group_from(source, tmp_path)

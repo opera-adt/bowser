@@ -193,7 +193,9 @@ def _summaries(
                 "minimum": float(np.min(values)) if values.size else None,
                 "maximum": float(np.max(values)) if values.size else None,
                 "percentiles": {
-                    f"{p:g}": float(np.percentile(values, p, method="linear"))
+                    (str(int(p)) if float(p).is_integer() else str(p)): float(
+                        np.percentile(values, p, method="linear")
+                    )
                     if values.size
                     else None
                     for p in percentiles
