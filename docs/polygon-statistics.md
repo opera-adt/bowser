@@ -75,7 +75,8 @@ ambiguous; component numbers are never assumed comparable between pairs or
 dates. Spatial spread is not measurement uncertainty, and an apparent history
 does not establish reference stability or ground motion.
 
-The full server supports regular rectilinear GeoZarr x/y grids and at most one
+The full server supports explicit, regular rectilinear GeoZarr x/y coordinate
+grids and at most one
 non-spatial axis. Single-band GeoTIFF groups must share the exact grid, CRS and
 identical units, including whether units are missing. Rotated GeoTIFF grids
 can use the raster's affine; rotated GeoZarr grids are rejected. Polygons

@@ -211,6 +211,8 @@ def summarize_xarray(
     """Summarize a level-zero GeoZarr variable using bounded spatial reads."""
     if not {"x", "y"}.issubset(source.dims):
         raise ValueError("Source requires x/y spatial dimensions")
+    if any(axis not in source.coords for axis in ("x", "y")):
+        raise ValueError("Source requires explicit x/y pixel-center coordinates")
     extra = [d for d in source.dims if d not in ("x", "y")]
     if len(extra) > 1:
         raise ValueError("Source supports at most one non-spatial axis")

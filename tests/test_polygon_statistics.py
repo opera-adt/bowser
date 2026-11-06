@@ -273,6 +273,17 @@ def test_finite_nodata_static_and_unknown_units(source):
     assert any("units are unknown" in w for w in result["warnings"])
 
 
+def test_missing_coordinates_cannot_be_inferred_from_array_indices():
+    source = xr.DataArray(np.arange(64).reshape(8, 8), dims=("y", "x")).rio.write_crs(
+        4326
+    )
+    geom = {"type": "Polygon", "coordinates": [rectangle(1, 1, 3, 3)]}
+    with pytest.raises(ValueError, match="explicit x/y"):
+        summarize_xarray(
+            source, PolygonRequest(variable="field", geometry=geom), ["Stored layer"]
+        )
+
+
 @pytest.mark.parametrize("change", ["units", "transform", "crs"])
 def test_raster_group_incompatibility_rejected(source, tmp_path, change):
     group = group_from(source, tmp_path)
