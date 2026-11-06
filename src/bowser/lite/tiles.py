@@ -28,6 +28,7 @@ import xarray as xr
 from fastapi import HTTPException
 
 from ..constants import TILE_SIZE
+from ..mask_alignment import align_mask, mask_condition
 from . import colormaps, geo, warp
 from .cube import Cube, spatial_ref_attrs
 from .meta import non_spatial_dim
@@ -211,7 +212,10 @@ def tile_source(
             raise HTTPException(
                 status_code=404, detail=f"Mask variable {q.mask_variable} not found"
             )
-        mask_da = ds[q.mask_variable]
+        try:
+            mask_da = align_mask(da, ds[q.mask_variable])
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
     if q.time_idx is not None:
         dim = non_spatial_dim(da)
         if dim is not None:
@@ -229,8 +233,15 @@ def tile_source(
         if ref is not None:
             window = minus_reference_step(window, select(ref))
         if mask_da is not None:
-            window = window.where(select(mask_da) > q.mask_min_value)
-        return apply_layer_masks(window, ds, layer_masks, q.time_idx, select)
+            try:
+                window = window.where(
+                    mask_condition(select(mask_da), q.mask_min_value, ">")
+                )
+            except (ValueError, TypeError) as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return apply_layer_masks(
+            window, ds, layer_masks, q.time_idx, select, source=ds[q.variable]
+        )
 
     return da, masked
 

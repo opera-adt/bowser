@@ -8,8 +8,6 @@ read every chunk, so lite picks the pixels first and masks only those. Because
 
 from __future__ import annotations
 
-import json
-import logging
 import warnings
 from contextlib import contextmanager
 from typing import Callable, Iterator
@@ -18,10 +16,9 @@ import numpy as np
 import xarray as xr
 from fastapi import HTTPException
 
+from .. import mask_alignment
 from .cube import Cube
 from .meta import non_spatial_dim
-
-logger = logging.getLogger("bowser")
 
 Selector = Callable[[xr.DataArray], xr.DataArray]
 
@@ -35,23 +32,18 @@ def require_var(ds: xr.Dataset, name: str) -> xr.DataArray:
 
 def parse_layer_masks(layer_masks: str | list | None) -> list[dict]:
     """Layer masks from a request: a JSON string (tiles) or a list (POST bodies)."""
-    if not layer_masks:
-        return []
-    if isinstance(layer_masks, str):
-        try:
-            return list(json.loads(layer_masks))
-        except json.JSONDecodeError as e:
-            logger.warning(f"Failed to parse layer_masks JSON: {e}")
-            return []
-    return list(layer_masks)
+    try:
+        return mask_alignment.parse_layer_masks(layer_masks)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 def _mask_frame(mask_da: xr.DataArray, time_idx: int | None) -> xr.DataArray:
-    """Return a mask layer at ``time_idx`` (clamped), or at the first step if None."""
+    """Select a validated axis, or preserve all dates for a full-series request."""
     mdim = non_spatial_dim(mask_da)
-    if mdim is None:
+    if mdim is None or time_idx is None:
         return mask_da
-    idx = min(time_idx, mask_da.sizes[mdim] - 1) if time_idx is not None else 0
+    idx = max(0, min(time_idx, mask_da.sizes[mdim] - 1))
     return mask_da.isel({mdim: idx})
 
 
@@ -61,21 +53,30 @@ def apply_layer_masks(
     layer_masks: list[dict],
     time_idx: int | None,
     select: Selector,
+    *,
+    source: xr.DataArray,
 ) -> xr.DataArray:
     """Mask already-selected ``values`` by each ``{dataset, threshold, mode}`` layer.
 
     ``select`` picks from a mask layer the same pixels ``values`` came from.
+    ``source`` is the complete, unsliced data variable used to validate axes
+    before selecting corresponding mask dates or pixels.
     ``min`` keeps pixels >= threshold, ``max`` keeps pixels <= threshold, as
     ``bowser.main._apply_layer_masks_md``.
     """
-    for m in layer_masks:
-        var = m.get("dataset")
-        threshold = float(m.get("threshold", 0.5))
-        if not var or var not in ds.data_vars:
-            continue
-        mask = select(_mask_frame(ds[var], time_idx))
-        keep = mask <= threshold if m.get("mode", "min") == "max" else mask >= threshold
-        values = values.where(keep)
+    try:
+        for m in mask_alignment.parse_layer_masks(layer_masks):
+            var = m["dataset"]
+            if var not in ds.data_vars:
+                raise ValueError(f"Unknown mask layer: {var}")
+            mask = mask_alignment.align_mask(source, ds[var])
+            mask = select(_mask_frame(mask, time_idx))
+            operator = "<=" if m["mode"] == "max" else ">="
+            values = values.where(
+                mask_alignment.mask_condition(mask, m["threshold"], operator)
+            )
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return values
 
 
@@ -112,7 +113,9 @@ def point_values(
     def select(a: xr.DataArray) -> xr.DataArray:
         return a.sel(x=x, y=y, method="nearest").load()
 
-    values = apply_layer_masks(select(da), ds, layer_masks or [], time_idx, select)
+    values = apply_layer_masks(
+        select(da), ds, layer_masks or [], time_idx, select, source=ds[name]
+    )
     return np.atleast_1d(values.values)
 
 
@@ -157,7 +160,9 @@ def buffer_window(
     def select(a: xr.DataArray) -> xr.DataArray:
         return a.sel(x=x_sel, y=y_sel).load()
 
-    window = apply_layer_masks(select(da), ds, layer_masks, None, select)
+    window = apply_layer_masks(
+        select(da), ds, layer_masks, None, select, source=ds[name]
+    )
     xx, yy = np.meshgrid(x_slice.values, y_slice.values)
     return window, np.sqrt((xx - cx) ** 2 + (yy - cy) ** 2) <= buffer_m
 
