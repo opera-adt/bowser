@@ -56,6 +56,7 @@ from titiler.core.errors import (  # noqa: E402
 )
 from titiler.core.factory import TilerFactory  # noqa: E402
 
+from .layer_info import describe_layer, describe_raster_group  # noqa: E402
 from .readers import CustomReader  # noqa: E402
 from .titiler import Amplitude, JSONResponse, Phase, Rewrap, Shift  # noqa: E402
 
@@ -478,6 +479,7 @@ def create_xarray_dataset_info(ds: xr.Dataset) -> dict:
             "unit": attrs.get("units", ""),
             "los_metadata": los_metadata,
             "reference_lonlat": reference_lonlat,
+            **describe_layer(str(var_name), attrs),
         }
 
     return dataset_info
@@ -502,6 +504,7 @@ def create_rastergroup_dataset_info(raster_groups: dict) -> dict:
             "los_metadata": (
                 rg.los_metadata.model_dump() if rg.los_metadata is not None else None
             ),
+            **describe_raster_group(name, [r.layer_attrs for r in rg._reader.readers]),
         }
     return dataset_info
 
