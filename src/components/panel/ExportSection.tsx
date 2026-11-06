@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
 import { downloadLayer, type ExportFormat } from '../../map/exportLayer';
 import { SectionHeader } from './controls';
@@ -11,6 +11,16 @@ const FORMATS: { value: ExportFormat; label: string }[] = [
 export default function ExportSection() {
   const { state } = useAppContext();
   const [exporting, setExporting] = useState(false);
+  // bowser-lite (the desktop app's server) can't write GeoTIFFs: /config says so.
+  const [canExport, setCanExport] = useState(true);
+  useEffect(() => {
+    let live = true;
+    fetch('/config')
+      .then(r => (r.ok ? r.json() : null))
+      .then(cfg => { if (live && cfg?.geotiff_export === false) setCanExport(false); })
+      .catch(() => undefined);
+    return () => { live = false; };
+  }, []);
 
   // Export the active layer as a GeoTIFF, mirroring the tile request's masking
   // params so the file matches what's rendered (recommended + layer + custom masks).
@@ -67,13 +77,20 @@ export default function ExportSection() {
       {(
         <>
           <button className="hist-btn" style={{ width: '100%' }}
-            disabled={!state.currentDataset || exporting}
-            title="Download the active layer as a GeoTIFF (masking applied if enabled)"
+            disabled={!state.currentDataset || exporting || !canExport}
+            title={canExport
+              ? 'Download the active layer as a GeoTIFF (masking applied if enabled)'
+              : 'GeoTIFF export needs the full Bowser server (bowser run)'}
             onClick={handleExportGeoTIFF}>
             <i className={`fa-solid ${exporting ? 'fa-spinner fa-spin' : 'fa-download'}`} style={{ marginRight: 6 }}></i>
             {exporting ? 'Exporting…' : 'Data layer (GeoTIFF)'}
           </button>
-          {(state.layerMasks.length > 0 || state.customMaskPath) && (
+          {!canExport && (
+            <div className="row-label" style={{ fontSize: '0.72em', textAlign: 'center' }}>
+              GeoTIFF export needs the full Bowser server (<code>bowser run</code>)
+            </div>
+          )}
+          {canExport && (state.layerMasks.length > 0 || state.customMaskPath) && (
             <div className="row-label" style={{ fontSize: '0.72em', textAlign: 'center' }}>masking will be applied</div>
           )}
           <div className="minmax-label" style={{ marginTop: 4 }}>Vector layers</div>
