@@ -49,6 +49,7 @@ from fastapi.testclient import TestClient
 import bowser.lite.main as m
 
 c = TestClient(m.app)
+assert c.post("/polygon_timeseries", json={}).status_code == 501
 assert c.get("/datasets").status_code == 200
 tj = c.get(
     "/md/WebMercatorQuad/tilejson.json",
