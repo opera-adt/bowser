@@ -1,5 +1,6 @@
 /** Export a vector layer's features to a local file: GeoJSON, CSV (points: lon, lat + attributes), KML or a zipped Shapefile. */
 import { toShapefileZip } from "./shapefile";
+import { saveFile } from "../utils/saveFile";
 
 type Feature = { type: "Feature"; geometry: { type: string; coordinates?: unknown } | null; properties?: Record<string, unknown> | null };
 
@@ -76,9 +77,5 @@ export function downloadLayer(name: string, features: Feature[], format: ExportF
         : format === "shapefile"
           ? [toShapefileZip(features, slugName(name).replace(/-/g, "_")), "application/zip", "zip"]
           : [toGeoJson(features), "application/geo+json", "geojson"];
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([data as BlobPart], { type }));
-  a.download = `${slugName(name)}.${ext}`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  void saveFile(new Blob([data as BlobPart], { type }), `${slugName(name)}.${ext}`);
 }

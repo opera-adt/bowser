@@ -3,6 +3,7 @@ import { useAppContext } from '../../context/AppContext';
 import { applyTheme, readThemeChoice, THEME_EVENT, type ThemeChoice } from '../../utils/theme';
 import { SectionHeader } from './controls';
 import ExportSection from './ExportSection';
+import { saveFile } from '../../utils/saveFile';
 
 const APPEARANCE: { value: ThemeChoice; label: string }[] = [
   { value: 'system', label: 'System' },
@@ -181,10 +182,7 @@ export default function ProjectTab() {
         : (state as any)[k];
     });
     const blob = new Blob([JSON.stringify(project, null, 2)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `bowser-project-${new Date().toISOString().slice(0, 16).replace(/[:.]/g, '-')}.json`;
-    document.body.appendChild(a); a.click(); a.remove();
+    void saveFile(blob, `bowser-project-${new Date().toISOString().slice(0, 16).replace(/[:.]/g, '-')}.json`);
   }, [state]);
   // Validate each field before merging it into state. LOAD_PROJECT spreads the
   // payload straight onto state, so a hand-edited/corrupt file with a wrong type
