@@ -868,6 +868,12 @@ def export_geotiff():
     return _not_in_lite("Exporting a GeoTIFF")
 
 
+@app.post("/polygon_timeseries")
+def polygon_timeseries():
+    """501: native polygon statistics currently require the full server."""
+    return _not_in_lite("Native polygon statistics")
+
+
 @app.api_route("/cog/{path:path}", methods=["GET", "POST"], include_in_schema=False)
 def cog_tiler(path: str):  # noqa: ARG001
     """501: COG mode needs GDAL."""
