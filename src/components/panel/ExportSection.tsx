@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
 import { downloadLayer, type ExportFormat } from '../../map/exportLayer';
 import { SectionHeader } from './controls';
+import { saveFile } from '../../utils/saveFile';
 
 const FORMATS: { value: ExportFormat; label: string }[] = [
   { value: 'geojson', label: 'GeoJSON' }, { value: 'csv', label: 'CSV' }, { value: 'kml', label: 'KML' }, { value: 'shapefile', label: 'Shapefile (.zip)' },
@@ -33,7 +34,6 @@ export default function ExportSection() {
       const res = await fetch(`/export/geotiff?${params.toString()}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
       const masked = state.layerMasks.length > 0 || !!state.customMaskPath;
       // Name the file by the layer's actual time label (e.g. a date or
       // reference_secondary pair) rather than the bare slice index; fall back
@@ -43,13 +43,7 @@ export default function ExportSection() {
       const timeToken = timeVal == null
         ? `t${state.currentTimeIndex}`
         : String(timeVal).split('T')[0].replace(/[^0-9A-Za-z._-]/g, '-');
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${state.currentDataset}_${timeToken}${masked ? '_masked' : ''}.tif`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      await saveFile(blob, `${state.currentDataset}_${timeToken}${masked ? '_masked' : ''}.tif`);
     } catch (err) {
       console.error('GeoTIFF export failed:', err);
       alert(`GeoTIFF export failed: ${(err as Error).message}`);
