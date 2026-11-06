@@ -2137,6 +2137,8 @@ def _build_masked_md_dataarray(
     mask_min_value: float,
     layer_masks: Optional[str],
     custom_mask_path: Optional[str],
+    *,
+    strict_masks: bool = False,
 ) -> "xr.DataArray":
     """Build the masked 2-D/3-D DataArray for ``variable`` from a GeoZarr ``ds``.
 
@@ -2192,7 +2194,7 @@ def _build_masked_md_dataarray(
             logger.warning(f"Failed to parse layer_masks JSON: {e}")
 
     # Custom mask (uploaded GeoTIFF) — reproject to match da
-    if custom_mask_path and Path(custom_mask_path).exists():
+    if custom_mask_path and (strict_masks or Path(custom_mask_path).exists()):
         try:
             import rioxarray as rxr  # noqa: PLC0415
 
@@ -2202,6 +2204,10 @@ def _build_masked_md_dataarray(
             custom_da_repr = custom_da.rio.reproject_match(da)
             da = da.where(custom_da_repr > 0)
         except Exception as exc:
+            if strict_masks:
+                raise HTTPException(
+                    status_code=422, detail="Could not apply custom mask"
+                ) from exc
             logger.warning(f"Failed to apply custom mask {custom_mask_path}: {exc}")
 
     return da
@@ -2214,6 +2220,8 @@ def _build_masked_cog_dataarray(
     mask_min_value: Optional[float],
     layer_masks: Optional[str],
     custom_mask_path: Optional[str],
+    *,
+    strict_masks: bool = False,
 ) -> "xr.DataArray":
     """Build the masked 2-D DataArray for a COG-mode RasterGroup at ``time_idx``.
 
@@ -2263,10 +2271,14 @@ def _build_masked_cog_dataarray(
             logger.warning(f"Failed to parse layer_masks JSON: {e}")
 
     # Custom uploaded mask (binary, kept where > 0.5 — matches CustomReader).
-    if custom_mask_path and Path(custom_mask_path).exists():
+    if custom_mask_path and (strict_masks or Path(custom_mask_path).exists()):
         try:
             da = _keep(da, custom_mask_path, 0.5)
         except Exception as exc:  # noqa: BLE001
+            if strict_masks:
+                raise HTTPException(
+                    status_code=422, detail="Could not apply custom mask"
+                ) from exc
             logger.warning(f"Failed to apply custom mask {custom_mask_path}: {exc}")
 
     return da
@@ -2320,6 +2332,148 @@ def XarrayPathDependency(
     )
 
 
+def _export_time_context(
+    target: BowserState, variable: str, time_idx: int | None
+) -> dict:
+    """Collect labels and intrinsic nodata without reading extra raster pixels."""
+    if target.mode == "md":
+        source = target.dataset[variable]
+        dim = _non_spatial_dim(source)
+        labels = _dim_labels(source, dim) if dim else []
+        idx = max(0, min(time_idx or 0, len(labels) - 1)) if labels else None
+        return {
+            "root_attrs": target.dataset.attrs,
+            "available_labels": labels,
+            "selected_label": labels[idx] if idx is not None else None,
+            "selected_index": idx,
+            "selected_coordinate": str(source[dim].values[idx])
+            if idx is not None
+            else None,
+            "source_nodata": source.rio.encoded_nodata
+            if source.rio.encoded_nodata is not None
+            else source.rio.nodata,
+        }
+    rg = target.raster_groups[variable]
+    idx = max(0, min(time_idx or 0, len(rg.file_list) - 1))
+    reader = rg._reader.readers[idx]
+    # A single static file does not establish a time axis. Parsed filename
+    # dates are labels only, not proof of a velocity-fit interval or datum.
+    dates = reader.dates or ()
+    label = "_".join(d.strftime("%Y-%m-%d") for d in dates) if dates else None
+    return {
+        "available_labels": [str(v) for v in rg.x_values],
+        "selected_label": label,
+        "selected_index": idx if len(rg.file_list) > 1 else None,
+        "source_nodata": reader.nodata,
+    }
+
+
+def _export_mask_provenance(
+    target: BowserState,
+    variable: str,
+    time_idx: int | None,
+    mask_variable: str | None,
+    mask_min_value: float | None,
+    layer_masks: str | None,
+    custom_mask_path: str | None,
+) -> list[dict]:
+    """Validate export mask requests and describe the existing mask operators."""
+    available = (
+        target.dataset.data_vars if target.mode == "md" else target.raster_groups
+    )
+    if variable not in available:
+        raise HTTPException(status_code=404, detail=f"Unknown layer: {variable}")
+    if target.mode == "cog" and not target.raster_groups[variable].file_list:
+        raise HTTPException(status_code=404, detail=f"No files for layer: {variable}")
+    details = []
+
+    def add(name: str, threshold: float, operator: str, kind: str) -> None:
+        if name not in available:
+            raise ValueError(f"Unknown mask layer: {name}")
+        if target.mode == "cog" and not target.raster_groups[name].file_list:
+            raise ValueError(f"No files for mask layer: {name}")
+        if not np.isfinite(threshold):
+            raise ValueError("Mask thresholds must be finite")
+        context = _export_time_context(target, name, time_idx)
+        details.append(
+            {
+                "kind": kind,
+                "layer": name,
+                "operator": operator,
+                "threshold": threshold,
+                "time_index": context["selected_index"],
+                "time_label": context["selected_label"],
+                "threshold_units": target.dataset[name].attrs.get("units")
+                if target.mode == "md"
+                else None,
+            }
+        )
+
+    try:
+        if target.mode == "md" and mask_variable is not None:
+            add(
+                mask_variable,
+                0.1 if mask_min_value is None else mask_min_value,
+                ">",
+                "primary",
+            )
+        elif target.mode == "cog":
+            if mask_variable is not None:
+                raise ValueError("mask_variable is only supported for GeoZarr exports")
+            rg = target.raster_groups[variable]
+            idx = max(0, min(time_idx or 0, len(rg.file_list) - 1))
+            if rg.mask_file_list:
+                path = rg.mask_file_list[min(idx, len(rg.mask_file_list) - 1)]
+                if path:
+                    threshold = (
+                        rg.mask_min_value if mask_min_value is None else mask_min_value
+                    )
+                    if not np.isfinite(threshold):
+                        raise ValueError("Mask thresholds must be finite")
+                    details.append(
+                        {
+                            "kind": "primary",
+                            "file": Path(path).name,
+                            "operator": ">=",
+                            "threshold": threshold,
+                        }
+                    )
+        parsed = json.loads(layer_masks) if layer_masks else []
+        if not isinstance(parsed, list):
+            raise ValueError("layer_masks must be a JSON list")
+        for mask in parsed:
+            if not isinstance(mask, dict):
+                raise ValueError("Each layer mask must be an object")
+            mode = mask.get("mode", "min")
+            if mode not in ("min", "max"):
+                raise ValueError("Mask mode must be min or max")
+            if target.mode == "cog" and mode != "min":
+                raise ValueError(
+                    "Direct GeoTIFF exports currently support only min layer masks"
+                )
+            add(
+                mask.get("dataset"),
+                float(mask.get("threshold", 0.5)),
+                (">=" if mode == "min" else "<=") if target.mode == "md" else ">",
+                "layer",
+            )
+        if custom_mask_path:
+            if not Path(custom_mask_path).is_file():
+                raise ValueError("Custom mask file is unavailable")
+            details.append(
+                {
+                    "kind": "custom",
+                    "file": Path(custom_mask_path).name,
+                    "operator": ">",
+                    "threshold": 0 if target.mode == "md" else 0.5,
+                    "resampling": "nearest",
+                }
+            )
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return details
+
+
 @app.get(
     "/export/geotiff",
     tags=["Export"],
@@ -2328,7 +2482,7 @@ def XarrayPathDependency(
 def export_geotiff(
     variable: str = Query(..., description="Variable / active layer name"),
     dataset: Optional[str] = Query(None, description="Catalog dataset id"),
-    time_idx: Optional[int] = Query(None, description="Time index"),
+    time_idx: Optional[int] = Query(None, ge=0, description="Time index"),
     mask_variable: Optional[str] = Query(
         None, description="Override mask variable (MD)"
     ),
@@ -2354,7 +2508,18 @@ def export_geotiff(
     from starlette.background import BackgroundTask  # noqa: PLC0415
     from starlette.responses import FileResponse  # noqa: PLC0415
 
+    from .export_provenance import export_provenance  # noqa: PLC0415
+
     target = _resolve_state(dataset)
+    applied_masks = _export_mask_provenance(
+        target,
+        variable,
+        time_idx,
+        mask_variable,
+        mask_min_value,
+        layer_masks,
+        custom_mask_path,
+    )
     if target.mode == "md":
         da = _build_masked_md_dataarray(
             target.dataset,
@@ -2364,11 +2529,18 @@ def export_geotiff(
             0.1 if mask_min_value is None else mask_min_value,
             layer_masks,
             custom_mask_path,
+            strict_masks=True,
         )
         fallback_crs = target.dataset.rio.crs
     else:  # cog
         da = _build_masked_cog_dataarray(
-            target, variable, time_idx, mask_min_value, layer_masks, custom_mask_path
+            target,
+            variable,
+            time_idx,
+            mask_min_value,
+            layer_masks,
+            custom_mask_path,
+            strict_masks=True,
         )
         fallback_crs = None
 
@@ -2383,6 +2555,9 @@ def export_geotiff(
     # it, which breaks ``write_nodata`` on the un-masked path (masking via
     # ``where`` already strips it, so only raw exports hit this).
     da = da.copy()
+    # These tags describe the current export, not a prior exported source.
+    # A reference-aware exporter may add fresh reference tags after this point.
+    da.attrs = {k: v for k, v in da.attrs.items() if not k.startswith("BOWSER_")}
     da.attrs.pop("_FillValue", None)
     da.encoding.pop("_FillValue", None)
 
@@ -2395,6 +2570,16 @@ def export_geotiff(
     if np.issubdtype(da.dtype, np.floating):
         da = da.rio.write_nodata(float("nan"), encoded=False)
 
+    context = _export_time_context(target, variable, time_idx)
+    tags, filename = export_provenance(
+        variable,
+        da.attrs,
+        masks=applied_masks,
+        export_nodata=da.rio.nodata,
+        **context,
+    )
+    da.attrs.update(tags)
+
     fd, tmp_path = tempfile.mkstemp(prefix="bowser_export_", suffix=".tif")
     os.close(fd)
     try:
@@ -2404,11 +2589,6 @@ def export_geotiff(
         raise HTTPException(
             status_code=500, detail=f"GeoTIFF export failed: {exc}"
         ) from exc
-
-    name_parts = ([dataset] if dataset else []) + [variable]
-    if time_idx is not None:
-        name_parts.append(f"t{time_idx}")
-    filename = "_".join(name_parts) + ".tif"
 
     return FileResponse(
         tmp_path,

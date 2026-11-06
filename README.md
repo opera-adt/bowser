@@ -2,6 +2,8 @@
 
 Map-based viewer for InSAR time-series outputs — GeoZarr cubes, dolphin workflow directories, or loose GeoTIFFs — served through a local FastAPI server and rendered by titiler in the browser.
 
+GeoTIFF downloads include [export dates, source, mask, and reference provenance](docs/geotiff-export-provenance.md).
+
 ![](docs/demo-timeseries.jpg)
 
 ## Quickstart
