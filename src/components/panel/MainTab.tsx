@@ -216,7 +216,7 @@ export default function MainTab() {
       {/* ── LAYERS ── */}
       <div className="sidebar-section">
         <SectionHeader label="Layers" action={currentDatasetInfo || splitDatasetInfo ? (
-          <button type="button" className={`ov-icon-btn${showLayerInfo ? ' on' : ''}`} aria-pressed={showLayerInfo}
+          <button type="button" className={`ov-icon-btn${showLayerInfo ? ' on' : ''}`} data-command="panel.layer_info" aria-pressed={showLayerInfo}
             aria-label="Layer description" title={showLayerInfo ? 'Hide layer description' : 'Show layer description'}
             onClick={toggleLayerInfo}>
             <i className="fa-solid fa-circle-info" aria-hidden="true"></i>

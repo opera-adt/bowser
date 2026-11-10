@@ -2,27 +2,9 @@ import { useEffect, useState } from 'react';
 import { Bar } from 'react-chartjs-2';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Tooltip } from 'chart.js';
 import { useAppContext } from '../context/AppContext';
-import { withDataset } from '../hooks/useApi';
+import { cachedHistogram, fetchHistogram, presetRange, type HistogramData, type RangePreset } from '../utils/colorPresets';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip);
-
-interface HistogramData {
-  bins: number[];
-  counts: number[];
-  min: number;
-  max: number;
-  p2: number;
-  p98: number;
-  p16: number;
-  p84: number;
-  p23: number;
-  p977: number;
-}
-
-// Module-level cache: persists for the lifetime of the page, shared across
-// remounts. Key = "dataset:timeIndex". Avoids re-fetching histograms the user
-// has already seen when scrubbing the time slider back and forth.
-const histogramCache = new Map<string, HistogramData>();
 
 interface HistogramProps {
   // When provided, overrides the defaults drawn from state.
@@ -46,9 +28,7 @@ export default function Histogram({ dataset, vmin, vmax, onSetVmin, onSetVmax }:
 
   useEffect(() => {
     if (!effectiveDataset) return;
-    const cacheKey = `${effectiveDataset}:${state.currentTimeIndex}`;
-
-    const cached = histogramCache.get(cacheKey);
+    const cached = cachedHistogram(effectiveDataset, state.currentTimeIndex);
     if (cached) {
       setHistData(cached);
       return;
@@ -58,16 +38,8 @@ export default function Histogram({ dataset, vmin, vmax, onSetVmin, onSetVmax }:
     const timer = setTimeout(async () => {
       setLoading(true);
       try {
-        const params = withDataset(new URLSearchParams({ time_index: String(state.currentTimeIndex) }));
-        const res = await fetch(
-          `/histogram/${encodeURIComponent(effectiveDataset)}?${params}`,
-          { signal: controller.signal },
-        );
-        if (res.ok) {
-          const data = await res.json();
-          histogramCache.set(cacheKey, data);
-          setHistData(data);
-        }
+        const data = await fetchHistogram(effectiveDataset, state.currentTimeIndex, controller.signal);
+        if (data) setHistData(data);
       } catch (e) {
         if ((e as any).name !== 'AbortError') console.error('Error fetching histogram:', e);
       } finally {
@@ -77,35 +49,18 @@ export default function Histogram({ dataset, vmin, vmax, onSetVmin, onSetVmax }:
     return () => { clearTimeout(timer); controller.abort(); };
   }, [effectiveDataset, state.currentTimeIndex]);
 
-  const handleAutoScale = () => {
-    if (!histData) return;
-    setVmin(parseFloat(histData.p2.toFixed(4)));
-    setVmax(parseFloat(histData.p98.toFixed(4)));
+  // The buttons' ranges: src/utils/colorPresets.ts (also the Assistant's set_color_range).
+  const apply = (preset: RangePreset) => {
+    const r = presetRange(preset, histData, effectiveVmin, effectiveVmax);
+    if (!r) return;
+    setVmin(r[0]);
+    setVmax(r[1]);
   };
-
-  const handleFullScale = () => {
-    if (!histData) return;
-    setVmin(parseFloat(histData.min.toFixed(4)));
-    setVmax(parseFloat(histData.max.toFixed(4)));
-  };
-
-  const handleSigmaScale = () => {
-    if (!histData || histData.p16 == null || histData.p84 == null) return;
-    setVmin(parseFloat(histData.p16.toFixed(4)));
-    setVmax(parseFloat(histData.p84.toFixed(4)));
-  };
-
-  const handleTwoSigmaScale = () => {
-    if (!histData || histData.p23 == null || histData.p977 == null) return;
-    setVmin(parseFloat(histData.p23.toFixed(4)));
-    setVmax(parseFloat(histData.p977.toFixed(4)));
-  };
-
-  const handleCenterZero = () => {
-    const absMax = parseFloat(Math.max(Math.abs(effectiveVmin), Math.abs(effectiveVmax)).toFixed(4));
-    setVmin(-absMax);
-    setVmax(absMax);
-  };
+  const handleAutoScale = () => apply('2-98%');
+  const handleFullScale = () => apply('full');
+  const handleSigmaScale = () => apply('1sigma');
+  const handleTwoSigmaScale = () => apply('2sigma');
+  const handleCenterZero = () => apply('symmetric');
 
   if (!effectiveDataset || loading) {
     return <div className="histogram-loading">{loading ? 'Computing…' : ''}</div>;

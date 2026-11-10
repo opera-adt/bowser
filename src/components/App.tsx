@@ -14,6 +14,7 @@ applyTheme(readThemeChoice());
 /** MapLibre by default; Leaflet with ``?map=leaflet`` or when WebGL2 isn't available. */
 const USE_MAPLIBRE = chooseMap(window.location.search, browserHasWebGL2) === 'maplibre';
 import ControlPanel from './ControlPanel';
+import PageChannel from './PageChannel';
 import TimeSeriesChart from './TimeSeriesChart';
 import PointManagerPanel from './PointManagerPanel';
 import RefPointChart from './RefPointChart';
@@ -35,6 +36,8 @@ function AppContent() {
   const [operaLogo, setOperaLogo] = useState(false);
   const [sidebarHidden, setSidebarHidden] = useState(false);
   const [toolbarsVisible, setToolbarsVisible] = useState(true);
+  // Bowser's tools may act on this page (the server says so on the user's own computer).
+  const [pageChannel, setPageChannel] = useState(false);
 
   useEffect(() => {
     const initializeApp = async () => {
@@ -42,6 +45,7 @@ function AppContent() {
         // Fetch config (title), data mode, and datasets
         const [config, mode] = await Promise.all([fetchConfig(), fetchDataMode()]);
         setOperaLogo(config.opera_logo === true);
+        setPageChannel(config.assistant?.page_channel === true);
 
         if (config.title) {
           setAppTitle(config.title);
@@ -75,10 +79,12 @@ function AppContent() {
 
   return (
     <div className={`app-container${sidebarHidden ? ' sidebar-hidden' : ''}`}>
+      {pageChannel && <PageChannel />}
       <ControlPanel title={appTitle} operaLogo={operaLogo} />
       <div className="map-container">
         <button
           className="sidebar-toggle-btn"
+          data-command="panel.sidebar"
           onClick={() => setSidebarHidden(h => !h)}
           title={sidebarHidden ? 'Show sidebar' : 'Hide sidebar'}
         >

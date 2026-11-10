@@ -907,7 +907,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
         const custom = !!(state.dateRangeStart || state.dateRangeEnd)
           || activeChartDs.some(ds => (dsOffsets[ds] ?? 0) !== 0 || !!dsYLimits[ds]?.min || !!dsYLimits[ds]?.max);
         return (
-          <button type="button" className="chart-fold" aria-expanded={displayOpen} onClick={toggleDisplay}
+          <button type="button" className="chart-fold" data-command="chart.display_options" aria-expanded={displayOpen} onClick={toggleDisplay}
             title={custom ? 'Display options (a custom date range, offset or y limits applies)' : 'Display options'}>
             <span className={`disclosure-chevron${displayOpen ? ' open' : ''}`} aria-hidden="true" />
             Display options
