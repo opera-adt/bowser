@@ -232,6 +232,12 @@ describe('points and areas', () => {
     const [byUi] = pointsOf(live.state!);
     await tool('rename_point', { point: 'B', name: 'Dam crest' });
     expect({ ...pointsOf(live.state!)[1], position: byUi.position, color: byUi.color }).toEqual(byUi);
+    // The chart and its CSV call the series by its new name (its data came under the old one).
+    await until(() => !!series('Dam crest') && !series('A') && !series('B'));
+    fireEvent.click(screen.getByTitle('Export CSV'));
+    const csv = await new Promise<string>(done => { const r = new FileReader(); r.onload = () => done(String(r.result)); r.readAsText(saved.files[0].data as Blob); });
+    expect(csv).toContain('Time,Dam crest,Dam crest');
+    expect(csv.split('\n').find(l => l.startsWith('2020-02-01'))).toBe(`2020-02-01,${valueA(1)},${valueB(1)}`);
     const list = await tool('list_points');
     expect(list.points.map((p: any) => p.name)).toEqual(['Dam crest', 'Dam crest']);
     expect(list.points[0]).toMatchObject({ lat: 0.1, lon: 0.1, marker: 'circle', line: 'solid', visible: true });

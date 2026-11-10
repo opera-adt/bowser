@@ -358,8 +358,10 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
   const handleExportToCSV = useCallback(() => {
     if (!firstDs) return;
     // Exclude the fitted-trend line series (label "… trend") — keep real data series.
+    // Each series under its point's name now (a point renamed after its data came keeps it).
+    const nameOf = Object.fromEntries(state.timeSeriesPoints.map(p => [p.id, p.name]));
     const allDatasets = Object.entries(chartDataMap).flatMap(([dsName, cd]) =>
-      cd.datasets.filter(d => !d.label.endsWith(' trend')).map(d => ({ ...d, _dsName: dsName }))
+      cd.datasets.filter(d => !d.label.endsWith(' trend')).map(d => ({ ...d, label: nameOf[d.pointId] ?? d.label, _dsName: dsName }))
     );
     if (allDatasets.length === 0) return;
     const multiDs = activeDatasetsForChart.length > 1;
@@ -389,12 +391,12 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     const headers = ['Time', ...allDatasets.map(colName)];
     const byLabel: Record<string, Record<string, number>> = {};
     allDatasets.forEach(d => {
-      const key = multiDs ? `${d._dsName}::${d.label}` : d.label;
+      const key = `${d._dsName}::${d.pointId}`;
       d.data.forEach(pt => { (byLabel[pt.x as string] ??= {})[key] = pt.y; });
     });
     const allTimes = [...new Set(allDatasets.flatMap(d => d.data.map(pt => pt.x as string)))].sort();
     const rows = allTimes.map(t => [t, ...allDatasets.map(d => {
-      const key = multiDs ? `${d._dsName}::${d.label}` : d.label;
+      const key = `${d._dsName}::${d.pointId}`;
       return byLabel[t]?.[key]?.toString() ?? '';
     })]);
 
@@ -861,14 +863,15 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     const refIso = refAt === undefined || refAt === null ? null : toIsoDate(refAt);
 
     cd.datasets.forEach(dataset => {
-      const baseLabel = multiDs ? `${dataset.label} [${dsName}]` : dataset.label;
-      // The point's own colour and style (Style button), as on the map; a layer's colour
-      // (Display options) wins for that layer's series, so layers sharing the chart tell apart.
+      // The point's own name, colour and style (Points panel, Style button), as on the map; a layer's
+      // colour (Display options) wins for that layer's series, so layers sharing the chart tell apart.
       const point = state.timeSeriesPoints.find(p => p.id === dataset.pointId);
+      const name = point?.name ?? dataset.label;
+      const baseLabel = multiDs ? `${name} [${dsName}]` : name;
       const borderColor = dsColorOverrides[dsName] ?? point?.color ?? dataset.borderColor;
       const backgroundColor = `${borderColor}33`;
       const look = seriesStyle(point?.marker, point?.line, ms);
-      const tag = (role: SeriesTag['role']): SeriesTag => ({ kind: 'point', id: dataset.pointId, name: point?.name ?? dataset.label, layer: dsName, role });
+      const tag = (role: SeriesTag['role']): SeriesTag => ({ kind: 'point', id: dataset.pointId, name, layer: dsName, role });
 
       if (state.bufferEnabled) {
         const buf = bufferData[`${dsName}::${dataset.pointId}`];
