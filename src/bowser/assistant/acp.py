@@ -28,8 +28,9 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 PROTOCOL_VERSION = 1
-#: Seconds the page has to answer a permission request before it is declined.
-PERMISSION_SECONDS = 120.0
+#: Seconds the page has to answer a permission request before it is declined
+#: (``BOWSER_ASSISTANT_PERMISSION_SECONDS`` changes it).
+PERMISSION_SECONDS = 600.0
 #: Seconds to start the agent and its session (npx may download the adapter).
 START_SECONDS = 180.0
 #: A message line longer than this is dropped (a broken or hostile agent).
@@ -70,6 +71,23 @@ def tool_name(update: dict[str, Any], known: set[str]) -> str:
     return str(title)[:200] if isinstance(title, str) and title else "tool"
 
 
+def bowser_tool(call: dict[str, Any], known: set[str]) -> str | None:
+    """Return the Bowser MCP tool a permission request is for, strictly, or None.
+
+    Only a name of the form ``mcp__bowser__<tool>`` (Claude Code's own) with a
+    known tool counts, so auto-allow never covers another server's tool.
+    """
+    meta = (call.get("_meta") or {}).get("claudeCode") or {}
+    for text in (meta.get("toolName"), call.get("title")):
+        if isinstance(text, str):
+            m = re.fullmatch(
+                rf"mcp__{MCP_NAME}__([A-Za-z_][A-Za-z0-9_]*)", text.strip()
+            )
+            if m and m.group(1) in known:
+                return m.group(1)
+    return None
+
+
 class AgentSession:
     """One agent process and its ACP session.
 
@@ -107,12 +125,26 @@ class AgentSession:
         self._ids = itertools.count(1)
         self._calls: dict[int, asyncio.Future] = {}
         self._events: asyncio.Queue[dict[str, Any] | None] | None = None
-        self._permissions: dict[str, tuple[Any, list[dict], asyncio.TimerHandle]] = {}
+        self._permissions: dict[
+            str, tuple[Any, list[dict], asyncio.TimerHandle, str | None]
+        ] = {}
         self._perm_ids = itertools.count(1)
         self._tools: dict[str, dict[str, Any]] = {}
         self._reader: asyncio.Task | None = None
         self._stderr: list[str] = []
         self.busy = False
+        #: Allow Bowser's own tools without asking the page (the page's toggle).
+        self.auto_allow = False
+        #: Bowser's tools that never ask (they read, or only move the map).
+        self.quiet: set[str] = set()
+        #: Tools the user chose "Always allow" for, this session.
+        self.always: set[str] = set()
+        #: Seconds a permission request waits for the page.
+        self.permission_seconds = PERMISSION_SECONDS
+        #: Tool calls per question (0: no limit); past it, permissions are
+        #: declined and the turn is cancelled.
+        self.budget = 0
+        self._tool_calls = 0
 
     @property
     def alive(self) -> bool:
@@ -345,7 +377,7 @@ class AgentSession:
             }
             self._tools[tid] = info
             del_old(self._tools, 500)
-            return [
+            out = [
                 {
                     "type": "tool_call",
                     "id": tid,
@@ -354,6 +386,12 @@ class AgentSession:
                     "runs": "agent",
                 }
             ]
+            self._tool_calls += 1
+            if self.budget and self._tool_calls == self.budget + 1:
+                out.append({"type": "budget", "limit": self.budget})
+            if self.budget and self._tool_calls > self.budget + 2:
+                asyncio.ensure_future(self.cancel())
+            return out
         if kind == "tool_call_update":
             tid = str(u.get("toolCallId") or "")[:200]
             entry = self._tools.get(tid)
@@ -394,10 +432,39 @@ class AgentSession:
             detail = f"(an input of {len(detail)} characters, too long to show)"
         name = tool_name(call, self.known) if call else info.get("name", "tool")
         key = f"p{next(self._perm_ids)}"
+        if self.budget and self._tool_calls > self.budget:
+            reject = next(
+                (o["id"] for o in options if o["kind"].startswith("reject")), None
+            )
+            outcome = (
+                {"outcome": "selected", "optionId": reject}
+                if reject is not None
+                else {"outcome": "cancelled"}
+            )
+            with contextlib.suppress(AgentError):
+                self._send({"id": rid, "result": {"outcome": outcome}})
+            return
+        tool = bowser_tool(call, self.known)
+        # Bowser's tools that only read (or only move the map) never ask; with
+        # auto-allow none of Bowser's tools ask, and "Always allow" covers a tool
+        # for the rest of the session. Any other tool asks.
+        if tool and (self.auto_allow or tool in self.quiet or tool in self.always):
+            allow = next((o["id"] for o in options if o["kind"] == "allow_once"), None)
+            if allow is not None:
+                with contextlib.suppress(AgentError):
+                    self._send(
+                        {
+                            "id": rid,
+                            "result": {
+                                "outcome": {"outcome": "selected", "optionId": allow}
+                            },
+                        }
+                    )
+                return
         timer = asyncio.get_running_loop().call_later(
-            PERMISSION_SECONDS, self._settle, key, None, "timeout"
+            self.permission_seconds, self._settle, key, None, "timeout"
         )
-        self._permissions[key] = (rid, options, timer)
+        self._permissions[key] = (rid, options, timer, tool)
         self._emit(
             {
                 "type": "permission",
@@ -406,7 +473,7 @@ class AgentSession:
                 "title": str(call.get("title") or name)[:200],
                 "detail": detail,
                 "options": [{"kind": o["kind"], "name": o["name"]} for o in options],
-                "timeout": PERMISSION_SECONDS,
+                "timeout": self.permission_seconds,
             }
         )
 
@@ -418,6 +485,9 @@ class AgentSession:
         """
         if key not in self._permissions:
             return False
+        tool = self._permissions[key][3]
+        if choice == "allow_always" and tool:
+            self.always.add(tool)
         kinds = {
             "allow": ("allow_once",),
             "allow_always": ("allow_always", "allow_once"),
@@ -431,7 +501,7 @@ class AgentSession:
         entry = self._permissions.pop(key, None)
         if entry is None:
             return
-        rid, options, timer = entry
+        rid, options, timer, _tool = entry
         timer.cancel()
         if kinds is None:
             kinds = ("reject_once", "reject_always")
@@ -455,6 +525,7 @@ class AgentSession:
         if self.session_id is None:
             raise AgentError(f"{self.label} has no session.")
         self.busy = True
+        self._tool_calls = 0
         self._events = asyncio.Queue()
         answer: list[str] = []
         task = asyncio.ensure_future(

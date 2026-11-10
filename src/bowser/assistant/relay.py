@@ -61,6 +61,12 @@ from .providers import (
 
 #: Model replies per request before the loop stops (each may run tools).
 MAX_STEPS = 12
+#: Tool calls per question (data and page tools) before the loop stops; a call
+#: like one already made costs double, the same call again is refused.
+#: ``BOWSER_ASSISTANT_TOOL_BUDGET`` changes it.
+TOOL_BUDGET = 8
+#: Longest page context sent to the model (characters of JSON).
+CONTEXT_CHARS = 2000
 #: A tool result longer than this is cut (the model reads it on every turn).
 RESULT_CHARS = 24_000
 #: Seconds a provider's model list is kept (``GET /assistant/models``).
@@ -73,8 +79,9 @@ LOOPBACK = {"127.0.0.1", "::1", "localhost"}
 SYSTEM = """\
 You are the Assistant in Bowser's web page, next to the user's map and chart.
 Answer with Bowser's tools: the data tools read the cube the page shows, and the
-page tools act on the page (fly the map, add a time-series point, set the
-reference point or date, switch the layer, open the chart, add an overlay).
+page tools act on the page (move the map, add a time-series point, set the
+reference point or date, masks, colours, split screen, terrain, switch the layer,
+open the chart, and the toolbar and panel commands).
 Points and areas you read with the data tools are added to the map and chart for
 the user automatically. Each user message starts with the page's state in
 [page: ...]: use its layer, reference point and view unless the user asks for
@@ -86,9 +93,11 @@ what they are relative to.
 
 SYSTEM_AGENT = """\
 You are the Assistant in Bowser's web page, next to the user's map and chart.
-Answer with the tools of the `bowser` MCP server: they read the cube the page
-shows. Points and areas you read with them are added to the user's map and chart
-automatically; you cannot move the map yourself. Each user message starts with
+Answer with the tools of the `bowser` MCP server: its data tools read the cube
+the page shows, and its page tools act on the user's open page (move the map,
+add points, set the reference, masks and colours, and the toolbar and panel
+commands). Points and areas you read with the data tools are added to the
+user's map and chart automatically. Each user message starts with
 the page's state in [page: ...]: use its layer, dataset, reference point and
 view unless the user asks for something else. Keep answers short and plain; give
 numbers with their unit and what they are relative to.
@@ -165,7 +174,13 @@ def assistant_config(settings: Any, ollama: Ollama | None = None) -> dict[str, A
     ``ollama`` program without starting it, so it is cheap.
     """
     if not settings.BOWSER_ASSISTANT:
-        return {"enabled": False, "providers": [], "configured": [], "sign_in": []}
+        return {
+            "enabled": False,
+            "providers": [],
+            "configured": [],
+            "sign_in": [],
+            "page_channel": False,
+        }
     store = key_store(settings)
     installed = (ollama or get_ollama()).binary() is not None
     providers = [p for p in PRESETS if p.available and (p.id != "ollama" or installed)]
@@ -182,6 +197,7 @@ def assistant_config(settings: Any, ollama: Ollama | None = None) -> dict[str, A
         "sign_in": [m.id for m in signin.METHODS]
         if settings.BOWSER_ASSISTANT_PAGE_KEYS
         else [],
+        "page_channel": bool(settings.BOWSER_ASSISTANT_PAGE_KEYS),
     }
 
 
@@ -417,6 +433,22 @@ class ChatBody(BaseModel):
     dataset: str | None = Field(
         None, description="The page's catalog dataset id, for the data tools."
     )
+    page_masks: list[dict[str, Any]] | None = Field(
+        None,
+        max_length=20,
+        description="The page's layer masks ({dataset, threshold, mode}), applied "
+        "by the data tools that take use_page_masks.",
+    )
+    auto_allow: bool = Field(
+        False,
+        description="A signed-in agent runs Bowser's own tools without asking.",
+    )
+    page_context: dict[str, Any] | None = Field(
+        None,
+        description="What the page shows now (view, layer, date, reference, "
+        "masks, points, split screen, terrain, selection), told to the model "
+        "with this question.",
+    )
 
 
 class SignInBody(BaseModel):
@@ -622,10 +654,20 @@ async def assistant_chat(
             status_code=400, detail=f"Add an API key for {p.label} first."
         )
     provider = open_provider(p, model, key)
-    tools = _data_tools(request, page_keys=bool(settings.BOWSER_ASSISTANT_PAGE_KEYS))
-    page = _page_tools(body.page_tools, set(tools))
+    tools = _data_tools(
+        request, bool(settings.BOWSER_ASSISTANT_PAGE_KEYS), body.page_masks
+    )
+    page = _page_tools(body.page_tools, tools)
     return EventStream(
-        run_chat(provider, body.messages, tools, page, body.dataset),
+        run_chat(
+            provider,
+            body.messages,
+            tools,
+            page,
+            body.dataset,
+            body.page_context,
+            tool_budget(settings),
+        ),
         headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
     )
 
@@ -664,10 +706,18 @@ async def _signed_in_chat(request: Request, body: ChatBody, settings: Any):
             SIGNIN_TRANSPORT,
             reasoning=reasoning,
         )
-        tools = _data_tools(request, page_keys=True)
-        page = _page_tools(body.page_tools, set(tools))
+        tools = _data_tools(request, True, body.page_masks)
+        page = _page_tools(body.page_tools, tools)
         return EventStream(
-            run_chat(provider, body.messages, tools, page, body.dataset),
+            run_chat(
+                provider,
+                body.messages,
+                tools,
+                page,
+                body.dataset,
+                body.page_context,
+                tool_budget(settings),
+            ),
             headers=headers,
         )
     if not body.conversation:
@@ -676,8 +726,18 @@ async def _signed_in_chat(request: Request, body: ChatBody, settings: Any):
     rec = await asyncio.to_thread(store.account, m.id)
     if not (state.installed and state.signed_in and rec.get("connected")):
         raise HTTPException(status_code=400, detail=f"{m.label} first.")
-    tools = _data_tools(request, page_keys=True)
-    return EventStream(run_agent(m, store, request, body, set(tools)), headers=headers)
+    tools = _data_tools(request, True)
+    quiet = {name for name, t in tools.items() if t.quiet}
+    seconds = float(
+        getattr(settings, "BOWSER_ASSISTANT_PERMISSION_SECONDS", 0)
+        or acp.PERMISSION_SECONDS
+    )
+    return EventStream(
+        run_agent(
+            m, store, request, body, set(tools), tool_budget(settings), quiet, seconds
+        ),
+        headers=headers,
+    )
 
 
 def _agent_argv(m: signin.Method) -> tuple[list[str], dict[str, str]]:
@@ -724,6 +784,9 @@ async def run_agent(
     request: Request,
     body: ChatBody,
     known: set[str],
+    budget: int = TOOL_BUDGET,
+    quiet: set[str] | None = None,
+    permission_seconds: float = acp.PERMISSION_SECONDS,
 ) -> AsyncIterator[str]:
     """Hand the question to the signed-in agent; yield server-sent events."""
     from ..tools import INSTRUCTIONS  # noqa: PLC0415
@@ -771,6 +834,13 @@ async def run_agent(
             finished = True
             return
         assert session is not None
+        session.auto_allow = body.auto_allow
+        session.budget = budget
+        session.quiet = quiet or set()
+        session.permission_seconds = permission_seconds
+        context = page_context_text(body.page_context)
+        if context:
+            text = f"[page: {context}]\n\n{text}"
         async for event in session.prompt(text):
             if event["type"] == "done":
                 answer = event.pop("text", "")
@@ -789,11 +859,17 @@ async def run_agent(
                 await acp.stop(conv)
 
 
-def _data_tools(request: Request, page_keys: bool) -> dict[str, Any]:
-    """Return Bowser's data tools, calling this app in-process.
+def _data_tools(
+    request: Request,
+    page_keys: bool,
+    page_masks: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Return Bowser's tools, the data tools calling this app in-process.
 
-    A tool that writes files (``export_geotiff``) is offered only where the page
-    may set keys, i.e. on the user's own computer.
+    The page tools are among them (``spec.page``): the page runs those. A tool
+    that writes files (``export_geotiff``) is offered only where the page may set
+    keys, i.e. on the user's own computer. ``page_masks`` are the page's masks,
+    which the data tools apply by default.
     """
     import httpx  # noqa: PLC0415
 
@@ -807,14 +883,29 @@ def _data_tools(request: Request, page_keys: bool) -> dict[str, Any]:
         httpx.ASGITransport(app=request.app),
         headers=headers,
     )
-    return {s.name: s for s in build_tools(bowser) if s.read_only or page_keys}
+    bowser.page_masks = page_masks
+    return {
+        s.name: s for s in build_tools(bowser) if s.read_only or s.page or page_keys
+    }
 
 
-def _page_tools(specs: list[dict[str, Any]], taken: set[str]) -> list[dict]:
-    """Check the page's tool specs: a name, a description and an object schema."""
-    out = []
+def _page_tools(specs: list[dict[str, Any]], tools: dict[str, Any]) -> list[dict]:
+    """Return the page tools: Bowser's own, and any extra the page sends.
+
+    The page's specs are checked (a name, a description and an object schema);
+    one with the name of a Bowser page tool is left out (Bowser's spec is used).
+    """
+    out = [
+        {"name": t.name, "description": t.description, "input_schema": t.input_schema}
+        for t in tools.values()
+        if t.page
+    ]
+    own = {t["name"] for t in out}
+    taken = set(tools)
     for s in specs:
         name = s.get("name")
+        if name in own:
+            continue
         schema = s.get("input_schema")
         if (
             not isinstance(name, str)
@@ -839,12 +930,97 @@ def _event(data: dict[str, Any]) -> str:
     return f"data: {json.dumps(data, separators=(',', ':'))}\n\n"
 
 
+def tool_budget(settings: Any) -> int:
+    """Return the tool calls allowed per question."""
+    value = getattr(settings, "BOWSER_ASSISTANT_TOOL_BUDGET", 0)
+    return int(value) if value and int(value) > 0 else TOOL_BUDGET
+
+
+def page_context_text(context: dict[str, Any] | None) -> str:
+    """Return the page's context as compact JSON, cut to :data:`CONTEXT_CHARS`."""
+    if not context:
+        return ""
+    text = json.dumps(context, separators=(",", ":"), default=str)
+    return text if len(text) <= CONTEXT_CHARS else text[:CONTEXT_CHARS] + "…"
+
+
+def _call_keys(name: str, args: Any) -> tuple[str, str]:
+    """Return ``(exact, near)`` keys of a tool call: near rounds numbers to ~100 m."""
+
+    def near(v: Any) -> Any:
+        if isinstance(v, float):
+            return round(v, 3)
+        if isinstance(v, dict):
+            return {k: near(x) for k, x in v.items()}
+        if isinstance(v, list):
+            return [near(x) for x in v]
+        return v
+
+    exact = json.dumps([name, args], sort_keys=True, default=str)
+    return exact, json.dumps([name, near(args)], sort_keys=True, default=str)
+
+
+class ToolBudget:
+    """The tool calls of one question: what they cost and which were made.
+
+    Each call costs 1, a call like an earlier one (numbers within ~100 m) 2, and
+    the same call again is refused. ``messages`` are the conversation so far:
+    the calls since the user's last message count (the question may span
+    several requests when the page runs tools).
+    """
+
+    def __init__(
+        self, limit: int, messages: list[dict[str, Any]] | None = None
+    ) -> None:
+        """Start with the calls already made for this question in ``messages``."""
+        self.limit = limit
+        self.used = 0
+        self.exact: set[str] = set()
+        self.near: set[str] = set()
+        messages = list(messages or [])
+        last_user = max(
+            (i for i, m in enumerate(messages) if m.get("role") == "user"), default=-1
+        )
+        for m in messages[last_user + 1 :]:
+            if m.get("role") == "assistant":
+                for c in m.get("tool_calls") or []:
+                    self.charge(str(c.get("name")), c.get("input"))
+
+    def charge(self, name: str, args: Any) -> str | None:
+        """Count a call; return why it is refused, or None."""
+        exact, near = _call_keys(name, args)
+        if exact in self.exact:
+            return (
+                f"Not run: {name} was already called with these arguments for this "
+                "question; use that result."
+            )
+        cost = 2 if near in self.near else 1
+        if self.used + cost > self.limit:
+            self.used = max(self.used, self.limit)
+            return (
+                f"Not run: the limit of {self.limit} tool calls for one question is "
+                "reached. Answer with what you have, or ask the user (for example to "
+                "click the place on the map)."
+            )
+        self.used += cost
+        self.exact.add(exact)
+        self.near.add(near)
+        return None
+
+    @property
+    def spent(self) -> bool:
+        """Whether no call is left."""
+        return self.used >= self.limit
+
+
 async def run_chat(
     provider: Any,
     messages: list[dict[str, Any]],
     tools: dict[str, Any],
     page_tools: list[dict],
     dataset: str | None = None,
+    page_context: dict[str, Any] | None = None,
+    budget: int = TOOL_BUDGET,
 ) -> AsyncIterator[str]:
     """Run the tool loop; yield server-sent events.
 
@@ -860,16 +1036,35 @@ async def run_chat(
         The page's tools (name, description, input_schema), run by the page.
     dataset : str, optional
         The page's catalog dataset id, given to data tools that take one.
+    page_context : dict, optional
+        What the page shows now, told to the model in the system prompt.
+    budget : int
+        Tool calls allowed for this question (see :class:`ToolBudget`).
 
     """
     from ..tools import INSTRUCTIONS  # noqa: PLC0415
 
     system = SYSTEM + INSTRUCTIONS
+    context = page_context_text(page_context)
+    if context:
+        system += (
+            "\n\nThe page now (use it for 'here', 'this area', 'the middle of the "
+            f"view', 'my point'; no tool call needed): {context}"
+        )
+    spend = ToolBudget(budget, messages)
+    told = spend.spent
+    refused_before = False
+    if told:
+        system += (
+            f"\n\nNo tool calls are left for this question (limit {spend.limit}): "
+            "answer now with what you have, or ask the user."
+        )
+    page_names = {t["name"] for t in page_tools}
     specs = [
         {"name": s.name, "description": s.description, "input_schema": s.input_schema}
         for s in tools.values()
+        if s.name not in page_names
     ] + page_tools
-    page_names = {t["name"] for t in page_tools}
     messages = list(messages)
     for _ in range(MAX_STEPS):
         turn = None
@@ -901,9 +1096,11 @@ async def run_chat(
             return
         results: list[dict[str, Any]] = []
         waiting: list[dict[str, Any]] = []
+        refused = 0
         for call in turn.tool_calls:
             spec = tools.get(call.name)
-            if call.name in page_names:
+            why = spend.charge(call.name, call.input)
+            if why is None and call.name in page_names:
                 waiting.append({"id": call.id, "name": call.name, "input": call.input})
                 continue
             yield _event(
@@ -915,7 +1112,10 @@ async def run_chat(
                     "runs": "server",
                 }
             )
-            if spec is None:
+            if why is not None:
+                content, ok, result = why, False, None
+                refused += 1
+            elif spec is None:
                 content, ok, result = f"No tool named {call.name!r}.", False, None
             else:
                 content, ok, result = await _run_tool(spec, call.input, dataset)
@@ -937,6 +1137,13 @@ async def run_chat(
                     "result": result if ok else content,
                 }
             )
+        if spend.spent and not told:
+            told = True
+            yield _event({"type": "budget", "limit": spend.limit})
+            system += (
+                f"\n\nNo tool calls are left for this question (limit {spend.limit}): "
+                "answer now with what you have, or ask the user."
+            )
         if waiting:
             yield _event({"type": "page_tools", "calls": waiting, "results": results})
             yield _event({"type": "done", "stop": "page_tools"})
@@ -944,6 +1151,11 @@ async def run_chat(
         tool_msg = {"role": "tool", "results": results}
         messages.append(tool_msg)
         yield _event({"type": "message", "message": tool_msg})
+        if told and refused == len(turn.tool_calls) and refused_before:
+            # Told twice and still calling tools: stop here.
+            yield _event({"type": "done", "stop": "budget"})
+            return
+        refused_before = told and refused == len(turn.tool_calls)
     yield _event({"type": "done", "stop": "max_steps"})
 
 

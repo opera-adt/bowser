@@ -8,13 +8,17 @@ like an agent CLI such as Claude Code's ACP adapter:
   mode, so the client must switch it to ``default``;
 - ``session/prompt``: announces a ``list_layers`` tool call, asks permission,
   and when allowed calls the tool through MCP and answers with the layer names;
-  when declined it says so. A prompt with "hang" starts a child process and never
-  answers (to test that Stop kills both).
+  when declined it says so. A prompt with lines ``CALL <tool> <json>`` runs
+  those Bowser tools instead (each asked for) and answers with their results as
+  JSON; ``ASK <tool>`` asks for another tool without running it. A prompt
+  with "hang" starts a child process and never answers (to test that Stop
+  kills both).
 
 Writes what it saw to ``<out>/`` (argv[1]): ``env.json``, ``new.json``,
 ``pids.txt``, ``modes.json``.
 """
 
+import itertools
 import json
 import os
 import subprocess
@@ -28,6 +32,7 @@ OUT.mkdir(parents=True, exist_ok=True)
 lock = threading.Lock()
 answers: dict = {}
 waiting: dict = {}
+request_ids = itertools.count(900)
 mcp = None
 session_id = "fake-session-1"
 
@@ -82,8 +87,8 @@ class MCP:
                 return msg
 
 
-def ask_permission(call_id):
-    rid = 900 + len(waiting)
+def ask_permission(call_id, title="mcp__bowser__list_layers", raw=None):
+    rid = next(request_ids)
     ev = threading.Event()
     waiting[rid] = ev
     send(
@@ -94,8 +99,8 @@ def ask_permission(call_id):
                 "sessionId": session_id,
                 "toolCall": {
                     "toolCallId": call_id,
-                    "title": "mcp__bowser__list_layers",
-                    "rawInput": {},
+                    "title": title,
+                    "rawInput": raw or {},
                 },
                 "options": [
                     {"optionId": "yes", "name": "Allow", "kind": "allow_once"},
@@ -109,7 +114,72 @@ def ask_permission(call_id):
     return answers.pop(rid)
 
 
+def run_calls(rid, lines):
+    """Lines ``CALL <tool> <json args>`` (Bowser's MCP tools, each asked for) or
+    ``ASK <tool>`` (another tool, asked for but never run); answer with the results."""
+    results = []
+    for n, line in enumerate(lines, start=1):
+        word, name, *rest = line.split(" ", 2)
+        call_id = f"t{n}"
+        title = f"mcp__bowser__{name}" if word == "CALL" else name
+        args = json.loads(rest[0]) if rest else {}
+        update(
+            {
+                "sessionUpdate": "tool_call",
+                "toolCallId": call_id,
+                "title": title,
+                "kind": "other",
+                "status": "pending",
+                "rawInput": args,
+                "_meta": {"claudeCode": {"toolName": title}},
+            }
+        )
+        outcome = ask_permission(call_id, title, args).get("outcome", {})
+        if outcome.get("optionId") not in ("yes", "always"):
+            results.append({"tool": name, "allowed": False})
+            update(
+                {
+                    "sessionUpdate": "tool_call_update",
+                    "toolCallId": call_id,
+                    "status": "failed",
+                }
+            )
+            continue
+        if word != "CALL":
+            results.append({"tool": name, "allowed": True})
+            continue
+        res = mcp.call("tools/call", {"name": name, "arguments": args})
+        result = res.get("result") or {}
+        content = (result.get("content") or [{}])[0].get("text") or ""
+        try:
+            value = json.loads(content)
+        except ValueError:
+            value = content
+        ok = not result.get("isError")
+        results.append({"tool": name, "ok": ok, "result": value})
+        update(
+            {
+                "sessionUpdate": "tool_call_update",
+                "toolCallId": call_id,
+                "status": "completed" if ok else "failed",
+            }
+        )
+    update(
+        {
+            "sessionUpdate": "agent_message_chunk",
+            "content": {"type": "text", "text": json.dumps(results)},
+        }
+    )
+    send({"id": rid, "result": {"stopReason": "end_turn"}})
+
+
 def run_prompt(rid, text):
+    calls = [
+        x.strip() for x in text.splitlines() if x.strip().startswith(("CALL ", "ASK "))
+    ]
+    if calls:
+        run_calls(rid, calls)
+        return
     if "hang" in text:
         child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)"])
         (OUT / "pids.txt").write_text(f"{os.getpid()} {child.pid}")
