@@ -131,3 +131,26 @@ def test_save_file_cancelled_writes_nothing(tmp_path, monkeypatch):
     api.window = _FakeWindow(None)
     assert api.save_file("x.txt", "eA==") is None
     assert list(tmp_path.iterdir()) == []
+
+def test_missing_std_streams_go_to_a_log_file(tmp_path, monkeypatch):
+    # A windowed app on Windows has no console: stdout and stderr are None, and
+    # uvicorn's log setup used to crash on them ("Unable to configure formatter").
+    uvicorn = pytest.importorskip("uvicorn")
+    monkeypatch.setattr(sys, "stdout", None)
+    monkeypatch.setattr(sys, "stderr", None)
+    desktop.ensure_std_streams(tmp_path)
+    try:
+        uvicorn.Config(lambda *_: None, log_level="warning")
+        print("hello", flush=True)
+    finally:
+        log = sys.stdout
+        monkeypatch.undo()
+        log.close()
+    assert "hello" in (tmp_path / "bowser.log").read_text()
+
+
+def test_std_streams_are_left_alone_with_a_console(tmp_path):
+    out, err = sys.stdout, sys.stderr
+    desktop.ensure_std_streams(tmp_path)
+    assert (sys.stdout, sys.stderr) == (out, err)
+    assert not (tmp_path / "bowser.log").exists()

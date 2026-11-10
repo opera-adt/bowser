@@ -58,6 +58,22 @@ def user_dir() -> Path:
     return base
 
 
+def ensure_std_streams(folder: Path) -> None:
+    """Point a missing ``sys.stdout``/``sys.stderr`` at ``folder/bowser.log``.
+
+    A windowed (no console) app on Windows starts with both set to None, and
+    uvicorn's log formatter calls ``isatty()`` on them, so the app crashed at
+    start. The log file also gives users something to send when it fails.
+    """
+    if sys.stdout is not None and sys.stderr is not None:
+        return
+    log = open(folder / "bowser.log", "a", encoding="utf-8", buffering=1)  # noqa: SIM115
+    if sys.stdout is None:
+        sys.stdout = log
+    if sys.stderr is None:
+        sys.stderr = log
+
+
 def free_port() -> int:
     """Return a port nothing listens on, picked by the OS."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -170,7 +186,9 @@ def run(browser: bool = False, server: str | None = None) -> None:
 
     The server is lite unless ``server`` or ``$BOWSER_SERVER`` say full.
     """
-    os.environ.update(desktop_env(user_dir()))
+    folder = user_dir()
+    ensure_std_streams(folder)
+    os.environ.update(desktop_env(folder))
     local = LocalServer(server=server)
     print(f"Starting Bowser on {local.url} …", flush=True)
     local.start()
