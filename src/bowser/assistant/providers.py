@@ -12,8 +12,8 @@ next turn in the same format:
 - ``{"role": "tool", "results": [{"id", "name", "content", "is_error"}]}``.
 
 Wire formats: Anthropic Messages (through the official ``anthropic`` SDK),
-OpenAI Chat Completions (also OpenRouter and Ollama) and Gemini
-``streamGenerateContent``. The mapping follows RustGIS
+OpenAI Chat Completions (also OpenRouter and Ollama), Gemini
+``streamGenerateContent`` and OpenAI Responses (ChatGPT sign-in). The mapping follows RustGIS
 (crates/assistant/src/provider.rs).
 
 Imports ``httpx`` and ``anthropic`` only when a provider is used: they come with
@@ -115,18 +115,19 @@ PRESETS: tuple[Preset, ...] = (
         key_url="https://ollama.com/download",
         auth="none",
     ),
-    # The seam for OpenAI's "Sign in with ChatGPT" for open-source apps: an
-    # account sign-in that would use the Responses API. Listed, not built.
-    Preset(
-        id="chatgpt",
-        label="Sign in with ChatGPT",
-        wire="responses",
-        base_url="",
-        model="",
-        auth="sign_in",
-        available=False,
-        note="Coming in a later version.",
-    ),
+)
+
+
+#: ChatGPT through "Sign in with ChatGPT" (:mod:`.signin`): the Responses API with
+#: the account's OAuth access token. Not in :data:`PRESETS`, whose providers take
+#: an API key; its models come from the account (``GET /v1/models``).
+CHATGPT = Preset(
+    id="chatgpt",
+    label="ChatGPT",
+    wire="responses",
+    base_url="https://api.openai.com/v1",
+    model="",
+    auth="sign_in",
 )
 
 
@@ -182,11 +183,14 @@ class ProviderError(RuntimeError):
     the key.
     """
 
-    def __init__(self, kind: str, message: str, status: int | None = None) -> None:
-        """Keep ``kind`` and ``status`` with the message."""
+    def __init__(
+        self, kind: str, message: str, status: int | None = None, code: str = ""
+    ) -> None:
+        """Keep ``kind``, ``status`` and the provider's error ``code``."""
         super().__init__(message)
         self.kind = kind
         self.status = status
+        self.code = code
 
 
 def _kind(status: int) -> str:
@@ -810,10 +814,272 @@ def _has_fallback(model: str) -> bool:
     )
 
 
+#: The namespace the Responses API groups Bowser's function tools in.
+TOOL_NAMESPACE = "bowser"
+#: Fields OpenAI may add to output items that are not sent back.
+_SERVER_FIELDS = ("id", "status")
+#: ``subscription_sharing_*`` error codes and what they mean for the user.
+_PLAN_ERRORS = {
+    "subscription_sharing_usage_limit_exceeded": "rate_limit",
+    "subscription_sharing_usage_unavailable": "provider_down",
+    "subscription_sharing_user_not_eligible": "auth",
+    "subscription_sharing_invalid_user": "auth",
+    "subscription_sharing_unsupported_capability": "bad_request",
+    "subscription_sharing_route_not_supported": "bad_request",
+}
+
+
+class ResponsesProvider(Provider):
+    """OpenAI Responses API (``POST /responses``) with a ChatGPT sign-in token.
+
+    Follows OpenAI's "Sign in with ChatGPT" for open-source apps: ``store`` false
+    and ``stream`` true on every request, the whole conversation in ``input``,
+    the system text in ``instructions``, function tools grouped in a namespace,
+    and a reply counted only once ``response.completed`` arrives. An earlier
+    reply goes back exactly as it came (reasoning items with their encrypted
+    content), without the server's item ids.
+    """
+
+    def __init__(self, *args: Any, reasoning: bool = True, **kwargs: Any) -> None:
+        """Set up the provider; ``reasoning`` for models that support it."""
+        super().__init__(*args, **kwargs)
+        self.reasoning = reasoning
+
+    def _headers(self) -> dict[str, str]:
+        return {
+            "Authorization": f"Bearer {self._key}",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+        }
+
+    @staticmethod
+    def request_input(messages: list[dict]) -> list[dict]:
+        """Return the conversation as Responses API input items."""
+        out: list[dict] = []
+        for m in messages:
+            if m["role"] == "user":
+                out.append(
+                    {
+                        "type": "message",
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": m["content"]}],
+                    }
+                )
+            elif m["role"] == "assistant":
+                native = m.get("native") or {}
+                if native.get("wire") == "responses":
+                    out.extend(native["content"])
+                    continue
+                if m["content"]:
+                    out.append(
+                        {
+                            "type": "message",
+                            "role": "assistant",
+                            "content": [{"type": "output_text", "text": m["content"]}],
+                        }
+                    )
+                out.extend(
+                    {
+                        "type": "function_call",
+                        "call_id": c["id"],
+                        "name": c["name"],
+                        "arguments": json.dumps(c["input"]),
+                    }
+                    for c in m.get("tool_calls") or []
+                )
+            elif m["role"] == "tool":
+                out.extend(
+                    {
+                        "type": "function_call_output",
+                        "call_id": r["id"],
+                        "output": r["content"],
+                    }
+                    for r in m["results"]
+                )
+        return out
+
+    def request(self, system: str, messages: list[dict], tools: list[dict]) -> dict:
+        """Return the request body."""
+        body: dict[str, Any] = {
+            "model": self.model,
+            "instructions": system,
+            "input": self.request_input(messages),
+            "stream": True,
+            "store": False,
+        }
+        if self.reasoning:
+            body["reasoning"] = {"effort": "medium"}
+            body["include"] = ["reasoning.encrypted_content"]
+        if tools:
+            body["tools"] = [
+                {
+                    "type": "namespace",
+                    "name": TOOL_NAMESPACE,
+                    "description": "Bowser's tools: the data on the user's map.",
+                    "tools": [
+                        {
+                            "type": "function",
+                            "name": t["name"],
+                            "description": t["description"],
+                            "parameters": t["input_schema"],
+                            "strict": False,
+                        }
+                        for t in tools
+                    ],
+                }
+            ]
+            body["tool_choice"] = "auto"
+            body["parallel_tool_calls"] = True
+        return body
+
+    async def stream(self, system, messages, tools):
+        """Stream one reply; tool calls are read from the completed items."""
+        import httpx  # noqa: PLC0415
+
+        label = self.preset.label
+        items: list[dict] = []
+        text: list[str] = []
+        completed = False
+        try:
+            async with (
+                self._client() as client,
+                client.stream(
+                    "POST",
+                    f"{self.base_url}/responses",
+                    headers=self._headers(),
+                    json=self.request(system, messages, tools),
+                ) as r,
+            ):
+                if r.status_code >= 400:
+                    raise _plan_error(label, r.status_code, (await r.aread()).decode())
+                async for data in _sse(r.aiter_lines()):
+                    try:
+                        event = json.loads(data)
+                    except ValueError:
+                        continue
+                    kind = event.get("type")
+                    if kind == "response.output_text.delta" and event.get("delta"):
+                        text.append(event["delta"])
+                        yield "text", event["delta"]
+                    elif kind == "response.output_item.done":
+                        item = event.get("item")
+                        if isinstance(item, dict):
+                            items.append(item)
+                    elif kind == "response.completed":
+                        completed = True
+                        final = (event.get("response") or {}).get("output")
+                        if isinstance(final, list) and final:
+                            items = [i for i in final if isinstance(i, dict)]
+                        break
+                    elif kind in ("response.failed", "error"):
+                        err = (event.get("response") or {}).get("error") or event
+                        raise _plan_error(label, 0, json.dumps({"error": err}))
+                    elif kind == "response.incomplete":
+                        why = ((event.get("response") or {}).get("incomplete_details") or {})
+                        if why.get("reason") == "max_output_tokens":
+                            native = {"wire": "responses", "content": _replay(items)}
+                            yield "turn", Turn("".join(text), [], "max_tokens", native)
+                            return
+                        raise ProviderError(
+                            "bad_response", f"{label}: the reply stopped early."
+                        )
+        except httpx.TransportError as e:
+            raise ProviderError(
+                "provider_down", f"Cannot reach {label} ({type(e).__name__})."
+            ) from e
+        if not completed:
+            raise ProviderError("bad_response", f"{label}: the reply was cut off.")
+        calls: list[ToolCall] = []
+        refusal = ""
+        for item in items:
+            if item.get("type") == "function_call":
+                name = str(item.get("name") or "").removeprefix(f"{TOOL_NAMESPACE}.")
+                calls.append(
+                    ToolCall(
+                        str(item.get("call_id") or f"call_{len(calls)}"),
+                        name,
+                        _arguments(str(item.get("arguments") or "")),
+                    )
+                )
+            elif item.get("type") == "message":
+                for part in item.get("content") or []:
+                    if part.get("type") == "refusal":
+                        refusal = part.get("refusal") or "refused"
+        stop: StopReason = "tool_use" if calls else "end"
+        if refusal and not calls:
+            stop = "refusal"
+        native = {"wire": "responses", "content": _replay(items)}
+        yield "turn", Turn("".join(text), calls, stop, native, refusal[:200])
+
+    async def models(self) -> list[dict[str, Any]]:
+        """Return the account's models (``visibility == "list"``, server order)."""
+        import httpx  # noqa: PLC0415
+
+        try:
+            async with self._client(30.0) as client:
+                r = await client.get(f"{self.base_url}/models", headers=self._headers())
+        except httpx.TransportError as e:
+            raise ProviderError("provider_down", "Cannot reach OpenAI.") from e
+        if r.status_code >= 400:
+            raise _plan_error(self.preset.label, r.status_code, r.text)
+        try:
+            listed = r.json().get("models") or []
+        except ValueError as e:
+            raise ProviderError("bad_response", "OpenAI: unreadable model list.") from e
+        return [
+            {
+                "slug": m["slug"],
+                "reasoning": bool(
+                    m.get("supports_reasoning") or m.get("supported_reasoning_levels")
+                ),
+            }
+            for m in listed
+            if isinstance(m, dict)
+            and m.get("visibility") == "list"
+            and valid_model(str(m.get("slug") or ""))
+        ]
+
+    async def check(self) -> bool:
+        """Whether the token is accepted (lists the account's models)."""
+        try:
+            await self.models()
+        except ProviderError as e:
+            if e.kind == "auth":
+                return False
+            raise
+        return True
+
+
+def _replay(items: list[dict]) -> list[dict]:
+    """Return output items as they go back in ``input`` (no server ids)."""
+    return [{k: v for k, v in i.items() if k not in _SERVER_FIELDS} for i in items]
+
+
+def _plan_error(label: str, status: int, body: str) -> ProviderError:
+    """Turn a Responses error (HTTP or in the stream) into a ProviderError."""
+    try:
+        data = json.loads(body)
+    except ValueError:
+        data = {}
+    err = data.get("error") if isinstance(data, dict) else None
+    err = err if isinstance(err, dict) else {}
+    code = str(err.get("code") or "")
+    message = str(
+        err.get("message") or (data.get("detail") if isinstance(data, dict) else "")
+        or body.strip()[:300]
+        or f"HTTP {status}"
+    )[:300]
+    kind = _PLAN_ERRORS.get(code) or (_kind(status) if status else "bad_response")
+    if code.startswith("chatpass_"):
+        kind = "auth"
+    return ProviderError(kind, f"{label}: {message}", status or None, code)
+
+
 _CLASSES: dict[str, type[Provider]] = {
     "anthropic": AnthropicProvider,
     "openai": OpenAIProvider,
     "gemini": GeminiProvider,
+    "responses": ResponsesProvider,
 }
 
 
