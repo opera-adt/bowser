@@ -95,6 +95,7 @@ expected = {
         "providers": [],
         "configured": [],
         "sign_in": [],
+        "page_channel": False,
     },
 }
 assert cfg.json() == expected, cfg.json()

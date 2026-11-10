@@ -41,7 +41,7 @@ LITE_ONLY_TILE_QUERY = {"scale", "format"}
 #: colorbars, lite PNG.
 BINARY = {"GET /colorbar/{cmap_name}"}
 #: Routes that stream server-sent events rather than send JSON.
-EVENT_STREAMS = {"POST /assistant/chat"}
+EVENT_STREAMS = {"POST /assistant/chat", "GET /page/events"}
 #: Routes that answer a small HTML page (the browser lands on them).
 PAGES = {"GET /auth/callback"}
 

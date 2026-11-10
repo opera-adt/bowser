@@ -33,6 +33,7 @@ from starlette.templating import Jinja2Templates
 from starlette_cramjam.middleware import CompressionMiddleware
 
 from . import api_models as api
+from .assistant.page import router as page_router
 from .assistant.relay import assistant_config
 from .assistant.relay import router as assistant_router
 from .config import settings
@@ -583,6 +584,8 @@ async def get_config(
 # The Assistant tab: provider status, keys and the chat relay (off unless
 # BOWSER_ASSISTANT is set).
 app.include_router(assistant_router, tags=[api.ASSISTANT])
+# The page channel: Bowser's tools act on the open page (same gate as page keys).
+app.include_router(page_router, tags=[api.ASSISTANT])
 
 
 @app.get(

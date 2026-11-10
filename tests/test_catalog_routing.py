@@ -61,6 +61,7 @@ SCRIPT = textwrap.dedent(
         "providers": [],
         "configured": [],
         "sign_in": [],
+        "page_channel": False,
     },
     }, cfg.json()
     assert c.get("/config").json()["title"] != "Cube B"
