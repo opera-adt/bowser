@@ -821,7 +821,7 @@ def tilejson(
     tilesize: Annotated[int | None, Query(gt=0, **api.PARAMS["tilesize"])] = None,
     minzoom: int | None = Query(None),
     maxzoom: int | None = Query(None),
-    ref_time_idx: int | None = Query(None),
+    ref_time_idx: int | None = Query(None, **api.PARAMS["ref_time_idx"]),
 ):
     """TileJSON for the MD tiler: tile URL template, lon/lat bounds and zoom range."""
     _check_tms(tileMatrixSetId)
@@ -941,9 +941,7 @@ _TILE_QUERY = {
     "colormap_name": Query(None, **api.PARAMS["colormap_name"]),
     "algorithm": Query(None, **api.PARAMS["algorithm"]),
     "algorithm_params": Query(None, **api.PARAMS["algorithm_params"]),
-    "ref_time_idx": Query(
-        None, description="Time index to show the step relative to (value minus it)"
-    ),
+    "ref_time_idx": Query(None, **api.PARAMS["ref_time_idx"]),
 }
 
 

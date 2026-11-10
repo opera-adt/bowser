@@ -206,6 +206,11 @@ PARAMS: dict[str, dict[str, Any]] = {
         "examples": ['{"shift": 0.001}'],
     },
     "tilesize": {"description": "Tile size in pixels.", "examples": [256]},
+    "ref_time_idx": {
+        "description": "Show the time step relative to this one: the value at "
+        "time_idx minus the value at ref_time_idx, per pixel.",
+        "examples": [0],
+    },
 }
 
 _LITE_501 = (

@@ -2418,13 +2418,7 @@ def XarrayPathDependency(
     mask_min_value: float = Query(0.1, **api.PARAMS["mask_min_value"]),
     layer_masks: Optional[str] = Query(None, **api.PARAMS["layer_masks_json"]),
     custom_mask_path: Optional[str] = Query(None, **api.PARAMS["custom_mask_path"]),
-    ref_time_idx: Optional[int] = Query(
-        None,
-        description=(
-            "Show the time step relative to this one: the value at time_idx "
-            "minus the value at ref_time_idx, per pixel"
-        ),
-    ),
+    ref_time_idx: Optional[int] = Query(None, **api.PARAMS["ref_time_idx"]),
 ) -> xr.DataArray:
     """Create a DataArray from query parameters.
 
