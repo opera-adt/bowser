@@ -48,7 +48,9 @@ export function useDrawTools(map: maplibregl.Map | null, ready: boolean) {
         import('maplibre-gl-geo-editor/style.css'),
       ]);
       if (cancelled) return;
-      geoman = new Geoman(map, {});
+      // No Geoman toolbar of its own: it would appear top-left for a moment before the
+      // GeoLibre editor hides it and shows its toolbar on the right (a "ghost" toolbar).
+      geoman = new Geoman(map, { settings: { useControlsUi: false } });
       await new Promise<void>(resolve => map.once('gm:loaded' as never, () => resolve()));
       if (cancelled) { geoman.destroy({ removeSources: true }); return; }
       editor = new GeoEditor({
