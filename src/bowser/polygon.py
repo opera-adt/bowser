@@ -128,9 +128,20 @@ def _selection(
         invert=True,
         all_touched=False,
     )
-    if not inside.any():
+    rows = np.flatnonzero(inside.any(axis=1))
+    cols = np.flatnonzero(inside.any(axis=0))
+    if rows.size == 0:
         raise ValueError("No native pixel centers lie inside the polygon")
-    return window, inside, full != window
+    # Read only the rows and columns holding selected pixels: how far
+    # geometry_window rounds outward differs between rasterio releases.
+    tight = Window(
+        int(window.col_off) + int(cols[0]),
+        int(window.row_off) + int(rows[0]),
+        int(cols[-1] - cols[0]) + 1,
+        int(rows[-1] - rows[0]) + 1,
+    )
+    inside = inside[rows[0] : rows[-1] + 1, cols[0] : cols[-1] + 1]
+    return tight, inside, full != window
 
 
 def _linear(dtype: Any, units: str | None) -> None:
@@ -227,6 +238,9 @@ def summarize_xarray(
             or not np.allclose(delta, delta[0], rtol=1e-7, atol=1e-8)
         ):
             raise ValueError("Source requires regular finite x/y pixel centers")
+    # North-up order (x increasing, y decreasing) gives the usual positive-width
+    # transform; rasterio 1.5 rejects windows on a negative-width one.
+    source = source.sortby("x").sortby("y", ascending=False)
     units = source.attrs.get("units") or None
     _linear(source.dtype, units)
     dim = extra[0] if extra else None
