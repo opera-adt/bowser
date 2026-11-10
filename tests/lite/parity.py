@@ -143,7 +143,15 @@ def run_replay(
     Settings are read at import, so each server needs its own process.
     """
     out = out.resolve()
-    env = {**os.environ, **env_extra, "SCENARIOS": "1" if scenarios else "0"}
+    env = {
+        **os.environ,
+        # Each server its own reference-statistics cache and no warm-up, so both
+        # compute their first answer themselves and report it the same way.
+        "BOWSER_REFSTATS_CACHE_DIR": str(out / "refstats"),
+        "BOWSER_REFSTATS_WARMUP": "0",
+        **env_extra,
+        "SCENARIOS": "1" if scenarios else "0",
+    }
     for key in ("BOWSER_STACK_DATA_FILE", "BOWSER_CATALOG_FILE"):
         if key not in env_extra:
             env.pop(key, None)

@@ -43,7 +43,14 @@ from .reference import (
     select_circle,
     select_point,
 )
-from .reference_candidates import CandidateParams, candidate_query, run_or_http_error
+from .reference_candidates import (
+    CandidateParams,
+    candidate_query,
+    run_or_http_error,
+    warm_up,
+)
+from .reference_candidates import status as candidates_status
+from .refstats import Source, warm_up_enabled
 from .state import BowserState, DatasetRegistry
 from .utils import (
     _uses_spatial_reference,
@@ -226,7 +233,9 @@ async def _route_dataset(request: Request, call_next):
             return JSONResponse(
                 {"detail": f"unknown dataset id {name!r}"}, status_code=404
             )
-        token = _request_state.set(registry.get(name))
+        routed = registry.get(name)
+        _warm(routed)
+        token = _request_state.set(routed)
     try:
         return await call_next(request)
     finally:
@@ -697,6 +706,7 @@ async def open_dataset(
         id=_opened_id(name, uri), name=name, uri=uri, bbox=tuple(bounds)
     )
     registry.register(entry, state)
+    _warm(state)
     if settings.BOWSER_REMEMBER_OPENED and settings.BOWSER_CATALOG_FILE:
         from .catalog import load_catalog, save_catalog  # noqa: PLC0415
 
@@ -1537,6 +1547,41 @@ async def buffer_timeseries(
     )
 
 
+def _cube_levels(st: BowserState) -> tuple[list, list]:
+    """Return the pyramid datasets of an MD state and where each was read from."""
+    levels = list(st.levels) if st.levels else []
+    datasets = [lv.dataset for lv in levels] or [st.dataset]
+    assets = [lv.asset for lv in levels] or [""]
+    sources = [Source(str(st.uri), a) if st.uri else None for a in assets]
+    return datasets, sources
+
+
+def _warm(st: BowserState | None) -> None:
+    """Start the reference finder's background warm-up for an opened cube."""
+    if st is None or st.mode != "md" or st.dataset is None:
+        return
+    datasets, sources = _cube_levels(st)
+    warm_up(datasets, sources=sources, default=True)
+
+
+@app.get(
+    "/reference_candidates/status",
+    response_class=JSONResponse,
+    response_model=api.ReferenceCandidatesStatus,
+    **api.route_doc("GET /reference_candidates/status"),
+)
+def reference_candidates_status(target: BowserState = Depends(TargetState)):
+    """Readiness of the per-pixel statistics behind ``/reference_candidates``."""
+    if target.mode != "md":
+        raise HTTPException(
+            status_code=400, detail="Reference candidates need a GeoZarr cube"
+        )
+    datasets, _ = _cube_levels(target)
+    return JSONResponse(
+        {**candidates_status(datasets), "warm_up": warm_up_enabled(True)}
+    )
+
+
 @app.get(
     "/reference_candidates",
     response_class=JSONResponse,
@@ -1556,11 +1601,9 @@ def reference_candidates(
         raise HTTPException(
             status_code=400, detail="Reference candidates need a GeoZarr cube"
         )
-    levels = [lv.dataset for lv in target.levels] if target.levels else []
-    levels = levels or [target.dataset]
-    return JSONResponse(
-        run_or_http_error(levels, CRS.from_user_input(target.dataset.rio.crs), params)
-    )
+    datasets, sources = _cube_levels(target)
+    crs = CRS.from_user_input(target.dataset.rio.crs)
+    return JSONResponse(run_or_http_error(datasets, crs, params, sources))
 
 
 @app.post(
@@ -2861,5 +2904,7 @@ else:
         "Build it with `npm ci && npm run build` before installing from source, "
         "or use the published package / Docker image."
     )
+# The reference finder's statistics start in the background; requests are not held.
+_warm(_default_state)
 print(f"Setup complete: time to load datasets: {time.time() - t0:.1f} sec.")
 logger.info(f"Bowser started in {state.mode.upper()} mode")

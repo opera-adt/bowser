@@ -34,7 +34,14 @@ from starlette.staticfiles import StaticFiles
 from .. import api_models as api
 from ..catalog import CatalogEntry, load_catalog, save_catalog
 from ..config import settings
-from ..reference_candidates import CandidateParams, candidate_query, run_or_http_error
+from ..reference_candidates import (
+    CandidateParams,
+    candidate_query,
+    run_or_http_error,
+    warm_up,
+)
+from ..reference_candidates import status as candidates_status
+from ..refstats import Source, warm_up_enabled
 from ..utils import calculate_trend
 from . import colormaps, geo, meta, sampling, tiles
 from .auth import BasicAuthMiddleware
@@ -124,7 +131,9 @@ async def _route_dataset(request: Request, call_next):
             return JSONResponse(
                 {"detail": f"unknown dataset id {name!r}"}, status_code=404
             )
-        token = _request_cube.set(registry.get(name))
+        routed = registry.get(name)
+        _warm(routed)
+        token = _request_cube.set(routed)
     try:
         return await call_next(request)
     finally:
@@ -306,6 +315,7 @@ def open_dataset(
         bbox=(float(left), float(bottom), float(right), float(top)),
     )
     registry.register(entry, cube)
+    _warm(cube)
     if settings.BOWSER_REMEMBER_OPENED and settings.BOWSER_CATALOG_FILE:
         kept = [
             e for e in load_catalog(settings.BOWSER_CATALOG_FILE) if e.id != entry.id
@@ -664,6 +674,39 @@ def buffer_timeseries(
     )
 
 
+def _cube_levels(cube: Cube) -> tuple[list, list]:
+    """Return the pyramid datasets of a cube and where each was read from."""
+    datasets = [lv.dataset for lv in cube.levels]
+    return datasets, [Source(str(cube.uri), lv.asset) for lv in cube.levels]
+
+
+def _warm(cube: Cube | None) -> None:
+    """Start the reference finder's warm-up; off on lite unless asked for.
+
+    See ``bowser.refstats.warm_up_enabled`` for why lite defaults to off.
+    """
+    if cube is None:
+        return
+    datasets, sources = _cube_levels(cube)
+    warm_up(datasets, sources=sources, default=False)
+
+
+@app.get(
+    "/reference_candidates/status",
+    response_class=NanJSONResponse,
+    response_model=api.ReferenceCandidatesStatus,
+    **api.route_doc("GET /reference_candidates/status"),
+)
+def reference_candidates_status(
+    dataset: str | None = Query(None, **api.PARAMS["dataset"]),
+):
+    """Readiness of the per-pixel statistics behind ``/reference_candidates``."""
+    datasets, _ = _cube_levels(resolve(dataset))
+    return NanJSONResponse(
+        {**candidates_status(datasets), "warm_up": warm_up_enabled(False)}
+    )
+
+
 @app.get(
     "/reference_candidates",
     response_class=NanJSONResponse,
@@ -676,8 +719,8 @@ def reference_candidates(
 ):
     """Rank stable reference-point candidates; runs in FastAPI's thread pool."""
     cube = resolve(dataset)
-    levels = [lv.dataset for lv in cube.levels]
-    return NanJSONResponse(run_or_http_error(levels, cube.crs, params))
+    datasets, sources = _cube_levels(cube)
+    return NanJSONResponse(run_or_http_error(datasets, cube.crs, params, sources))
 
 
 @app.post(
@@ -1186,4 +1229,5 @@ if dist_path.exists():
     app.mount("/", StaticFiles(directory=dist_path, html=True))
 else:
     logger.warning(f"Frontend bundle not found at {dist_path} — serving API only.")
+_warm(_default_cube)  # in the background; off on lite unless BOWSER_REFSTATS_WARMUP=1
 print(f"Setup complete: time to load datasets: {time.time() - t0:.1f} sec.")

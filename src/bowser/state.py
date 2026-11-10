@@ -147,6 +147,8 @@ class BowserState:
     transformer_from_lonlat: Any = None
     # list[PyramidLevel] in MD mode (length >= 1), None in COG mode.
     levels: Any = None
+    # Path or URL of the MD store, None in COG mode.
+    uri: Any = None
 
     def dataset_for_tile_zoom(self, z: int, tile_size: int = TILE_SIZE) -> xr.Dataset:
         """Return the pyramid level dataset appropriate for a given tile zoom.
@@ -175,8 +177,15 @@ class BowserState:
         from .titiler import RasterGroup  # noqa: PLC0415
 
         if settings.BOWSER_STACK_DATA_FILE:
-            ds, tr, levels = _open_md(settings.BOWSER_STACK_DATA_FILE)
-            return cls(mode="md", dataset=ds, transformer_from_lonlat=tr, levels=levels)
+            uri = settings.BOWSER_STACK_DATA_FILE
+            ds, tr, levels = _open_md(uri)
+            return cls(
+                mode="md",
+                dataset=ds,
+                transformer_from_lonlat=tr,
+                levels=levels,
+                uri=uri,
+            )
 
         cfg = Path(settings.BOWSER_DATASET_CONFIG_FILE)
         if cfg.exists():
@@ -221,7 +230,9 @@ class BowserState:
         populate per-dataset states on demand.
         """
         ds, tr, levels = _open_md(uri)
-        return cls(mode="md", dataset=ds, transformer_from_lonlat=tr, levels=levels)
+        return cls(
+            mode="md", dataset=ds, transformer_from_lonlat=tr, levels=levels, uri=uri
+        )
 
     # --- narrowed accessors — call these instead of manually unwrapping Optionals ---
     def require_md(self) -> tuple[xr.Dataset, Transformer]:
