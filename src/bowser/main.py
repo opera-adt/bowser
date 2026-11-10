@@ -473,12 +473,8 @@ def create_xarray_dataset_info(ds: xr.Dataset) -> dict:
         attrs = dict(var.attrs)
         dataset_info[var_name] = {
             "name": var_name,
-            "file_list": (
-                [f"variable:{var_name}:{dim}:{i}" for i in range(n)]
-                if dim is not None
-                else [f"variable:{var_name}"]
-            ),
-            "mask_file_list": [],
+            # Tiles are asked for by variable + time_idx; only COG mode has files.
+            "n_time_steps": n,
             "mask_min_value": 0.1,
             "nodata": None,
             "uses_spatial_ref": use_moving_reference,

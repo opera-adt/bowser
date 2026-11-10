@@ -191,12 +191,7 @@ def dataset_info(cube: Cube, use_spatial_reference: bool) -> dict:
         attrs = dict(var.attrs)
         info[name] = {
             "name": name,
-            "file_list": (
-                [f"variable:{name}:{dim}:{i}" for i in range(n)]
-                if dim is not None
-                else [f"variable:{name}"]
-            ),
-            "mask_file_list": [],
+            "n_time_steps": n,
             "mask_min_value": 0.1,
             "nodata": None,
             "uses_spatial_ref": moving_ref,
