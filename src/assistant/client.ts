@@ -16,7 +16,6 @@ export interface ProviderInfo {
   models: string[];
   needs_key: boolean;
   local: boolean;
-  base_url: string;
   auth: 'api_key' | 'none' | 'sign_in';
   available: boolean;
   note: string;
@@ -80,12 +79,12 @@ export async function fetchStatus(): Promise<AssistantStatus> {
   return json(await fetch('/assistant/status', { cache: 'no-store' }));
 }
 
-/** Check a key with its provider and keep it on this computer; or set a local provider's base URL. */
-export async function saveKey(provider: string, key: string | null, baseUrl?: string): Promise<AssistantStatus> {
+/** Check a key with its provider and keep it on this computer. */
+export async function saveKey(provider: string, key: string): Promise<AssistantStatus> {
   return json(await fetch('/assistant/key', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ provider, ...(key ? { key } : {}), ...(baseUrl !== undefined ? { base_url: baseUrl } : {}) }),
+    body: JSON.stringify({ provider, key }),
   }));
 }
 

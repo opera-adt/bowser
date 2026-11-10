@@ -69,7 +69,6 @@ def settings(tmp_path: Path, **over) -> SimpleNamespace:
         "BOWSER_AI_PROVIDER": "",
         "BOWSER_AI_KEY": SecretStr(""),
         "BOWSER_AI_MODEL": "",
-        "BOWSER_AI_BASE_URL": "",
         "ANTHROPIC_API_KEY": SecretStr(""),
         "OPENAI_API_KEY": SecretStr(""),
         "GEMINI_API_KEY": SecretStr(""),
@@ -166,10 +165,9 @@ def test_file_store_is_private_and_never_returns_the_key(tmp_path):
     assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
     assert store.describe("openai") == {"saved": True, "store": "file", "hint": "…abcd"}
     assert KEY not in json.dumps(store.describe("openai"))
-    store.set_prefs("openai", base_url="http://x")
     store.remove_key("openai")
     assert store.load("openai") is None
-    assert store.prefs("openai") == {"base_url": "http://x"}
+    assert store.describe("openai")["saved"] is False
     assert KEY not in path.read_text()
 
 
@@ -204,7 +202,7 @@ def test_saving_a_key_never_shows_or_logs_it(tmp_path, monkeypatch, caplog):
             checked.append(self.key)
             return self.key == KEY
 
-    monkeypatch.setattr(relay, "open_provider", lambda _p, _m, key, _url: Checker(key))
+    monkeypatch.setattr(relay, "open_provider", lambda _p, _m, key: Checker(key))
     client = local(make_app(s))
     r = client.put("/assistant/key", json={"provider": "anthropic", "key": KEY})
     assert r.status_code == 200, r.text
@@ -262,6 +260,21 @@ def test_keys_only_from_this_computer_and_only_with_page_keys(tmp_path):
     assert (openai["configured"], openai["source"]) == (True, "environment")
     assert status["default_provider"] == "openai"
     assert KEY not in json.dumps(status)
+
+
+def test_no_provider_needs_a_base_url(tmp_path):
+    client = local(make_app(settings(tmp_path)))
+    status = client.get("/assistant/status").json()
+    assert "openai_compatible" not in [p["id"] for p in status["providers"]]
+    assert all("base_url" not in p for p in status["providers"])
+    flag = client.get("/config").json()["assistant"]
+    assert "openai_compatible" not in flag["providers"]
+    # The page cannot point a provider at another server.
+    body = {"provider": "openai", "key": KEY, "base_url": "http://evil.example"}
+    assert client.put("/assistant/key", json=body).status_code == 422
+    r = client.put("/assistant/key", json={"provider": "ollama", "key": KEY})
+    assert r.status_code == 400
+    assert not (tmp_path / "assistant.json").exists()
 
 
 def test_chat_needs_a_key_and_a_known_provider(tmp_path):

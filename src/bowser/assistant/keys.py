@@ -3,9 +3,9 @@
 The page sends a key once (``PUT /assistant/key``); the server keeps it in the
 system keychain when the ``keyring`` package has a working backend, otherwise in
 a JSON file only this user can read (mode 0600, in a 0700 folder). The same file
-always holds what is not secret: which store each key is in, its last four
-characters (a hint for the page) and, for local providers, the base URL. Keys
-are never logged, returned to the page or put in an error message.
+always holds what is not secret: which store each key is in and its last four
+characters (a hint for the page). Keys are never logged, returned to the page or
+put in an error message.
 
 This module reads no settings: the caller passes the file's path.
 """
@@ -49,7 +49,7 @@ def system_keyring() -> Any | None:
 
 
 class KeyStore:
-    """Saved API keys and provider settings, one record per provider.
+    """Saved API keys, one record per provider.
 
     Parameters
     ----------
@@ -116,8 +116,7 @@ class KeyStore:
         """Keep ``key`` for ``provider``; return where: ``keyring`` or ``file``."""
         self.remove_key(provider)
         records = self._records()
-        rec = {k: v for k, v in (records.get(provider) or {}).items() if k == "prefs"}
-        rec["hint"] = f"…{key[-4:]}" if len(key) >= 12 else "…"
+        rec: dict[str, Any] = {"hint": f"…{key[-4:]}" if len(key) >= 12 else "…"}
         stored = False
         if self._keyring is not None:
             try:
@@ -134,7 +133,7 @@ class KeyStore:
         return rec["store"]
 
     def remove_key(self, provider: str) -> None:
-        """Forget ``provider``'s key (its other settings stay)."""
+        """Forget ``provider``'s key."""
         records = self._records()
         rec = records.get(provider)
         if not rec:
@@ -142,11 +141,7 @@ class KeyStore:
         if rec.get("store") == "keyring" and self._keyring is not None:
             with contextlib.suppress(Exception):
                 self._keyring.delete_password(SERVICE, provider)
-        prefs = rec.get("prefs")
-        if prefs:
-            records[provider] = {"prefs": prefs}
-        else:
-            records.pop(provider)
+        records.pop(provider)
         self._save_records(records)
 
     def describe(self, provider: str) -> dict[str, Any]:
@@ -158,28 +153,3 @@ class KeyStore:
             "store": rec.get("store") if saved else None,
             "hint": rec.get("hint") if saved else None,
         }
-
-    # --- settings that are not secret -----------------------------------------------
-
-    def prefs(self, provider: str) -> dict[str, Any]:
-        """Return ``provider``'s saved settings (e.g. ``base_url``)."""
-        prefs = (self._records().get(provider) or {}).get("prefs")
-        return dict(prefs) if isinstance(prefs, dict) else {}
-
-    def set_prefs(self, provider: str, **prefs: Any) -> None:
-        """Save settings for ``provider``; a None value removes that setting."""
-        records = self._records()
-        rec = records.setdefault(provider, {})
-        current = dict(rec.get("prefs") or {})
-        for k, v in prefs.items():
-            if v is None:
-                current.pop(k, None)
-            else:
-                current[k] = v
-        if current:
-            rec["prefs"] = current
-        else:
-            rec.pop("prefs", None)
-        if not rec:
-            records.pop(provider)
-        self._save_records(records)
