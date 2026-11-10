@@ -12,7 +12,7 @@ import rioxarray  # noqa: F401
 import xarray as xr
 from pyproj import Transformer
 
-from bowser.export import reference_offset
+from bowser.reference import reference_offset
 
 
 @pytest.fixture(scope="module")
