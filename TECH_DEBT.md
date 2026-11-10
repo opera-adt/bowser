@@ -38,21 +38,6 @@ if we add more, same treatment needed.
 ---
 
 
-### 1. `file_list` in MD mode is a vestigial fake-URI
-
-**Where:** `main.py` `create_xarray_dataset_info` (`file_list: ["variable:foo:time:N", ...]`).
-
-**What's wrong:** The backend never parses these strings; only the array length
-is consumed by the frontend. The frontend separately sends `variable` +
-`time_idx` query params to the tile endpoint. The URI-shaped payload is
-confusing and easy to break when adding new dim types.
-
-**Fix:** Drop `file_list` from the MD dataset payload; expose `n_time_steps`
-instead. Update `src/components/MapContainer.tsx` and
-`src/bowser/dist/index.js` to stop using `file_list[timeIdx]`.
-
----
-
 ### 2. `spatial_ref` is still written to zarr as a `data_var`, not a `coord`
 
 **Where:** `bowser._tifs_to_geozarr._write_skeleton` (and any store written

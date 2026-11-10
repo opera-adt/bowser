@@ -286,6 +286,7 @@
      }
     },
     "mask_min_value": 0.1,
+    "n_time_steps": 1,
     "name": "amplitude_dispersion",
     "nodata": null,
     "reference_date": null,
@@ -344,6 +345,7 @@
      }
     },
     "mask_min_value": 0.1,
+    "n_time_steps": 6,
     "name": "displacement",
     "nodata": null,
     "reference_date": null,
@@ -409,6 +411,7 @@
      }
     },
     "mask_min_value": 0.1,
+    "n_time_steps": 6,
     "name": "phase_similarity",
     "nodata": null,
     "reference_date": null,
@@ -474,6 +477,7 @@
      }
     },
     "mask_min_value": 0.1,
+    "n_time_steps": 6,
     "name": "recommended_mask",
     "nodata": null,
     "reference_date": null,
@@ -539,6 +543,7 @@
      }
     },
     "mask_min_value": 0.1,
+    "n_time_steps": 6,
     "name": "temporal_coherence",
     "nodata": null,
     "reference_date": null,
@@ -604,6 +609,7 @@
      }
     },
     "mask_min_value": 0.1,
+    "n_time_steps": 1,
     "name": "velocity",
     "nodata": null,
     "reference_date": null,

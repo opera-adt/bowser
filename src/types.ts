@@ -22,8 +22,11 @@ export interface LosMetadata {
 
 export interface RasterGroup {
   name: string;
-  file_list: string[];
-  mask_file_list: string[];
+  // COG mode: one file (and optional mask file) per time step.
+  file_list?: string[];
+  mask_file_list?: string[];
+  // MD mode: steps along the layer's non-spatial dim (1 for a 2D layer).
+  n_time_steps?: number;
   mask_min_value: number;
   nodata: number | null;
   uses_spatial_ref: boolean;
