@@ -21,6 +21,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+import httpx
 import numpy as np
 import pytest
 
@@ -62,8 +63,14 @@ def _mcp_tools(url: str = "http://127.0.0.1:1"):
 
 def _call(url: str, name: str, args: dict):
     async def go():
-        async with Client(build_server(url)) as client:
-            return await client.call_tool(name, args)
+        # Our own transport, closed here: an unclosed socket would surface as a
+        # ResourceWarning in whichever test happens to run next.
+        transport = httpx.AsyncHTTPTransport()
+        try:
+            async with Client(build_server(url, transport)) as client:
+                return await client.call_tool(name, args)
+        finally:
+            await transport.aclose()
 
     return asyncio.run(go())
 
