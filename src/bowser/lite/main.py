@@ -667,7 +667,6 @@ _TILEJSON_DROP = {
     "tilematrixsetid",
     "tile_format",
     "tile_scale",
-    "tilesize",
     "minzoom",
     "maxzoom",
 }
@@ -690,7 +689,7 @@ def tilejson(
     algorithm_params: str | None = Query(None),
     tile_format: str | None = Query(None),
     tile_scale: Annotated[int, Query(gt=0, lt=4)] = 1,
-    tilesize: Annotated[int | None, Query(gt=0)] = None,
+    tilesize: Annotated[int | None, Query(gt=0)] = None,  # noqa: ARG001 — validated, passed through
     minzoom: int | None = Query(None),
     maxzoom: int | None = Query(None),
 ):
@@ -715,10 +714,13 @@ def tilejson(
     )
     min_z = minzoom if minzoom is not None else min_z
     max_z = maxzoom if maxzoom is not None else max_z
-    # TiTiler 2 uses a query parameter instead of the old @Nx path suffix.
-    # Keep accepting tile_scale for existing clients; explicit tilesize wins.
-    size = tilesize if tilesize is not None else 256 * tile_scale
-    url = f"{request.base_url}md/tiles/{tileMatrixSetId}/{{z}}/{{x}}/{{y}}"
+    # Mirror the full server's pinned TiTiler (0.22): an @{scale}x path suffix,
+    # with any tilesize the client sent passed through in the query (the tile
+    # endpoint honours it). Move to TiTiler 2's unsuffixed URLs together with
+    # the full server.
+    url = (
+        f"{request.base_url}md/tiles/{tileMatrixSetId}/{{z}}/{{x}}/{{y}}@{tile_scale}x"
+    )
     if tile_format:
         url += f".{tile_format}"
     qs = [
@@ -726,7 +728,6 @@ def tilejson(
         for k, v in request.query_params.multi_items()
         if k.lower() not in _TILEJSON_DROP
     ]
-    qs.append(("tilesize", str(size)))
     if qs:
         url += f"?{urlencode(qs)}"
     ll = geo.transform_bounds(cube.crs, geo.WGS84, bounds)

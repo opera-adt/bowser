@@ -228,10 +228,12 @@ for size in (128, 256, 512):
     assert r.status_code == 200, r.text
     assert Image.open(BytesIO(r.content)).size == (size, size)
 assert c.get(tile, params={**base, "tilesize": 0}).status_code == 422
-assert c.get("/md/WebMercatorQuad/tilejson.json", params={**base, "tilesize": -1}).status_code == 422
-metadata = c.get("/md/WebMercatorQuad/tilejson.json", params={**base, "tile_scale": 2}).json()
+tj_url = "/md/WebMercatorQuad/tilejson.json"
+assert c.get(tj_url, params={**base, "tilesize": -1}).status_code == 422
+metadata = c.get(tj_url, params={**base, "tile_scale": 2}).json()
 template = metadata["tiles"][0].split("testserver")[1]
-assert Image.open(BytesIO(c.get(template.format(z=z, x=x, y=y)).content)).size == (512, 512)
+png = c.get(template.format(z=z, x=x, y=y)).content
+assert Image.open(BytesIO(png)).size == (512, 512)
 # Keep legacy @Nx requests working; an explicit modern tilesize takes priority.
 r = c.get(f"{tile}@2x.png", params={**base, "tilesize": 128})
 assert Image.open(BytesIO(r.content)).size == (128, 128)
