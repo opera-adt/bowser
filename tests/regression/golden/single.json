@@ -1500,6 +1500,12 @@
  },
  "tilejson": {
   "body": {
+   "band_descriptions": [
+    [
+     "b1",
+     "2026-02-06T00:00:00.000000000"
+    ]
+   ],
    "bounds": [
     -117.682,
     33.9521,
@@ -1511,8 +1517,10 @@
     33.9586,
     12
    ],
+   "data_type": "float32",
    "maxzoom": 12,
    "minzoom": 12,
+   "raster_layers": {},
    "scheme": "xyz",
    "version": "1.0.0"
   },

@@ -21,7 +21,7 @@ import warnings
 from contextvars import ContextVar
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated, Any, Optional
+from typing import TYPE_CHECKING, Annotated, Any, Optional
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import numpy as np
@@ -38,6 +38,9 @@ from .auth import BasicAuthMiddleware
 from .cube import Cube, Registry, load_default, open_cube
 from .png import encode_rgba
 from .profile import Line, binned_profile, point_profile
+
+if TYPE_CHECKING:
+    import xarray as xr
 
 logger = logging.getLogger("bowser")
 warnings.filterwarnings(
@@ -666,6 +669,22 @@ def _check_tms(tms: str) -> None:
         )
 
 
+def _band_descriptions(ds: xr.Dataset, variable: str, time_idx: int | None) -> list:
+    """Return TiTiler 2.4's tilejson ``band_descriptions`` for ``variable``.
+
+    One ``["bN", label]`` per step of the non-spatial axis (only the selected
+    step when ``time_idx`` is given); the variable name when there is no such axis.
+    """
+    da = ds[variable]
+    dim = meta.non_spatial_dim(da)
+    if dim is None:
+        return [["b1", variable]]
+    labels = da[dim].values
+    if time_idx is not None:
+        labels = labels[[tiles._clamp(time_idx, len(labels))]]
+    return [[f"b{i + 1}", str(label)] for i, label in enumerate(labels)]
+
+
 # TiTiler 2 leaves these out of the tile URL's query (tilesize is re-added
 # last); tile_scale has no meaning there and is passed through unchanged.
 _TILEJSON_DROP = {
@@ -734,6 +753,10 @@ def tilejson(
     return NanJSONResponse(
         {
             "tilejson": "3.0.0",
+            # Fields TiTiler 2.4 adds to every tilejson.
+            "band_descriptions": _band_descriptions(cube.dataset, variable, time_idx),
+            "data_type": str(cube.dataset[variable].dtype),
+            "raster_layers": {},
             "version": "1.0.0",
             "scheme": "xyz",
             "tiles": [url],

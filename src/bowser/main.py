@@ -2051,12 +2051,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-# Response compression is OFF by default: starlette-cramjam mangles the
-# Content-Length of compressed StaticFiles responses on some uvicorn/h11 stacks,
-# crashing requests with h11 "Too much data for declared Content-Length". The
-# gzip win isn't worth the fragility for local/JPL-network use. Set
-# BOWSER_COMPRESSION=1 to re-enable (e.g. if serving the bundle over a slow link
-# once the upstream bug is fixed).
+# Response compression is OFF by default; set BOWSER_COMPRESSION=1 to turn it on
+# (it shrinks the page bundle about 5x, which helps over slow links). It was
+# turned off because starlette-cramjam 0.6 on Starlette 0.5x sent compressed
+# StaticFiles responses with a wrong Content-Length (h11 "Too much data for
+# declared Content-Length"); that no longer reproduces on Starlette 1.x.
 if os.environ.get("BOWSER_COMPRESSION", "0").lower() in ("1", "true", "yes"):
     app.add_middleware(
         CompressionMiddleware,
