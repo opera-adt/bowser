@@ -1,9 +1,9 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
 import { ACCEPT, useAddFiles } from '../../hooks/useAddFiles';
-import { geologyOverlay, soilsOverlay } from '../../map/services';
 import { inspectPmtiles, pmtilesOverlay } from '../../map/pmtiles';
-import { CONTEXT_LAYERS, contextOverlay, LAND_COVER_YEARS, landCoverOverlay, type ContextKey } from '../../map/contextLayers';
+import { CONTEXT_LAYERS, LAND_COVER_YEARS, type ContextKey } from '../../map/contextLayers';
+import { addService, removeService, serviceRow, type ServiceId } from '../../map/contextServices';
 import { DATA_ROW, DRAWINGS_ID, drawingIndexOf, drawingName, overlayRows, reorderOverlays } from '../../map/overlays';
 import { downloadLayer } from '../../map/exportLayer';
 import { browserHasWebGL2, chooseMap } from '../../map/mapChoice';
@@ -115,39 +115,33 @@ function LayersView() {
 /** Roads, boundaries, buildings and land cover; each one on is a row in Layers. */
 function ContextView() {
   const { state, dispatch } = useAppContext();
-  const rowOf = (key: ContextKey) => state.overlays.find(o => o.type === 'context' && o.contextKey === key);
+  // The toggles and the Assistant's add_context_layer / remove_context_layer share
+  // map/contextServices.ts, so a tool does exactly what a toggle does.
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const env = { getState: () => stateRef.current, dispatch };
+  const rowOf = (key: ContextKey) => serviceRow(state, key);
   const toggle = (key: ContextKey) => {
-    const row = rowOf(key);
-    if (row) dispatch({ type: 'REMOVE_OVERLAY', payload: row.id });
-    else dispatch({ type: 'ADD_OVERLAY', payload: contextOverlay(key, `ctx_${key}_${Date.now()}`) });
+    if (rowOf(key)) removeService(env, key);
+    else void addService(env, key);
   };
-  const landCover = state.overlays.find(o => o.landCoverYear);
-  const serviceRow = (key: string) => state.overlays.find(o => o.serviceKey === key);
+  const landCover = serviceRow(state, 'land_cover');
+  const serviceOn = (key: ServiceId) => Boolean(serviceRow(state, key));
   const [loadingSoils, setLoadingSoils] = useState(false);
   const toggleSoils = async () => {
-    const row = serviceRow('soils');
-    if (row) { dispatch({ type: 'REMOVE_OVERLAY', payload: row.id }); return; }
+    if (serviceOn('soils')) { removeService(env, 'soils'); return; }
     if (!state.viewBounds || loadingSoils) return;
-    const [south, west, north, east] = state.viewBounds;
     setLoadingSoils(true);
-    dispatch({ type: 'SET_OVERLAY_MESSAGE', payload: 'Loading soils in this view…' });
     try {
-      const { overlay, notes } = await soilsOverlay([west, south, east, north], `soils_${Date.now()}`);
-      const n = overlay.data?.features.length ?? 0;
-      if (n) dispatch({ type: 'ADD_OVERLAY', payload: overlay });
-      dispatch({ type: 'SET_OVERLAY_MESSAGE', payload: n
-        ? `Soils: ${n.toLocaleString()} map units.${notes.length ? ` Left out: ${notes.join('; ')}.` : ''}`
-        : 'No soil survey in this view (SSURGO covers the US).' });
-    } catch (err) {
-      dispatch({ type: 'SET_OVERLAY_MESSAGE', payload: `Could not load soils: ${(err as Error).message}` });
-    } finally {
+      await addService(env, 'soils');
+    } catch { /* the message is on the map */ } finally {
       setLoadingSoils(false);
     }
   };
   const [year, setYear] = useState(LAND_COVER_YEARS[LAND_COVER_YEARS.length - 1]);
   const setLandCover = (on: boolean, y = year) => {
-    if (landCover) dispatch({ type: 'REMOVE_OVERLAY', payload: landCover.id });
-    if (on) dispatch({ type: 'ADD_OVERLAY', payload: landCoverOverlay(y, `landcover_${Date.now()}`) });
+    if (on) void addService(env, 'land_cover', { year: y });
+    else removeService(env, 'land_cover');
   };
   return (
     <div className="sidebar-section">
@@ -179,9 +173,9 @@ function ContextView() {
           <span style={{ fontSize: '0.82em' }}>Geology</span>
           <span className="row-label" style={{ fontSize: '0.7em' }}>USGS state geologic maps (SGMC), conterminous US</span>
         </div>
-        <Switch checked={!!serviceRow('geology')} label="Geology" onChange={() => {
-          const row = serviceRow('geology');
-          dispatch(row ? { type: 'REMOVE_OVERLAY', payload: row.id } : { type: 'ADD_OVERLAY', payload: geologyOverlay(`geology_${Date.now()}`) });
+        <Switch checked={serviceOn('geology')} label="Geology" onChange={() => {
+          if (serviceOn('geology')) removeService(env, 'geology');
+          else void addService(env, 'geology');
         }} />
       </div>
       <div className="toggle-row" style={{ gap: 8 }}>
@@ -189,7 +183,7 @@ function ContextView() {
           <span style={{ fontSize: '0.82em' }}>Soils</span>
           <span className="row-label" style={{ fontSize: '0.7em' }}>USDA SSURGO in this view: peat, expansive clay, wet soils (US)</span>
         </div>
-        <Switch checked={!!serviceRow('soils') || loadingSoils} label="Soils" onChange={toggleSoils} />
+        <Switch checked={serviceOn('soils') || loadingSoils} label="Soils" onChange={toggleSoils} />
       </div>
       <div className="row-label" style={{ fontSize: '0.7em' }}>
         Roads, boundaries and buildings come from OpenStreetMap via OpenFreeMap. Soils load for the view when switched on;
