@@ -21,7 +21,6 @@ import re
 from pathlib import Path
 from typing import Any
 
-import httpx
 import numpy as np
 import pytest
 
