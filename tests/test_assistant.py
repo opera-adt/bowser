@@ -237,9 +237,19 @@ def test_relay_is_off_unless_enabled(tmp_path):
         "page_keys": False,
         "providers": [],
         "default_provider": None,
+        "sign_in": {
+            "allowed": False,
+            "reason": "The Assistant is off on this server.",
+            "methods": [],
+        },
     }
     flag = client.get("/config").json()["assistant"]
-    assert flag == {"enabled": False, "providers": [], "configured": []}
+    assert flag == {
+        "enabled": False,
+        "providers": [],
+        "configured": [],
+        "sign_in": [],
+    }
 
 
 def test_keys_only_from_this_computer_and_only_with_page_keys(tmp_path):
@@ -283,7 +293,7 @@ def test_chat_needs_a_key_and_a_known_provider(tmp_path):
     r = client.post("/assistant/chat", json={"provider": "anthropic", "messages": msg})
     assert r.status_code == 400 and "API key" in r.json()["detail"]
     r = client.post("/assistant/chat", json={"provider": "chatgpt", "messages": msg})
-    assert r.status_code == 400 and "later" in r.json()["detail"]
+    assert r.status_code == 400 and "Continue with ChatGPT" in r.json()["detail"]
     r = client.post(
         "/assistant/chat",
         json={"provider": "ollama", "model": "a b", "messages": msg},
@@ -882,8 +892,11 @@ SCRIPT = textwrap.dedent(
         "bowser.lite.main" if which == "lite" else "bowser.main"
     ).app
 
-    from bowser.assistant import relay
+    from bowser.assistant import relay, signin
     from bowser.assistant.providers import ToolCall, Turn
+
+    # No agent program on this test's PATH, whatever the machine has.
+    signin.find_program = lambda _name: None
 
     class Scripted:
         def __init__(self):
@@ -957,6 +970,13 @@ def test_config_flag_and_chat_on_the_real_apps(which, cube, tmp_path):
     assert flag["enabled"] is True
     assert "anthropic" in flag["providers"] and "chatgpt" not in flag["providers"]
     assert flag["configured"] == ["openrouter"]
+    # Sign-in is offered on this computer: Claude (not installed here) and ChatGPT.
+    assert flag["sign_in"] == ["claude", "chatgpt"]
+    methods = {m["id"]: m for m in res["status"]["sign_in"]["methods"]}
+    assert res["status"]["sign_in"]["allowed"] is True
+    assert methods["claude"]["state"] == "not_installed"
+    assert methods["claude"]["install_url"].startswith("https://code.claude.com/")
+    assert methods["chatgpt"]["state"] == "signed_out"
     assert KEY not in json.dumps(res["config"]) + json.dumps(res["status"])
 
     from bowser import api_models as api  # pydantic only; no settings

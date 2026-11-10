@@ -435,6 +435,47 @@ ROUTES: dict[str, dict[str, Any]] = {
         "PUT).",
         "tags": [ASSISTANT],
     },
+    "POST /assistant/signin": {
+        "summary": "Sign in to an AI account",
+        "description": "Start signing in with one of `sign_in.methods` of GET "
+        "/assistant/status. `chatgpt` (OAuth with PKCE): `sign_in_url` is "
+        "OpenAI's page for the browser, which comes back to GET /auth/callback. "
+        "`claude`: Bowser runs the user's Claude Code, which signs in on "
+        "Anthropic's page if it is not signed in yet (Bowser never sees its "
+        "credentials). 403 unless `BOWSER_ASSISTANT_PAGE_KEYS` is set and the "
+        "request comes from this computer.",
+        "tags": [ASSISTANT],
+    },
+    "DELETE /assistant/signin": {
+        "summary": "Sign out of an AI account",
+        "description": "OAuth: revoke the refresh token with the provider and "
+        "forget the tokens (`note` says when the provider did not confirm). "
+        "Agent: stop using it here and kill its processes; the agent itself "
+        "stays signed in. Same conditions as POST.",
+        "tags": [ASSISTANT],
+    },
+    "GET /auth/callback": {
+        "summary": "OAuth sign-in callback",
+        "description": "Where the provider's sign-in page sends the browser "
+        "back (`code`, `state`, and for a first sign-in the issued "
+        "`client_id`). Accepted only from this computer and for the `state` of "
+        "a sign-in Bowser started; answers a small HTML page.",
+        "tags": [ASSISTANT],
+    },
+    "POST /assistant/permission": {
+        "summary": "Answer an agent's permission request",
+        "description": "Answer a `permission` event of POST /assistant/chat: "
+        '`{"conversation", "id", "choice": "allow" | "allow_always" | '
+        '"reject"}`. Unanswered requests are declined after the event\'s '
+        "`timeout` seconds. 404 when the request is no longer open.",
+        "tags": [ASSISTANT],
+    },
+    "POST /assistant/stop": {
+        "summary": "Stop a chat's agent",
+        "description": "Kill the agent process of `conversation` (all of them "
+        "without one): Stop and New chat in the page. From this computer only.",
+        "tags": [ASSISTANT],
+    },
     "POST /assistant/chat": {
         "summary": "Chat with the Assistant",
         "description": "Send the conversation to the chosen provider with the "
@@ -442,7 +483,9 @@ ROUTES: dict[str, dict[str, Any]] = {
         "deltas, each `message` of the conversation, `tool_call` and "
         "`tool_result` for the data tools the server runs itself, `page_tools` "
         "for the tools the page runs (it then sends the results back in a new "
-        "request), `error` and `done`. 403 when the Assistant is off.",
+        "request), `error` and `done`. With a signed-in agent (`provider` "
+        "`claude` and a `conversation` id) also `status`, `permission` and "
+        "`permission_closed`. 403 when the Assistant is off.",
         "tags": [ASSISTANT],
     },
 }
@@ -509,6 +552,10 @@ class AssistantFlag(_Fixed):
     configured: list[str] = Field(
         description="Ids of the providers with a key, saved or from the server."
     )
+    sign_in: list[str] = Field(
+        description="Ids of the sign-in methods this server offers (to this "
+        "computer only)."
+    )
 
 
 class ConfigInfo(_Fixed):
@@ -545,8 +592,41 @@ class AssistantProvider(_Fixed):
     store: Optional[Literal["keyring", "file"]] = None
 
 
+class SignInMethod(_Fixed):
+    """One way to sign in, in ``GET /assistant/status``."""
+
+    id: str
+    label: str = Field(description="The button's text.")
+    kind: Literal["oauth", "local_agent"]
+    vendor: str
+    blurb: str
+    state: Literal[
+        "signed_out", "pending", "signed_in", "no_plan", "not_installed"
+    ]
+    account: Optional[str] = Field(None, description="The account's email.")
+    plan: Optional[str] = None
+    detail: Optional[str] = Field(None, description="Why it is not ready.")
+    install_url: Optional[str] = None
+    usage_url: Optional[str] = Field(None, description="Where to manage usage.")
+    model: str = Field(description="Default model; empty for an agent.")
+    models: list[str]
+
+
+class SignInStatus(_Fixed):
+    """The ``sign_in`` part of ``GET /assistant/status``."""
+
+    allowed: bool = Field(
+        description="Whether this request may sign in: the server keeps keys "
+        "from the page and the request comes from this computer."
+    )
+    reason: Optional[str] = Field(None, description="Why not, when not.")
+    methods: list[SignInMethod]
+
+
 class AssistantStatus(_Fixed):
-    """``GET /assistant/status``, ``PUT`` and ``DELETE /assistant/key``."""
+    """``GET /assistant/status``, ``PUT`` and ``DELETE /assistant/key``,
+    ``POST`` and ``DELETE /assistant/signin``.
+    """
 
     enabled: bool
     page_keys: bool = Field(
@@ -557,6 +637,23 @@ class AssistantStatus(_Fixed):
     stored_in: Optional[str] = Field(
         None, description="After PUT: where the key was kept."
     )
+    sign_in: SignInStatus
+    sign_in_url: Optional[str] = Field(
+        None, description="After POST /assistant/signin: the page to open."
+    )
+    note: Optional[str] = Field(None, description="After sign-out: a caveat.")
+
+
+class AssistantAnswered(_Fixed):
+    """``POST /assistant/permission``."""
+
+    ok: bool
+
+
+class AssistantStopped(_Fixed):
+    """``POST /assistant/stop``."""
+
+    stopped: int = Field(description="How many agent processes were killed.")
 
 
 class ModeInfo(_Fixed):
