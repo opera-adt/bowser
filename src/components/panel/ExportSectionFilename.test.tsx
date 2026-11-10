@@ -30,7 +30,8 @@ describe('native export download name', () => {
     render(<ExportSection />);
     fireEvent.click(screen.getByText('Data layer (GeoTIFF)'));
     await waitFor(() => expect(filename).toBe('displacement_20260101-20260201_masked.tif'));
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:test');
+    // saveFile frees the download URL a moment later, once the download has started.
+    await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:test'), { timeout: 2000 });
   });
 
   it('uses a safe layer-only fallback if the server supplies no name', async () => {

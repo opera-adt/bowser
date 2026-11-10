@@ -154,9 +154,8 @@ def export_provenance(
     time["velocity_fit_start"] = _date(merged.get("velocity_fit_start"))
     time["velocity_fit_end"] = _date(merged.get("velocity_fit_end"))
     time["selected_date"] = _date(selected_label)
-    time["note"] = (
-        "Available record bounds do not establish fit dates or the temporal datum."
-    )
+    note = "Available record bounds do not establish fit dates or the temporal datum."
+    time["note"] = note
 
     def nodata(value: Any) -> str | int | float | None:
         if value is None:

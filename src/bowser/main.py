@@ -2494,8 +2494,11 @@ def _export_mask_provenance(
                 raise ValueError(
                     "Direct GeoTIFF exports currently support only min layer masks"
                 )
+            name = mask.get("dataset")
+            if not isinstance(name, str) or not name:
+                raise ValueError("Each layer mask needs a dataset name")
             add(
-                mask.get("dataset"),
+                name,
                 float(mask.get("threshold", 0.5)),
                 (">=" if mode == "min" else "<=") if target.mode == "md" else ">",
                 "layer",

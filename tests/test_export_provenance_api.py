@@ -48,7 +48,7 @@ def exports(tmp_path_factory):
         32631
     ).rio.to_raster(work / "custom.tif")
     (work / "broken.tif").write_text("not a raster")
-    script = r'''
+    script = r"""
 import inspect
 import io
 import json
@@ -137,7 +137,7 @@ for mode, state in (("md", md), ("cog", cog)):
             k.startswith("BOWSER_") for k in state.dataset.displacement.attrs
         )
 (work / "results.json").write_text(json.dumps(result))
-'''
+"""
     env = {k: v for k, v in os.environ.items() if not k.startswith("BOWSER_")}
     env["BOWSER_STACK_DATA_FILE"] = str(work / "cube.zarr")
     run = subprocess.run(
