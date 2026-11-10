@@ -17,8 +17,8 @@ const provider = (over: Record<string, unknown>) => ({
   wire: 'openai', model: '', models: [], needs_key: true, local: false, auth: 'api_key',
   available: true, note: '', key_url: '', configured: false, source: null, hint: null, store: null, ...over,
 });
-const ANTHROPIC = provider({ id: 'anthropic', label: 'Anthropic', wire: 'anthropic', model: 'claude-opus-5-5', models: ['claude-opus-5-5'], key_url: 'https://console.anthropic.com/settings/keys' });
-const OLLAMA = provider({ id: 'ollama', label: 'Ollama (local)', model: 'qwen3', needs_key: false, local: true, auth: 'none', configured: true });
+const ANTHROPIC = provider({ id: 'anthropic', label: 'Anthropic', wire: 'anthropic', model: 'claude-opus-5-5', models: ['claude-opus-5-5', 'claude-sonnet-5-5'], key_url: 'https://console.anthropic.com/settings/keys' });
+const OLLAMA = provider({ id: 'ollama', label: 'Ollama (local)', model: 'qwen3', models: ['qwen3'], needs_key: false, local: true, auth: 'none', configured: true });
 const CHATGPT = provider({ id: 'chatgpt', label: 'Sign in with ChatGPT', wire: 'responses', auth: 'sign_in', available: false, note: 'Coming in a later version.' });
 const STATUS = { enabled: true, page_keys: true, default_provider: null, providers: [ANTHROPIC, OLLAMA, CHATGPT] };
 
@@ -38,6 +38,7 @@ function server(status: unknown, chats: Response[] = [], extra: (c: Call) => Res
     if (other) return other;
     if (call.url.startsWith('/assistant/status')) return json(status);
     if (call.url.startsWith('/assistant/chat')) return chats.shift() ?? json({ detail: 'no more' }, 500);
+    if (call.url.startsWith('/assistant/models')) return json({ detail: 'no list' }, 502);
     if (call.url.startsWith('/point')) return json([0, 0.001, 0.002]);
     return json({});
   }));
@@ -93,6 +94,8 @@ describe('AssistantTab', () => {
 
     fireEvent.change(select, { target: { value: 'anthropic' } });
     expect((screen.getByRole('combobox', { name: 'Model' }) as HTMLInputElement).value).toBe('claude-opus-5-5');
+    // No key yet: the provider's own list is not asked for.
+    expect(calls.some(c => c.url.startsWith('/assistant/models?provider=anthropic'))).toBe(false);
     const key = screen.getByLabelText('API key') as HTMLInputElement;
     expect(key.type).toBe('password');
     expect((screen.getByRole('textbox', { name: 'Question' }) as HTMLTextAreaElement).disabled).toBe(true);
@@ -110,6 +113,48 @@ describe('AssistantTab', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
     expect(await screen.findByLabelText('API key')).toBeTruthy();
     expect(calls.some(c => c.method === 'DELETE' && c.url === '/assistant/key?provider=anthropic')).toBe(true);
+  });
+
+  it("shows the provider's live model list once a key is saved, merged with the built-in one, and refreshes it", async () => {
+    const keyed = { ...STATUS, default_provider: 'anthropic', providers: [{ ...ANTHROPIC, configured: true, source: 'saved', hint: '…abcd' }, OLLAMA, CHATGPT] };
+    const lists = [
+      [{ id: 'claude-opus-5-5', label: 'Claude Opus 5.5' }, { id: 'claude-next-6', label: 'Claude Next 6' }],
+      [{ id: 'claude-next-6', label: 'Claude Next 6' }, { id: 'claude-newer-7', label: null }],
+    ];
+    const calls = server(keyed, [], c => (c.url.startsWith('/assistant/models')
+      ? json({ provider: 'anthropic', models: lists.shift(), cached: false }) : null));
+    renderTab();
+    fireEvent.click(await screen.findByRole('button', { name: 'Provider and key' }));
+    const options = () => Array.from(document.querySelectorAll('#ai-models option')).map(o => [(o as HTMLOptionElement).value, o.getAttribute('label')]);
+    await waitFor(() => expect(options()).toEqual([
+      ['claude-opus-5-5', 'Claude Opus 5.5'], ['claude-next-6', 'Claude Next 6'], ['claude-sonnet-5-5', null],
+    ]));
+    expect(calls.filter(c => c.url.startsWith('/assistant/models'))).toEqual([
+      { url: '/assistant/models?provider=anthropic', method: 'GET', body: null },
+    ]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh the model list' }));
+    await waitFor(() => expect(options().map(o => o[0])).toEqual(['claude-next-6', 'claude-newer-7', 'claude-opus-5-5', 'claude-sonnet-5-5']));
+    expect(calls[calls.length - 1].url).toBe('/assistant/models?provider=anthropic&refresh=true');
+
+    // Any model id can still be typed.
+    const input = screen.getByRole('combobox', { name: 'Model' }) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'claude-private-preview' } });
+    expect(input.value).toBe('claude-private-preview');
+    expect(screen.queryByText("Couldn't load the model list.")).toBeNull();
+  });
+
+  it('asks a local provider for its models at once, and says quietly when the list cannot be loaded', async () => {
+    const calls = server(STATUS);
+    renderTab();
+    fireEvent.click(await screen.findByRole('button', { name: 'Provider and key' }));
+    const note = await screen.findByText("Couldn't load the model list.");
+    expect(note.getAttribute('role')).toBe('status');
+    expect(calls.filter(c => c.url.startsWith('/assistant/models')).map(c => c.url)).toEqual(['/assistant/models?provider=ollama']);
+    // The built-in names are still offered, and the chat still works.
+    expect(Array.from(document.querySelectorAll('#ai-models option')).map(o => (o as HTMLOptionElement).value)).toEqual(['qwen3']);
+    expect((screen.getByRole('textbox', { name: 'Question' }) as HTMLTextAreaElement).disabled).toBe(false);
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   it('streams an answer whose tools put points on the map and chart', async () => {

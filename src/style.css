@@ -2450,6 +2450,17 @@ img.huechange { filter: hue-rotate(120deg); }
   gap: 4px;
 }
 
+.ai-model {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ai-model .sidebar-input {
+  flex: 1;
+  min-width: 0;
+}
+
 .sidebar-input.ai-text {
   text-align: left;
   font-family: inherit;
