@@ -1,11 +1,14 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
 import { useApi } from '../../hooks/useApi';
 import type { RefCandidate } from '../../types';
 import {
-  DEFAULT_CANDIDATE_COUNT, candidateRadius, chooseCandidate, distanceM, fetchReferenceCandidates,
-  formatDistance, isCurrentReference,
+  DEFAULT_CANDIDATE_COUNT, busyLabel, candidateRadius, chooseCandidate, distanceM, fetchCandidatesStatus,
+  fetchReferenceCandidates, formatDistance, isCurrentReference, type CandidatesStatus,
 } from '../../map/referenceCandidates';
+
+/** How often the button asks how far the preparation is. */
+export const STATUS_POLL_MS = 700;
 
 const fmt = (v: number | null, digits = 2) => (v === null || v === undefined ? '–' : v.toFixed(digits));
 
@@ -19,8 +22,23 @@ export default function ReferenceCandidates() {
   const { fetchPointTimeSeries, fetchBufferTimeSeries } = useApi();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [prep, setPrep] = useState<CandidatesStatus | null>(null);
   const candidates = state.refCandidates ?? [];
   const radius = candidateRadius(state);
+
+  // While a search runs, show how far the per-pixel statistics are (the first
+  // search on a cube reads every date; later ones answer in seconds).
+  useEffect(() => {
+    if (!busy) { setPrep(null); return; }
+    let live = true;
+    const poll = async () => {
+      const s = await fetchCandidatesStatus();
+      if (live) setPrep(s);
+    };
+    void poll();
+    const timer = setInterval(poll, STATUS_POLL_MS);
+    return () => { live = false; clearInterval(timer); };
+  }, [busy]);
 
   const find = async () => {
     setBusy(true);
@@ -45,7 +63,7 @@ export default function ReferenceCandidates() {
         title={`Rank the most coherent places, judged over ${radius} m circles, as reference points`}
         onClick={find}>
         <i className={`fa-solid ${busy ? 'fa-spinner fa-spin' : 'fa-crosshairs'}`} style={{ marginRight: 6 }}></i>
-        {busy ? 'Finding a stable reference…' : 'Find a stable reference'}
+        {busy ? busyLabel(prep) : 'Find a stable reference'}
       </button>
       {error && (
         <div className="row-label" role="alert" style={{ fontSize: '0.74em', color: 'var(--sb-red)', wordBreak: 'break-word' }}>{error}</div>

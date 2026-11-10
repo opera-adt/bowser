@@ -14,10 +14,11 @@ const candidate = (rank: number, over: Partial<RefCandidate> = {}): RefCandidate
 });
 
 let candidatesBody: unknown;
+let status: { state: string; progress: number };
 let release: () => void;
 
 function urls() {
-  return vi.mocked(fetch).mock.calls.map(c => String(c[0]));
+  return vi.mocked(fetch).mock.calls.map(c => String(c[0])).filter(u => !u.startsWith('/reference_candidates/status'));
 }
 
 beforeEach(() => {
@@ -28,13 +29,17 @@ beforeEach(() => {
     refBufferEnabled: false, refBufferRadius: 500, refCandidates: [],
   } as unknown as AppState;
   candidatesBody = { candidates: [candidate(1), candidate(2)], recommended: candidate(1) };
+  status = { state: 'idle', progress: 0 };
   let gate: Promise<void> = Promise.resolve();
   release = () => {};
   gate = new Promise(r => { release = r; });
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
-    if (url.startsWith('/reference_candidates')) {
+    if (url.startsWith('/reference_candidates?')) {
       await gate;
       return { ok: true, json: async () => candidatesBody };
+    }
+    if (url.startsWith('/reference_candidates/status')) {
+      return { ok: true, json: async () => status };
     }
     if (url.startsWith('/buffer_timeseries')) {
       return { ok: true, json: async () => ({ labels: ['2026-01-01', '2026-01-13'], median: [{ x: '2026-01-01', y: 0 }, { x: '2026-01-13', y: 2 }] }) };
@@ -61,6 +66,25 @@ describe('Find a stable reference', () => {
     await waitFor(() => expect(dispatch).toHaveBeenCalledWith(
       { type: 'SET_REF_CANDIDATES', payload: [candidate(1), candidate(2)] }));
     expect(screen.getByRole('button', { name: /Find a stable reference/ })).toBeTruthy();
+  });
+
+  it('shows how far the preparation is while the server reads the stack', async () => {
+    status = { state: 'running', progress: 0.4 };
+    render(<ReferenceCandidates />);
+    fireEvent.click(screen.getByRole('button', { name: /Find a stable reference/ }));
+    expect(await screen.findByText('Preparing… 40%')).toBeTruthy();
+    status = { state: 'running', progress: 0.75 };
+    expect(await screen.findByText('Preparing… 75%', {}, { timeout: 2000 })).toBeTruthy();
+    status = { state: 'ready', progress: 1 };
+    expect(await screen.findByText('Finding a stable reference…', {}, { timeout: 2000 })).toBeTruthy();
+    const polled = vi.mocked(fetch).mock.calls.map(c => String(c[0])).filter(u => u.startsWith('/reference_candidates/status'));
+    expect(new URL(polled[0], window.location.origin).searchParams.get('dataset')).toBe('arkabutla');
+    release();
+    await waitFor(() => expect(dispatch).toHaveBeenCalledWith(
+      { type: 'SET_REF_CANDIDATES', payload: [candidate(1), candidate(2)] }));
+    const n = vi.mocked(fetch).mock.calls.length;
+    await new Promise(r => setTimeout(r, 900));
+    expect(vi.mocked(fetch).mock.calls.length).toBe(n);   // polling stops with the search
   });
 
   it('searches with the reference buffer radius when it is on', async () => {

@@ -23,6 +23,29 @@ export function referenceCandidatesUrl(radiusM: number, n = DEFAULT_CANDIDATE_CO
   return `/reference_candidates?${params}`;
 }
 
+export interface CandidatesStatus {
+  state: 'idle' | 'running' | 'ready' | 'unavailable';
+  progress: number;
+}
+
+/** How far the server is in preparing the per-pixel statistics; null if it cannot say. */
+export async function fetchCandidatesStatus(): Promise<CandidatesStatus | null> {
+  try {
+    const res = await fetch(`/reference_candidates/status?${withDataset(new URLSearchParams())}`);
+    return res.ok ? await res.json() : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The busy button's label: the preparation's progress while it runs. */
+export function busyLabel(status: CandidatesStatus | null): string {
+  if (status?.state === 'running') {
+    return `Preparing… ${Math.min(99, Math.round(status.progress * 100))}%`;
+  }
+  return 'Finding a stable reference…';
+}
+
 /** Ask the server for candidates; throws with the server's message on failure. */
 export async function fetchReferenceCandidates(radiusM: number, n = DEFAULT_CANDIDATE_COUNT): Promise<RefCandidate[]> {
   const res = await fetch(referenceCandidatesUrl(radiusM, n));
