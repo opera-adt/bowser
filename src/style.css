@@ -2176,7 +2176,7 @@ img.huechange { filter: hue-rotate(120deg); }
 }
 
 /* ── Main › Layers: the reference date under the slider; click to reference to another date ── */
-/* Time step header, right side: the date, then "ref: <date>" */
+/* Time step header, right side: "ref: <date>", then the date */
 .time-step-values {
   display: flex;
   align-items: center;

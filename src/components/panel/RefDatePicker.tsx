@@ -12,7 +12,7 @@ interface RefDatePickerProps {
 }
 
 /**
- * The layer's reference date, "ref: <date>", on the right of the Time step header. For displacement-like layers clicking it
+ * The layer's reference date, "ref: <date>", in the Time step header just left of the date. For displacement-like layers clicking it
  * offers another date (from the list or the current one), the map and chart then showing
  * value − value at that date; Reset goes back to the stored reference.
  */
