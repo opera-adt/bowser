@@ -217,10 +217,14 @@ def main() -> None:
         "content_type": r.headers.get("content-type"),
     }
 
-    # Map tiles, exactly as RasterTileLayer requests them.
+    # Match the browser's explicit tile size. Pin lossless PNG for image
+    # fingerprints: automatic JPEG output for opaque tiles varies by codec
+    # build, even when the underlying rendered values are unchanged.
     tj = get(
         "tilejson",
         "/md/WebMercatorQuad/tilejson.json",
+        tilesize=256,
+        tile_format="png",
         variable="displacement",
         time_idx=3,
         rescale="-0.01,0.01",

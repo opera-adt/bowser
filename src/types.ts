@@ -32,6 +32,12 @@ export interface RasterGroup {
   available_mask_vars: string[];
   label?: string;
   unit?: string;
+  description?: string;
+  description_source?: 'bowser' | 'source' | 'unknown';
+  source_description?: string | null;
+  source_flags?: Array<{ value: string; label: string }>;
+  unit_status?: 'provided' | 'missing' | 'mixed';
+  metadata_notes?: string[];
   reference_date?: string | null;
   los_metadata?: LosMetadata;
   // Default spatial reference point [lon, lat] recorded in the cube (DISP-S1

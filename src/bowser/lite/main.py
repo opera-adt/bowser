@@ -163,9 +163,11 @@ def get_mode():
 
 @app.get("/config")
 def get_config(request: Request, dataset: str | None = Query(None)):
-    """Page title and logo flag.
+    """Page title, logo flag, and what this server can do.
 
     The title is the catalog entry's name, from ``?dataset=`` or the Referer.
+    ``geotiff_export`` is False: exports need the full server (``bowser run``),
+    so the page turns its GeoTIFF button off instead of failing with a 501.
     """
     if dataset is None and (ref := request.headers.get("referer")):
         values = parse_qs(urlparse(ref).query).get("dataset")
@@ -174,6 +176,7 @@ def get_config(request: Request, dataset: str | None = Query(None)):
     return {
         "title": entry.name if entry is not None else settings.BOWSER_TITLE,
         "opera_logo": settings.BOWSER_OPERA_LOGO,
+        "geotiff_export": False,
     }
 
 
@@ -663,7 +666,15 @@ def _check_tms(tms: str) -> None:
         )
 
 
-_TILEJSON_DROP = {"tilematrixsetid", "tile_format", "tile_scale", "minzoom", "maxzoom"}
+# TiTiler 2 leaves these out of the tile URL's query (tilesize is re-added
+# last); tile_scale has no meaning there and is passed through unchanged.
+_TILEJSON_DROP = {
+    "tilematrixsetid",
+    "tile_format",
+    "tilesize",
+    "minzoom",
+    "maxzoom",
+}
 
 
 @app.get("/md/{tileMatrixSetId}/tilejson.json", response_class=NanJSONResponse)
@@ -682,7 +693,7 @@ def tilejson(
     algorithm: str | None = Query(None),
     algorithm_params: str | None = Query(None),
     tile_format: str | None = Query(None),
-    tile_scale: Annotated[int, Query(gt=0, lt=4)] = 1,
+    tilesize: Annotated[int | None, Query(gt=0)] = None,
     minzoom: int | None = Query(None),
     maxzoom: int | None = Query(None),
 ):
@@ -707,9 +718,9 @@ def tilejson(
     )
     min_z = minzoom if minzoom is not None else min_z
     max_z = maxzoom if maxzoom is not None else max_z
-    url = (
-        f"{request.base_url}md/tiles/{tileMatrixSetId}/{{z}}/{{x}}/{{y}}@{tile_scale}x"
-    )
+    # Mirror the full server's TiTiler 2: no @Nx path suffix, and the tile size
+    # in the query, 512 unless the client asked for another.
+    url = f"{request.base_url}md/tiles/{tileMatrixSetId}/{{z}}/{{x}}/{{y}}"
     if tile_format:
         url += f".{tile_format}"
     qs = [
@@ -717,12 +728,12 @@ def tilejson(
         for k, v in request.query_params.multi_items()
         if k.lower() not in _TILEJSON_DROP
     ]
-    if qs:
-        url += f"?{urlencode(qs)}"
+    qs.append(("tilesize", str(tilesize if tilesize is not None else 512)))
+    url += f"?{urlencode(qs)}"
     ll = geo.transform_bounds(cube.crs, geo.WGS84, bounds)
     return NanJSONResponse(
         {
-            "tilejson": "2.2.0",
+            "tilejson": "3.0.0",
             "version": "1.0.0",
             "scheme": "xyz",
             "tiles": [url],
@@ -752,6 +763,7 @@ def _tile(
     colormap_name: str | None,
     algorithm: str | None,
     algorithm_params: str | None,
+    tilesize: int | None,
 ) -> Response:
     _check_tms(tileMatrixSetId)
     if fmt not in (None, "png"):
@@ -777,7 +789,8 @@ def _tile(
         algorithm_params,
     )
     try:
-        content = tiles.render_tile(cube, q, x, y, z, tilesize=256 * scale)
+        size = tilesize if tilesize is not None else 256 * scale
+        content = tiles.render_tile(cube, q, x, y, z, tilesize=size)
     except tiles.TileOutsideBoundsError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     return Response(content, media_type="image/png")
@@ -824,11 +837,12 @@ def _make_tile_route(path: str) -> None:
         algorithm_params: Optional[str] = _TILE_QUERY["algorithm_params"],
         scale: int = 1,
         format: Optional[str] = None,  # noqa: A002 — titiler's parameter name
+        tilesize: Optional[int] = Query(None, gt=0),
     ) -> Response:
         return _tile(
             tileMatrixSetId, z, x, y, scale, format, variable, dataset, time_idx,
             mask_variable, mask_min_value, layer_masks, custom_mask_path, rescale,
-            colormap_name, algorithm, algorithm_params,
+            colormap_name, algorithm, algorithm_params, tilesize,
         )  # fmt: skip
 
     app.add_api_route(path, tile, methods=["GET"], response_class=Response, name="tile")
@@ -866,6 +880,12 @@ def upload_raster():
 def export_geotiff():
     """501: writing GeoTIFFs needs GDAL."""
     return _not_in_lite("Exporting a GeoTIFF")
+
+
+@app.post("/polygon_timeseries")
+def polygon_timeseries():
+    """501: native polygon statistics currently require the full server."""
+    return _not_in_lite("Native polygon statistics")
 
 
 @app.api_route("/cog/{path:path}", methods=["GET", "POST"], include_in_schema=False)

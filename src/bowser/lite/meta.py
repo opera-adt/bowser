@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
+from ..layer_info import describe_layer
 from ..utils import _uses_spatial_reference
 from . import geo
 from .cube import Cube, spatial_ref_attrs
@@ -206,8 +207,8 @@ def dataset_info(cube: Cube, use_spatial_reference: bool) -> dict:
             "reference_date": reference_date(labels, dim) if dim else None,
             "available_mask_vars": available_masks,
             "label": attrs.get("long_name", name),
-            "unit": attrs.get("units", ""),
             "los_metadata": los,
             "reference_lonlat": ref_ll,
+            **describe_layer(str(name), attrs),
         }
     return info

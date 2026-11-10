@@ -32,6 +32,7 @@ from starlette.templating import Jinja2Templates
 from starlette_cramjam.middleware import CompressionMiddleware
 
 from .config import settings
+from .polygon import PolygonRequest, summarize_rasters, summarize_xarray
 from .state import BowserState, DatasetRegistry
 from .utils import (
     _uses_spatial_reference,
@@ -56,6 +57,7 @@ from titiler.core.errors import (  # noqa: E402
 )
 from titiler.core.factory import TilerFactory  # noqa: E402
 
+from .layer_info import describe_layer, describe_raster_group  # noqa: E402
 from .readers import CustomReader  # noqa: E402
 from .titiler import Amplitude, JSONResponse, Phase, Rewrap, Shift  # noqa: E402
 
@@ -475,9 +477,9 @@ def create_xarray_dataset_info(ds: xr.Dataset) -> dict:
             "reference_date": _reference_date(labels, dim) if dim else None,
             "available_mask_vars": available_mask_vars,
             "label": attrs.get("long_name", var_name),
-            "unit": attrs.get("units", ""),
             "los_metadata": los_metadata,
             "reference_lonlat": reference_lonlat,
+            **describe_layer(str(var_name), attrs),
         }
 
     return dataset_info
@@ -502,6 +504,7 @@ def create_rastergroup_dataset_info(raster_groups: dict) -> dict:
             "los_metadata": (
                 rg.los_metadata.model_dump() if rg.los_metadata is not None else None
             ),
+            **describe_raster_group(name, [r.layer_attrs for r in rg._reader.readers]),
         }
     return dataset_info
 
@@ -546,6 +549,7 @@ async def get_config(request: Request, dataset: str | None = Query(None)):
     return {
         "title": entry.name if entry is not None else settings.BOWSER_TITLE,
         "opera_logo": settings.BOWSER_OPERA_LOGO,
+        "geotiff_export": True,
     }
 
 
@@ -1197,6 +1201,45 @@ async def get_dataset_range(
             "p95": float(np.percentile(valid, 95)),
         }
     )
+
+
+@app.post("/polygon_timeseries", tags=["Analysis"], response_class=JSONResponse)
+def polygon_timeseries(
+    body: PolygonRequest,
+    target: BowserState = Depends(TargetState),
+):
+    """Summarize stored native pixels inside a WGS84 polygon.
+
+    This first endpoint provides bounded stored-value summaries, independent
+    of map zoom. Interactive references, optional quality masks and component
+    screening are not implicitly applied. Unknown request fields are rejected.
+    """
+    available = (
+        target.dataset.data_vars
+        if target.mode == "md" and target.dataset is not None
+        else target.raster_groups
+    )
+    if available is None or body.variable not in available:
+        raise HTTPException(status_code=404, detail=f"Unknown layer: {body.variable}")
+    try:
+        if target.mode == "md":
+            source = target.dataset[body.variable]
+            extra = [d for d in source.dims if d not in ("x", "y")]
+            if len(extra) > 1:
+                raise ValueError("Source supports at most one non-spatial axis")
+            dim = extra[0] if extra else None
+            labels = _dim_labels(source, dim) if dim else ["Stored layer"]
+            result = summarize_xarray(source, body, labels)
+        else:
+            result = summarize_rasters(target.raster_groups[body.variable], body)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (OSError, rasterio.errors.RasterioError) as exc:
+        logger.warning("Could not read polygon-analysis source: %s", type(exc).__name__)
+        raise HTTPException(
+            status_code=422, detail="Could not read polygon-analysis source"
+        ) from exc
+    return JSONResponse(result)
 
 
 @app.get(
@@ -2493,6 +2536,11 @@ def export_geotiff(
     custom_mask_path: Optional[str] = Query(
         None, description="Uploaded custom mask GeoTIFF path"
     ),
+    ref_lon: Optional[float] = Query(None, description="Reference WGS84 longitude"),
+    ref_lat: Optional[float] = Query(None, description="Reference WGS84 latitude"),
+    ref_buffer_m: float = Query(
+        0.0, description="Reference median radius in meters; zero selects one pixel"
+    ),
 ):
     """Export the active layer as a (optionally masked) GeoTIFF.
 
@@ -2501,6 +2549,12 @@ def export_geotiff(
     via :func:`_build_masked_cog_dataarray` — recommended mask, layer masks, and
     a custom mask. Masked-out pixels become ``NaN`` nodata; native resolution;
     one 2-D slice for ``time_idx``.
+
+    When both reference coordinates are supplied, subtract the raw source's
+    point value (or circular median) in the same layer/time slice. Optional
+    display masks affect output coverage, not reference sampling. Omitting
+    the coordinates preserves the stored reference. Invalid references return
+    HTTP 422 rather than silently exporting values in a different reference.
     """
     import tempfile  # noqa: PLC0415
 
@@ -2511,6 +2565,11 @@ def export_geotiff(
     from .export_provenance import export_provenance  # noqa: PLC0415
 
     target = _resolve_state(dataset)
+    reference_requested = (
+        ref_lon is not None or ref_lat is not None or ref_buffer_m != 0
+    )
+    if reference_requested and (ref_lon is None or ref_lat is None):
+        raise HTTPException(status_code=422, detail="Supply both ref_lon and ref_lat")
     applied_masks = _export_mask_provenance(
         target,
         variable,
@@ -2567,6 +2626,57 @@ def export_geotiff(
     crs = da.rio.crs or fallback_crs
     if crs is not None:
         da = da.rio.write_crs(crs)
+    if reference_requested:
+        from .export import reference_offset  # noqa: PLC0415
+
+        if target.mode == "md":
+            allowed = (
+                settings.BOWSER_USE_SPATIAL_REFERENCE_DISP
+                and _uses_spatial_reference(variable, target.dataset[variable])
+            )
+            source = target.dataset[variable]
+            source_dim = _non_spatial_dim(source)
+            if source_dim is not None:
+                idx = (
+                    0
+                    if time_idx is None
+                    else max(0, min(time_idx, source.sizes[source_dim] - 1))
+                )
+                source = source.isel({source_dim: idx})
+            if source.rio.crs is None and crs is not None:
+                source = source.rio.write_crs(crs)
+        else:
+            rg = target.raster_groups[variable]
+            allowed = rg.uses_spatial_ref and rg.algorithm == "shift"
+            idx = (
+                0 if time_idx is None else max(0, min(time_idx, len(rg.file_list) - 1))
+            )
+            source = rioxarray.open_rasterio(rg.file_list[idx], masked=True).squeeze(
+                "band", drop=True
+            )
+        try:
+            if not allowed:
+                raise ValueError(
+                    "This layer does not use an interactive spatial reference"
+                )
+            # Both were checked above: a reference needs ref_lon and ref_lat.
+            assert ref_lon is not None and ref_lat is not None
+            offset, tags = reference_offset(
+                source,
+                ref_lon,
+                ref_lat,
+                ref_buffer_m,
+                point_method="nearest" if target.mode == "md" else "containing",
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        finally:
+            if target.mode == "cog":
+                source.close()
+        # Keep masks, units, georeferencing and source attrs across arithmetic.
+        attrs = dict(da.attrs)
+        da = da - offset
+        da.attrs = {**attrs, **tags}
     if np.issubdtype(da.dtype, np.floating):
         da = da.rio.write_nodata(float("nan"), encoded=False)
 
