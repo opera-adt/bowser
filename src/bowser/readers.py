@@ -255,7 +255,10 @@ class RasterReader(DatasetReader):
             _crs = CRS.from_wkt(ds.GetProjection()) if ds.GetProjection() else None
             raster_band = ds.GetRasterBand(band)
             _nodata = raster_band.GetNoDataValue()
-            layer_attrs = {**(ds.GetMetadata() or {}), **(raster_band.GetMetadata() or {})}
+            layer_attrs = {
+                **(ds.GetMetadata() or {}),
+                **(raster_band.GetMetadata() or {}),
+            }
             if raster_band.GetUnitType():
                 layer_attrs["units"] = raster_band.GetUnitType()
             if raster_band.GetDescription():

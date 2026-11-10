@@ -476,7 +476,6 @@ def create_xarray_dataset_info(ds: xr.Dataset) -> dict:
             "reference_date": _reference_date(labels, dim) if dim else None,
             "available_mask_vars": available_mask_vars,
             "label": attrs.get("long_name", var_name),
-            "unit": attrs.get("units", ""),
             "los_metadata": los_metadata,
             "reference_lonlat": reference_lonlat,
             **describe_layer(str(var_name), attrs),

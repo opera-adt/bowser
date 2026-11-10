@@ -207,7 +207,6 @@ def dataset_info(cube: Cube, use_spatial_reference: bool) -> dict:
             "reference_date": reference_date(labels, dim) if dim else None,
             "available_mask_vars": available_masks,
             "label": attrs.get("long_name", name),
-            "unit": attrs.get("units", ""),
             "los_metadata": los,
             "reference_lonlat": ref_ll,
             **describe_layer(str(name), attrs),
