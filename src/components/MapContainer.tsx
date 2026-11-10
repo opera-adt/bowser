@@ -15,6 +15,7 @@ import {
 } from '../map/interactions';
 import { useAppContext } from '../context/AppContext';
 import { baseMaps } from '../basemap';
+import { basemapLeafletZoom, MAP_MAX_ZOOM } from '../map/basemapStyle';
 import { MousePositionControl } from '../mouse';
 import MeasureTool from './MeasureTool';
 import { ProfileToolMap, useProfileContext } from './ProfileTool';
@@ -647,7 +648,7 @@ export default function MapContainer({ toolbarsVisible, onToggleToolbars }: { to
         url={bottomBm?.url ?? ''}
         attribution={bottomBm?.attribution ?? ''}
         opacity={bottomOp}
-        maxZoom={22}
+        {...(bottomBm ? basemapLeafletZoom(bottomBm) : { maxZoom: MAP_MAX_ZOOM })}
         zIndex={1}
         eventHandlers={{ tileloadstart: onTileStart, tileload: onTileEnd, tileerror: onTileEnd }}
       />
@@ -657,7 +658,7 @@ export default function MapContainer({ toolbarsVisible, onToggleToolbars }: { to
           url={topBm.url}
           attribution={topBm.attribution}
           opacity={topOp}
-          maxZoom={22}
+          {...basemapLeafletZoom(topBm)}
           zIndex={2}
           eventHandlers={{ tileloadstart: onTileStart, tileload: onTileEnd, tileerror: onTileEnd }}
         />

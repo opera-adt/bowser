@@ -20,7 +20,7 @@ export function useIdentify(map: maplibregl.Map | null, ready: boolean) {
   useEffect(() => {
     if (!ready || !map || !state.identifyEnabled) return;
     const canvas = map.getCanvas();
-    canvas.style.cursor = 'help';
+    canvas.style.cursor = 'default'; // a plain arrow: Identify clicks the map, it isn't help
     let seq = 0;
     const onClick = async (e: maplibregl.MapMouseEvent) => {
       const s = stateRef.current;

@@ -35,6 +35,8 @@ export interface RasterGroup {
   unit?: string;
   description?: string;
   description_source?: 'bowser' | 'source' | 'unknown';
+  // Bowser's general text when the producer's own description leads (absent otherwise).
+  guidance?: string;
   source_description?: string | null;
   source_flags?: Array<{ value: string; label: string }>;
   unit_status?: 'provided' | 'missing' | 'mixed';
@@ -116,6 +118,9 @@ export interface BaseMapItem {
   url: string;
   attribution: string;
   label?: string;
+  /** Deepest zoom the provider really serves; past it the map upscales these tiles.
+   *  Unset: DEFAULT_BASEMAP_NATIVE_ZOOM (map/basemapStyle.ts). */
+  maxNativeZoom?: number;
 }
 
 export interface LayerMask {

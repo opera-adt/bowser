@@ -1427,6 +1427,10 @@ img.huechange { filter: hue-rotate(120deg); }
   color: var(--sb-text);
 }
 
+.ov-icon-btn.on {
+  color: var(--sb-accent);
+}
+
 .ov-icon-btn.danger:hover {
   color: var(--sb-red);
 }

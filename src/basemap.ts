@@ -1,6 +1,10 @@
 // basemap.ts
 // https://leaflet-extras.github.io/leaflet-providers/preview/
 // https://github.com/geopandas/xyzservices/blob/main/provider_sources/leaflet-providers-parsed.json
+//
+// maxNativeZoom: the deepest zoom the provider serves. Past it Esri answers 200 with a
+// grey "Map data not yet available" tile, so the maps upscale the last real tiles
+// instead of requesting those (checked over Arkabutla, MS, in 2026-11).
 
 import { BaseMapItem } from './types';
 
@@ -21,16 +25,19 @@ const baseMaps: { [key: string]: BaseMapItem } = {
         label: 'Dark',
         url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
         attribution: 'Tiles © Esri — Source: Esri, HERE, Garmin, © OpenStreetMap contributors, and the GIS user community',
+        maxNativeZoom: 16,
     },
     esriLight: {
         label: 'Light',
         url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',
         attribution: 'Tiles © Esri — Source: Esri, HERE, Garmin, © OpenStreetMap contributors, and the GIS user community',
+        maxNativeZoom: 16,
     },
     esriHillshade: {
         label: 'Hillshade',
         url: 'https://server.arcgisonline.com/arcgis/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}',
         attribution: 'Tiles © Esri — Source: Esri, USGS, NGA, NASA, CGIAR, N Robinson, NCEAS, NLS, OS, NMA, Geodatastyrelsen, GSA, Geoland, FEMA, Intermap, and the GIS user community',
+        maxNativeZoom: 16,
     },
     esriTopo: {
         label: 'Topo',
@@ -49,8 +56,10 @@ const baseMaps: { [key: string]: BaseMapItem } = {
     },
     shadedRelief: {
         label: 'Relief',
-        url: 'https://server.arcgisonline.com/arcgis/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}',
-        attribution: 'USGS',
+        // Esri World Shaded Relief (coloured relief); its tiles stop at zoom 13.
+        url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Shaded_Relief/MapServer/tile/{z}/{y}/{x}',
+        attribution: 'Tiles © Esri — Source: Esri',
+        maxNativeZoom: 13,
     },
 };
 
