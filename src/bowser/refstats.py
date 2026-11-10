@@ -211,7 +211,7 @@ def selected_dates(da: xr.DataArray, stride: int) -> list[tuple[int, int]]:
     return [(t0, min(t0 + ct, nt)) for t0 in range(0, nt, ct * stride)]
 
 
-def _read(x: xr.DataArray) -> np.ndarray:
+def read_lazy(x: xr.DataArray) -> np.ndarray:
     """Read a lazy selection: dask in this thread, else through the backend."""
     data = x.data
     if hasattr(data, "compute") and not isinstance(data, np.ndarray):
@@ -324,7 +324,7 @@ def stack_median_std(
             sub = da.isel(y=slice(r, r + h), x=slice(c, c + w))
             dim = sub.dims[0]
             for a, b, o in calls:
-                out[o : o + b - a] = _read(sub.isel({dim: slice(a, b)}))
+                out[o : o + b - a] = read_lazy(sub.isel({dim: slice(a, b)}))
         _reduce_in_tiles(out, med[r : r + h, c : c + w], std[r : r + h, c : c + w])
         if progress is not None:
             with lock:

@@ -84,7 +84,9 @@ from .refstats import (
     LayerShapeError,
     Source,
     as_tyx,
+    direct_array,
     nan_median_std,
+    read_lazy,
     read_workers,
     selected_dates,
     stack_median_std,
@@ -308,12 +310,16 @@ def _keep_mask(
 
 
 def _window_keep(
-    ds: xr.Dataset, layers: dict[str, Any], rows: slice, cols: slice
+    ds: xr.Dataset,
+    layers: dict[str, Any],
+    rows: slice,
+    cols: slice,
+    source: Source | None = None,
 ) -> np.ndarray | None:
     keep = None
     names = ([layers["water_mask"]] if layers["water_mask"] else []) + layers["masks"]
     for name in names:
-        med, _ = stack_median_std(ds[name], rows, cols)
+        med, _ = stack_median_std(ds[name], rows, cols, source=source)
         good = (med != 0) if name == layers["water_mask"] else (med >= 0.5)
         keep = good if keep is None else keep & good
     return keep
@@ -359,7 +365,12 @@ def _units_to_m(units: str | None) -> float:
 
 
 def displacement_scatter(
-    ds: xr.Dataset, name: str, cx: float, cy: float, radius_m: float
+    ds: xr.Dataset,
+    name: str,
+    cx: float,
+    cy: float,
+    radius_m: float,
+    source: Source | None = None,
 ) -> tuple[float | None, int]:
     """Median over a circle's pixels of std_t(pixel - circle median), in metres.
 
@@ -370,6 +381,27 @@ def displacement_scatter(
     if radius_m <= 0:
         return None, 1
     da = as_tyx(ds[name])
+    # Read the circle's box first: straight from zarr when that gives the same
+    # values, else in this thread (a dask-backed layer, on the full server, would
+    # otherwise run a scheduler over the whole machine for each circle).
+    pad = radius_m + 2 * max(_pixel_size(ds), 1e-9)
+    rows = np.flatnonzero(np.abs(da["y"].values - cy) <= pad)
+    cols = np.flatnonzero(np.abs(da["x"].values - cx) <= pad)
+    if rows.size == 0 or cols.size == 0:
+        return None, 0
+    ys, xs = (
+        slice(int(rows[0]), int(rows[-1]) + 1),
+        slice(int(cols[0]), int(cols[-1]) + 1),
+    )
+    box = da.isel(y=ys, x=xs)
+    raw = direct_array(ds[name], source)
+    if raw is None:
+        data = read_lazy(box)
+    elif ds[name].ndim == 2:
+        data = np.asarray(raw[ys, xs])[None]
+    else:
+        data = np.asarray(raw[:, ys, xs])
+    da = box.copy(data=data)
     found = select_circle(da, cx, cy, radius_m, margin_window=True, sqrt_distance=True)
     if found is None:
         found = select_circle(da, cx, cy, radius_m)
@@ -461,6 +493,7 @@ def find_reference_candidates(
     full = levels[0]
     ds = levels[li]
     source = sources[li] if sources is not None else None
+    full_source = sources[0] if sources is not None else None
     screen_px = _pixel_size(ds)
     full_px = _pixel_size(full)
     n_dates = sum(b - a for a, b in selected_dates(ds[layers["coherence"]], stride))
@@ -540,13 +573,19 @@ def find_reference_candidates(
                 t_p,
                 fruns,
                 full_disc,
+                full_source,
             )
         if stats is None:
             return None
         scatter = None
         if layers["displacement"] is not None:
             scatter, _ = displacement_scatter(
-                full, layers["displacement"], stats["x"], stats["y"], params.radius_m
+                full,
+                layers["displacement"],
+                stats["x"],
+                stats["y"],
+                params.radius_m,
+                full_source,
             )
         s0 = params.scatter_scale_m
         final = stats["nscore"] * (s0 / (s0 + scatter) if scatter is not None else 1.0)
@@ -584,7 +623,7 @@ def find_reference_candidates(
         lon, lat = to_lonlat.transform(s["x"], s["y"])
         v = None
         if vel_da is not None:
-            v = _f(vel_da.isel(y=s["row"], x=s["col"]).values)
+            v = _f(read_lazy(vel_da.isel(y=s["row"], x=s["col"])))
         cand = {
             "rank": rank,
             "lon": float(lon),
@@ -775,6 +814,7 @@ def _refine(
     t_p: float,
     runs: list[tuple[int, int, int]],
     disc_size: int,
+    source: Source | None = None,
 ) -> dict | None:
     """Best full-resolution centre within ``half`` of ``(x0, y0)``, all dates."""
     xv, yv = full["x"].values, full["y"].values
@@ -785,9 +825,9 @@ def _refine(
         return None
     rs = slice(int(rows[0]), int(rows[-1]) + 1)
     cs = slice(int(cols[0]), int(cols[-1]) + 1)
-    mc, sc = stack_median_std(full[layers["coherence"]], rs, cs)
-    mp, sp = stack_median_std(full[layers["similarity"]], rs, cs)
-    keep = _window_keep(full, layers, rs, cs)
+    mc, sc = stack_median_std(full[layers["coherence"]], rs, cs, source=source)
+    mp, sp = stack_median_std(full[layers["similarity"]], rs, cs, source=source)
+    keep = _window_keep(full, layers, rs, cs, source)
     win = _Screen(mc, sc, mp, sp, np.ones(mc.shape, bool) if keep is None else keep)
     win.finish(k, t_c, t_p)
     frac, mean, _, nscore = win.neighbourhood(runs, disc_size)
