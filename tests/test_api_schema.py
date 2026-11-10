@@ -245,6 +245,12 @@ def apps(tmp_path_factory) -> dict[str, dict]:
 
     root = tmp_path_factory.mktemp("api_schema")
     cube = make_cube(root / "cubes" / "regression.zarr")
+    # Producer text on a layer with Bowser guidance adds /datasets' "guidance".
+    import zarr
+
+    zarr.open_group(str(cube))["displacement"].attrs[
+        "description"
+    ] = "Producer description of the displacement."
     results = {}
     for which in ("full", "lite"):
         work = root / which

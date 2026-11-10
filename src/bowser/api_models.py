@@ -499,7 +499,8 @@ class DatasetInfo(_Fixed):
     """One layer of ``GET /datasets``.
 
     ``available_mask_vars``, ``label`` and ``reference_lonlat`` are sent for
-    GeoZarr cubes only; ``metadata_notes`` only for some GeoTIFF groups.
+    GeoZarr cubes only; ``guidance`` only for layers with both producer text and
+    Bowser guidance; ``metadata_notes`` only for some GeoTIFF groups.
     """
 
     name: str
@@ -527,6 +528,11 @@ class DatasetInfo(_Fixed):
     source_flags: list[dict[str, str]]
     unit: str
     unit_status: Literal["provided", "missing", "mixed"]
+    guidance: Optional[str] = Field(
+        None,
+        description="Bowser's general note, sent when the producer's own "
+        "description is shown as `description`.",
+    )
     metadata_notes: Optional[list[str]] = None
 
 
