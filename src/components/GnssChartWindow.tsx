@@ -68,9 +68,10 @@ export default function GnssChartWindow() {
       <div className="chart-header" onMouseDown={onDragMouseDown} style={{ cursor: 'grab' }}>
         <h4 style={{ margin: 0, fontSize: '0.9em' }}>GNSS {station.id}</h4>
         <div className="chart-controls">
-          <button className={`chart-btn${showModel ? ' active' : ''}`} aria-pressed={showModel} onClick={() => setShowModel(v => !v)}
-            title="Fit a model to each component (shared with the InSAR chart)">
-            {showModel ? `Model: ${modelLabel(state.fitSettings)}` : 'Model'}
+          <button className={`chart-btn${showModel ? ' active' : ''}`} aria-pressed={showModel} aria-label="Model"
+            onClick={() => setShowModel(v => !v)}
+            title={showModel ? `Model: ${modelLabel(state.fitSettings)}` : 'Fit a model to each component (shared with the InSAR chart)'}>
+            <i className={`fa-solid ${showModel ? 'fa-chart-line' : 'fa-chart-simple'}`}></i>
           </button>
           {series && <a className="chart-btn" href={series.station_page} target="_blank" rel="noopener noreferrer">UNR page</a>}
           <button className="chart-btn" style={{ color: 'var(--sb-red)' }} title="Close" onClick={() => dispatch({ type: 'OPEN_GNSS_CHART', payload: null })}>
