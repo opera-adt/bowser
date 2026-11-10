@@ -22,6 +22,7 @@ from pyproj import Transformer
 
 from .catalog import CatalogEntry, load_catalog
 from .config import Settings
+from .constants import TILE_SIZE
 
 Mode = Literal["md", "cog"]
 
@@ -147,7 +148,7 @@ class BowserState:
     # list[PyramidLevel] in MD mode (length >= 1), None in COG mode.
     levels: Any = None
 
-    def dataset_for_tile_zoom(self, z: int, tile_size: int = 256) -> xr.Dataset:
+    def dataset_for_tile_zoom(self, z: int, tile_size: int = TILE_SIZE) -> xr.Dataset:
         """Return the pyramid level dataset appropriate for a given tile zoom.
 
         Picks the coarsest level that still delivers roughly one native pixel

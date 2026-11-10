@@ -130,19 +130,6 @@ variables share a native grid.
 
 ---
 
-### 8. `--min-pyramid-size` is coupled to the tile size without self-documenting
-
-**Where:** `bowser tifs-to-geozarr` (`src/bowser/_tifs_to_geozarr.py`).
-
-**What's wrong:** Default 256 matches bowser's 256-px tiles, but the knob is a
-pyramid-builder option. Changing one without the other silently degrades tile
-quality.
-
-**Fix:** Read tile size from a shared constant. Or derive the min
-automatically from the expected client tile size.
-
----
-
 ### 9. titiler doesn't pick pyramid levels by zoom — bowser wraps it
 
 **Where:** `src/bowser/main.py` `XarrayPathDependency` (~L1464); level
