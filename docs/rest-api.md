@@ -58,6 +58,7 @@ are indexes into a layer's `x_values`.
 | | `POST /polygon_timeseries` | Per-date statistics inside a polygon |
 | | `POST /profile` | Values along a line |
 | | `GET /reference_candidates` | Stable places to put the reference point |
+| | `GET /reference_candidates/status` | Whether the reference finder's statistics are ready |
 | Tiles | `GET /md/{tms}/tilejson.json` | TileJSON with the tile URL template |
 | | `GET /md/tiles/{tms}/{z}/{x}/{y}` | A map tile |
 | | `GET /colorbar/{cmap}` | A colormap gradient image |
@@ -172,11 +173,33 @@ used, percentiles of both medians over the cube (`distribution`) and, per
 candidate, the medians, standard deviations, velocity and a one-line `reason`.
 
 The per-pixel reductions do not depend on the reference or the parameters, so
-the server keeps them per cube and layer: the first call reads both layers
-whole, later calls answer in about a second. A cube larger than 16 million
-pixels per date is screened on its coarsest pyramid level below that size, and
-the shortlisted candidates are refined at full resolution; the thresholds then
-come from the screening level.
+they are computed once per cube and layer and kept, in memory and on disk
+(`~/.cache/bowser/refstats`, or `BOWSER_REFSTATS_CACHE_DIR`; `.npz` files keyed
+by the store, pyramid level, layer, date stride and a fingerprint of the
+layer's files, so a rewritten layer is recomputed). A restarted server reuses
+them. The disk cache drops files older than `BOWSER_REFSTATS_CACHE_MAX_AGE_DAYS`
+(30) and the least recently used beyond `BOWSER_REFSTATS_CACHE_MAX_MB` (2048);
+`BOWSER_REFSTATS_CACHE=0` turns it off. `BOWSER_REFSTATS_WORKERS` (2) threads
+read the stack.
+
+The full server starts computing them in the background, at low priority, when
+it opens a cube (at startup, on a catalog entry's first request, on
+*Open*); a search that arrives meanwhile waits for that work instead of
+repeating it. `GET /reference_candidates/status` says whether they are
+`ready`, `running` (with `progress`) or `idle`, and the page shows
+*Preparing… 40%* while they run. bowser-lite, the desktop app's server, does
+not warm up unless `BOWSER_REFSTATS_WARMUP=1` (the full server's can be turned
+off with `0`): on a laptop, reading every date of two layers each time a cube
+is opened costs more than the one-time wait the disk cache then removes.
+
+A cube larger than 16 million pixels per date is screened on its coarsest
+pyramid level below that size; a screening read above 4 billion values per
+layer also uses every n-th time chunk of dates (`screen_stride` sets it). In
+both cases the shortlisted candidates are recomputed at full resolution with
+every date before ranking, and the thresholds and `distribution` describe the
+screening read. On Arkabutla, screening every 2nd, 3rd or 4th chunk gave the
+same five places as every date (one moved by 30 m), so every date stays the
+default where it is affordable.
 
 **Limits.** Coherence says the phase is consistent, not that the ground is
 still: a coherent building can sit on compacting ground, and a dam or a

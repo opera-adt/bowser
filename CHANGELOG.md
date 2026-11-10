@@ -17,6 +17,12 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   recommended*) moves the reference there with *Sample around ref marker* at
   the same radius. See docs/rest-api.md for what the scores mean and their
   limits.
+- The reference finder keeps its per-pixel statistics on disk
+  (`~/.cache/bowser/refstats`; `BOWSER_REFSTATS_*` settings), so a restarted
+  server answers at once; the full server prepares them in the background when
+  it opens a cube, `GET /reference_candidates/status` reports the progress and
+  the page shows *Preparing… 40%*. Very large cubes can be screened on a subset
+  of dates (`screen_stride`), with the shortlist rechecked on every date.
 
 ### Changed
 
