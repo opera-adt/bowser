@@ -16,6 +16,7 @@ import { seriesStyle } from '../map/seriesStyle';
 import { describeFit, fitSeries, modelCurve, modelLabel, rSquared } from '../map/fitSettings';
 import type { FitResult } from '../map/fit';
 import { displayUnit } from '../utils/units';
+import { saveFile } from '../utils/saveFile';
 
 // Chart.js plugin to wire legend-click visibility to all related datasets (raw, trend,
 // residual, samples, median) that share the same base label.
@@ -344,13 +345,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     // Prepend the metadata column header before the metadata rows.
     const out = [metaHeader, csvContent].join('\n');
     const blob = new Blob([out], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    link.setAttribute('href', URL.createObjectURL(blob));
-    link.setAttribute('download', `time-series-${activeDatasetsForChart[0]}-${new Date().toISOString().slice(0, 16).replace(/[:.]/g, '-')}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    void saveFile(blob, `time-series-${activeDatasetsForChart[0]}-${new Date().toISOString().slice(0, 16).replace(/[:.]/g, '-')}.csv`);
   }, [chartDataMap, firstDs, activeDatasetsForChart, state.timeSeriesPoints, fits, state.fitSettings, state.datasetInfo, state.units]);
 
   // Ordered list of dataset names currently in chartDataMap

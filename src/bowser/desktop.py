@@ -13,6 +13,7 @@ GeoTIFF uploads, exports and COG stacks but needs rasterio/titiler installed.
 
 from __future__ import annotations
 
+import base64
 import os
 import socket
 import sys
@@ -55,6 +56,22 @@ def user_dir() -> Path:
         )
     base.mkdir(parents=True, exist_ok=True)
     return base
+
+
+def ensure_std_streams(folder: Path) -> None:
+    """Point a missing ``sys.stdout``/``sys.stderr`` at ``folder/bowser.log``.
+
+    A windowed (no console) app on Windows starts with both set to None, and
+    uvicorn's log formatter calls ``isatty()`` on them, so the app crashed at
+    start. The log file also gives users something to send when it fails.
+    """
+    if sys.stdout is not None and sys.stderr is not None:
+        return
+    log = open(folder / "bowser.log", "a", encoding="utf-8", buffering=1)  # noqa: SIM115
+    if sys.stdout is None:
+        sys.stdout = log
+    if sys.stderr is None:
+        sys.stderr = log
 
 
 def free_port() -> int:
@@ -129,14 +146,39 @@ class _WindowApi:
 
     def pick_folder(self) -> str | None:
         """Show a native folder chooser; return the folder, or None if cancelled."""
+        chosen = self._dialog("FOLDER") if self.window else None
+        return _first(chosen)
+
+    def save_file(self, name: str, data_base64: str) -> str | None:
+        """Ask where to save ``name`` and write the bytes there.
+
+        The page calls this instead of a download link, which the app window
+        cannot follow: Windows ignored it, and macOS replaced the page with the
+        file. Return the path written, or None if cancelled.
+        """
+        if not self.window:
+            return None
+        path = _first(self._dialog("SAVE", save_filename=name))
+        if not path:
+            return None
+        Path(path).write_bytes(base64.b64decode(data_base64))
+        return path
+
+    def _dialog(self, kind: str, **kwargs: Any) -> Any:
+        """Open a pywebview file dialog of ``kind`` (FOLDER, SAVE or OPEN)."""
         import webview  # noqa: PLC0415
 
-        chosen = (
-            self.window.create_file_dialog(webview.FOLDER_DIALOG)
-            if self.window
-            else None
-        )
-        return chosen[0] if chosen else None
+        # pywebview 5+ has webview.FileDialog.<KIND>; older ones <KIND>_DIALOG.
+        dialogs = getattr(webview, "FileDialog", None)
+        flag = getattr(dialogs, kind, None) or getattr(webview, f"{kind}_DIALOG")
+        return self.window.create_file_dialog(flag, **kwargs)
+
+
+def _first(chosen: Any) -> str | None:
+    """Return the path a dialog chose: a string, a list of them, or nothing."""
+    if not chosen:
+        return None
+    return chosen if isinstance(chosen, str) else chosen[0]
 
 
 def run(browser: bool = False, server: str | None = None) -> None:
@@ -144,7 +186,9 @@ def run(browser: bool = False, server: str | None = None) -> None:
 
     The server is lite unless ``server`` or ``$BOWSER_SERVER`` say full.
     """
-    os.environ.update(desktop_env(user_dir()))
+    folder = user_dir()
+    ensure_std_streams(folder)
+    os.environ.update(desktop_env(folder))
     local = LocalServer(server=server)
     print(f"Starting Bowser on {local.url} …", flush=True)
     local.start()

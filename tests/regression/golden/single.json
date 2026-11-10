@@ -255,6 +255,8 @@
      438390.0,
      3758490.0
     ],
+    "description": "Variation in radar brightness relative to its average. Lower values usually mean more consistent brightness, not necessarily stationary ground. Selection thresholds come from the source.",
+    "description_source": "bowser",
     "label": "amplitude_dispersion",
     "latlon_bounds": [
      -117.684,
@@ -291,7 +293,10 @@
      -117.68,
      33.9629
     ],
+    "source_description": null,
+    "source_flags": [],
     "unit": "",
+    "unit_status": "missing",
     "uses_spatial_ref": false,
     "x_values": []
    },
@@ -308,6 +313,8 @@
      438390.0,
      3758490.0
     ],
+    "description": "Saved change relative to the source's reference. The measured direction, sign convention and starting date come from the producer; this is not automatically total 3D movement.",
+    "description_source": "bowser",
     "label": "LOS displacement",
     "latlon_bounds": [
      -117.684,
@@ -344,7 +351,10 @@
      -117.68,
      33.9629
     ],
+    "source_description": "LOS displacement",
+    "source_flags": [],
     "unit": "meters",
+    "unit_status": "provided",
     "uses_spatial_ref": true,
     "x_values": [
      "2026-01-01",
@@ -368,6 +378,8 @@
      438390.0,
      3758490.0
     ],
+    "description": "Agreement between nearby radar phase patterns. Higher values generally mean more agreement; low or negative values can indicate disagreement. This does not measure speed or establish stationary ground.",
+    "description_source": "bowser",
     "label": "phase_similarity",
     "latlon_bounds": [
      -117.684,
@@ -404,7 +416,10 @@
      -117.68,
      33.9629
     ],
+    "source_description": null,
+    "source_flags": [],
     "unit": "",
+    "unit_status": "missing",
     "uses_spatial_ref": false,
     "x_values": [
      "2026-01-01",
@@ -428,6 +443,8 @@
      438390.0,
      3758490.0
     ],
+    "description": "The producer's suggested screen for less reliable measurements. Check the supplied flag values and product documentation before selecting a threshold; this is not a map of stable ground.",
+    "description_source": "bowser",
     "label": "recommended_mask",
     "latlon_bounds": [
      -117.684,
@@ -464,7 +481,10 @@
      -117.68,
      33.9629
     ],
+    "source_description": null,
+    "source_flags": [],
     "unit": "",
+    "unit_status": "missing",
     "uses_spatial_ref": false,
     "x_values": [
      "2026-01-01",
@@ -488,6 +508,8 @@
      438390.0,
      3758490.0
     ],
+    "description": "How consistently the radar phase observations fit the estimated history. Higher values generally mean more consistency, but do not guarantee correct displacement or rule out unwrapping errors.",
+    "description_source": "bowser",
     "label": "temporal_coherence",
     "latlon_bounds": [
      -117.684,
@@ -524,7 +546,10 @@
      -117.68,
      33.9629
     ],
+    "source_description": null,
+    "source_flags": [],
     "unit": "",
+    "unit_status": "missing",
     "uses_spatial_ref": false,
     "x_values": [
      "2026-01-01",
@@ -548,6 +573,8 @@
      438390.0,
      3758490.0
     ],
+    "description": "Saved rate of change over the producer's stated period. Direction, dates and estimation method come from the source; this need not be today's rate or total 3D speed.",
+    "description_source": "bowser",
     "label": "velocity",
     "latlon_bounds": [
      -117.684,
@@ -584,7 +611,10 @@
      -117.68,
      33.9629
     ],
+    "source_description": null,
+    "source_flags": [],
     "unit": "m/yr",
+    "unit_status": "provided",
     "uses_spatial_ref": true,
     "x_values": []
    }

@@ -84,3 +84,73 @@ def test_opened_cubes_are_listed_on_the_next_launch(tmp_path):
     (again,) = _run(cfg, "list")
     assert [d["uri"] for d in again["datasets"]] == [str(cube.resolve())]
     assert again["allow_open"] is True
+
+
+class _FakeWindow:
+    """A pywebview window whose file dialog returns ``chosen``."""
+
+    def __init__(self, chosen):
+        self.chosen = chosen
+        self.calls = []
+
+    def create_file_dialog(self, kind, **kwargs):
+        self.calls.append((kind, kwargs))
+        return self.chosen
+
+
+@pytest.mark.parametrize("new_api", [True, False])
+def test_save_file_writes_what_the_page_sends(tmp_path, monkeypatch, new_api):
+    import base64
+    import types
+
+    # pywebview 5+ has FileDialog.SAVE; older releases SAVE_DIALOG.
+    fake = types.ModuleType("webview")
+    if new_api:
+        fake.FileDialog = types.SimpleNamespace(SAVE="save", FOLDER="folder")
+    else:
+        fake.SAVE_DIALOG, fake.FOLDER_DIALOG = "save", "folder"
+    monkeypatch.setitem(sys.modules, "webview", fake)
+
+    target = tmp_path / "project.json"
+    api = desktop._WindowApi()
+    api.window = _FakeWindow((str(target),))
+    data = base64.b64encode(b'{"a": 1}').decode()
+
+    assert api.save_file("project.json", data) == str(target)
+    assert target.read_bytes() == b'{"a": 1}'
+    assert api.window.calls == [("save", {"save_filename": "project.json"})]
+
+
+def test_save_file_cancelled_writes_nothing(tmp_path, monkeypatch):
+    import types
+
+    fake = types.ModuleType("webview")
+    fake.FileDialog = types.SimpleNamespace(SAVE="save")
+    monkeypatch.setitem(sys.modules, "webview", fake)
+    api = desktop._WindowApi()
+    api.window = _FakeWindow(None)
+    assert api.save_file("x.txt", "eA==") is None
+    assert list(tmp_path.iterdir()) == []
+
+def test_missing_std_streams_go_to_a_log_file(tmp_path, monkeypatch):
+    # A windowed app on Windows has no console: stdout and stderr are None, and
+    # uvicorn's log setup used to crash on them ("Unable to configure formatter").
+    uvicorn = pytest.importorskip("uvicorn")
+    monkeypatch.setattr(sys, "stdout", None)
+    monkeypatch.setattr(sys, "stderr", None)
+    desktop.ensure_std_streams(tmp_path)
+    try:
+        uvicorn.Config(lambda *_: None, log_level="warning")
+        print("hello", flush=True)
+    finally:
+        log = sys.stdout
+        monkeypatch.undo()
+        log.close()
+    assert "hello" in (tmp_path / "bowser.log").read_text()
+
+
+def test_std_streams_are_left_alone_with_a_console(tmp_path):
+    out, err = sys.stdout, sys.stderr
+    desktop.ensure_std_streams(tmp_path)
+    assert (sys.stdout, sys.stderr) == (out, err)
+    assert not (tmp_path / "bowser.log").exists()

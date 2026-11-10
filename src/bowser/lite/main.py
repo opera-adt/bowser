@@ -163,9 +163,11 @@ def get_mode():
 
 @app.get("/config")
 def get_config(request: Request, dataset: str | None = Query(None)):
-    """Page title and logo flag.
+    """Page title, logo flag, and what this server can do.
 
     The title is the catalog entry's name, from ``?dataset=`` or the Referer.
+    ``geotiff_export`` is False: exports need the full server (``bowser run``),
+    so the page turns its GeoTIFF button off instead of failing with a 501.
     """
     if dataset is None and (ref := request.headers.get("referer")):
         values = parse_qs(urlparse(ref).query).get("dataset")
@@ -174,6 +176,7 @@ def get_config(request: Request, dataset: str | None = Query(None)):
     return {
         "title": entry.name if entry is not None else settings.BOWSER_TITLE,
         "opera_logo": settings.BOWSER_OPERA_LOGO,
+        "geotiff_export": False,
     }
 
 

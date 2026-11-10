@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import contextlib
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import (
@@ -193,6 +193,10 @@ class RasterReader(DatasetReader):
 
     dates: Optional[tuple[datetime, ...]] = None
 
+    # Read with the existing header open; /datasets does not reopen every file
+    # (including remote assets) just to retrieve descriptions and units.
+    layer_attrs: dict[str, Any] = field(default_factory=dict)
+
     @property
     def bounds(self) -> tuple[float, float, float, float]:
         """Bounds of dataset in `crs` coordinates."""
@@ -249,7 +253,17 @@ class RasterReader(DatasetReader):
 
             _transform = Affine.from_gdal(*gt)
             _crs = CRS.from_wkt(ds.GetProjection()) if ds.GetProjection() else None
-            _nodata = ds.GetRasterBand(band).GetNoDataValue()
+            raster_band = ds.GetRasterBand(band)
+            _nodata = raster_band.GetNoDataValue()
+            layer_attrs = {
+                **(ds.GetMetadata() or {}),
+                **(raster_band.GetMetadata() or {}),
+            }
+            if raster_band.GetUnitType():
+                layer_attrs["units"] = raster_band.GetUnitType()
+            if raster_band.GetDescription():
+                layer_attrs.setdefault("long_name", raster_band.GetDescription())
+            raster_band = None
             _shape = (ds.RasterYSize, ds.RasterXSize)
             _chunks = (256, 256)
             ds = None
@@ -265,6 +279,7 @@ class RasterReader(DatasetReader):
                 keep_open=keep_open,
                 dates=dates,
                 chunks=_chunks,
+                layer_attrs=layer_attrs,
             )
         with src_ctx as src:
             shape = (src.height, src.width)
@@ -274,6 +289,11 @@ class RasterReader(DatasetReader):
             nodata = nodata or src.nodatavals[band - 1]
             transform = src.transform
             chunks = src.block_shapes[band - 1]
+            layer_attrs = {**src.tags(), **src.tags(band)}
+            if src.units[band - 1]:
+                layer_attrs["units"] = src.units[band - 1]
+            if src.descriptions[band - 1]:
+                layer_attrs.setdefault("long_name", src.descriptions[band - 1])
 
             return cls(
                 filename=filename,
@@ -287,6 +307,7 @@ class RasterReader(DatasetReader):
                 keep_open=keep_open,
                 dates=dates,
                 chunks=chunks,
+                layer_attrs=layer_attrs,
             )
 
     def __post_init__(self):
@@ -616,7 +637,11 @@ class CustomReader(BaseReader):
             **kwargs,
         )
 
-        combined_mask = img.mask == 0  # True = invalid
+        # ImageData.mask is dtype-dependent in rio-tiler 9 (invalid floating
+        # pixels use the dtype minimum, not zero). Preserve the original
+        # per-band Boolean masks instead of inferring support from alpha codes.
+        source_mask = np.ma.getmaskarray(img.array)
+        combined_mask = source_mask.copy()  # True = invalid
 
         # Apply primary mask
         if self.mask is not None:
@@ -629,12 +654,9 @@ class CustomReader(BaseReader):
                 **kwargs,
             )
             filled = np.squeeze(mask_layer_img.array.filled(0))
-            combined_mask = np.logical_or.reduce(
-                [
-                    combined_mask,
-                    filled == 0,
-                    filled < self.input["mask_min_value"],
-                ]
+            combined_mask = np.logical_or(
+                combined_mask,
+                (filled == 0) | (filled < self.input["mask_min_value"]),
             )
 
         # Apply extra masks (custom uploaded masks — binary: > 0 = valid)
@@ -653,7 +675,7 @@ class CustomReader(BaseReader):
             except Exception:
                 pass  # tile outside bounds — skip
 
-        if np.any(combined_mask != (img.mask == 0)):
+        if np.any(combined_mask != source_mask):
             img = ImageData(
                 np.ma.MaskedArray(img.data, mask=combined_mask),
                 assets=img.assets,
