@@ -65,6 +65,10 @@ export interface AssistantStatus {
   note?: string | null;
 }
 
+/** A model in a provider's own list (GET /assistant/models). */
+export interface ModelInfo { id: string; label: string | null }
+export interface ModelList { provider: string; models: ModelInfo[]; cached: boolean }
+
 export interface ToolCall { id: string; name: string; input: Record<string, unknown> }
 export interface ToolResult { id: string; name: string; content: string; is_error: boolean }
 
@@ -114,6 +118,12 @@ async function json<T>(res: Response): Promise<T> {
 
 export async function fetchStatus(): Promise<AssistantStatus> {
   return json(await fetch('/assistant/status', { cache: 'no-store' }));
+}
+
+/** The provider's live model list, asked for on the server with its key; `refresh` skips the server's cache. */
+export async function fetchModels(provider: string, refresh = false): Promise<ModelList> {
+  const q = `provider=${encodeURIComponent(provider)}${refresh ? '&refresh=true' : ''}`;
+  return json(await fetch(`/assistant/models?${q}`, { cache: 'no-store' }));
 }
 
 /** Check a key with its provider and keep it on this computer. */

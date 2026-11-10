@@ -2,8 +2,8 @@ import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } fr
 import { useAppContext } from '../../context/AppContext';
 import { useApi } from '../../hooks/useApi';
 import {
-  answerPermission, fetchStatus, removeKey, saveKey, signIn, signOut, stopAgent, streamChat, RelayError,
-  type AssistantStatus, type ChatEvent, type ConvMessage, type ProviderInfo, type SignInMethod, type ToolResult,
+  answerPermission, fetchModels, fetchStatus, removeKey, saveKey, signIn, signOut, stopAgent, streamChat, RelayError,
+  type AssistantStatus, type ChatEvent, type ConvMessage, type ModelInfo, type ProviderInfo, type SignInMethod, type ToolResult,
 } from '../../assistant/client';
 import { newDone, PAGE_TOOL_NAMES, PAGE_TOOLS, pageState, runPageTool, showResult, type PageContext } from '../../assistant/pageTools';
 import { SectionHeader } from './controls';
@@ -108,6 +108,11 @@ export default function AssistantTab() {
   const [signUrl, setSignUrl] = useState<string | null>(null);
   const starting = useRef<string | null>(null);
   const conversation = useRef(newConversation());
+  // Each provider's live model list (GET /assistant/models), asked for once it has a key.
+  const [live, setLive] = useState<Record<string, ModelInfo[]>>({});
+  const [modelsFailed, setModelsFailed] = useState<Record<string, boolean>>({});
+  const [modelsBusy, setModelsBusy] = useState(false);
+  const modelsAsked = useRef(new Set<string>());
 
   const [entries, setEntries] = useState<Entry[]>([]);
   const [question, setQuestion] = useState('');
@@ -176,6 +181,31 @@ export default function AssistantTab() {
       setSignMsg({ text: m.detail, error: true });
     }
   }, [status]);  // eslint-disable-line react-hooks/exhaustive-deps
+  const canList = Boolean(provider?.available && provider.configured);
+
+  const loadModels = useCallback(async (id: string, refresh = false) => {
+    modelsAsked.current.add(id);
+    setModelsBusy(true);
+    setModelsFailed(f => ({ ...f, [id]: false }));
+    try {
+      const r = await fetchModels(id, refresh);
+      setLive(l => ({ ...l, [id]: r.models }));
+    } catch {
+      setModelsFailed(f => ({ ...f, [id]: true }));
+    } finally {
+      setModelsBusy(false);
+    }
+  }, []);
+  useEffect(() => {
+    if (setupOpen && provider && canList && !modelsAsked.current.has(provider.id)) void loadModels(provider.id);
+  }, [setupOpen, provider, canList, loadModels]);
+  // The live list first, then the built-in names it does not have.
+  const liveModels = provider ? live[provider.id] ?? [] : [];
+  const liveIds = new Set(liveModels.map(m => m.id));
+  const modelOptions: ModelInfo[] = [
+    ...liveModels,
+    ...(provider?.models ?? []).filter(m => !liveIds.has(m)).map(id => ({ id, label: null })),
+  ];
 
   const choose = (id: string) => {
     const next = { ...prefs, provider: id };
@@ -213,6 +243,8 @@ export default function AssistantTab() {
     if (!provider) return;
     try {
       setStatus(await removeKey(provider.id));
+      modelsAsked.current.delete(provider.id);
+      setLive(({ [provider.id]: _gone, ...rest }) => rest);
       setKeyMsg({ text: 'Removed.' });
     } catch (e) {
       setKeyMsg({ text: `Could not remove: ${(e as Error).message}`, error: true });
@@ -494,12 +526,23 @@ export default function AssistantTab() {
               </select>
             </label>
             {provider && !account && (
-              <label className="ai-field">
+              <div className="ai-field">
                 <span className="minmax-label">Model</span>
-                <input aria-label="Model" className="sidebar-input ai-text" list="ai-models" value={model}
-                  placeholder={provider.local ? 'Model name, e.g. qwen3' : ''} onChange={e => setModel(e.target.value.trim())} />
-                <datalist id="ai-models">{provider.models.map(m => <option key={m} value={m} />)}</datalist>
-              </label>
+                <div className="ai-model">
+                  <input aria-label="Model" className="sidebar-input ai-text" list="ai-models" value={model}
+                    placeholder={provider.local ? 'Model name, e.g. qwen3' : ''} onChange={e => setModel(e.target.value.trim())} />
+                  {canList && (
+                    <button type="button" className="ov-icon-btn" onClick={() => void loadModels(provider.id, true)} disabled={modelsBusy}
+                      title="Refresh the model list" aria-label="Refresh the model list">
+                      <i className={`fa-solid fa-rotate${modelsBusy ? ' fa-spin' : ''}`} aria-hidden="true"></i>
+                    </button>
+                  )}
+                </div>
+                <datalist id="ai-models">
+                  {modelOptions.map(m => <option key={m.id} value={m.id} label={m.label ?? undefined} />)}
+                </datalist>
+                {modelsFailed[provider.id] && <div className="row-label ai-small" role="status">Couldn't load the model list.</div>}
+              </div>
             )}
             {provider && provider.auth === 'api_key' && status.page_keys && (
               keyed ? (
@@ -536,8 +579,7 @@ export default function AssistantTab() {
             )}
             {provider?.local && (
               <div className="row-label ai-small">
-                A model on your own computer or network: no key, nothing leaves it.{' '}
-                {provider.key_url && <a href={provider.key_url} target="_blank" rel="noopener noreferrer">Get Ollama</a>}
+                A model installed with Ollama on the computer that runs Bowser: no key, nothing leaves it.
               </div>
             )}
           </>

@@ -46,7 +46,8 @@ class Preset:
     wire: Wire
     base_url: str
     model: str
-    #: Model names offered in the picker (any other name can be typed).
+    #: Model names offered in the picker before (or without) the provider's own
+    #: list (``GET /assistant/models``); any other name can be typed.
     models: tuple[str, ...] = ()
     #: Whether it needs an API key (local servers usually do not).
     needs_key: bool = True
@@ -69,7 +70,15 @@ PRESETS: tuple[Preset, ...] = (
         wire="anthropic",
         base_url="https://api.anthropic.com",
         model="claude-opus-5-5",
-        models=("claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"),
+        models=(
+            "claude-opus-5-5",
+            "claude-sonnet-5-5",
+            "claude-haiku-5-5",
+            "claude-fable-5-2",
+            "claude-opus-5",
+            "claude-sonnet-5",
+            "claude-opus-4-8",
+        ),
         key_env="ANTHROPIC_API_KEY",
         key_url="https://console.anthropic.com/settings/keys",
     ),
@@ -107,12 +116,12 @@ PRESETS: tuple[Preset, ...] = (
         id="ollama",
         label="Ollama (local)",
         wire="openai",
-        base_url="http://localhost:11434/v1",
+        # Offered only when installed here; see .ollama.
+        base_url="http://127.0.0.1:11434/v1",
         model="qwen3",
         models=("qwen3",),
         needs_key=False,
         local=True,
-        key_url="https://ollama.com/download",
         auth="none",
     ),
 )
@@ -295,6 +304,13 @@ class Provider:
         """
         raise NotImplementedError
 
+    async def list_models(self) -> list[dict[str, str | None]]:
+        """Return the provider's models, ``[{"id", "label"}]``, for the picker.
+
+        Raises ProviderError when the provider cannot be reached or refuses.
+        """
+        raise NotImplementedError
+
     def _client(self, timeout: float = 600.0):
         import httpx  # noqa: PLC0415
 
@@ -448,6 +464,57 @@ class OpenAIProvider(Provider):
             raise _http_error(self.preset.label, r.status_code, r.text)
         return True
 
+    async def list_models(self):
+        """``GET {base}/models``: ``data[].id``, newest first.
+
+        OpenRouter: only models whose ``supported_parameters`` include ``tools``
+        (the Assistant needs tool calls), labelled with their ``name``. OpenAI:
+        only chat models (no embeddings, speech, images or moderation).
+        """
+        import httpx  # noqa: PLC0415
+
+        try:
+            async with self._client(30.0) as client:
+                r = await client.get(f"{self.base_url}/models", headers=self._headers())
+        except httpx.TransportError as e:
+            raise ProviderError(
+                "provider_down", f"Cannot reach {self.preset.label}."
+            ) from e
+        if r.status_code >= 400:
+            raise _http_error(self.preset.label, r.status_code, r.text)
+        try:
+            data = r.json().get("data") or []
+        except (ValueError, AttributeError) as e:
+            raise ProviderError(
+                "bad_response", f"{self.preset.label} sent an unreadable model list."
+            ) from e
+        rows = []
+        for m in data:
+            if not isinstance(m, dict) or not isinstance(m.get("id"), str):
+                continue
+            params = m.get("supported_parameters")
+            if isinstance(params, list) and "tools" not in params:
+                continue
+            if self.preset.id == "openai" and _NOT_CHAT.search(m["id"]):
+                continue
+            rows.append(m)
+        rows.sort(key=lambda m: (-_number(m.get("created")), m["id"]))
+        return [
+            {"id": m["id"], "label": m.get("name") if m.get("name") else None}
+            for m in rows
+        ]
+
+
+#: OpenAI models that cannot chat: embeddings, speech, images, moderation, ...
+_NOT_CHAT = re.compile(
+    r"embedding|tts|whisper|dall-e|gpt-image|moderation|transcribe|realtime|"
+    r"audio|search|davinci|babbage|codex|computer-use|sora"
+)
+
+
+def _number(value: Any) -> float:
+    return float(value) if isinstance(value, (int, float)) else 0.0
+
 
 class GeminiProvider(Provider):
     """Gemini ``streamGenerateContent`` (server-sent events)."""
@@ -582,8 +649,49 @@ class GeminiProvider(Provider):
             raise err
         return True
 
+    async def list_models(self):
+        """``GET {base}/models``: the models that ``generateContent``, all pages."""
+        import httpx  # noqa: PLC0415
+
+        out: list[dict[str, str | None]] = []
+        token = ""
+        try:
+            async with self._client(30.0) as client:
+                for _ in range(_GEMINI_PAGES):
+                    params = {
+                        "pageSize": 1000,
+                        **({"pageToken": token} if token else {}),
+                    }
+                    r = await client.get(
+                        f"{self.base_url}/models",
+                        headers=self._headers(),
+                        params=params,
+                    )
+                    if r.status_code >= 400:
+                        raise _http_error(self.preset.label, r.status_code, r.text)
+                    body = r.json()
+                    for m in body.get("models") or []:
+                        methods = m.get("supportedGenerationMethods") or []
+                        name = str(m.get("name") or "").removeprefix("models/")
+                        if name and "generateContent" in methods:
+                            out.append(
+                                {"id": name, "label": m.get("displayName") or None}
+                            )
+                    token = body.get("nextPageToken") or ""
+                    if not token:
+                        break
+        except httpx.TransportError as e:
+            raise ProviderError("provider_down", "Cannot reach Google Gemini.") from e
+        except (ValueError, AttributeError) as e:
+            raise ProviderError(
+                "bad_response", "Google Gemini sent an unreadable model list."
+            ) from e
+        return out
+
 
 _MADE_UP = "gemini-call-"
+#: Pages of Gemini's model list read at most (1000 models each).
+_GEMINI_PAGES = 5
 _GEMINI_REFUSALS = {
     "SAFETY",
     "RECITATION",
@@ -779,6 +887,19 @@ class AnthropicProvider(Provider):
         finally:
             await client.close()
         return True
+
+    async def list_models(self):
+        """``client.models.list()`` (all pages): ``id`` and ``display_name``."""
+        anthropic, client = self._sdk(30.0)
+        try:
+            return [
+                {"id": m.id, "label": getattr(m, "display_name", None) or None}
+                async for m in client.models.list(limit=100)
+            ]
+        except anthropic.APIError as e:
+            raise _anthropic_error(anthropic, e) from e
+        finally:
+            await client.close()
 
 
 def _anthropic_error(anthropic: Any, e: Exception) -> ProviderError:

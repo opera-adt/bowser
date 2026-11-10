@@ -29,15 +29,16 @@ and its permission requests answered in the page (``POST /assistant/permission``
 from __future__ import annotations
 
 import asyncio
-import json
-from collections.abc import AsyncIterator
-from pathlib import Path
-from typing import Any
-
 import atexit
 import contextlib
+import hashlib
 import html
+import json
+import time
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
@@ -46,6 +47,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .. import api_models as api
 from . import acp, signin
 from .keys import KeyStore, default_path
+from .ollama import Ollama
 from .providers import (
     CHATGPT,
     PRESETS,
@@ -61,6 +63,10 @@ from .providers import (
 MAX_STEPS = 12
 #: A tool result longer than this is cut (the model reads it on every turn).
 RESULT_CHARS = 24_000
+#: Seconds a provider's model list is kept (``GET /assistant/models``).
+MODELS_TTL = 600.0
+#: Model lists by (provider, a hash of the key): (time fetched, models).
+_models_cache: dict[tuple[str, str], tuple[float, list[dict[str, Any]]]] = {}
 #: Hosts a request "from this computer" comes from.
 LOOPBACK = {"127.0.0.1", "::1", "localhost"}
 
@@ -100,6 +106,13 @@ def get_settings() -> Any:
     return settings
 
 
+def get_ollama() -> Ollama:
+    """Return the server's Ollama (a dependency, so tests can give a fake)."""
+    from .ollama import OLLAMA  # noqa: PLC0415
+
+    return OLLAMA
+
+
 def key_store(settings: Any) -> KeyStore:
     """Return the key store at ``BOWSER_ASSISTANT_KEY_FILE`` or the default."""
     path = settings.BOWSER_ASSISTANT_KEY_FILE
@@ -129,15 +142,33 @@ def _key(settings: Any, store: KeyStore, p: Preset) -> tuple[str | None, str | N
     return (env, "environment") if env else (None, None)
 
 
-def assistant_config(settings: Any) -> dict[str, Any]:
+def _ollama_state(
+    settings: Any, ollama: Ollama, start: bool = True
+) -> dict[str, Any] | None:
+    """Return None when Ollama is not installed here, else its state.
+
+    ``{"running": bool, "models": [...]}``. Ollama is started when it is not
+    running, ``start`` is true and the server is on the user's own computer
+    (``BOWSER_ASSISTANT_PAGE_KEYS``); a shared server only uses one already
+    running.
+    """
+    if not settings.BOWSER_ASSISTANT or not ollama.binary():
+        return None
+    up = ollama.ensure(start=start and bool(settings.BOWSER_ASSISTANT_PAGE_KEYS))
+    return {"running": up, "models": ollama.models() if up else []}
+
+
+def assistant_config(settings: Any, ollama: Ollama | None = None) -> dict[str, Any]:
     """Return the Assistant's entry of ``GET /config``.
 
-    Reads the key file's index only (never the keychain), so it is cheap.
+    Reads the key file's index only (never the keychain) and looks for the
+    ``ollama`` program without starting it, so it is cheap.
     """
     if not settings.BOWSER_ASSISTANT:
         return {"enabled": False, "providers": [], "configured": [], "sign_in": []}
     store = key_store(settings)
-    providers = [p for p in PRESETS if p.available]
+    installed = (ollama or get_ollama()).binary() is not None
+    providers = [p for p in PRESETS if p.available and (p.id != "ollama" or installed)]
     configured = [
         p.id
         for p in providers
@@ -154,16 +185,28 @@ def assistant_config(settings: Any) -> dict[str, Any]:
     }
 
 
-def _status(settings: Any) -> dict[str, Any]:
+def _status(settings: Any, local: dict[str, Any] | None) -> dict[str, Any]:
+    """Return ``GET /assistant/status``; ``local`` is :func:`_ollama_state`."""
     enabled = bool(settings.BOWSER_ASSISTANT)
     page_keys = enabled and bool(settings.BOWSER_ASSISTANT_PAGE_KEYS)
     store = key_store(settings)
     out = []
     for p in PRESETS if enabled else ():
+        models, available, note = list(p.models), p.available, p.note
+        model = p.model
+        if p.id == "ollama":
+            if local is None:  # not installed here: not offered at all
+                continue
+            models = local["models"]
+            available = bool(models)
+            if not local["running"]:
+                note = "Ollama did not start."
+            elif not models:
+                note = "No local models are installed."
+            model = p.model if p.model in models else (models or [p.model])[0]
         saved = store.describe(p.id) if page_keys else {"saved": False}
         env = _env_key(settings, p)
         source = "saved" if saved["saved"] else "environment" if env else None
-        model = p.model
         if settings.BOWSER_AI_PROVIDER == p.id and settings.BOWSER_AI_MODEL:
             model = settings.BOWSER_AI_MODEL
         out.append(
@@ -172,14 +215,14 @@ def _status(settings: Any) -> dict[str, Any]:
                 "label": p.label,
                 "wire": p.wire,
                 "model": model,
-                "models": list(p.models),
+                "models": models,
                 "needs_key": p.needs_key,
                 "local": p.local,
                 "auth": p.auth,
-                "available": p.available,
-                "note": p.note,
+                "available": available,
+                "note": note,
                 "key_url": p.key_url,
-                "configured": p.available and (bool(source) or not p.needs_key),
+                "configured": available and (bool(source) or not p.needs_key),
                 "source": source,
                 "hint": saved.get("hint") if saved["saved"] else None,
                 "store": saved.get("store") if saved["saved"] else None,
@@ -253,7 +296,7 @@ def _method(method_id: str) -> signin.Method:
 
 
 async def _sign_in_status(settings: Any, request: Request) -> dict[str, Any]:
-    """The ``sign_in`` part of the status: each method and its state."""
+    """Return the ``sign_in`` part of the status: each method and its state."""
     why = _sign_in_gate(settings, request)
     if why:
         return {"allowed": False, "reason": why, "methods": []}
@@ -330,8 +373,14 @@ async def _method_status(m: signin.Method, store: KeyStore) -> dict[str, Any]:
     return entry
 
 
-async def _full_status(settings: Any, request: Request) -> dict[str, Any]:
-    return {**_status(settings), "sign_in": await _sign_in_status(settings, request)}
+async def _full_status(
+    settings: Any, request: Request, local: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Return the status: providers (``local``: Ollama's state) and sign-ins."""
+    return {
+        **_status(settings, local),
+        "sign_in": await _sign_in_status(settings, request),
+    }
 
 
 def _preset(provider_id: str) -> Preset:
@@ -416,11 +465,14 @@ router = APIRouter(lifespan=_lifespan)
     responses={200: {"model": api.AssistantStatus}},
     **api.route_doc("GET /assistant/status"),
 )
-async def assistant_status(request: Request, settings: Any = Depends(get_settings)):
-    """Return the providers and which have a key (never the key), and the
-    sign-in methods with their state.
-    """
-    return await _full_status(settings, request)
+async def assistant_status(
+    request: Request,
+    settings: Any = Depends(get_settings),
+    ollama: Ollama = Depends(get_ollama),
+):
+    """Return the providers, which have a key (never the key) and the sign-ins."""
+    local = await asyncio.to_thread(_ollama_state, settings, ollama)
+    return await _full_status(settings, request, local)
 
 
 @router.put(
@@ -432,6 +484,7 @@ async def assistant_key_set(
     request: Request,
     body: KeyBody = Body(..., examples=[{"provider": "anthropic", "key": "sk-..."}]),
     settings: Any = Depends(get_settings),
+    ollama: Ollama = Depends(get_ollama),
 ):
     """Check a key with its provider and keep it on this computer."""
     _require_page_keys(settings, request)
@@ -454,7 +507,8 @@ async def assistant_key_set(
     stored_in = (
         "the system keychain" if store_kind == "keyring" else "a file only you can read"
     )
-    return {**(await _full_status(settings, request)), "stored_in": stored_in}
+    local = await asyncio.to_thread(_ollama_state, settings, ollama, False)
+    return {**(await _full_status(settings, request, local)), "stored_in": stored_in}
 
 
 @router.delete(
@@ -466,12 +520,57 @@ async def assistant_key_remove(
     request: Request,
     provider: str = Query(..., description="Provider id, e.g. anthropic."),
     settings: Any = Depends(get_settings),
+    ollama: Ollama = Depends(get_ollama),
 ):
     """Forget a provider's saved key."""
     _require_page_keys(settings, request)
     p = _preset(provider)
     await asyncio.to_thread(key_store(settings).remove_key, p.id)
-    return await _full_status(settings, request)
+    local = await asyncio.to_thread(_ollama_state, settings, ollama, False)
+    return await _full_status(settings, request, local)
+
+
+@router.get(
+    "/assistant/models",
+    responses={200: {"model": api.AssistantModels}},
+    **api.route_doc("GET /assistant/models"),
+)
+async def assistant_models(
+    provider: str = Query(..., description="Provider id, e.g. anthropic."),
+    refresh: bool = Query(False, description="Ask the provider again now."),
+    settings: Any = Depends(get_settings),
+    ollama: Ollama = Depends(get_ollama),
+):
+    """Return the provider's own model list, fetched with its key (never shown)."""
+    _require_enabled(settings)
+    p = _preset(provider)
+    if p.id == "ollama":
+        local = await asyncio.to_thread(_ollama_state, settings, ollama)
+        if local is None:
+            raise HTTPException(
+                status_code=400, detail="Ollama is not installed on this computer."
+            )
+        models = [{"id": m, "label": None} for m in local["models"]]
+        return {"provider": p.id, "models": models, "cached": False}
+    store = key_store(settings)
+    key, _ = await asyncio.to_thread(_key, settings, store, p)
+    if p.needs_key and not key:
+        raise HTTPException(
+            status_code=400, detail=f"Add an API key for {p.label} first."
+        )
+    slot = (p.id, hashlib.sha256((key or "").encode()).hexdigest())
+    hit = _models_cache.get(slot)
+    if hit and not refresh and time.monotonic() - hit[0] < MODELS_TTL:
+        return {"provider": p.id, "models": hit[1], "cached": True}
+    try:
+        models = await open_provider(p, "", key).list_models()
+    except ProviderError as e:
+        status = 401 if e.kind == "auth" else 502
+        raise HTTPException(
+            status_code=status, detail=f"Could not list the models: {e}"
+        ) from e
+    _models_cache[slot] = (time.monotonic(), models)
+    return {"provider": p.id, "models": models, "cached": False}
 
 
 class EventStream(StreamingResponse):
@@ -495,12 +594,21 @@ async def assistant_chat(
     request: Request,
     body: ChatBody,
     settings: Any = Depends(get_settings),
+    ollama: Ollama = Depends(get_ollama),
 ):
     """Run the conversation with the provider; stream events (SSE)."""
     _require_enabled(settings)
     if signin.method(body.provider) is not None:
         return await _signed_in_chat(request, body, settings)
     p = _preset(body.provider)
+    if p.id == "ollama":
+        local = await asyncio.to_thread(_ollama_state, settings, ollama)
+        if local is None:
+            raise HTTPException(
+                status_code=400, detail="Ollama is not installed on this computer."
+            )
+        if not local["running"]:
+            raise HTTPException(status_code=502, detail="Ollama did not start.")
     model = body.model.strip()
     if settings.BOWSER_AI_PROVIDER == p.id and not model:
         model = settings.BOWSER_AI_MODEL
@@ -523,7 +631,7 @@ async def assistant_chat(
 
 
 async def _signed_in_chat(request: Request, body: ChatBody, settings: Any):
-    """The chat with a signed-in account: ChatGPT's tool loop, or an agent."""
+    """Chat with a signed-in account: ChatGPT's tool loop, or an agent."""
     _require_sign_in(settings, request)
     m = _method(body.provider)
     store = key_store(settings)
@@ -569,9 +677,7 @@ async def _signed_in_chat(request: Request, body: ChatBody, settings: Any):
     if not (state.installed and state.signed_in and rec.get("connected")):
         raise HTTPException(status_code=400, detail=f"{m.label} first.")
     tools = _data_tools(request, page_keys=True)
-    return EventStream(
-        run_agent(m, store, request, body, set(tools)), headers=headers
-    )
+    return EventStream(run_agent(m, store, request, body, set(tools)), headers=headers)
 
 
 def _agent_argv(m: signin.Method) -> tuple[list[str], dict[str, str]]:
@@ -591,13 +697,13 @@ def _agent_argv(m: signin.Method) -> tuple[list[str], dict[str, str]]:
 
 
 def _self_url(request: Request) -> str:
-    """This server, as the agent's MCP server reaches it (loopback only)."""
+    """Return this server's URL as the agent's MCP server reaches it (loopback)."""
     port = request.url.port or (443 if request.url.scheme == "https" else 80)
     return f"{request.url.scheme}://127.0.0.1:{port}"
 
 
 def _transcript(messages: list[dict[str, Any]]) -> str:
-    """The user's last message, after the earlier ones when a new agent starts."""
+    """Return the user's last message, after the earlier ones for a new agent."""
     said = [
         (m["role"], str(m.get("content") or ""))
         for m in messages
@@ -659,7 +765,9 @@ async def run_agent(
             last = body.messages[-1]
             text = str(last.get("content") or "") if last.get("role") == "user" else ""
         if not text:
-            yield _event({"type": "error", "kind": "bad_request", "message": "Ask something."})
+            yield _event(
+                {"type": "error", "kind": "bad_request", "message": "Ask something."}
+            )
             finished = True
             return
         assert session is not None
@@ -667,7 +775,10 @@ async def run_agent(
             if event["type"] == "done":
                 answer = event.pop("text", "")
                 yield _event(
-                    {"type": "message", "message": {"role": "assistant", "content": answer}}
+                    {
+                        "type": "message",
+                        "message": {"role": "assistant", "content": answer},
+                    }
                 )
             yield _event(event)
         finished = True
@@ -885,6 +996,7 @@ async def assistant_sign_in(
     request: Request,
     body: SignInBody,
     settings: Any = Depends(get_settings),
+    ollama: Ollama = Depends(get_ollama),
 ):
     """Start signing in; for OAuth, return the provider's page for the browser."""
     _require_sign_in(settings, request)
@@ -909,7 +1021,8 @@ async def assistant_sign_in(
                 await asyncio.to_thread(signin.start_login, m)
             except (OSError, signin.SignInError) as e:
                 raise HTTPException(status_code=500, detail=str(e)) from e
-    return {**(await _full_status(settings, request)), "sign_in_url": url}
+    local = await asyncio.to_thread(_ollama_state, settings, ollama, False)
+    return {**(await _full_status(settings, request, local)), "sign_in_url": url}
 
 
 @router.delete(
@@ -921,6 +1034,7 @@ async def assistant_sign_out(
     request: Request,
     method: str = Query(..., description="Sign-in id, e.g. chatgpt."),
     settings: Any = Depends(get_settings),
+    ollama: Ollama = Depends(get_ollama),
 ):
     """Sign out: revoke and forget the tokens, or stop using the agent."""
     _require_sign_in(settings, request)
@@ -939,7 +1053,8 @@ async def assistant_sign_out(
         signin.end_login(m)
         await acp.stop()
         await asyncio.to_thread(store.set_account, m.id, connected=None)
-    return {**(await _full_status(settings, request)), "note": note}
+    local = await asyncio.to_thread(_ollama_state, settings, ollama, False)
+    return {**(await _full_status(settings, request, local)), "note": note}
 
 
 _PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -986,7 +1101,9 @@ async def assistant_sign_in_callback(
     try:
         await signin.complete(m, store, pending, params, SIGNIN_TRANSPORT)
     except signin.SignInError as e:
-        return _page("Not signed in", f"{e} Go back to Bowser and try again.", 400, 60_000)
+        return _page(
+            "Not signed in", f"{e} Go back to Bowser and try again.", 400, 60_000
+        )
     try:
         token = await signin.access_token(m, store, SIGNIN_TRANSPORT)
         models = await signin.fetch_models(m, token, SIGNIN_TRANSPORT)
