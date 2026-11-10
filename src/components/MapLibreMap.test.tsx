@@ -536,6 +536,27 @@ describe('MapLibreMap', () => {
     expect(rightOrder.indexOf('overlay-d')).toBeLessThan(rightOrder.findIndex(id => id.startsWith('data-')));
   });
 
+  it('a DEM used for 3D terrain: merged into the global terrain, which comes back when it is switched off', async () => {
+    expect((globalThis as any).__maplibreProtocols).toContain('bowserdem');
+    const { view, map } = await mount();
+    const dem = { id: 'd', name: 'lidar.tif', type: 'geotiff', visible: true, opacity: 1, path: '/cache/abc.tif',
+      mode: 'cmap', cmap: 'schwarzwald', vmin: 60, vmax: 140, aboveData: false, bounds: [-117.69, 33.95, -117.65, 33.97],
+      dem: { style: 'both', exaggeration: 2, terrain: true, base: 61 }, conversion: { status: 'ready', format: 'cog' } };
+    mockState.overlays = [dem];
+    view.rerender(<MapLibreMap />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+    // switching a DEM to terrain turns 3D terrain on
+    expect(map.terrain).toEqual({ source: 'terrain-dem', exaggeration: 2 });
+    expect(map.sources.get('terrain-dem').tiles[0]).toMatch(/^bowserdem:\/\/\{z\}\/\{x\}\/\{y\}\?dem=/);
+    expect(map.sources.get('terrain-dem').maxzoom).toBe(17);
+
+    mockState.overlays = [{ ...dem, dem: { ...dem.dem, terrain: false } }];
+    view.rerender(<MapLibreMap />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+    expect(map.sources.get('terrain-dem').tiles[0]).toMatch(/^https:\/\/s3\.amazonaws\.com\/elevation-tiles-prod/);
+    expect(map.terrain).toEqual({ source: 'terrain-dem', exaggeration: 2 });
+  });
+
   it('charted features: drawn in their chart colour, following a colour change; the rest keep the layer colour', async () => {
     const { view, map } = await mount();
     const square = (x: number) => ({ type: 'Polygon', coordinates: [[[x, 0], [x + 1, 0], [x + 1, 1], [x, 0]]] });

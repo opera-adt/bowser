@@ -11,12 +11,15 @@ import { MAX_CLASSES, OTHER_COLOR, SOIL_FIELDS, soilColoring, type SoilField } f
 import type { Overlay } from '../../types';
 import { Switch } from './controls';
 import { zonalKinds } from '../../utils/polygonSeries';
+import { browserHasWebGL2, chooseMap } from '../../map/mapChoice';
 import { AREA_NEEDS_SERVER, usePolygonStats } from '../../hooks/usePolygonStats';
 import { asDem, DEM_CMAP, DEM_STYLES, EXAGGERATION_MAX, EXAGGERATION_MIN, type DemStyle } from '../../map/dem';
 import { convertingText, tiledNote } from '../../map/addData';
 import { useZonalStats, type ZonalProgress } from '../../hooks/useZonalStats';
 
 export type DropSide = 'above' | 'below' | null;
+
+const ON_MAPLIBRE = chooseMap(window.location.search, browserHasWebGL2) === 'maplibre';
 
 interface OverlayRowProps {
   overlay: Overlay;
@@ -300,8 +303,17 @@ function UseAsDem({ overlay: o, update }: { overlay: Overlay; update: (u: Partia
 
 /** A DEM's style: hillshade, colour relief or both, the hillshade's exaggeration and the relief's colours. */
 function DemControls({ overlay: o, update }: { overlay: Overlay; update: (u: Partial<Overlay>) => void }) {
+  const { state, dispatch } = useAppContext();
   const d = o.dem!;
   const setDem = (u: Partial<NonNullable<Overlay['dem']>>) => update({ dem: { ...d, ...u } });
+  // One DEM at a time shapes the 3D terrain.
+  const useForTerrain = () => {
+    if (!d.terrain) {
+      state.overlays.filter(x => x.id !== o.id && x.dem?.terrain).forEach(x =>
+        dispatch({ type: 'UPDATE_OVERLAY', payload: { id: x.id, updates: { dem: { ...x.dem!, terrain: false } } } }));
+    }
+    setDem({ terrain: !d.terrain });
+  };
   return (
     <>
       <div className="toggle-row" style={{ gap: 6 }}>
@@ -318,6 +330,12 @@ function DemControls({ overlay: o, update }: { overlay: Overlay; update: (u: Par
             aria-label="Hillshade exaggeration" onChange={e => setDem({ exaggeration: parseFloat(e.target.value) })} />
         </div>
       )}
+      <div className="toggle-row" title={ON_MAPLIBRE
+        ? 'Raise the map on this DEM where it has data, and on the global terrain elsewhere'
+        : '3D terrain needs the WebGL map, which this browser can\'t show'}>
+        <span className="row-label">Use for 3D terrain</span>
+        <Switch checked={!!d.terrain} label="Use for 3D terrain" disabled={!ON_MAPLIBRE} onChange={useForTerrain} />
+      </div>
       {d.style !== 'hillshade' && (
         <ColorScalePicker colormap={o.cmap ?? DEM_CMAP} vmin={o.vmin ?? 0} vmax={o.vmax ?? 1}
           stats={async () => o.bands?.[0] ?? null}

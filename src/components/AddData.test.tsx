@@ -227,6 +227,10 @@ describe('DEM controls', () => {
     fireEvent.change(slider, { target: { value: '6.5' } });
     expect(stateRef.overlays[0].dem!.exaggeration).toBe(6.5);
     expect(screen.getByText('×6.5')).toBeTruthy();
+    // 3D terrain needs the WebGL map (jsdom has none, as on the Leaflet map)
+    const terrain = screen.getByRole('switch', { name: 'Use for 3D terrain' }) as HTMLButtonElement;
+    expect(terrain.disabled).toBe(true);
+    expect(terrain.closest('[title]')!.getAttribute('title')).toMatch(/needs the WebGL map/);
     // the ordinary raster's discrete-classes switch makes no sense for a DEM
     expect(screen.queryByRole('switch', { name: 'Discrete classes' })).toBeNull();
 

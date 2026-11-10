@@ -160,6 +160,7 @@ export interface OverlayFeatures {
 export interface OverlayDem {
   style: 'hillshade' | 'relief' | 'both';
   exaggeration: number;  // vertical exaggeration of the hillshade
+  terrain?: boolean;     // also the 3D terrain (MapLibre)
   base?: number;         // a low height of the DEM (2nd percentile), for ground with no other terrain
 }
 
