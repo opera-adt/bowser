@@ -45,12 +45,12 @@ const refButton = (name: RegExp) => screen.getByRole('button', { name });
 describe('reference date under the time step slider', () => {
   it('shows the stored reference and references the layer to another date', () => {
     render(<AppProvider><Seed><MainTab /></Seed></AppProvider>);
-    fireEvent.click(refButton(/^ref 2016-07-14$/));
+    fireEvent.click(refButton(/^ref: 2016-07-14$/));
     expect(screen.getByText('Reference to another date…')).toBeTruthy();
     fireEvent.change(screen.getByRole('combobox', { name: 'Reference to date' }), { target: { value: '1' } });
     expect(latest.refTimeIndex).toEqual({ displacement: 1 });
     // A pair is relative to its secondary date.
-    const shown = refButton(/^ref 2016-08-19$/);
+    const shown = refButton(/^ref: 2016-08-19$/);
     expect(shown.className).toContain(' on');
     expect(screen.queryByText('Reference to another date…')).toBeNull();
 
@@ -59,32 +59,32 @@ describe('reference date under the time step slider', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Use current date' }));
     expect(latest.refTimeIndex).toEqual({ displacement: 2 });
 
-    fireEvent.click(refButton(/^ref 2016-08-31$/));
+    fireEvent.click(refButton(/^ref: 2016-08-31$/));
     fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
     expect(latest.refTimeIndex).toEqual({});
-    expect(refButton(/^ref 2016-07-14$/).className).not.toContain(' on');
+    expect(refButton(/^ref: 2016-07-14$/).className).not.toContain(' on');
   });
 
   it('keeps the choice per layer', () => {
     render(<AppProvider><Seed><MainTab /></Seed></AppProvider>);
-    fireEvent.click(refButton(/^ref 2016-07-14$/));
+    fireEvent.click(refButton(/^ref: 2016-07-14$/));
     fireEvent.change(screen.getByRole('combobox', { name: 'Reference to date' }), { target: { value: '2' } });
     fireEvent.change(screen.getByRole('combobox', { name: 'Layer' }), { target: { value: 'timeseries' } });
     // No stored reference date: still offered, as stored.
-    fireEvent.click(refButton(/^ref date$/));
+    fireEvent.click(refButton(/^ref: stored$/));
     fireEvent.click(screen.getByRole('button', { name: 'Use current date' }));
     expect(latest.refTimeIndex).toEqual({ displacement: 2, timeseries: 0 });
     fireEvent.change(screen.getByRole('combobox', { name: 'Layer' }), { target: { value: 'displacement' } });
-    expect(refButton(/^ref 2016-08-31$/)).toBeTruthy();
+    expect(refButton(/^ref: 2016-08-31$/)).toBeTruthy();
   });
 
   it('only shows the date for other layers and in COG mode', () => {
     const { unmount } = render(<AppProvider><Seed><MainTab /></Seed></AppProvider>);
     fireEvent.change(screen.getByRole('combobox', { name: 'Layer' }), { target: { value: 'coherence' } });
-    expect(screen.getByText('ref 2016-07-14').tagName).toBe('SPAN');
+    expect(screen.getByText('ref: 2016-07-14').tagName).toBe('SPAN');
     unmount();
     render(<AppProvider><Seed dataMode="cog"><MainTab /></Seed></AppProvider>);
-    expect(screen.getByText('ref 2016-07-14').tagName).toBe('SPAN');
+    expect(screen.getByText('ref: 2016-07-14').tagName).toBe('SPAN');
   });
 
   it('is saved and loaded with the project', async () => {

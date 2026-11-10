@@ -229,17 +229,19 @@ export default function MainTab() {
           <div className="slider-group">
             <div className="slider-label">
               <span>Time step</span>
-              <button type="button" className={`slider-value date-toggle${state.dateBadge !== 'off' ? ' on' : ''}`}
-                aria-pressed={state.dateBadge !== 'off'} onClick={() => dispatch({ type: 'TOGGLE_DATE_BADGE' })}
-                title={state.dateBadge === 'off' ? 'Show this date on the map' : state.dateBadge === 'full' ? 'Show the date alone on the map' : 'Hide the date on the map'}>
-                {currentTimeValue}
-              </button>
+              <span className="time-step-values">
+                <button type="button" className={`slider-value date-toggle${state.dateBadge !== 'off' ? ' on' : ''}`}
+                  aria-pressed={state.dateBadge !== 'off'} onClick={() => dispatch({ type: 'TOGGLE_DATE_BADGE' })}
+                  title={state.dateBadge === 'off' ? 'Show this date on the map' : state.dateBadge === 'full' ? 'Show the date alone on the map' : 'Hide the date on the map'}>
+                  {currentTimeValue}
+                </button>
+                <RefDatePicker key={`ref-${state.currentDataset}`} info={currentDatasetInfo} chosen={state.refTimeIndex[state.currentDataset]}
+                  currentTimeIndex={state.currentTimeIndex} dataMode={state.dataMode}
+                  onChoose={index => dispatch({ type: 'SET_REF_TIME_INDEX', payload: { dataset: state.currentDataset, index } })} />
+              </span>
             </div>
             <TimeStepper key={state.currentDataset} value={state.currentTimeIndex} count={currentDatasetInfo.x_values.length}
               onChange={i => dispatch({ type: 'SET_TIME_INDEX', payload: i })} />
-            <RefDatePicker key={`ref-${state.currentDataset}`} info={currentDatasetInfo} chosen={state.refTimeIndex[state.currentDataset]}
-              currentTimeIndex={state.currentTimeIndex} dataMode={state.dataMode}
-              onChoose={index => dispatch({ type: 'SET_REF_TIME_INDEX', payload: { dataset: state.currentDataset, index } })} />
           </div>
         )}
       </div>

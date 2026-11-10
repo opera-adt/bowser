@@ -12,13 +12,13 @@ interface RefDatePickerProps {
 }
 
 /**
- * The layer's reference date under the time step slider. For displacement-like layers clicking it
+ * The layer's reference date, "ref: <date>", on the right of the Time step header. For displacement-like layers clicking it
  * offers another date (from the list or the current one), the map and chart then showing
  * value − value at that date; Reset goes back to the stored reference.
  */
 export default function RefDatePicker({ info, chosen, currentTimeIndex, dataMode, onChoose }: RefDatePickerProps) {
   const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLSpanElement>(null);
   const movable = canReReference(info) && dataMode === 'md';
   const active = activeRefTime(info, chosen, dataMode);
 
@@ -31,16 +31,16 @@ export default function RefDatePicker({ info, chosen, currentTimeIndex, dataMode
     return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
   }, [open]);
 
-  const stored = info.reference_date ? `ref ${info.reference_date}` : 'ref date';
+  const stored = info.reference_date ? `ref: ${info.reference_date}` : 'ref: stored';
   if (!movable) {
-    return info.reference_date ? <div className="ref-date"><span className="slider-value ref-date-label">{stored}</span></div> : null;
+    return info.reference_date ? <span className="ref-date"><span className="slider-value ref-date-label">{stored}</span></span> : null;
   }
   const choose = (index: number | null) => { onChoose(index); setOpen(false); };
   const current = Math.min(currentTimeIndex, info.x_values.length - 1);
-  const label = active === null ? stored : `ref ${refDateLabel(info.x_values[active])}`;
+  const label = active === null ? stored : `ref: ${refDateLabel(info.x_values[active])}`;
 
   return (
-    <div className="ref-date" ref={rootRef}>
+    <span className="ref-date" ref={rootRef}>
       <button type="button" className={`slider-value date-toggle ref-date-label${active === null ? '' : ' on'}`}
         aria-expanded={open} onClick={() => setOpen(o => !o)}
         title={active === null
@@ -64,6 +64,6 @@ export default function RefDatePicker({ info, chosen, currentTimeIndex, dataMode
           </div>
         </div>
       )}
-    </div>
+    </span>
   );
 }
