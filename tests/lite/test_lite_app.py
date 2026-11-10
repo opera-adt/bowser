@@ -216,6 +216,28 @@ for suffix in (".png", "@2x.png", "@2x"):
     r = c.get(f"/md/tiles/WebMercatorQuad/{z}/{x}/{y}{suffix}", params=base)
     assert r.status_code == 200, (suffix, r.text)
 tile = f"/md/tiles/WebMercatorQuad/{z}/{x}/{y}"
+from io import BytesIO
+from PIL import Image
+for size in (128, 256, 512):
+    params = {**base, "tilesize": size}
+    r = c.get(f"{tile}.png", params=params)
+    assert r.status_code == 200, r.text
+    assert Image.open(BytesIO(r.content)).size == (size, size)
+    metadata = c.get("/md/WebMercatorQuad/tilejson.json", params=params).json()
+    template = metadata["tiles"][0].split("testserver")[1]
+    r = c.get(template.format(z=z, x=x, y=y))
+    assert r.status_code == 200, r.text
+    assert Image.open(BytesIO(r.content)).size == (size, size)
+assert c.get(tile, params={**base, "tilesize": 0}).status_code == 422
+tj_url = "/md/WebMercatorQuad/tilejson.json"
+assert c.get(tj_url, params={**base, "tilesize": -1}).status_code == 422
+metadata = c.get(tj_url, params={**base, "tile_scale": 2}).json()
+template = metadata["tiles"][0].split("testserver")[1]
+png = c.get(template.format(z=z, x=x, y=y)).content
+assert Image.open(BytesIO(png)).size == (512, 512)
+# Keep legacy @Nx requests working; an explicit modern tilesize takes priority.
+r = c.get(f"{tile}@2x.png", params={**base, "tilesize": 128})
+assert Image.open(BytesIO(r.content)).size == (128, 128)
 assert c.get(f"{tile}.jpg", params=base).status_code == 501
 assert c.get(f"/md/tiles/WebMercatorQuad/12/0/0", params=base).status_code == 404
 assert c.get(f"/md/tiles/WGS1984Quad/{z}/{x}/{y}", params=base).status_code == 422

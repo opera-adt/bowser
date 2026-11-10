@@ -43,6 +43,9 @@ export function buildTileRequest(req: TileRequest): { endpoint: string; params: 
     time_idx: timeIdx.toString(),
     rescale: `${vmin},${vmax}`,
     colormap_name: colormap,
+    // Match the map's 256-pixel tile grid explicitly: TiTiler 2 TileJSON
+    // defaults to 512, while older releases and bowser-lite default to 256.
+    tilesize: '256',
   };
 
   const isComplex = dsInfo.algorithm === 'phase' || dsInfo.algorithm === 'amplitude';

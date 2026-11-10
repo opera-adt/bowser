@@ -666,7 +666,13 @@ def _check_tms(tms: str) -> None:
         )
 
 
-_TILEJSON_DROP = {"tilematrixsetid", "tile_format", "tile_scale", "minzoom", "maxzoom"}
+_TILEJSON_DROP = {
+    "tilematrixsetid",
+    "tile_format",
+    "tile_scale",
+    "minzoom",
+    "maxzoom",
+}
 
 
 @app.get("/md/{tileMatrixSetId}/tilejson.json", response_class=NanJSONResponse)
@@ -686,6 +692,7 @@ def tilejson(
     algorithm_params: str | None = Query(None),
     tile_format: str | None = Query(None),
     tile_scale: Annotated[int, Query(gt=0, lt=4)] = 1,
+    tilesize: Annotated[int | None, Query(gt=0)] = None,  # noqa: ARG001 — validated, passed through
     minzoom: int | None = Query(None),
     maxzoom: int | None = Query(None),
 ):
@@ -710,6 +717,10 @@ def tilejson(
     )
     min_z = minzoom if minzoom is not None else min_z
     max_z = maxzoom if maxzoom is not None else max_z
+    # Mirror the full server's pinned TiTiler (0.22): an @{scale}x path suffix,
+    # with any tilesize the client sent passed through in the query (the tile
+    # endpoint honours it). Move to TiTiler 2's unsuffixed URLs together with
+    # the full server.
     url = (
         f"{request.base_url}md/tiles/{tileMatrixSetId}/{{z}}/{{x}}/{{y}}@{tile_scale}x"
     )
@@ -755,6 +766,7 @@ def _tile(
     colormap_name: str | None,
     algorithm: str | None,
     algorithm_params: str | None,
+    tilesize: int | None,
 ) -> Response:
     _check_tms(tileMatrixSetId)
     if fmt not in (None, "png"):
@@ -780,7 +792,8 @@ def _tile(
         algorithm_params,
     )
     try:
-        content = tiles.render_tile(cube, q, x, y, z, tilesize=256 * scale)
+        size = tilesize if tilesize is not None else 256 * scale
+        content = tiles.render_tile(cube, q, x, y, z, tilesize=size)
     except tiles.TileOutsideBoundsError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     return Response(content, media_type="image/png")
@@ -827,11 +840,12 @@ def _make_tile_route(path: str) -> None:
         algorithm_params: Optional[str] = _TILE_QUERY["algorithm_params"],
         scale: int = 1,
         format: Optional[str] = None,  # noqa: A002 — titiler's parameter name
+        tilesize: Optional[int] = Query(None, gt=0),
     ) -> Response:
         return _tile(
             tileMatrixSetId, z, x, y, scale, format, variable, dataset, time_idx,
             mask_variable, mask_min_value, layer_masks, custom_mask_path, rescale,
-            colormap_name, algorithm, algorithm_params,
+            colormap_name, algorithm, algorithm_params, tilesize,
         )  # fmt: skip
 
     app.add_api_route(path, tile, methods=["GET"], response_class=Response, name="tile")

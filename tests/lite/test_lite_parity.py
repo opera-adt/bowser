@@ -8,9 +8,10 @@ are replayed against both apps on the same cube, each in its own interpreter:
   transparency and, where opaque, RGB within one step per channel); over all tiles
   the transparency masks must agree on >= 99.99% of pixels.
 
-The only expected differences: ``/colorbar`` is a PNG (the full server sends
-WEBP), and with no ``.png`` in the tile URL the full server sends fully opaque
-tiles as JPEG, so the scenario's own tile fingerprints are compared loosely.
+The expected differences: ``/colorbar`` is a PNG (the full server sends WEBP),
+and the two renderers permit the rounding differences tested below, so the
+scenario's exact tile fingerprints are not compared between servers. Both
+request paths explicitly select lossless PNG at the same pixel dimensions.
 
 The real-cube test runs when ``BOWSER_LITE_REAL_CUBE`` (or the default path
 below) points at a DISP GeoZarr; it only reads it.

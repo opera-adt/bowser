@@ -52,7 +52,7 @@ async function rasterOverlay(file: File): Promise<Overlay> {
   const meta = await res.json();
   let bounds: Bounds | null = null;
   try {
-    const tj = await fetch(`/overlay/WebMercatorQuad/tilejson.json?url=${encodeURIComponent(meta.path)}`).then(r => r.json());
+    const tj = await fetch(`/overlay/WebMercatorQuad/tilejson.json?url=${encodeURIComponent(meta.path)}&tilesize=256`).then(r => r.json());
     if (Array.isArray(tj.bounds) && tj.bounds.length === 4) bounds = tj.bounds;
   } catch { /* bounds optional */ }
   const b0 = meta.bands?.[0] ?? { p2: 0, p98: 1, min: 0, max: 1 };
