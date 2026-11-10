@@ -241,6 +241,7 @@ class FakeOpenAI:
             "chatgpt.tokens.use.direct"
         )
         self.raw: list = []
+        self.on_models = lambda: None
         self.n = 0
         self.refresh_error = ""
         self.revoke_status = 200
@@ -296,6 +297,7 @@ class FakeOpenAI:
         if url == signin.CHATGPT_OAUTH.revoke_url:
             return httpx.Response(self.revoke_status)
         if url == "https://api.openai.com/v1/models":
+            self.on_models()
             return httpx.Response(
                 200,
                 json={
@@ -362,6 +364,12 @@ def test_chatgpt_sign_in_with_pkce_state_and_issued_client(tmp_path, store, open
     assert q["resource"] == "https://api.openai.com/v1"
     assert "chatgpt.tokens.use.direct" in q["scope"].split()
     assert method_status(client, "chatgpt")["state"] == "pending"
+    # The model list is read before the account counts as signed in, so the page
+    # never sees a signed-in account without models.
+    seen = []
+    openai.on_models = lambda: seen.append(
+        (store.account("chatgpt").get("signed_in"), signin.pending_for("chatgpt"))
+    )
 
     r = client.get(
         "/auth/callback",
@@ -378,6 +386,7 @@ def test_chatgpt_sign_in_with_pkce_state_and_issued_client(tmp_path, store, open
     m = method_status(client, "chatgpt")
     assert (m["state"], m["account"], m["plan"]) == ("signed_in", EMAIL, "ChatGPT plan")
     assert m["models"] == ["gpt-6.1-sol"] and m["model"] == "gpt-6.1-sol"
+    assert seen == [(None, True)]  # and still "pending" while it finishes
     assert m["usage_url"].startswith("https://chatgpt.com/settings/usage")
     # Tokens in the keychain only, never in the file or a response.
     text = (tmp_path / "assistant.json").read_text()

@@ -1104,12 +1104,6 @@ async def assistant_sign_in_callback(
         return _page(
             "Not signed in", f"{e} Go back to Bowser and try again.", 400, 60_000
         )
-    try:
-        token = await signin.access_token(m, store, SIGNIN_TRANSPORT)
-        models = await signin.fetch_models(m, token, SIGNIN_TRANSPORT)
-        await asyncio.to_thread(store.set_account, m.id, models=models or None)
-    except (signin.SignInError, ProviderError):
-        pass  # the chat still works with a model typed in; the list comes later
     return _page("Signed in", "You can close this tab and go back to Bowser.")
 
 

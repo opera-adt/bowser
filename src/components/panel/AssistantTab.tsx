@@ -498,11 +498,11 @@ export default function AssistantTab() {
               </>
             ) : null}
             {signMsg && <div className={`row-label ai-small${signMsg.error ? ' ai-error' : ''}`} role={signMsg.error ? 'alert' : 'status'}>{signMsg.text}</div>}
-            {account && account.kind === 'oauth' && account.models.length > 0 && (
+            {account && account.kind === 'oauth' && (
               <label className="ai-field">
                 <span className="minmax-label">{serviceName(account)} model</span>
                 <input aria-label="Model" className="sidebar-input ai-text" list="ai-account-models" value={model}
-                  onChange={e => setModel(e.target.value.trim())} />
+                  placeholder="Model name" onChange={e => setModel(e.target.value.trim())} />
                 <datalist id="ai-account-models">{account.models.map(x => <option key={x} value={x} />)}</datalist>
               </label>
             )}

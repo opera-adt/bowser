@@ -205,10 +205,16 @@ def _forget_old() -> None:
         _PENDING.pop(state, None)
 
 
+#: Methods whose browser came back and whose tokens are being fetched.
+_COMPLETING: set[str] = set()
+
+
 def pending_for(method_id: str) -> bool:
-    """Whether a sign-in with this method is waiting for the browser."""
+    """Whether a sign-in with this method is waiting for the browser or finishing."""
     _forget_old()
-    return any(p.method == method_id for p in _PENDING.values())
+    return method_id in _COMPLETING or any(
+        p.method == method_id for p in _PENDING.values()
+    )
 
 
 def cancel_pending(method_id: str) -> None:
@@ -438,6 +444,20 @@ async def complete(
 
     Raises SignInError when the user declined or anything does not check out.
     """
+    _COMPLETING.add(m.id)
+    try:
+        return await _complete(m, store, pending, params, transport)
+    finally:
+        _COMPLETING.discard(m.id)
+
+
+async def _complete(
+    m: Method,
+    store: KeyStore,
+    pending: Pending,
+    params: dict[str, str],
+    transport: Any = None,
+) -> dict[str, Any]:
     spec = m.oauth
     assert spec is not None
     if params.get("error"):
@@ -477,13 +497,22 @@ async def complete(
             raise SignInError("This is another account than the one signed in before.")
     _save_tokens(store, m, body)
     scopes = str(body.get("scope") or "").split()
+    models: list[dict] = []
+    if spec.chat_scope in scopes:
+        try:
+            models = await fetch_models(m, str(body["access_token"]), transport)
+        except Exception:  # noqa: BLE001  (a model can be typed; the list comes later)
+            models = []
+    # Signed in last, with the model list, so the page never sees one without the
+    # other.
     store.set_account(
         m.id,
         client_id=client_id,
         subject=str(claims["sub"]),
         email=str(claims.get("email") or "") or None,
-        signed_in=True,
         plan=spec.chat_scope in scopes,
+        models=models or None,
+        signed_in=True,
     )
     return store.account(m.id)
 
