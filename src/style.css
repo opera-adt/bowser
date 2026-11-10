@@ -2210,7 +2210,8 @@ img.huechange { filter: hue-rotate(120deg); }
 .ref-date-pop {
   position: absolute;
   top: calc(100% + 4px);
-  right: 0;
+  left: 0;
   z-index: 30;
-  width: 220px;
+  width: 210px;
+  box-shadow: var(--shadow-md, 0 4px 14px rgba(0, 0, 0, 0.18));
 }
