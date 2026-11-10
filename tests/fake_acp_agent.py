@@ -113,7 +113,12 @@ def run_prompt(rid, text):
     if "hang" in text:
         child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)"])
         (OUT / "pids.txt").write_text(f"{os.getpid()} {child.pid}")
-        update({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "Working…"}})
+        update(
+            {
+                "sessionUpdate": "agent_message_chunk",
+                "content": {"type": "text", "text": "Working…"},
+            }
+        )
         return  # never answers
     update(
         {
@@ -131,14 +136,31 @@ def run_prompt(rid, text):
         res = mcp.call("tools/call", {"name": "list_layers", "arguments": {}})
         content = (res.get("result") or {}).get("content") or [{}]
         data = json.loads(content[0].get("text") or "{}")
-        update({"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "completed"})
+        update(
+            {
+                "sessionUpdate": "tool_call_update",
+                "toolCallId": "t1",
+                "status": "completed",
+            }
+        )
         names = ", ".join(sorted(data.get("layers", {})))
         answer = f"The layers are: {names}."
     else:
-        update({"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "failed"})
+        update(
+            {
+                "sessionUpdate": "tool_call_update",
+                "toolCallId": "t1",
+                "status": "failed",
+            }
+        )
         answer = f"Not allowed ({outcome.get('outcome')})."
     for piece in (answer[:10], answer[10:]):
-        update({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": piece}})
+        update(
+            {
+                "sessionUpdate": "agent_message_chunk",
+                "content": {"type": "text", "text": piece},
+            }
+        )
     send({"id": rid, "result": {"stopReason": "end_turn"}})
 
 
@@ -150,7 +172,16 @@ for line in sys.stdin:
         waiting.pop(msg["id"]).set()
     elif method == "initialize":
         (OUT / "init.json").write_text(json.dumps(msg["params"]))
-        send({"id": msg["id"], "result": {"protocolVersion": 1, "agentCapabilities": {}, "authMethods": []}})
+        send(
+            {
+                "id": msg["id"],
+                "result": {
+                    "protocolVersion": 1,
+                    "agentCapabilities": {},
+                    "authMethods": [],
+                },
+            }
+        )
     elif method == "session/new":
         (OUT / "new.json").write_text(json.dumps(msg["params"]))
         mcp = MCP(msg["params"]["mcpServers"][0])

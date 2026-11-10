@@ -96,10 +96,24 @@ class FakeKeyring:
         self.items.pop((service, user), None)
 
 
+class NoOllama:
+    """No Ollama on this computer (never look for or start a real one)."""
+
+    def binary(self):
+        return None
+
+    def ensure(self, start=True):  # noqa: ARG002
+        return False
+
+    def models(self):
+        return []
+
+
 def make_app(s: SimpleNamespace) -> FastAPI:
     app = FastAPI()
     app.include_router(relay.router)
     app.dependency_overrides[relay.get_settings] = lambda: s
+    app.dependency_overrides[relay.get_ollama] = NoOllama
 
     @app.get("/datasets")
     def datasets():
@@ -112,7 +126,7 @@ def make_app(s: SimpleNamespace) -> FastAPI:
             "opera_logo": False,
             "geotiff_export": False,
             "polygon_stats": False,
-            "assistant": relay.assistant_config(s),
+            "assistant": relay.assistant_config(s, NoOllama()),
         }
 
     @app.get("/mode")
@@ -173,12 +187,22 @@ def test_agent_command_runs_the_adapter_with_the_users_claude(monkeypatch):
     paths = {"claude": "/opt/bin/claude", "npx": "/usr/bin/npx"}
     monkeypatch.setattr(signin, "find_program", paths.get)
     argv, extra = relay._agent_argv(signin.method("claude"))
-    assert argv == ["/usr/bin/npx", "--yes", "@agentclientprotocol/claude-agent-acp@0.92.0"]
+    assert argv == [
+        "/usr/bin/npx",
+        "--yes",
+        "@agentclientprotocol/claude-agent-acp@0.92.0",
+    ]
     assert extra == {"CLAUDE_CODE_EXECUTABLE": "/opt/bin/claude"}
     command, args, env = signin.mcp_command("http://127.0.0.1:5184")
     assert command == sys.executable
     assert args == ["-m", "bowser.cli", "mcp", "--url", "http://127.0.0.1:5184"]
     assert "127.0.0.1" in env["NO_PROXY"]
+    # The desktop app runs the MCP server with its own executable.
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    assert signin.mcp_command("http://127.0.0.1:5184")[:2] == (
+        sys.executable,
+        ["--mcp-url", "http://127.0.0.1:5184"],
+    )
 
 
 def test_agent_env_is_minimal(monkeypatch):
@@ -212,7 +236,11 @@ class FakeOpenAI:
         self.requests: list[tuple[str, str, dict]] = []
         self.challenge = ""
         self.nonce = ""
-        self.scope = "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct"
+        self.scope = (
+            "openid profile email offline_access resource.invoke "
+            "chatgpt.tokens.use.direct"
+        )
+        self.raw: list = []
         self.n = 0
         self.refresh_error = ""
         self.revoke_status = 200
@@ -231,9 +259,11 @@ class FakeOpenAI:
             "exp": now + 3600,
             "nonce": self.nonce if nonce is None else nonce,
         }
-        return jwt.encode(claims, key or self.key, algorithm="RS256", headers={"kid": "k1"})
+        return jwt.encode(
+            claims, key or self.key, algorithm="RS256", headers={"kid": "k1"}
+        )
 
-    def handler(self, request: httpx.Request) -> httpx.Response:
+    def handler(self, request):
         url = str(request.url)
         form = {k: v[0] for k, v in parse_qs(request.content.decode()).items()}
         self.requests.append((request.method, url.split("?")[0], form))
@@ -242,7 +272,10 @@ class FakeOpenAI:
         if url == signin.CHATGPT_OAUTH.token_url:
             if form["grant_type"] == "authorization_code":
                 digest = hashlib.sha256(form["code_verifier"].encode()).digest()
-                if base64.urlsafe_b64encode(digest).rstrip(b"=").decode() != self.challenge:
+                if (
+                    base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+                    != self.challenge
+                ):
                     return httpx.Response(400, json={"error": "invalid_grant"})
                 if form["code"] != "good-code":
                     return httpx.Response(400, json={"error": "invalid_grant"})
@@ -267,7 +300,11 @@ class FakeOpenAI:
                 200,
                 json={
                     "models": [
-                        {"slug": "gpt-6.1-sol", "visibility": "list", "supports_reasoning": True},
+                        {
+                            "slug": "gpt-6.1-sol",
+                            "visibility": "list",
+                            "supports_reasoning": True,
+                        },
                         {"slug": "hidden", "visibility": "hide"},
                     ]
                 },
@@ -331,7 +368,9 @@ def test_chatgpt_sign_in_with_pkce_state_and_issued_client(tmp_path, store, open
         params={"code": "good-code", "state": q["state"], "client_id": ISSUED},
     )
     assert r.status_code == 200 and "Signed in" in r.text
-    exchange = next(f for m, u, f in openai.requests if f.get("grant_type") == "authorization_code")
+    exchange = next(
+        f for m, u, f in openai.requests if f.get("grant_type") == "authorization_code"
+    )
     assert exchange["client_id"] == ISSUED  # the issued id, not the entry point
     assert exchange["redirect_uri"] == q["redirect_uri"]
     assert exchange["resource"] == "https://api.openai.com/v1"
@@ -350,7 +389,9 @@ def test_chatgpt_sign_in_with_pkce_state_and_issued_client(tmp_path, store, open
     api.AssistantStatus.model_validate(client.get("/assistant/status").json())
 
     # The state is used once.
-    again = client.get("/auth/callback", params={"code": "good-code", "state": q["state"]})
+    again = client.get(
+        "/auth/callback", params={"code": "good-code", "state": q["state"]}
+    )
     assert again.status_code == 400
 
     # The next sign-in uses the issued id, with no registration hint.
@@ -360,19 +401,29 @@ def test_chatgpt_sign_in_with_pkce_state_and_issued_client(tmp_path, store, open
     assert q2["login_hint"] == EMAIL
 
 
-def test_callback_refuses_bad_state_other_computers_and_bad_tokens(tmp_path, store, openai):
+def test_callback_refuses_bad_state_other_computers_and_bad_tokens(
+    store, tmp_path, openai
+):
     app = make_app(settings(tmp_path))
     client = local(app)
     q = start(client, openai)
     # An unknown state: nothing is exchanged.
-    r = client.get("/auth/callback", params={"code": "good-code", "state": "forged", "client_id": ISSUED})
+    r = client.get(
+        "/auth/callback",
+        params={"code": "good-code", "state": "forged", "client_id": ISSUED},
+    )
     assert r.status_code == 400
     # From another computer: refused before the state is even looked at.
-    r = remote(app).get("/auth/callback", params={"code": "good-code", "state": q["state"], "client_id": ISSUED})
+    r = remote(app).get(
+        "/auth/callback",
+        params={"code": "good-code", "state": q["state"], "client_id": ISSUED},
+    )
     assert r.status_code == 403
     assert not [f for _, _, f in openai.requests if f.get("grant_type")]
     # The user declined.
-    r = client.get("/auth/callback", params={"error": "access_denied", "state": q["state"]})
+    r = client.get(
+        "/auth/callback", params={"error": "access_denied", "state": q["state"]}
+    )
     assert r.status_code == 400 and "cancelled" in r.text
     # A first sign-in without the issued client id is incomplete.
     q = start(client, openai)
@@ -381,23 +432,33 @@ def test_callback_refuses_bad_state_other_computers_and_bad_tokens(tmp_path, sto
     # A wrong PKCE verifier (the server checks it): the code is refused.
     q = start(client, openai)
     openai.challenge = "something-else"
-    r = client.get("/auth/callback", params={"code": "good-code", "state": q["state"], "client_id": ISSUED})
+    r = client.get(
+        "/auth/callback",
+        params={"code": "good-code", "state": q["state"], "client_id": ISSUED},
+    )
     assert r.status_code == 400
     # An ID token for another nonce, or signed with another key.
     q = start(client, openai)
     openai.nonce = "other-nonce"
-    r = client.get("/auth/callback", params={"code": "good-code", "state": q["state"], "client_id": ISSUED})
+    r = client.get(
+        "/auth/callback",
+        params={"code": "good-code", "state": q["state"], "client_id": ISSUED},
+    )
     assert r.status_code == 400 and "nonce" in r.text
     q = start(client, openai)
     other = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    openai.id_token = lambda *a, **k: FakeOpenAI.id_token(openai, key=other)
-    r = client.get("/auth/callback", params={"code": "good-code", "state": q["state"], "client_id": ISSUED})
+    openai.id_token = lambda *_a, **_k: FakeOpenAI.id_token(openai, key=other)
+    r = client.get(
+        "/auth/callback",
+        params={"code": "good-code", "state": q["state"], "client_id": ISSUED},
+    )
     assert r.status_code == 400 and "did not check out" in r.text
     assert store.load("signin:chatgpt") is None
     assert method_status(client, "chatgpt")["state"] == "signed_out"
 
 
-def test_sign_in_without_the_plan_scope_cannot_chat(tmp_path, store, openai):
+@pytest.mark.usefixtures("store")
+def test_sign_in_without_the_plan_scope_cannot_chat(tmp_path, openai):
     client = local(make_app(settings(tmp_path)))
     openai.scope = "openid profile email offline_access"
     sign_in(client, openai)
@@ -420,9 +481,15 @@ def test_tokens_are_renewed_and_revoked(tmp_path, store, openai):
     assert asyncio.run(signin.access_token(m, store, transport)) == "access-1"
     # About to expire: renewed with the refresh token, which changes too.
     tokens = json.loads(store.load("signin:chatgpt"))
-    store.save("signin:chatgpt", json.dumps({**tokens, "expires_at": time.time() + 10}), hint="")
+    store.save(
+        "signin:chatgpt",
+        json.dumps({**tokens, "expires_at": time.time() + 10}),
+        hint="",
+    )
     assert asyncio.run(signin.access_token(m, store, transport)) == "access-2"
-    grant = [f for _, _, f in openai.requests if f.get("grant_type") == "refresh_token"][-1]
+    grant = [
+        f for _, _, f in openai.requests if f.get("grant_type") == "refresh_token"
+    ][-1]
     assert grant == {
         "grant_type": "refresh_token",
         "client_id": ISSUED,
@@ -436,8 +503,14 @@ def test_tokens_are_renewed_and_revoked(tmp_path, store, openai):
     host = store.account("chatgpt")["host_id"]
     r = client.delete("/assistant/signin", params={"method": "chatgpt"})
     assert r.status_code == 200 and r.json()["note"] is None
-    revoke = [f for _, u, f in openai.requests if u == signin.CHATGPT_OAUTH.revoke_url][-1]
-    assert revoke == {"token": "refresh-2", "token_type_hint": "refresh_token", "client_id": ISSUED}
+    revoke = [f for _, u, f in openai.requests if u == signin.CHATGPT_OAUTH.revoke_url][
+        -1
+    ]
+    assert revoke == {
+        "token": "refresh-2",
+        "token_type_hint": "refresh_token",
+        "client_id": ISSUED,
+    }
     assert store.load("signin:chatgpt") is None
     assert ("bowser-assistant", "signin:chatgpt") not in store._keyring.items
     assert store.account("chatgpt")["client_id"] == ISSUED
@@ -445,7 +518,9 @@ def test_tokens_are_renewed_and_revoked(tmp_path, store, openai):
     assert method_status(client, "chatgpt")["state"] == "signed_out"
 
 
-def test_dead_refresh_token_and_unconfirmed_revocation(tmp_path, store, openai, monkeypatch):
+def test_dead_refresh_token_and_unconfirmed_revocation(
+    tmp_path, store, openai, monkeypatch
+):
     client = local(make_app(settings(tmp_path)))
     sign_in(client, openai)
     m = signin.method("chatgpt")
@@ -471,7 +546,8 @@ def _sse(*events: dict) -> bytes:
     return b"".join(f"data: {json.dumps(e)}\n\n".encode() for e in events)
 
 
-def test_chatgpt_chat_uses_the_responses_api_with_bowsers_tools(tmp_path, store, openai):
+@pytest.mark.usefixtures("store")
+def test_chatgpt_chat_uses_the_responses_api_with_bowsers_tools(tmp_path, openai):
     client = local(make_app(settings(tmp_path)))
     sign_in(client, openai)
     call = {
@@ -507,7 +583,10 @@ def test_chatgpt_chat_uses_the_responses_api_with_bowsers_tools(tmp_path, store,
     ]
     r = client.post(
         "/assistant/chat",
-        json={"provider": "chatgpt", "messages": [{"role": "user", "content": "layers?"}]},
+        json={
+            "provider": "chatgpt",
+            "messages": [{"role": "user", "content": "layers?"}],
+        },
     )
     assert r.status_code == 200, r.text
     ev = [json.loads(b[6:]) for b in r.text.split("\n\n") if b.startswith("data: ")]
@@ -548,13 +627,14 @@ def _keep_raw_requests(monkeypatch):
     original = FakeOpenAI.handler
 
     def handler(self, request):
-        self.__dict__.setdefault("raw", []).append(request)
+        self.raw.append(request)
         return original(self, request)
 
     monkeypatch.setattr(FakeOpenAI, "handler", handler)
 
 
-def test_plan_usage_limit_is_a_rate_limit(tmp_path, store, openai):
+@pytest.mark.usefixtures("store")
+def test_plan_usage_limit_is_a_rate_limit(tmp_path, openai):
     client = local(make_app(settings(tmp_path)))
     sign_in(client, openai)
     openai.chats = [
@@ -582,7 +662,8 @@ def test_plan_usage_limit_is_a_rate_limit(tmp_path, store, openai):
 # --- gates --------------------------------------------------------------------------
 
 
-def test_sign_in_only_from_this_computer_where_the_page_keeps_keys(tmp_path, store, openai):
+@pytest.mark.usefixtures("store")
+def test_sign_in_only_from_this_computer_where_the_page_keeps_keys(tmp_path, openai):
     s = settings(tmp_path)
     app = make_app(s)
     far = remote(app)
@@ -593,7 +674,9 @@ def test_sign_in_only_from_this_computer_where_the_page_keeps_keys(tmp_path, sto
         "methods": [],
     }
     assert far.post("/assistant/signin", json={"method": "chatgpt"}).status_code == 403
-    assert far.delete("/assistant/signin", params={"method": "chatgpt"}).status_code == 403
+    assert (
+        far.delete("/assistant/signin", params={"method": "chatgpt"}).status_code == 403
+    )
     chat = {
         "provider": "claude",
         "conversation": "c1",
@@ -612,9 +695,15 @@ def test_sign_in_only_from_this_computer_where_the_page_keeps_keys(tmp_path, sto
     hosted = make_app(settings(tmp_path, BOWSER_ASSISTANT_PAGE_KEYS=False))
     st = local(hosted).get("/assistant/status").json()["sign_in"]
     assert st["allowed"] is False and "own computer" in st["reason"]
-    assert local(hosted).post("/assistant/signin", json={"method": "chatgpt"}).status_code == 403
+    assert (
+        local(hosted).post("/assistant/signin", json={"method": "chatgpt"}).status_code
+        == 403
+    )
     assert local(hosted).get("/config").json()["assistant"]["sign_in"] == []
-    assert local(app).get("/config").json()["assistant"]["sign_in"] == ["claude", "chatgpt"]
+    assert local(app).get("/config").json()["assistant"]["sign_in"] == [
+        "claude",
+        "chatgpt",
+    ]
     api.ConfigInfo.model_validate(local(app).get("/config").json())
 
 
@@ -645,7 +734,7 @@ FAKE_CLAUDE = textwrap.dedent(
 
 
 @pytest.fixture
-def claude(tmp_path, monkeypatch, store):
+def claude(tmp_path, monkeypatch, store):  # noqa: ARG001  (one key store per test)
     """A fake claude on PATH (signed out) and the fake ACP agent as its adapter."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -666,7 +755,12 @@ def claude(tmp_path, monkeypatch, store):
         "_agent_argv",
         lambda _m: ([sys.executable, str(HERE / "fake_acp_agent.py"), str(out)], {}),
     )
-    for name in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GITHUB_TOKEN", "BOWSER_AI_KEY"):
+    for name in (
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
+        "GITHUB_TOKEN",
+        "BOWSER_AI_KEY",
+    ):
         monkeypatch.setenv(name, "secret-value-1234")
     yield SimpleNamespace(exe=exe, out=out, state=tmp_path / "claude-signed-in")
     acp.kill_all_now()
@@ -685,7 +779,9 @@ def served(tmp_path, claude):
 
     app = make_app(settings(tmp_path))
     port = _free_port()
-    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+    server = uvicorn.Server(
+        uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
+    )
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
     url = f"http://127.0.0.1:{port}"
@@ -700,11 +796,15 @@ def served(tmp_path, claude):
     thread.join(10)
 
 
-def _claude_status(c: httpx.Client) -> dict:
-    return next(m for m in c.get("/assistant/status").json()["sign_in"]["methods"] if m["id"] == "claude")
+def _claude_status(c) -> dict:
+    return next(
+        m
+        for m in c.get("/assistant/status").json()["sign_in"]["methods"]
+        if m["id"] == "claude"
+    )
 
 
-def _stream(c: httpx.Client, body: dict, on_event=None) -> list[dict]:
+def _stream(c, body: dict, on_event=None) -> list[dict]:
     out = []
     with c.stream("POST", "/assistant/chat", json=body) as r:
         assert r.status_code == 200, r.read()
@@ -721,7 +821,10 @@ def test_claude_sign_in_runs_claudes_own_login(tmp_path, claude, monkeypatch):
     client = local(make_app(settings(tmp_path)))
     signin._STATUS_CACHE.clear()
     m = method_status(client, "claude")
-    assert (m["state"], m["install_url"]) == ("signed_out", "https://code.claude.com/docs/en/setup")
+    assert (m["state"], m["install_url"]) == (
+        "signed_out",
+        "https://code.claude.com/docs/en/setup",
+    )
     r = client.post("/assistant/signin", json={"method": "claude"})
     assert r.status_code == 200 and r.json()["sign_in_url"] is None
     assert method_status(client, "claude")["state"] == "pending"
@@ -730,7 +833,11 @@ def test_claude_sign_in_runs_claudes_own_login(tmp_path, claude, monkeypatch):
         if m["state"] != "pending":
             break
         time.sleep(0.1)
-    assert (m["state"], m["account"], m["plan"]) == ("signed_in", "me@example.com", "Max")
+    assert (m["state"], m["account"], m["plan"]) == (
+        "signed_in",
+        "me@example.com",
+        "Max",
+    )
     # claude ran with the minimal environment (no keys of this process).
     seen = (tmp_path / "claude-env.json").read_text()
     assert "secret-value-1234" not in seen
@@ -766,14 +873,20 @@ def test_claude_chat_through_acp_with_mcp_tools_and_a_permission(served):
             {
                 "provider": "claude",
                 "conversation": "chat-1",
-                "messages": [{"role": "user", "content": "[page: {}]\n\nWhich layers?"}],
+                "messages": [
+                    {"role": "user", "content": "[page: {}]\n\nWhich layers?"}
+                ],
             },
             answer,
         )
     kinds = [e["type"] for e in ev]
     assert kinds[0] == "status"
     assert answered and answered[0]["name"] == "list_layers"
-    assert [o["kind"] for o in answered[0]["options"]] == ["allow_once", "allow_always", "reject_once"]
+    assert [o["kind"] for o in answered[0]["options"]] == [
+        "allow_once",
+        "allow_always",
+        "reject_once",
+    ]
     call = next(e for e in ev if e["type"] == "tool_call")
     assert (call["name"], call["runs"]) == ("list_layers", "agent")
     result = next(e for e in ev if e["type"] == "tool_result")
@@ -781,7 +894,10 @@ def test_claude_chat_through_acp_with_mcp_tools_and_a_permission(served):
     # The agent read the layers through Bowser's MCP server, from this server.
     text = "".join(e["text"] for e in ev if e["type"] == "text")
     assert text == "The layers are: displacement, temporal_coherence."
-    assert ev[-2] == {"type": "message", "message": {"role": "assistant", "content": text}}
+    assert ev[-2] == {
+        "type": "message",
+        "message": {"role": "assistant", "content": text},
+    }
     assert ev[-1]["type"] == "done" and ev[-1]["stop"] == "end"
 
     new = json.loads((claude.out / "new.json").read_text())
@@ -866,7 +982,9 @@ def test_stop_kills_the_agent_and_what_it_started(served):
             time.sleep(0.05)
         agent, child = map(int, pids_file.read_text().split())
         assert _alive(agent) and _alive(child)
-        assert c.post("/assistant/stop", json={"conversation": "chat-3"}).json() == {"stopped": 1}
+        assert c.post("/assistant/stop", json={"conversation": "chat-3"}).json() == {
+            "stopped": 1
+        }
         t.join(30)
     for _ in range(100):
         if not _alive(agent) and not _alive(child):
@@ -877,7 +995,8 @@ def test_stop_kills_the_agent_and_what_it_started(served):
     assert acp.SESSIONS == {}
 
 
-def test_server_shutdown_stops_the_agents(tmp_path, store):
+@pytest.mark.usefixtures("store")
+def test_server_shutdown_stops_the_agents(tmp_path):
     closed = []
 
     class Fake:
@@ -891,6 +1010,12 @@ def test_server_shutdown_stops_the_agents(tmp_path, store):
 
 def test_tool_names_of_different_agents():
     known = {"list_layers", "point_timeseries"}
-    assert acp.tool_name({"_meta": {"claudeCode": {"toolName": "mcp__bowser__point_timeseries"}}}, known) == "point_timeseries"
+    assert (
+        acp.tool_name(
+            {"_meta": {"claudeCode": {"toolName": "mcp__bowser__point_timeseries"}}},
+            known,
+        )
+        == "point_timeseries"
+    )
     assert acp.tool_name({"title": "bowser.list_layers"}, known) == "list_layers"
     assert acp.tool_name({"title": "Read file"}, known) == "Read file"

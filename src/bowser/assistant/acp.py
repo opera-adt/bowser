@@ -209,9 +209,7 @@ class AgentSession:
                 raise AgentError(
                     f"{self.label} would run tools without asking (mode {current})."
                 )
-            await self.request(
-                "session/set_mode", {"sessionId": sid, "modeId": asking}
-            )
+            await self.request("session/set_mode", {"sessionId": sid, "modeId": asking})
 
     async def close(self) -> None:
         """Kill the agent and everything it started; decline open permissions."""
@@ -296,7 +294,9 @@ class AgentSession:
     def _dispatch(self, msg: dict[str, Any]) -> None:
         method = msg.get("method")
         if method is None and "id" in msg:
-            fut = self._calls.pop(msg["id"], None) if isinstance(msg["id"], int) else None
+            fut = (
+                self._calls.pop(msg["id"], None) if isinstance(msg["id"], int) else None
+            )
             if fut is None or fut.done():
                 return
             if isinstance(msg.get("error"), dict):
@@ -331,11 +331,15 @@ class AgentSession:
         kind = u.get("sessionUpdate")
         if kind == "agent_message_chunk":
             text = (u.get("content") or {}).get("text")
-            return [{"type": "text", "text": text}] if isinstance(text, str) and text else []
+            return (
+                [{"type": "text", "text": text}]
+                if isinstance(text, str) and text
+                else []
+            )
         if kind == "tool_call":
             tid = str(u.get("toolCallId") or "")[:200]
             raw = u.get("rawInput")
-            info = {
+            info: dict[str, Any] = {
                 "name": tool_name(u, self.known),
                 "input": raw if isinstance(raw, dict) else {},
             }
@@ -352,11 +356,11 @@ class AgentSession:
             ]
         if kind == "tool_call_update":
             tid = str(u.get("toolCallId") or "")[:200]
-            info = self._tools.get(tid)
-            if info is None:
+            entry = self._tools.get(tid)
+            if entry is None:
                 return []
             if isinstance(u.get("rawInput"), dict):
-                info["input"] = u["rawInput"]
+                entry["input"] = u["rawInput"]
             status = u.get("status")
             if status not in ("completed", "failed"):
                 return []
@@ -364,8 +368,8 @@ class AgentSession:
                 {
                     "type": "tool_result",
                     "id": tid,
-                    "name": info["name"],
-                    "input": info["input"],
+                    "name": entry["name"],
+                    "input": entry["input"],
                     "ok": status == "completed",
                     "result": None,
                 }
@@ -407,8 +411,10 @@ class AgentSession:
         )
 
     def answer(self, key: str, choice: str) -> bool:
-        """Answer permission request ``key``: ``allow``, ``allow_always`` or
-        ``reject``. Return False when there is no such open request.
+        """Answer permission request ``key``.
+
+        ``choice`` is ``allow``, ``allow_always`` or ``reject``. Return False
+        when there is no such open request.
         """
         if key not in self._permissions:
             return False
@@ -429,9 +435,7 @@ class AgentSession:
         timer.cancel()
         if kinds is None:
             kinds = ("reject_once", "reject_always")
-        option = next(
-            (o["id"] for k in kinds for o in options if o["kind"] == k), None
-        )
+        option = next((o["id"] for k in kinds for o in options if o["kind"] == k), None)
         outcome = (
             {"outcome": "selected", "optionId": option}
             if option is not None
@@ -462,7 +466,12 @@ class AgentSession:
                 },
             )
         )
-        task.add_done_callback(lambda _t: self._events and self._events.put_nowait(None))
+
+        def _ended(_task: asyncio.Future) -> None:
+            if self._events is not None:
+                self._events.put_nowait(None)
+
+        task.add_done_callback(_ended)
         try:
             while True:
                 event = await self._events.get()
@@ -505,7 +514,10 @@ class AgentSession:
         if self.session_id and self.alive:
             with contextlib.suppress(AgentError):
                 self._send(
-                    {"method": "session/cancel", "params": {"sessionId": self.session_id}}
+                    {
+                        "method": "session/cancel",
+                        "params": {"sessionId": self.session_id},
+                    }
                 )
 
 
@@ -517,7 +529,7 @@ def del_old(d: dict, keep: int) -> None:
 
 def _agent_error(label: str, err: dict[str, Any]) -> AgentError:
     message = str(err.get("message") or "an error")[:300]
-    data = err.get("data") if isinstance(err.get("data"), dict) else {}
+    data: dict[str, Any] = err["data"] if isinstance(err.get("data"), dict) else {}
     low = message.lower()
     auth = (
         err.get("code") == -32000
@@ -547,8 +559,9 @@ MAX_SESSIONS = 3
 
 
 async def keep(conversation: str, session: AgentSession) -> None:
-    """Remember ``session`` for ``conversation``, closing the oldest beyond
-    :data:`MAX_SESSIONS`.
+    """Remember ``session`` for ``conversation``.
+
+    The oldest sessions beyond :data:`MAX_SESSIONS` are closed.
     """
     SESSIONS[conversation] = session
     while len(SESSIONS) > MAX_SESSIONS:

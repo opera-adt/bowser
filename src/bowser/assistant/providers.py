@@ -13,8 +13,8 @@ next turn in the same format:
 
 Wire formats: Anthropic Messages (through the official ``anthropic`` SDK),
 OpenAI Chat Completions (also OpenRouter and Ollama), Gemini
-``streamGenerateContent`` and OpenAI Responses (ChatGPT sign-in). The mapping follows RustGIS
-(crates/assistant/src/provider.rs).
+``streamGenerateContent`` and OpenAI Responses (ChatGPT sign-in). The mapping
+follows RustGIS (crates/assistant/src/provider.rs).
 
 Imports ``httpx`` and ``anthropic`` only when a provider is used: they come with
 the ``assistant`` extra.
@@ -1096,7 +1096,9 @@ class ResponsesProvider(Provider):
                         err = (event.get("response") or {}).get("error") or event
                         raise _plan_error(label, 0, json.dumps({"error": err}))
                     elif kind == "response.incomplete":
-                        why = ((event.get("response") or {}).get("incomplete_details") or {})
+                        why = (event.get("response") or {}).get(
+                            "incomplete_details"
+                        ) or {}
                         if why.get("reason") == "max_output_tokens":
                             native = {"wire": "responses", "content": _replay(items)}
                             yield "turn", Turn("".join(text), [], "max_tokens", native)
@@ -1186,7 +1188,8 @@ def _plan_error(label: str, status: int, body: str) -> ProviderError:
     err = err if isinstance(err, dict) else {}
     code = str(err.get("code") or "")
     message = str(
-        err.get("message") or (data.get("detail") if isinstance(data, dict) else "")
+        err.get("message")
+        or (data.get("detail") if isinstance(data, dict) else "")
         or body.strip()[:300]
         or f"HTTP {status}"
     )[:300]

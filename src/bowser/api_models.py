@@ -613,9 +613,7 @@ class SignInMethod(_Fixed):
     kind: Literal["oauth", "local_agent"]
     vendor: str
     blurb: str
-    state: Literal[
-        "signed_out", "pending", "signed_in", "no_plan", "not_installed"
-    ]
+    state: Literal["signed_out", "pending", "signed_in", "no_plan", "not_installed"]
     account: Optional[str] = Field(None, description="The account's email.")
     plan: Optional[str] = None
     detail: Optional[str] = Field(None, description="Why it is not ready.")
@@ -637,7 +635,9 @@ class SignInStatus(_Fixed):
 
 
 class AssistantStatus(_Fixed):
-    """``GET /assistant/status``, ``PUT`` and ``DELETE /assistant/key``,
+    """The Assistant's status.
+
+    Sent by ``GET /assistant/status``, ``PUT`` and ``DELETE /assistant/key``,
     ``POST`` and ``DELETE /assistant/signin``.
     """
 
