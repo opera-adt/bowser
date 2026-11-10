@@ -1542,6 +1542,55 @@ img.huechange { filter: hue-rotate(120deg); }
   overflow-y: auto;
 }
 
+/* ── Stats tab: one card per area (as an Overlays row) ───────── */
+.zs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.zs-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  background: var(--sb-surface2);
+  border-radius: var(--radius-sm);
+}
+
+.zs-row.hidden {
+  opacity: 0.55;
+}
+
+.zs-source {
+  max-width: none;
+  padding-left: 16px;
+}
+
+.zs-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px 8px;
+  margin: 2px 0 0;
+  padding-left: 16px;
+  font-size: 0.74em;
+}
+
+.zs-stats div {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.zs-stats dt {
+  color: var(--sb-muted);
+}
+
+.zs-stats dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ── GNSS tab ────────────────────────────────────────────────── */
 .gnss-list {
   display: flex;

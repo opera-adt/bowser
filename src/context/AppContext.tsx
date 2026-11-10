@@ -27,6 +27,7 @@ const initialState: AppState = {
   timeSeriesPoints: [],
   chartAreas: [],
   areaStats: {},
+  panelTab: 'main',
   areaDrawing: false,
   areaOpenedTools: false,
   refMarkerPosition: [0, 0],
@@ -147,6 +148,8 @@ function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppSt
       }
       return { ...state, chartAreas };
     }
+    case 'SET_PANEL_TAB':
+      return { ...state, panelTab: action.payload };
     case 'SET_AREA_STATS':
       return { ...state, areaStats: { ...state.areaStats, ...action.payload } };
     case 'REMOVE_CHART_AREA':

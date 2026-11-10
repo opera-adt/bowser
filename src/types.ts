@@ -209,6 +209,8 @@ export interface AppState {
   chartAreas: ChartArea[];
   /** Area statistics per layer and area, keyed areaStatsKey(dataset, areaId). */
   areaStats: { [key: string]: AreaStats };
+  /** The side panel's tab (Main, Overlays, Stats, GNSS, Project). */
+  panelTab: string;
   /** True while the chart's "+ Area" waits for a polygon drawn on the map. */
   areaDrawing: boolean;
   /** The Draw tools were off before "+ Area" opened them: close them again once it is done. */
@@ -292,6 +294,7 @@ export type AppAction =
   | { type: 'UPDATE_TIME_SERIES_POINT'; payload: { id: string; updates: Partial<TimeSeriesPoint> } }
   | { type: 'ADD_CHART_AREA'; payload: { geometry: ChartArea['geometry']; name?: string; source?: ChartArea['source'] } }
   | { type: 'ADD_CHART_AREAS'; payload: Array<Pick<ChartArea, 'id' | 'name' | 'geometry' | 'source'>> }
+  | { type: 'SET_PANEL_TAB'; payload: string }
   | { type: 'SET_AREA_STATS'; payload: { [key: string]: AreaStats } }
   | { type: 'REMOVE_CHART_AREA'; payload: string }
   | { type: 'UPDATE_CHART_AREA'; payload: { id: string; updates: Partial<ChartArea> } }

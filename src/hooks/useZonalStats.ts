@@ -52,6 +52,7 @@ export function useZonalStats(polygonStats: boolean) {
         .map((p, i) => ({ id: `area_${stamp}_${i}`, name: p.name, geometry: p.geometry, source: p.source }));
       if (areas.length > 0) {
         dispatch({ type: 'ADD_CHART_AREAS', payload: areas });
+        dispatch({ type: 'SET_PANEL_TAB', payload: 'stats' });
         added = true;
       }
     }

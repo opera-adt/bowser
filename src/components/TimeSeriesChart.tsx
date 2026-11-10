@@ -21,7 +21,8 @@ import { activeRefTime, refDateLabel, refDateMarker, relativeChartData, relative
 import ChartAreaButton from './ChartAreaButton';
 import { areaChartDatasets, areaStatsKey } from '../utils/polygonSeries';
 import { fetchAreaStats } from '../utils/zonalStats';
-import { referenceValues } from '../map/interactions';
+import { useAreaReference } from '../hooks/useAreaReference';
+import { toIsoDate } from '../utils/areaStats';
 
 // Chart.js plugin to wire legend-click visibility to all related datasets (raw, trend,
 // residual, samples, median) that share the same base label.
@@ -76,21 +77,6 @@ function useThemeVersion(): number {
   return v;
 }
 
-/** Convert "YYYYMMDD_YYYYMMDD" or "YYYYMMDD" → "YYYY-MM-DD" (secondary/only date).
- *
- * Stringify defensively: some datasets surface numeric x-values (e.g.
- * integer indices when a dim has no date coord), and Chart.js hands them
- * straight to us. Without this, `.includes` throws on the numeric branch.
- */
-function toIsoDate(xVal: string | number): string {
-  const s = typeof xVal === 'string' ? xVal : String(xVal);
-  const dateStr = s.includes('_') ? s.split('_').pop()! : s;
-  if (/^\d{8}$/.test(dateStr)) {
-    return `${dateStr.slice(0, 4)}-${dateStr.slice(4, 6)}-${dateStr.slice(6, 8)}`;
-  }
-  return s;
-}
-
 interface BufferResult {
   labels: string[];
   median: Array<{ x: string; y: number }>;
@@ -101,7 +87,7 @@ interface BufferResult {
 export default function TimeSeriesChart({ windowId }: { windowId: string }) {
   const { state, dispatch } = useAppContext();
   const window_ = state.chartWindows.find(w => w.id === windowId);
-  const { fetchMultiPointTimeSeries, fetchBufferTimeSeries, fetchPointTimeSeries, fetchPolygonTimeSeries } = useApi();
+  const { fetchMultiPointTimeSeries, fetchBufferTimeSeries, fetchPolygonTimeSeries } = useApi();
   const themeVersion = useThemeVersion();
   // chartData keyed by dataset name
   const [fetchedDataMap, setChartDataMap] = useState<{ [ds: string]: MultiPointTimeSeriesData }>({});
@@ -284,29 +270,8 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.showChart, JSON.stringify(activeDatasetsForChart), JSON.stringify(visibleAreas.map(a => a.id)), fetchPolygonTimeSeries]);
 
-  // The server's statistics use the cube's stored reference. With the viewer's reference on, the
-  // same values the map subtracts are taken off (one per date), as /multi_point does for points:
-  // the map's own (state.refValues) for the layer on the map, else fetched the same way.
-  const refBufferM = state.refEnabled && state.refBufferEnabled ? state.refBufferRadius : 0;
-  const refKey = (ds: string) => `${ds}|${state.refMarkerPosition.join(',')}|${refBufferM}`;
-  const [fetchedRef, setFetchedRef] = useState<Record<string, number[]>>({});
-  const usesRef = (ds: string) => !!state.datasetInfo[ds]?.uses_spatial_ref && state.refEnabled;
-  const mapRef = (ds: string) => (ds === state.currentDataset ? state.refValues[ds] : undefined);
-  useEffect(() => {
-    if (!state.showChart || visibleAreas.length === 0) return;
-    for (const ds of activeDatasetsForChart) {
-      if (!usesRef(ds) || mapRef(ds) || fetchedRef[refKey(ds)]) continue;
-      const key = refKey(ds);
-      referenceValues(state, ds, state.refMarkerPosition, { fetchPointTimeSeries, fetchBufferTimeSeries })
-        .then(values => { if (values) setFetchedRef(prev => ({ ...prev, [key]: values })); })
-        .catch(err => console.error('Error fetching reference values for an area:', err));
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.showChart, visibleAreas.length, JSON.stringify(activeDatasetsForChart), state.refEnabled, state.refMarkerPosition,
-      refBufferM, state.currentDataset, state.refValues, state.datasetInfo]);
-  /** The reference to subtract: null when off for the layer, undefined while it is fetched. */
-  const areaReference = (ds: string): number[] | null | undefined =>
-    !usesRef(ds) ? null : (mapRef(ds) ?? fetchedRef[refKey(ds)]);
+  // The viewer's reference taken off each area (useAreaReference).
+  const areaReference = useAreaReference(activeDatasetsForChart, state.showChart && visibleAreas.length > 0);
 
   // Derive a single merged chartData view from chartDataMap for click/export
   // Use the first available dataset as the canonical labels source

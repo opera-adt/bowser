@@ -125,6 +125,7 @@ describe('Zonal stats on polygons', () => {
     expect(stateRef.chartAreas.map(a => a.name)).toEqual(['Dam area', 'areas.geojson 2', 'areas.geojson 3', 'areas.geojson 4', 'areas.geojson 5']);
     expect(stateRef.chartAreas[0].source).toEqual({ overlayId: 'v1', layer: 'areas.geojson', index: 0 });
     expect(stateRef.showChart).toBe(true);
+    expect(stateRef.panelTab).toBe('stats');  // the results are listed there
     expect(screen.getByRole('status').textContent).toContain('Zonal stats: 0/5 areas');
     expect(polygonRequests).toHaveLength(ZONAL_CONCURRENCY);
     // Every key is pending until its answer comes.
