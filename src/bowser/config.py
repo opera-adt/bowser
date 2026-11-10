@@ -49,20 +49,18 @@ class Settings(BaseSettings):
     # only for a local single-worker server, like BOWSER_ALLOW_OPEN.
     BOWSER_ASSISTANT: bool = False
     # Let the page save API keys on this server (system keychain or a private
-    # file) and point local providers at a base URL, from this computer only.
+    # file), from this computer only.
     # Only for a server on the user's own computer: on a shared server every
     # visitor would spend and could replace the key. A hosted server leaves this
     # off and gives its key below.
     BOWSER_ASSISTANT_PAGE_KEYS: bool = False
     # Where saved keys and provider settings go (empty: the user's config dir).
     BOWSER_ASSISTANT_KEY_FILE: str = ""
-    # The server's own provider (hosted): anthropic, openai, gemini, openrouter,
-    # ollama or openai_compatible, its key, and optionally the model and, for a
-    # local provider, the base URL.
+    # The server's own provider (hosted): anthropic, openai, gemini, openrouter
+    # or ollama, its key, and optionally the model.
     BOWSER_AI_PROVIDER: str = ""
     BOWSER_AI_KEY: SecretStr = SecretStr("")
     BOWSER_AI_MODEL: str = ""
-    BOWSER_AI_BASE_URL: str = ""
     # Each provider's usual variable, used when set.
     ANTHROPIC_API_KEY: SecretStr = SecretStr("")
     OPENAI_API_KEY: SecretStr = SecretStr("")

@@ -423,10 +423,10 @@ ROUTES: dict[str, dict[str, Any]] = {
     "PUT /assistant/key": {
         "summary": "Save a provider's key",
         "description": "Check an API key with its provider and keep it on this "
-        "computer (system keychain, or a file only this user can read), and for "
-        'a local provider its base URL. Body: `{"provider": "anthropic", '
-        '"key": "..."}`. 403 unless `BOWSER_ASSISTANT_PAGE_KEYS` is set and the '
-        "request comes from this computer; 401 when the provider rejects the key.",
+        "computer (system keychain, or a file only this user can read). "
+        'Body: `{"provider": "anthropic", "key": "..."}`. 403 unless '
+        "`BOWSER_ASSISTANT_PAGE_KEYS` is set and the request comes from this "
+        "computer; 401 when the provider rejects the key.",
         "tags": [ASSISTANT],
     },
     "DELETE /assistant/key": {
@@ -534,8 +534,7 @@ class AssistantProvider(_Fixed):
     model: str = Field(description="Default model.")
     models: list[str] = Field(description="Models offered in the picker.")
     needs_key: bool
-    local: bool = Field(description="A local server whose base URL can be set.")
-    base_url: str
+    local: bool = Field(description="A model server on this computer (no key).")
     auth: Literal["api_key", "none", "sign_in"]
     available: bool = Field(description="False for a provider coming later.")
     note: str
@@ -551,7 +550,7 @@ class AssistantStatus(_Fixed):
 
     enabled: bool
     page_keys: bool = Field(
-        description="Whether the page may save keys and base URLs on this server."
+        description="Whether the page may save keys on this server."
     )
     providers: list[AssistantProvider]
     default_provider: Optional[str] = None

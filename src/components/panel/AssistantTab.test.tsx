@@ -14,11 +14,11 @@ const layer = {
 } as unknown as RasterGroup;
 
 const provider = (over: Record<string, unknown>) => ({
-  wire: 'openai', model: '', models: [], needs_key: true, local: false, base_url: '', auth: 'api_key',
+  wire: 'openai', model: '', models: [], needs_key: true, local: false, auth: 'api_key',
   available: true, note: '', key_url: '', configured: false, source: null, hint: null, store: null, ...over,
 });
 const ANTHROPIC = provider({ id: 'anthropic', label: 'Anthropic', wire: 'anthropic', model: 'claude-opus-5-5', models: ['claude-opus-5-5'], key_url: 'https://console.anthropic.com/settings/keys' });
-const OLLAMA = provider({ id: 'ollama', label: 'Ollama (local)', model: 'qwen3', needs_key: false, local: true, base_url: 'http://localhost:11434/v1', auth: 'none', configured: true });
+const OLLAMA = provider({ id: 'ollama', label: 'Ollama (local)', model: 'qwen3', needs_key: false, local: true, auth: 'none', configured: true });
 const CHATGPT = provider({ id: 'chatgpt', label: 'Sign in with ChatGPT', wire: 'responses', auth: 'sign_in', available: false, note: 'Coming in a later version.' });
 const STATUS = { enabled: true, page_keys: true, default_provider: null, providers: [ANTHROPIC, OLLAMA, CHATGPT] };
 
@@ -84,12 +84,12 @@ describe('AssistantTab', () => {
     // ChatGPT sign-in is listed, not offered yet.
     const chatgpt = within(select).getByRole('option', { name: /Sign in with ChatGPT/ }) as HTMLOptionElement;
     expect(chatgpt.disabled).toBe(true);
-    // A local provider takes a base URL and no key.
-    expect((screen.getByRole('textbox', { name: 'Base URL' }) as HTMLInputElement).value).toBe('http://localhost:11434/v1');
+    // A local provider takes no key and no base URL: nothing to set up.
     expect(screen.queryByLabelText('API key')).toBeNull();
+    expect(screen.queryByRole('textbox', { name: 'Base URL' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /save/i })).toBeNull();
 
     fireEvent.change(select, { target: { value: 'anthropic' } });
-    expect(screen.queryByRole('textbox', { name: 'Base URL' })).toBeNull();
     expect((screen.getByRole('combobox', { name: 'Model' }) as HTMLInputElement).value).toBe('claude-opus-5-5');
     const key = screen.getByLabelText('API key') as HTMLInputElement;
     expect(key.type).toBe('password');

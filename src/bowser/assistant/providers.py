@@ -12,8 +12,8 @@ next turn in the same format:
 - ``{"role": "tool", "results": [{"id", "name", "content", "is_error"}]}``.
 
 Wire formats: Anthropic Messages (through the official ``anthropic`` SDK),
-OpenAI Chat Completions (also OpenRouter, Ollama and any OpenAI-compatible
-server) and Gemini ``streamGenerateContent``. The mapping follows RustGIS
+OpenAI Chat Completions (also OpenRouter and Ollama) and Gemini
+``streamGenerateContent``. The mapping follows RustGIS
 (crates/assistant/src/provider.rs).
 
 Imports ``httpx`` and ``anthropic`` only when a provider is used: they come with
@@ -50,7 +50,7 @@ class Preset:
     models: tuple[str, ...] = ()
     #: Whether it needs an API key (local servers usually do not).
     needs_key: bool = True
-    #: A local server whose base URL the user sets.
+    #: A model server on this computer (no key; nothing leaves it).
     local: bool = False
     #: The settings field holding the provider's usual environment variable.
     key_env: str = ""
@@ -113,16 +113,6 @@ PRESETS: tuple[Preset, ...] = (
         needs_key=False,
         local=True,
         key_url="https://ollama.com/download",
-        auth="none",
-    ),
-    Preset(
-        id="openai_compatible",
-        label="OpenAI-compatible server",
-        wire="openai",
-        base_url="http://localhost:1234/v1",
-        model="",
-        needs_key=False,
-        local=True,
         auth="none",
     ),
     # The seam for OpenAI's "Sign in with ChatGPT" for open-source apps: an
@@ -310,7 +300,7 @@ class Provider:
 
 
 class OpenAIProvider(Provider):
-    """OpenAI Chat Completions: OpenAI, OpenRouter, Ollama, OpenAI-compatible."""
+    """OpenAI Chat Completions: OpenAI, OpenRouter and Ollama."""
 
     def _headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}

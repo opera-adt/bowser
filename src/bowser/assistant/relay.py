@@ -13,7 +13,7 @@ point, ...), which only the page can run. Then the request ends with a
 ``page_tools`` event; the page runs them and sends the results in a new request.
 
 Gates, following ``BOWSER_ALLOW_OPEN``: nothing works unless
-``BOWSER_ASSISTANT`` is set, and keys and base URLs can be set from the page only
+``BOWSER_ASSISTANT`` is set, and keys can be set from the page only
 with ``BOWSER_ASSISTANT_PAGE_KEYS`` and from this computer. A hosted server sets
 its own key (``BOWSER_AI_PROVIDER``/``BOWSER_AI_KEY`` or a provider's usual
 variable) instead.
@@ -29,7 +29,7 @@ from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .. import api_models as api
 from .keys import KeyStore, default_path
@@ -99,19 +99,6 @@ def _key(settings: Any, store: KeyStore, p: Preset) -> tuple[str | None, str | N
     return (env, "environment") if env else (None, None)
 
 
-def _base_url(settings: Any, store: KeyStore, p: Preset) -> str:
-    """Return the base URL for ``p``: the server's, a saved one, or the preset's."""
-    if not p.local:
-        return p.base_url
-    if settings.BOWSER_AI_PROVIDER == p.id and settings.BOWSER_AI_BASE_URL:
-        return settings.BOWSER_AI_BASE_URL
-    if settings.BOWSER_ASSISTANT_PAGE_KEYS:
-        saved = store.prefs(p.id).get("base_url")
-        if saved:
-            return str(saved)
-    return p.base_url
-
-
 def assistant_config(settings: Any) -> dict[str, Any]:
     """Return the Assistant's entry of ``GET /config``.
 
@@ -155,7 +142,6 @@ def _status(settings: Any) -> dict[str, Any]:
                 "models": list(p.models),
                 "needs_key": p.needs_key,
                 "local": p.local,
-                "base_url": _base_url(settings, store, p),
                 "auth": p.auth,
                 "available": p.available,
                 "note": p.note,
@@ -214,13 +200,10 @@ def _preset(provider_id: str) -> Preset:
 class KeyBody(BaseModel):
     """``PUT /assistant/key``."""
 
+    model_config = ConfigDict(extra="forbid")
+
     provider: str = Field(description="Provider id, e.g. anthropic.")
-    key: str | None = Field(
-        None, min_length=8, max_length=400, description="The API key."
-    )
-    base_url: str | None = Field(
-        None, max_length=300, description="Base URL of a local provider."
-    )
+    key: str = Field(min_length=8, max_length=400, description="The API key.")
 
 
 class ChatBody(BaseModel):
@@ -261,32 +244,24 @@ async def assistant_key_set(
     """Check a key with its provider and keep it on this computer."""
     _require_page_keys(settings, request)
     p = _preset(body.provider)
-    store = key_store(settings)
-    if body.base_url is not None and p.local:
-        url = body.base_url.strip().rstrip("/")
-        if url and not url.startswith(("http://", "https://")):
-            raise HTTPException(status_code=400, detail="Give an http(s) URL.")
-        await asyncio.to_thread(store.set_prefs, p.id, base_url=url or None)
-    key = (body.key or "").strip()
-    stored_in = None
-    if key:
-        provider = open_provider(p, "", key, _base_url(settings, store, p))
-        try:
-            ok = await provider.check()
-        except ProviderError as e:
-            raise HTTPException(
-                status_code=502, detail=f"Could not check the key: {e}"
-            ) from e
-        if not ok:
-            raise HTTPException(
-                status_code=401, detail=f"{p.label} did not accept this API key."
-            )
-        store_kind = await asyncio.to_thread(store.save, p.id, key)
-        stored_in = (
-            "the system keychain"
-            if store_kind == "keyring"
-            else "a file only you can read"
+    if p.auth != "api_key":
+        raise HTTPException(status_code=400, detail=f"{p.label} takes no API key.")
+    key = body.key.strip()
+    provider = open_provider(p, "", key)
+    try:
+        ok = await provider.check()
+    except ProviderError as e:
+        raise HTTPException(
+            status_code=502, detail=f"Could not check the key: {e}"
+        ) from e
+    if not ok:
+        raise HTTPException(
+            status_code=401, detail=f"{p.label} did not accept this API key."
         )
+    store_kind = await asyncio.to_thread(key_store(settings).save, p.id, key)
+    stored_in = (
+        "the system keychain" if store_kind == "keyring" else "a file only you can read"
+    )
     return {**_status(settings), "stored_in": stored_in}
 
 
@@ -344,7 +319,7 @@ async def assistant_chat(
         raise HTTPException(
             status_code=400, detail=f"Add an API key for {p.label} first."
         )
-    provider = open_provider(p, model, key, _base_url(settings, store, p))
+    provider = open_provider(p, model, key)
     tools = _data_tools(request, page_keys=bool(settings.BOWSER_ASSISTANT_PAGE_KEYS))
     page = _page_tools(body.page_tools, set(tools))
     return EventStream(

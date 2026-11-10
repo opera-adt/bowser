@@ -89,7 +89,6 @@ export default function AssistantTab() {
   const [prefs, setPrefs] = useState<Prefs>(readPrefs);
   const [setupOpen, setSetupOpen] = useState(false);
   const [keyDraft, setKeyDraft] = useState('');
-  const [urlDraft, setUrlDraft] = useState<string | null>(null);
   const [keyMsg, setKeyMsg] = useState<{ text: string; error?: boolean } | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -129,7 +128,6 @@ export default function AssistantTab() {
     setPrefs(next);
     savePrefs(next);
     setKeyDraft('');
-    setUrlDraft(null);
     setKeyMsg(null);
   };
   const setModel = (m: string) => {
@@ -142,15 +140,13 @@ export default function AssistantTab() {
   const save = async () => {
     if (!provider) return;
     const key = keyDraft.trim();
-    const url = urlDraft?.trim();
-    if (!key && url === undefined) return setKeyMsg({ text: `Paste your ${provider.label} API key.`, error: true });
+    if (!key) return setKeyMsg({ text: `Paste your ${provider.label} API key.`, error: true });
     setSaving(true);
-    setKeyMsg({ text: key ? `Checking with ${provider.label}…` : 'Saving…' });
+    setKeyMsg({ text: `Checking with ${provider.label}…` });
     try {
-      const s = await saveKey(provider.id, key || null, url);
+      const s = await saveKey(provider.id, key);
       setStatus(s);
-      setUrlDraft(null);
-      setKeyMsg({ text: key ? `Saved on this computer (${s.stored_in ?? 'the server'}).` : 'Saved.' });
+      setKeyMsg({ text: `Saved on this computer (${s.stored_in ?? 'the server'}).` });
     } catch (e) {
       setKeyMsg({ text: `Not saved: ${(e as Error).message}`, error: true });
     } finally {
@@ -329,13 +325,6 @@ export default function AssistantTab() {
                 <datalist id="ai-models">{provider.models.map(m => <option key={m} value={m} />)}</datalist>
               </label>
             )}
-            {provider?.local && (
-              <label className="ai-field">
-                <span className="minmax-label">Base URL</span>
-                <input aria-label="Base URL" className="sidebar-input ai-text" value={urlDraft ?? provider.base_url}
-                  disabled={!status.page_keys} onChange={e => setUrlDraft(e.target.value)} />
-              </label>
-            )}
             {provider && provider.auth === 'api_key' && status.page_keys && (
               keyed ? (
                 <div className="ai-saved">
@@ -351,9 +340,9 @@ export default function AssistantTab() {
                 </label>
               )
             )}
-            {provider && status.page_keys && (!keyed || urlDraft !== null) && (provider.auth === 'api_key' || provider.local) && (
-              <button type="button" className="hist-btn" disabled={saving || (!keyDraft.trim() && urlDraft === null)} onClick={save}>
-                {provider.auth === 'api_key' && keyDraft.trim() ? 'Check and save' : 'Save'}
+            {provider && status.page_keys && !keyed && provider.auth === 'api_key' && (
+              <button type="button" className="hist-btn" disabled={saving || !keyDraft.trim()} onClick={save}>
+                Check and save
               </button>
             )}
             {keyMsg && <div className={`row-label ai-small${keyMsg.error ? ' ai-error' : ''}`} role={keyMsg.error ? 'alert' : 'status'}>{keyMsg.text}</div>}
