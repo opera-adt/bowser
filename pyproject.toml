@@ -20,6 +20,7 @@ dependencies = [
   "tqdm",
   "opera-utils[all]",
   "rioxarray",
+  "shapely",  # polygon statistics (src/bowser/polygon.py)
   "matplotlib",
   "pydantic-settings",
   "rich",

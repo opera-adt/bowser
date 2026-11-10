@@ -31,7 +31,7 @@ class PolygonRequest(BaseModel):
     geometry: dict[str, Any]
     support: Literal["common", "per_date"] = "common"
     percentiles: list[float] = Field(
-        default_factory=lambda: [10, 90], min_length=1, max_length=20
+        default_factory=lambda: [10.0, 90.0], min_length=1, max_length=20
     )
 
     @field_validator("percentiles")
