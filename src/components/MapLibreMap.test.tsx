@@ -121,7 +121,7 @@ beforeEach(() => {
     secondaryBasemap: null, basemapSwapped: false, basemapOpacity: 1, secondaryBasemapOpacity: 0.5,
     timeSeriesPoints: [], selectedPointId: null, refMarkerVisible: true, annotationMode: false, annotations: [], overlays: [], bufferEnabled: false, bufferRadius: 0,
     pointPickingEnabled: true, showChart: false, pixelInspectEnabled: false, splitScreen: false,
-    splitDataset: null, splitPosition: 0.5, splitTimeIndex: 0, refBufferEnabled: false, refBufferRadius: 0,
+    splitDataset: null, splitPosition: 0.5, splitTimeIndex: 0, refBufferEnabled: false, refBufferRadius: 0, refCandidates: [],
     viewBounds: null, viewBoundsApplySeq: 0, showColorbar: false, showLosIndicator: false, graticuleMode: 'off',
   });
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
@@ -252,6 +252,29 @@ describe('MapLibreMap', () => {
       { type: 'SET_REF_MARKER_POSITION', payload: [33.955, -117.675] },
       { type: 'SET_REF_VALUES', payload: { dataset: 'displacement', values: [0, 0.001] } },
     ]);
+  });
+
+  it('reference candidates: numbered markers; clicking one sets the reference and its buffer', async () => {
+    const cand = (rank: number) => ({
+      rank, lon: -117.67 + rank * 0.001, lat: 33.958, radius_m: 100, temporal_coherence_median: 0.9,
+      phase_similarity_median: 0.8, viable_fraction: 1, displacement_scatter_m: 0.002, velocity: 0, score: 0.5,
+      reason: `reason ${rank}`,
+    });
+    mockState.refCandidates = [cand(1), cand(2)];
+    await mount();
+    const markers = FakeMarker.all.filter(m => !m.removed && m.opts.element.querySelector('.ref-cand-marker'));
+    expect(markers.map(m => m.opts.element.textContent)).toEqual(['1', '2']);
+    expect(markers.map(m => m.lngLat)).toEqual([[-117.669, 33.958], [-117.668, 33.958]]);
+    expect(markers[0].opts.element.querySelector('.recommended')).not.toBeNull();
+    expect(markers[0].opts.element.title).toContain('Recommended reference');
+    await act(async () => { markers[1].opts.element.dispatchEvent(new MouseEvent('click')); await vi.advanceTimersByTimeAsync(10); });
+    expect(dispatch.mock.calls.map(c => c[0]).slice(0, 3)).toEqual([
+      { type: 'SET_REF_MARKER_POSITION', payload: [33.958, -117.668] },
+      { type: 'SET_REF_BUFFER_ENABLED', payload: true },
+      { type: 'SET_REF_BUFFER_RADIUS', payload: 100 },
+    ]);
+    const buffer = vi.mocked(fetch).mock.calls.find(c => String(c[0]).startsWith('/buffer_timeseries'));
+    expect(JSON.parse(String((buffer![1] as RequestInit).body)).buffer_m).toBe(100);
   });
 
   it('shows the shared toolbars with the not-yet-ported tools disabled', async () => {

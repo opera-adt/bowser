@@ -77,6 +77,7 @@ const initialState: AppState = {
   refMarkerVisible: true,
   refBufferEnabled: false,
   refBufferRadius: 500,
+  refCandidates: [],
   showRefChart: false,
   markerSize: 4,
   dateRangeStart: null,
@@ -386,6 +387,10 @@ function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppSt
       return { ...state, refBufferEnabled: !state.refBufferEnabled };
     case 'SET_REF_BUFFER_RADIUS':
       return { ...state, refBufferRadius: action.payload };
+    case 'SET_REF_BUFFER_ENABLED':
+      return { ...state, refBufferEnabled: action.payload };
+    case 'SET_REF_CANDIDATES':
+      return { ...state, refCandidates: action.payload };
     case 'TOGGLE_REF_CHART':
       return { ...state, showRefChart: !state.showRefChart };
     case 'SET_MARKER_SIZE':

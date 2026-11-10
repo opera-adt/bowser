@@ -6,6 +6,7 @@ import ColorScalePicker, { type RangeStats } from './ColorScalePicker';
 import LayerInfo from './LayerInfo';
 import TimeStepper from './TimeStepper';
 import RefDatePicker from './RefDatePicker';
+import ReferenceCandidates from './ReferenceCandidates';
 import { displayUnit } from '../../utils/units';
 import { readLayerInfoShown, saveLayerInfoShown } from '../../utils/layerInfoPref';
 import { baseColormap } from '../../utils/colormaps';
@@ -468,6 +469,7 @@ export default function MainTab() {
               onChange={e => dispatch({ type: 'SET_REF_BUFFER_RADIUS', payload: parseInt(e.target.value) })} />
           </div>
         )}
+        <ReferenceCandidates />
       </div>
 
       {/* ── MASKING (collapsible) ── */}
