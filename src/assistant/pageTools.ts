@@ -14,6 +14,8 @@ import { fetchHistogram, presetRange, RANGE_PRESETS, type RangePreset } from '..
 import { defaultMasks } from '../utils/defaultMasks';
 import type { AppAction, AppState, Overlay } from '../types';
 import { listCommands, runCommand, type CommandEnv } from './commands';
+import { runChartTool } from './chartTools';
+import { CHART_TOOL_NAMES } from './chartView';
 
 export interface PageContext {
   /** The latest rendered state (the loop runs across renders). */
@@ -45,6 +47,7 @@ export const PAGE_TOOL_NAMES = new Set([
   'get_masks', 'set_masks', 'clear_masks', 'set_recommended_mask',
   'get_display', 'set_colormap', 'set_color_range', 'set_opacity',
   'list_commands', 'run_command',
+  ...CHART_TOOL_NAMES,
 ]);
 
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -568,6 +571,7 @@ export async function runPageTool(name: string, input: Record<string, unknown>, 
       return runCommand(commandEnv(ctx), String(input.id ?? ''), args);
     }
     default:
+      if (CHART_TOOL_NAMES.has(name)) return runChartTool(name, input, ctx);
       throw new Error(`No page tool ${name}.`);
   }
 }

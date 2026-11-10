@@ -220,5 +220,9 @@ it('every page tool the server defines has an implementation here', () => {
     'get_reference', 'set_reference_point', 'reset_reference', 'set_reference_date', 'switch_layer', 'open_chart', 'get_masks',
     'set_masks', 'clear_masks', 'set_recommended_mask', 'get_display', 'set_colormap', 'set_color_range', 'set_opacity',
     'list_commands', 'run_command', 'add_overlay'];
-  expect([...PAGE_TOOL_NAMES].sort()).toEqual(server.sort());
+  // src/bowser/chart_tools.py CHART_COMMANDS (src/assistant/chartTools.ts).
+  const chart = ['get_chart_data', 'get_fit_results', 'set_fit', 'add_step', 'remove_step', 'set_residuals', 'list_points',
+    'rename_point', 'remove_point', 'set_point_style', 'list_areas', 'rename_area', 'set_area_style', 'set_area_band',
+    'set_chart_layers', 'set_layer_display', 'set_date_range', 'export_chart', 'check_series'];
+  expect([...PAGE_TOOL_NAMES].sort()).toEqual([...server, ...chart].sort());
 });

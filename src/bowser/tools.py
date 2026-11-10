@@ -27,6 +27,8 @@ from urllib.parse import urlencode
 import httpx
 from pydantic import BaseModel, Field, create_model
 
+from .chart_tools import CHART_COMMANDS, CHART_INSTRUCTIONS, register_chart_tools
+
 DEFAULT_URL = "http://127.0.0.1:8000"
 
 #: Lengths stored in metres are reported in millimetres, rates in mm/yr.
@@ -1958,6 +1960,9 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
         """
         return await on_page("run_command", id=id, args=args)
 
+    # --- tools: the page's time-series chart (bowser.chart_tools) ---------------------
+    register_chart_tools(page_tool, on_page)
+
     return specs
 
 
@@ -2026,6 +2031,9 @@ PAGE_COMMANDS = frozenset(
         "run_command",
     }
 )
+PAGE_COMMANDS |= CHART_COMMANDS
+
+INSTRUCTIONS += "\n" + CHART_INSTRUCTIONS
 
 
 def _describe(fn) -> str:
