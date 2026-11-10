@@ -26,10 +26,12 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 import numpy as np
 from fastapi import Body, FastAPI, HTTPException, Query, Request, Response
+from fastapi import Path as PathParam
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import FileResponse, JSONResponse, RedirectResponse
 from starlette.staticfiles import StaticFiles
 
+from .. import api_models as api
 from ..catalog import CatalogEntry, load_catalog, save_catalog
 from ..config import settings
 from ..utils import calculate_trend
@@ -62,6 +64,7 @@ _handler.setFormatter(
 logger.addHandler(_handler)
 
 app = FastAPI(title="Bowser (lite)", openapi_url="/api", docs_url="/api.html")
+app.openapi_tags = api.API_TAGS
 if settings.BOWSER_HTPASSWD_FILE:
     app.add_middleware(BasicAuthMiddleware, htpasswd_file=settings.BOWSER_HTPASSWD_FILE)
 
@@ -150,22 +153,34 @@ def resolve(dataset: str | None = None) -> Cube:
 # --- metadata -----------------------------------------------------------------------
 
 
-@app.get("/datasets")
-def datasets(dataset: str | None = Query(None)):
+@app.get(
+    "/datasets",
+    responses={200: {"model": api.DatasetsInfo}},
+    **api.route_doc("GET /datasets"),
+)
+def datasets(dataset: str | None = Query(None, **api.PARAMS["dataset"])):
     """Return the UI's description of every variable of the chosen cube."""
     return meta.dataset_info(
         resolve(dataset), settings.BOWSER_USE_SPATIAL_REFERENCE_DISP
     )
 
 
-@app.get("/mode")
+@app.get(
+    "/mode", responses={200: {"model": api.ModeInfo}}, **api.route_doc("GET /mode")
+)
 def get_mode():
     """Lite serves GeoZarr (MD) cubes only."""
     return {"mode": "md"}
 
 
-@app.get("/config")
-def get_config(request: Request, dataset: str | None = Query(None)):
+@app.get(
+    "/config",
+    responses={200: {"model": api.ConfigInfo}},
+    **api.route_doc("GET /config"),
+)
+def get_config(
+    request: Request, dataset: str | None = Query(None, **api.PARAMS["dataset"])
+):
     """Page title, logo flag, and what this server can do.
 
     The title is the catalog entry's name, from ``?dataset=`` or the Referer.
@@ -186,7 +201,11 @@ def get_config(request: Request, dataset: str | None = Query(None)):
     }
 
 
-@app.get("/catalog")
+@app.get(
+    "/catalog",
+    responses={200: {"model": api.CatalogInfo}},
+    **api.route_doc("GET /catalog"),
+)
 def get_catalog():
     """Catalog entries and whether opening is allowed.
 
@@ -211,8 +230,12 @@ def _opened_id(name: str, uri: str) -> str:
     return f"{slug}-{hashlib.sha1(uri.encode()).hexdigest()[:8]}"
 
 
-@app.post("/catalog/scan")
-def scan_folder(body: dict = Body(...)):
+@app.post(
+    "/catalog/scan",
+    responses={200: {"model": api.ScanResult}},
+    **api.route_doc("POST /catalog/scan"),
+)
+def scan_folder(body: dict = Body(..., examples=[{"dir": "/data/cubes"}])):
     """GeoZarr cubes under a folder (only with ``BOWSER_ALLOW_OPEN``)."""
     from ..scan import find_cubes  # noqa: PLC0415
 
@@ -230,8 +253,14 @@ def scan_folder(body: dict = Body(...)):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.post("/catalog/open")
-def open_dataset(body: dict = Body(...)):
+@app.post(
+    "/catalog/open",
+    responses={200: {"model": api.OpenedDataset}},
+    **api.route_doc("POST /catalog/open"),
+)
+def open_dataset(
+    body: dict = Body(..., examples=[{"uri": "/data/cubes/site_asc.zarr"}]),
+):
     """Open a GeoZarr store by path or URL and add it to the catalog.
 
     Returns ``{id, name}``.
@@ -284,8 +313,12 @@ def open_dataset(body: dict = Body(...)):
     return {"id": entry.id, "name": entry.name}
 
 
-@app.get("/variables")
-def get_variables(dataset: str | None = Query(None)):
+@app.get(
+    "/variables",
+    responses={200: {"model": api.VariablesInfo}},
+    **api.route_doc("GET /variables"),
+)
+def get_variables(dataset: str | None = Query(None, **api.PARAMS["dataset"])):
     """Dimensions, shape, dtype and attrs of every variable with x and y dims."""
     ds = resolve(dataset).dataset
     return {
@@ -302,8 +335,15 @@ def get_variables(dataset: str | None = Query(None)):
     }
 
 
-@app.get("/datasets/{dataset_name}/time_bounds")
-def get_time_bounds(dataset_name: str, dataset: str | None = Query(None)):
+@app.get(
+    "/datasets/{dataset_name}/time_bounds",
+    response_model=api.TimeBounds,
+    **api.route_doc("GET /datasets/{dataset_name}/time_bounds"),
+)
+def get_time_bounds(
+    dataset_name: Annotated[str, PathParam(**api.PARAMS["dataset_name"])],
+    dataset: str | None = Query(None, **api.PARAMS["dataset"]),
+):
     """First and last label and the number of time steps."""
     labels = meta.labels_for(
         sampling.require_var(resolve(dataset).dataset, dataset_name)
@@ -317,10 +357,20 @@ def get_time_bounds(dataset_name: str, dataset: str | None = Query(None)):
 
 # --- values -------------------------------------------------------------------------
 
-Lon = Annotated[float, Query(..., title="Longitude", ge=-180, le=180)]
-Lat = Annotated[float, Query(..., title="Latitude", ge=-90, le=90)]
-OptLon = Annotated[float | None, Query(title="Reference longitude", ge=-180, le=180)]
-OptLat = Annotated[float | None, Query(title="Reference latitude", ge=-90, le=90)]
+Lon = Annotated[
+    float, Query(..., title="Longitude", ge=-180, le=180, **api.PARAMS["lon"])
+]
+Lat = Annotated[float, Query(..., title="Latitude", ge=-90, le=90, **api.PARAMS["lat"])]
+OptLon = Annotated[
+    float | None,
+    Query(title="Reference longitude", ge=-180, le=180, **api.PARAMS["ref_lon"]),
+]
+OptLat = Annotated[
+    float | None,
+    Query(title="Reference latitude", ge=-90, le=90, **api.PARAMS["ref_lat"]),
+]
+DatasetName = Annotated[str, Query(**api.PARAMS["dataset_name"])]
+DatasetNamePath = Annotated[str, PathParam(**api.PARAMS["dataset_name"])]
 
 
 def _chart_data(x_values: list, values: np.ndarray) -> list[dict]:
@@ -331,13 +381,18 @@ def _chart_data(x_values: list, values: np.ndarray) -> list[dict]:
     ]
 
 
-@app.get("/point", response_class=NanJSONResponse)
+@app.get(
+    "/point",
+    response_class=NanJSONResponse,
+    response_model=api.PointValues,
+    **api.route_doc("GET /point"),
+)
 def point(
-    dataset_name: str,
+    dataset_name: DatasetName,
     lon: Lon,
     lat: Lat,
     time_idx: Annotated[
-        int | None, Query(title="Time index — read only this step")
+        int | None, Query(title="Time index", **api.PARAMS["time_idx"])
     ] = None,
 ):
     """Values at a point: the full series, or one value with ``time_idx``."""
@@ -348,9 +403,14 @@ def point(
     )
 
 
-@app.get("/chart_point", response_class=NanJSONResponse)
+@app.get(
+    "/chart_point",
+    response_class=NanJSONResponse,
+    response_model=api.ChartPoint,
+    **api.route_doc("GET /chart_point"),
+)
 def chart_point(
-    dataset_name: str,
+    dataset_name: DatasetName,
     lon: Lon,
     lat: Lat,
     ref_lon: OptLon = None,
@@ -378,17 +438,20 @@ def _trend(values: np.ndarray, x_values: list) -> dict:
     }
 
 
-@app.post("/multi_point", response_class=NanJSONResponse)
+@app.post(
+    "/multi_point",
+    response_class=NanJSONResponse,
+    response_model=api.MultiPointSeries,
+    **api.route_doc("POST /multi_point"),
+)
 def multi_point(
-    points: list[dict[str, Any]] = Body(
-        ..., description="List of points with id, lat, lon"
-    ),
-    dataset_name: str = Body(..., description="Dataset name"),
-    ref_lon: Optional[float] = Body(None),
-    ref_lat: Optional[float] = Body(None),
-    calculate_trends: bool = Body(False),
-    layer_masks: list[dict] = Body([]),
-    ref_buffer_m: float = Body(0.0),
+    points: list[dict[str, Any]] = Body(..., **api.PARAMS["points"]),
+    dataset_name: str = Body(..., **api.PARAMS["dataset_name"]),
+    ref_lon: Optional[float] = Body(None, **api.PARAMS["ref_lon"]),
+    ref_lat: Optional[float] = Body(None, **api.PARAMS["ref_lat"]),
+    calculate_trends: bool = Body(False, **api.PARAMS["calculate_trends"]),
+    layer_masks: list[dict] = Body([], **api.PARAMS["layer_masks"]),
+    ref_buffer_m: float = Body(0.0, **api.PARAMS["ref_buffer_m"]),
 ):
     """Series (and optional trends) for several points, re-referenced and masked."""
     cube = resolve()
@@ -431,9 +494,14 @@ def multi_point(
     return NanJSONResponse({"labels": x_values, "datasets": results})
 
 
-@app.get("/trend_analysis/{dataset_name}", response_class=NanJSONResponse)
+@app.get(
+    "/trend_analysis/{dataset_name}",
+    response_class=NanJSONResponse,
+    response_model=api.Trend,
+    **api.route_doc("GET /trend_analysis/{dataset_name}"),
+)
 def trend_analysis(
-    dataset_name: str,
+    dataset_name: DatasetNamePath,
     lon: Lon,
     lat: Lat,
     ref_lon: OptLon = None,
@@ -458,8 +526,16 @@ def _first_step(cube: Cube, name: str, time_index: int = 0) -> np.ndarray:
     )
 
 
-@app.get("/dataset_range/{dataset_name}", response_class=NanJSONResponse)
-def get_dataset_range(dataset_name: str, dataset: str | None = Query(None)):
+@app.get(
+    "/dataset_range/{dataset_name}",
+    response_class=NanJSONResponse,
+    response_model=api.ValueRange,
+    **api.route_doc("GET /dataset_range/{dataset_name}"),
+)
+def get_dataset_range(
+    dataset_name: DatasetNamePath,
+    dataset: str | None = Query(None, **api.PARAMS["dataset"]),
+):
     """min/max and 2/98, 5/95 percentiles of the first time step."""
     arr = _first_step(resolve(dataset), dataset_name)
     valid = arr[np.isfinite(arr)]
@@ -478,12 +554,17 @@ def get_dataset_range(dataset_name: str, dataset: str | None = Query(None)):
     )
 
 
-@app.get("/histogram/{dataset_name}", response_class=NanJSONResponse)
+@app.get(
+    "/histogram/{dataset_name}",
+    response_class=NanJSONResponse,
+    response_model=api.Histogram,
+    **api.route_doc("GET /histogram/{dataset_name}"),
+)
 def get_histogram(
-    dataset_name: str,
-    time_index: Annotated[int, Query(ge=0)] = 0,
-    nbins: Annotated[int, Query(ge=4, le=256)] = 100,
-    dataset: str | None = Query(None),
+    dataset_name: DatasetNamePath,
+    time_index: Annotated[int, Query(ge=0, **api.PARAMS["time_index"])] = 0,
+    nbins: Annotated[int, Query(ge=4, le=256, **api.PARAMS["nbins"])] = 100,
+    dataset: str | None = Query(None, **api.PARAMS["dataset"]),
 ):
     """Histogram and percentiles of one time step.
 
@@ -522,17 +603,22 @@ def get_histogram(
     )
 
 
-@app.post("/buffer_timeseries", response_class=NanJSONResponse)
+@app.post(
+    "/buffer_timeseries",
+    response_class=NanJSONResponse,
+    response_model=api.BufferSeries,
+    **api.route_doc("POST /buffer_timeseries"),
+)
 def buffer_timeseries(
-    lon: float = Body(...),
-    lat: float = Body(...),
-    dataset_name: str = Body(...),
-    buffer_m: float = Body(500.0),
-    n_samples: int = Body(10),
-    ref_lon: Optional[float] = Body(None),
-    ref_lat: Optional[float] = Body(None),
-    layer_masks: list[dict] = Body([]),
-    ref_buffer_m: float = Body(0.0),
+    lon: float = Body(..., **api.PARAMS["lon"]),
+    lat: float = Body(..., **api.PARAMS["lat"]),
+    dataset_name: str = Body(..., **api.PARAMS["dataset_name"]),
+    buffer_m: float = Body(500.0, **api.PARAMS["buffer_m"]),
+    n_samples: int = Body(10, **api.PARAMS["n_samples_buffer"]),
+    ref_lon: Optional[float] = Body(None, **api.PARAMS["ref_lon"]),
+    ref_lat: Optional[float] = Body(None, **api.PARAMS["ref_lat"]),
+    layer_masks: list[dict] = Body([], **api.PARAMS["layer_masks"]),
+    ref_buffer_m: float = Body(0.0, **api.PARAMS["ref_buffer_m"]),
 ):
     """Median and a few random pixel series within a circle around a point."""
     cube = resolve()
@@ -577,15 +663,20 @@ def buffer_timeseries(
     )
 
 
-@app.post("/profile", response_class=NanJSONResponse)
+@app.post(
+    "/profile",
+    response_class=NanJSONResponse,
+    response_model=api.Profile,
+    **api.route_doc("POST /profile"),
+)
 def extract_profile(
-    coords: list[list[float]] = Body(..., description="List of [lon, lat] pairs"),
-    dataset_name: str = Body(...),
-    time_index: int = Body(0),
-    n_samples: int = Body(200),
-    radius: float = Body(0.0),
-    n_random: int = Body(5),
-    sampling_interval: float = Body(0.0),
+    coords: list[list[float]] = Body(..., **api.PARAMS["coords"]),
+    dataset_name: str = Body(..., **api.PARAMS["dataset_name"]),
+    time_index: int = Body(0, **api.PARAMS["time_index"]),
+    n_samples: int = Body(200, **api.PARAMS["n_samples_profile"]),
+    radius: float = Body(0.0, **api.PARAMS["radius"]),
+    n_random: int = Body(5, **api.PARAMS["n_random"]),
+    sampling_interval: float = Body(0.0, **api.PARAMS["sampling_interval"]),
 ):
     """Values along a polyline.
 
@@ -624,8 +715,13 @@ def _colorbar_png(name: str) -> bytes:
     return encode_rgba(colormaps.colorbar_rgba(name))
 
 
-@app.get("/colorbar/{cmap_name}")
-def get_colorbar(cmap_name: str):
+@app.get(
+    "/colorbar/{cmap_name}",
+    response_class=Response,
+    responses=api.image_response("image/png", "The colorbar as PNG"),
+    **api.route_doc("GET /colorbar/{cmap_name}"),
+)
+def get_colorbar(cmap_name: Annotated[str, PathParam(**api.PARAMS["cmap_name"])]):
     """Return a PNG gradient of a colormap (the full server sends a matplotlib WEBP)."""
     try:
         return Response(
@@ -701,26 +797,31 @@ _TILEJSON_DROP = {
 }
 
 
-@app.get("/md/{tileMatrixSetId}/tilejson.json", response_class=NanJSONResponse)
+@app.get(
+    "/md/{tileMatrixSetId}/tilejson.json",
+    response_class=NanJSONResponse,
+    response_model=api.TileJSON,
+    **api.route_doc("GET /md/{tileMatrixSetId}/tilejson.json"),
+)
 def tilejson(
     request: Request,
     tileMatrixSetId: str,
-    variable: str = Query(...),
-    dataset: str | None = Query(None),
-    time_idx: int | None = Query(None),
-    mask_variable: str | None = Query(None),
-    mask_min_value: float = Query(0.1),
-    layer_masks: str | None = Query(None),
-    custom_mask_path: str | None = Query(None),  # noqa: ARG001 — accepted, ignored (GeoTIFF)
-    rescale: list[str] | None = Query(None),
-    colormap_name: str | None = Query(None),
-    algorithm: str | None = Query(None),
-    algorithm_params: str | None = Query(None),
+    variable: str = Query(..., **api.PARAMS["variable"]),
+    dataset: str | None = Query(None, **api.PARAMS["dataset"]),
+    time_idx: int | None = Query(None, **api.PARAMS["time_idx"]),
+    mask_variable: str | None = Query(None, **api.PARAMS["mask_variable"]),
+    mask_min_value: float = Query(0.1, **api.PARAMS["mask_min_value"]),
+    layer_masks: str | None = Query(None, **api.PARAMS["layer_masks_json"]),
+    custom_mask_path: str | None = Query(None, **api.PARAMS["custom_mask_path"]),  # noqa: ARG001 — accepted, ignored (GeoTIFF)
+    rescale: list[str] | None = Query(None, **api.PARAMS["rescale"]),
+    colormap_name: str | None = Query(None, **api.PARAMS["colormap_name"]),
+    algorithm: str | None = Query(None, **api.PARAMS["algorithm"]),
+    algorithm_params: str | None = Query(None, **api.PARAMS["algorithm_params"]),
     tile_format: str | None = Query(None),
-    tilesize: Annotated[int | None, Query(gt=0)] = None,
+    tilesize: Annotated[int | None, Query(gt=0, **api.PARAMS["tilesize"])] = None,
     minzoom: int | None = Query(None),
     maxzoom: int | None = Query(None),
-    ref_time_idx: int | None = Query(None),
+    ref_time_idx: int | None = Query(None, **api.PARAMS["ref_time_idx"]),
 ):
     """TileJSON for the MD tiler: tile URL template, lon/lat bounds and zoom range."""
     _check_tms(tileMatrixSetId)
@@ -829,22 +930,18 @@ def _tile(
 
 
 _TILE_QUERY = {
-    "variable": Query(..., description="Variable name"),
-    "dataset": Query(None, description="Catalog dataset id"),
-    "time_idx": Query(None, description="Time index"),
-    "mask_variable": Query(None, description="Mask variable"),
-    "mask_min_value": Query(0.1, description="Mask minimum value"),
-    "layer_masks": Query(
-        None, description="JSON list of {dataset,threshold,mode} mask dicts"
-    ),
-    "custom_mask_path": Query(None, description="Ignored by lite (GeoTIFF)"),
-    "rescale": Query(None, description="min,max"),
-    "colormap_name": Query(None, description="Colormap name"),
-    "algorithm": Query(None, description="shift, rewrap, phase or amplitude"),
-    "algorithm_params": Query(None, description="JSON algorithm parameters"),
-    "ref_time_idx": Query(
-        None, description="Time index to show the step relative to (value minus it)"
-    ),
+    "variable": Query(..., **api.PARAMS["variable"]),
+    "dataset": Query(None, **api.PARAMS["dataset"]),
+    "time_idx": Query(None, **api.PARAMS["time_idx"]),
+    "mask_variable": Query(None, **api.PARAMS["mask_variable"]),
+    "mask_min_value": Query(0.1, **api.PARAMS["mask_min_value"]),
+    "layer_masks": Query(None, **api.PARAMS["layer_masks_json"]),
+    "custom_mask_path": Query(None, **api.PARAMS["custom_mask_path"]),
+    "rescale": Query(None, **api.PARAMS["rescale"]),
+    "colormap_name": Query(None, **api.PARAMS["colormap_name"]),
+    "algorithm": Query(None, **api.PARAMS["algorithm"]),
+    "algorithm_params": Query(None, **api.PARAMS["algorithm_params"]),
+    "ref_time_idx": Query(None, **api.PARAMS["ref_time_idx"]),
 }
 
 
@@ -873,7 +970,7 @@ def _make_tile_route(path: str) -> None:
         ref_time_idx: Optional[int] = _TILE_QUERY["ref_time_idx"],
         scale: int = 1,
         format: Optional[str] = None,  # noqa: A002 — titiler's parameter name
-        tilesize: Optional[int] = Query(None, gt=0),
+        tilesize: Optional[int] = Query(None, gt=0, **api.PARAMS["tilesize"]),
     ) -> Response:
         return _tile(
             tileMatrixSetId, z, x, y, scale, format, variable, dataset, time_idx,
@@ -881,7 +978,15 @@ def _make_tile_route(path: str) -> None:
             colormap_name, algorithm, algorithm_params, tilesize, ref_time_idx,
         )  # fmt: skip
 
-    app.add_api_route(path, tile, methods=["GET"], response_class=Response, name="tile")
+    app.add_api_route(
+        path,
+        tile,
+        methods=["GET"],
+        response_class=Response,
+        name="tile",
+        responses=api.image_response("image/png", "A PNG map tile"),
+        **api.route_doc("GET /md/tiles/{tileMatrixSetId}/{z}/{x}/{y}"),
+    )
 
 
 for _path in (
@@ -900,25 +1005,41 @@ def _not_in_lite(what: str) -> JSONResponse:
     return JSONResponse({"detail": NOT_IN_LITE.format(what=what)}, status_code=501)
 
 
-@app.post("/upload_mask")
+@app.post(
+    "/upload_mask",
+    responses=api.NOT_IN_LITE,
+    **api.route_doc("POST /upload_mask", lite_stub=True),
+)
 def upload_mask():
     """501: GeoTIFF masks need GDAL."""
     return _not_in_lite("Uploading a GeoTIFF mask")
 
 
-@app.post("/upload_raster")
+@app.post(
+    "/upload_raster",
+    responses=api.NOT_IN_LITE,
+    **api.route_doc("POST /upload_raster", lite_stub=True),
+)
 def upload_raster():
     """501: GeoTIFF overlays need GDAL."""
     return _not_in_lite("Adding a GeoTIFF overlay")
 
 
-@app.get("/export/geotiff")
+@app.get(
+    "/export/geotiff",
+    responses=api.NOT_IN_LITE,
+    **api.route_doc("GET /export/geotiff", lite_stub=True),
+)
 def export_geotiff():
     """501: writing GeoTIFFs needs GDAL."""
     return _not_in_lite("Exporting a GeoTIFF")
 
 
-@app.post("/polygon_timeseries")
+@app.post(
+    "/polygon_timeseries",
+    responses=api.NOT_IN_LITE,
+    **api.route_doc("POST /polygon_timeseries", lite_stub=True),
+)
 def polygon_timeseries():
     """501: native polygon statistics currently require the full server."""
     return _not_in_lite("Native polygon statistics")
@@ -939,12 +1060,16 @@ def overlay_tiler(path: str):  # noqa: ARG001
 # --- proxies (no CORS on the remote side) ---------------------------------------------
 
 
-@app.get("/gnss/stations")
+@app.get(
+    "/gnss/stations",
+    responses={200: {"model": api.GnssStations}},
+    **api.route_doc("GET /gnss/stations"),
+)
 def gnss_stations(
-    west: float = Query(...),
-    south: float = Query(...),
-    east: float = Query(...),
-    north: float = Query(...),
+    west: float = Query(..., **api.PARAMS["west"]),
+    south: float = Query(..., **api.PARAMS["south"]),
+    east: float = Query(..., **api.PARAMS["east"]),
+    north: float = Query(..., **api.PARAMS["north"]),
 ):
     """UNR GNSS stations in a lon/lat box, nearest the centre first.
 
@@ -964,8 +1089,12 @@ def gnss_stations(
     }
 
 
-@app.get("/gnss/series/{station}")
-def gnss_series(station: str):
+@app.get(
+    "/gnss/series/{station}",
+    responses={200: {"model": api.GnssSeries}},
+    **api.route_doc("GET /gnss/series/{station}"),
+)
+def gnss_series(station: Annotated[str, PathParam(**api.PARAMS["station"])]):
     """Return a UNR station's daily east, north, up (mm since day one), NA fixed."""
     import urllib.error  # noqa: PLC0415
 
@@ -987,8 +1116,13 @@ def gnss_series(station: str):
         ) from exc
 
 
-@app.get("/wms_capabilities", response_class=NanJSONResponse)
-def wms_capabilities(url: str = Query(..., description="WMS base URL")):
+@app.get(
+    "/wms_capabilities",
+    response_class=NanJSONResponse,
+    response_model=api.WmsLayers,
+    **api.route_doc("GET /wms_capabilities"),
+)
+def wms_capabilities(url: str = Query(..., **api.PARAMS["wms_url"])):
     """Return the named layers (``[{name, title}]``) in a WMS's GetCapabilities."""
     from .wms import named_layers  # noqa: PLC0415
 
