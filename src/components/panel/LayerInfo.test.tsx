@@ -19,7 +19,7 @@ describe('LayerInfo', () => {
 
   it('keeps producer text and category values separate, including zero', () => {
     render(<LayerInfo info={info({ source_description: 'Producer-selected pixels.', source_flags: [{ value: '0', label: 'retain' }, { value: '1', label: 'exclude' }] })} />);
-    expect(screen.getByText('Source information').closest('details')?.open).toBe(false);
+    expect(screen.getByText('More about this layer').closest('details')?.open).toBe(false);
     expect(screen.getByText('Producer-selected pixels.')).toBeTruthy();
     expect(screen.getByText('Value meanings: 0: retain; 1: exclude')).toBeTruthy();
   });
@@ -40,6 +40,23 @@ describe('LayerInfo', () => {
     render(<LayerInfo info={info({ description: 'Temperature anomaly.', description_source: 'source', source_description: 'Temperature anomaly.', unit: 'K' })} />);
     expect(screen.getAllByText('Temperature anomaly.')).toHaveLength(1);
     expect(screen.getByText('Description supplied by the producer')).toBeTruthy();
+  });
+
+  it('leads with the producer description and keeps Bowser guidance under More about this layer', () => {
+    const producer = 'Positive values indicate apparent motion towards the platform.';
+    render(<LayerInfo info={info({ description: producer, description_source: 'source', source_description: producer, guidance: 'Saved change relative to the source reference.' })} />);
+    const note = screen.getByRole('note', { name: 'Layer information' });
+    expect(note.querySelector('p')?.textContent).toBe(producer);
+    expect(screen.getAllByText(producer)).toHaveLength(1);
+    expect(screen.getByText('Description supplied by the producer')).toBeTruthy();
+    const guidance = screen.getByText('Saved change relative to the source reference.');
+    expect(guidance.closest('details')?.querySelector('summary')?.textContent).toBe('More about this layer');
+    expect(guidance.closest('details')?.open).toBe(false);
+  });
+
+  it('has no details section for a response without guidance or source extras', () => {
+    render(<LayerInfo info={info()} />);
+    expect(screen.queryByText('More about this layer')).toBeNull();
   });
 
   it('renders source markup as text, never executable HTML', () => {
