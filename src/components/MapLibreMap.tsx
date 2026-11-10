@@ -207,15 +207,15 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Fit to the data once it is known.
-  const fittedRef = useRef(false);
+  // Fit to the data once it is known. Terrain waits for this (see below).
+  const [fitted, setFitted] = useState(false);
   useEffect(() => {
     const map = mapRef.current;
     const b = datasetBounds(state);
-    if (!ready || !map || !b || fittedRef.current) return;
-    fittedRef.current = true;
+    if (!ready || !map || !b || fitted) return;
     map.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: 40, animate: false });
-  }, [ready, state.datasetInfo, state.currentDataset]);  // eslint-disable-line react-hooks/exhaustive-deps
+    setFitted(true);
+  }, [ready, fitted, state.datasetInfo, state.currentDataset]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── view sync: sidebar / "fit to dataset" requests, and report where we are ─
   useEffect(() => {
@@ -261,13 +261,15 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
   const terrainWasOn = useRef(false);
   useEffect(() => {
     const map = mapRef.current;
-    if (!ready || !map) return;
+    // Not before the fit: the map starts at 0,0 until /datasets answers, and terrain added
+    // there fetches DEM tiles of the Gulf of Guinea that the jump to the data then cancels.
+    if (!ready || !map || !fitted) return;
     applyTerrain(map, terrain.enabled, terrain.exaggeration);
     // Tilt in when terrain comes on (unless already tilted), back to flat when it goes off.
     if (terrain.enabled && !terrainWasOn.current && map.getPitch() < 10) map.easeTo({ pitch: TERRAIN_PITCH });
     if (!terrain.enabled && terrainWasOn.current) map.easeTo({ pitch: 0, bearing: 0 });
     terrainWasOn.current = terrain.enabled;
-  }, [ready, terrain]);
+  }, [ready, fitted, terrain]);
 
   // ── basemaps, data raster (double-buffered) ────────────────────────────────
   useBasemapLayers(mapRef.current, ready);
