@@ -20,8 +20,8 @@ import { saveFile } from '../utils/saveFile';
 import { activeRefTime, refDateLabel, refDateMarker, relativeChartData, relativeTo } from '../utils/refDate';
 import ChartAreaButton from './ChartAreaButton';
 import { AREA_BAND_LABELS, areaChartDatasets, areaStatsKey, type AreaBand } from '../utils/polygonSeries';
-import { fetchAreaStats } from '../utils/zonalStats';
 import { useAreaReference } from '../hooks/useAreaReference';
+import { useAreaStatsFetch } from '../hooks/useAreaStatsFetch';
 import { refIndexOf, toIsoDate } from '../utils/areaStats';
 
 // Chart.js plugin to wire legend-click visibility to all related datasets (raw, trend,
@@ -87,7 +87,7 @@ interface BufferResult {
 export default function TimeSeriesChart({ windowId }: { windowId: string }) {
   const { state, dispatch } = useAppContext();
   const window_ = state.chartWindows.find(w => w.id === windowId);
-  const { fetchMultiPointTimeSeries, fetchBufferTimeSeries, fetchPolygonTimeSeries } = useApi();
+  const { fetchMultiPointTimeSeries, fetchBufferTimeSeries } = useApi();
   const themeVersion = useThemeVersion();
   // chartData keyed by dataset name
   const [fetchedDataMap, setChartDataMap] = useState<{ [ds: string]: MultiPointTimeSeriesData }>({});
@@ -254,21 +254,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
   const visibleAreas = state.chartAreas.filter(a => a.visible);
   // Kept in AppState (the Stats tab lists them too); Zonal stats may have asked already.
   const areaResults = state.areaStats;
-  const areaRequested = useRef(new Set<string>());
-  useEffect(() => {
-    if (!state.showChart) return;
-    const byDs = new Map<string, typeof visibleAreas>();
-    for (const dsName of activeDatasetsForChart) {
-      for (const area of visibleAreas) {
-        const key = areaStatsKey(dsName, area.id);
-        if (areaRequested.current.has(key) || key in state.areaStats) continue;
-        areaRequested.current.add(key);
-        byDs.set(dsName, [...(byDs.get(dsName) ?? []), area]);
-      }
-    }
-    for (const [dsName, areas] of byDs) void fetchAreaStats(areas, [dsName], fetchPolygonTimeSeries, dispatch);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.showChart, JSON.stringify(activeDatasetsForChart), JSON.stringify(visibleAreas.map(a => a.id)), fetchPolygonTimeSeries]);
+  useAreaStatsFetch(activeDatasetsForChart, visibleAreas, state.showChart);
 
   // The viewer's reference taken off each area (useAreaReference).
   const areaReference = useAreaReference(activeDatasetsForChart, state.showChart && visibleAreas.length > 0);
@@ -727,7 +713,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
       return areaChartDatasets({
         result, name: multiDs ? `${area.name} [${dsName}]` : area.name, color: area.color,
         factor: shown.factor, unit: shown.label, yAxisID: `y${activeChartDs.indexOf(dsName)}`,
-        reference, toX: toIsoDate, inRange, band: state.areaBand,
+        reference, toX: toIsoDate, inRange, band: state.areaBand, style: area,
         refIndex: dsName in refX ? refIndexOf(result, refX[dsName]) : null,
       });
     });

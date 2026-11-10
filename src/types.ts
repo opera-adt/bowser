@@ -2,7 +2,7 @@ import type { FitSettings } from './map/fitSettings';
 import type { IdentifyResult } from './map/identify';
 import type { GnssStation } from './map/gnss';
 import type { UnitSystem } from './utils/units';
-import type { LineStyle, MarkerShape } from './map/seriesStyle';
+import type { AreaStyle, LineStyle, MarkerShape } from './map/seriesStyle';
 import type { PointMarker } from './map/markers';
 import type { AreaBand, PolygonTimeSeries } from './utils/polygonSeries';
 
@@ -61,8 +61,8 @@ export interface TimeSeriesPoint {
   trendData?: { [dataset: string]: { slope: number; intercept: number; rSquared: number; mmPerYear: number; stdMmPerYear?: number; rateUnit?: string } };
 }
 
-/** A polygon summarised in the chart (POST /polygon_timeseries): median, mean and p10–p90 band. */
-export interface ChartArea {
+/** A polygon summarised in the chart (POST /polygon_timeseries): median, mean and a band. */
+export interface ChartArea extends Partial<AreaStyle> {
   id: string;
   name: string;
   color: string;

@@ -10,6 +10,7 @@
 import type { ChartArea, Overlay } from '../types';
 
 import { AREA_PERCENTILES, areaRows, type AreaRow } from './areaStats';
+import { areaStyle, withOpacity, type AreaStyle } from '../map/seriesStyle';
 
 export { AREA_PERCENTILES };
 
@@ -169,6 +170,8 @@ export interface AreaSeriesOptions {
   refIndex?: number | null;
   /** The band: mean ± 1 std (default) or p10–p90. */
   band?: AreaBand;
+  /** Line width and style, mean and band on or off, band opacity (Style button); defaults otherwise. */
+  style?: Partial<AreaStyle>;
   /** A label → the chart's x value. */
   toX: (label: string) => string;
   /** Whether an x value is inside the chosen date range. */
@@ -200,31 +203,34 @@ export function areaChartDatasets(o: AreaSeriesOptions): Record<string, unknown>
     ? [{ label: '+1 std', pick: withStd(1) }, { label: '−1 std', pick: withStd(-1) }]
     : [{ label: `p${hi}`, pick: (r: AreaRow) => r.p90 }, { label: `p${lo}`, pick: (r: AreaRow) => r.p10 }];
   const bandName = `${o.name} ${AREA_BAND_LABELS[band]}`;
+  const look = areaStyle(o.style ?? {});
   const common = {
     _area: true, _unit: o.unit, _note: relative ? 'relative to the reference' : undefined,
     yAxisID: o.yAxisID, tension: 0, borderColor: o.color, pointHoverRadius: 0,
     order: 1,  // behind the points (Chart.js draws higher orders first)
   };
-  return [
+  const bandSets = [
     {
       ...common, label: `${o.name} ${edges[0].label}`, _baseLabel: bandName, _legend: bandName,
       data: series(edges[0].pick),
-      fill: '+1', backgroundColor: `${o.color}33`, borderWidth: 0, pointRadius: 0,
+      fill: '+1', backgroundColor: withOpacity(o.color, look.bandOpacity), borderWidth: 0, pointRadius: 0,
     },
     {
       ...common, label: `${o.name} ${edges[1].label}`, _baseLabel: bandName,
       data: series(edges[1].pick),
       fill: false, backgroundColor: 'transparent', borderWidth: 0, pointRadius: 0,
     },
-    {
-      ...common, label: `${o.name} median`, _baseLabel: `${o.name} median`, _legend: `${o.name} median`,
-      data: series(r => r.median),
-      fill: false, backgroundColor: o.color, borderWidth: 2, pointRadius: 0, pointHoverRadius: 3,
-    },
-    {
-      ...common, label: `${o.name} mean`, _baseLabel: `${o.name} mean`, _legend: `${o.name} mean`,
-      data: series(r => r.mean),
-      fill: false, backgroundColor: 'transparent', borderWidth: 2, borderDash: [6, 4], pointRadius: 0,
-    },
   ];
+  const median = {
+    ...common, label: `${o.name} median`, _baseLabel: `${o.name} median`, _legend: `${o.name} median`,
+    data: series(r => r.median),
+    fill: false, backgroundColor: o.color, borderWidth: look.lineWidth, pointRadius: 0, pointHoverRadius: 3,
+    showLine: look.line !== 'none', ...(look.line === 'dashed' ? { borderDash: [6, 4] } : {}),
+  };
+  const mean = {
+    ...common, label: `${o.name} mean`, _baseLabel: `${o.name} mean`, _legend: `${o.name} mean`,
+    data: series(r => r.mean),
+    fill: false, backgroundColor: 'transparent', borderWidth: look.lineWidth, borderDash: [6, 4], pointRadius: 0,
+  };
+  return [...(look.showBand ? bandSets : []), median, ...(look.showMean ? [mean] : [])];
 }

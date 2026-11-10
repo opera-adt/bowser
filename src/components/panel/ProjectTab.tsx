@@ -172,6 +172,7 @@ export default function ProjectTab() {
     'opacity', 'dataMode',
     'refMarkerPosition', 'refEnabled', 'refMarkerVisible', 'refTimeIndex',
     'timeSeriesPoints', 'annotations', 'layerMasks', 'customMaskPath', 'overlays', 'fitSettings', 'units',
+    'chartAreas', 'areaBand',
   ] as const;
   const saveProject = useCallback(() => {
     const project: Record<string, unknown> = { bowser_project: 1, saved: new Date().toISOString() };
@@ -201,6 +202,10 @@ export default function ProjectTab() {
       Array.isArray(v) && v.every(pred);
     const isPoint = (v: unknown) =>
       obj(v) && isStr(v.id) && isPair(v.position) && isStr(v.color) && isBool(v.visible);
+    // An area keeps its name, colour, geometry and style (Style button); its statistics refetch.
+    const isArea = (v: unknown) =>
+      obj(v) && isStr(v.id) && isStr(v.name) && isStr(v.color) && isBool(v.visible)
+      && obj(v.geometry) && ['Polygon', 'MultiPolygon'].includes(v.geometry.type as string) && Array.isArray(v.geometry.coordinates);
     const isAnnotation = (v: unknown) =>
       obj(v) && isStr(v.id) && isPair(v.position) && isStr(v.text);
     const isMask = (v: unknown) =>
@@ -227,6 +232,8 @@ export default function ProjectTab() {
       customMaskPath: (v) => v === null || isStr(v),
       overlays: arrayOf(isOverlay),
       units: (v) => v === 'metric' || v === 'imperial',
+      chartAreas: arrayOf(isArea),
+      areaBand: (v) => v === 'std' || v === 'pct',
       fitSettings: (v) => obj(v) && [0, 1, 2, 3].includes(v.polyOrder as number) && isBool(v.annual) && isBool(v.semiannual)
         && isBool(v.rejectOutliers) && arrayOf(isStr)(v.steps) && arrayOf(isStr)(v.breaks),
     };

@@ -2004,6 +2004,30 @@ img.huechange { filter: hue-rotate(120deg); }
   flex: 1;
 }
 
+.series-style-area {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-top: 4px;
+  border-top: 1px solid var(--sb-border);
+}
+
+.series-style-sub {
+  padding-left: 30px;
+  color: var(--sb-muted);
+}
+
+.series-style-sub label {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.series-style-sub input[type="range"] {
+  flex: 1;
+  min-width: 0;
+}
+
 .series-style-name {
   flex: 1;
   min-width: 0;

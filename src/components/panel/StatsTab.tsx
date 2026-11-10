@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
 import { useAreaReference } from '../../hooks/useAreaReference';
+import { useAreaStatsFetch } from '../../hooks/useAreaStatsFetch';
 import { areaStatsKey } from '../../utils/polygonSeries';
 import { chartDatasets } from '../../utils/zonalStats';
 import { areaRows, geometryBounds, refIndexOf, medianTrend, recordAverage, statsCsv, toIsoDate, type AreaRow, type StatsTableRow } from '../../utils/areaStats';
@@ -30,6 +31,7 @@ export default function StatsTab() {
   const layers = [...new Set([...chartDatasets(state), ...withAnswers])].filter(ds => state.datasetInfo[ds]);
   const ds = chosenDs && layers.includes(chosenDs) ? chosenDs : layers[0] ?? null;
   const areas = state.chartAreas;
+  useAreaStatsFetch(ds ? [ds] : [], areas, !!ds);
   const reference = useAreaReference(ds ? [ds] : [], areas.length > 0 && !!ds);
   const info = ds ? state.datasetInfo[ds] : undefined;
   const shown = displayUnit(info?.unit, state.units);
