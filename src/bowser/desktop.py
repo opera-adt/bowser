@@ -82,13 +82,19 @@ def free_port() -> int:
 
 
 def desktop_env(folder: Path) -> dict[str, str]:
-    """Return the app's settings: a kept catalog, opening allowed, uploads here."""
+    """Return the app's settings: a kept catalog, opening allowed, uploads here.
+
+    The Assistant is on, with keys saved on this computer from the page.
+    """
     (folder / "uploads").mkdir(exist_ok=True)
     return {
         "BOWSER_CATALOG_FILE": str(folder / "catalog.toml"),
         "BOWSER_ALLOW_OPEN": "true",
         "BOWSER_REMEMBER_OPENED": "true",
         "BOWSER_UPLOAD_DIR": str(folder / "uploads"),
+        "BOWSER_ASSISTANT": "true",
+        "BOWSER_ASSISTANT_PAGE_KEYS": "true",
+        "BOWSER_ASSISTANT_KEY_FILE": str(folder / "assistant.json"),
     }
 
 

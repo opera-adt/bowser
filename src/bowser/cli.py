@@ -127,6 +127,16 @@ def cli_app():
         "single-worker server, off otherwise."
     ),
 )
+@click.option(
+    "--assistant/--no-assistant",
+    "assistant",
+    default=None,
+    help=(
+        "Show the Assistant tab: a chat with your own AI provider (keys are kept "
+        "on this computer). Default: on for a local (127.0.0.1/localhost) server, "
+        "off otherwise; a shared server sets BOWSER_ASSISTANT and its own key."
+    ),
+)
 def run(
     stack_file,
     rasters_file,
@@ -144,6 +154,7 @@ def run(
     s3_anon,
     opera_logo,
     allow_open,
+    assistant,
 ):
     """Run the web server."""
     import uvicorn
@@ -178,6 +189,7 @@ def run(
         )
     os.environ["BOWSER_ALLOW_OPEN"] = str(allow_open).lower()
     os.environ["BOWSER_OPERA_LOGO"] = str(opera_logo).lower()
+    os.environ.update(_assistant_env(assistant, host))
 
     protocol = "https" if ssl_certfile else "http"
     display_host = "localhost" if host in ("127.0.0.1", "0.0.0.0") else host
@@ -192,6 +204,20 @@ def run(
         ssl_certfile=ssl_certfile,
         ssl_keyfile=ssl_keyfile,
     )
+
+
+def _assistant_env(assistant: bool | None, host: str) -> dict[str, str]:
+    """Return the Assistant's settings for a server on ``host``.
+
+    On by default for a local server, where the page may also save the user's
+    keys on this computer; never page keys on a server others can reach.
+    """
+    local = host in ("127.0.0.1", "localhost", "::1")
+    on = local if assistant is None else assistant
+    return {
+        "BOWSER_ASSISTANT": str(on).lower(),
+        "BOWSER_ASSISTANT_PAGE_KEYS": str(on and local).lower(),
+    }
 
 
 def _setup_gdal_env(ignore_sidecar_files: bool = False):
@@ -275,6 +301,12 @@ def desktop(browser, lite):
     default=None,
     help="Let the page open any GeoZarr path. Default: on for 127.0.0.1/localhost.",
 )
+@click.option(
+    "--assistant/--no-assistant",
+    "assistant",
+    default=None,
+    help="Show the Assistant tab. Default: on for 127.0.0.1/localhost.",
+)
 def lite(
     stack_file,
     catalog_file,
@@ -286,6 +318,7 @@ def lite(
     htpasswd_file,
     opera_logo,
     allow_open,
+    assistant,
 ):
     """Run bowser-lite: the GeoZarr web UI, without GDAL, rio-tiler or matplotlib.
 
@@ -310,6 +343,7 @@ def lite(
             else allow_open
         ).lower(),
         "BOWSER_OPERA_LOGO": str(opera_logo).lower(),
+        **_assistant_env(assistant, host),
     }
     if title:
         env["BOWSER_TITLE"] = title

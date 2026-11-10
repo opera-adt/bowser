@@ -32,6 +32,8 @@ from starlette.responses import FileResponse, JSONResponse, RedirectResponse
 from starlette.staticfiles import StaticFiles
 
 from .. import api_models as api
+from ..assistant.relay import assistant_config
+from ..assistant.relay import router as assistant_router
 from ..catalog import CatalogEntry, load_catalog, save_catalog
 from ..config import settings
 from ..utils import calculate_trend
@@ -198,7 +200,13 @@ def get_config(
         "opera_logo": settings.BOWSER_OPERA_LOGO,
         "geotiff_export": False,
         "polygon_stats": False,
+        "assistant": assistant_config(settings),
     }
+
+
+# The Assistant tab: provider status, keys and the chat relay (off unless
+# BOWSER_ASSISTANT is set).
+app.include_router(assistant_router, tags=[api.ASSISTANT])
 
 
 @app.get(

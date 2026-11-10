@@ -33,6 +33,8 @@ from starlette.templating import Jinja2Templates
 from starlette_cramjam.middleware import CompressionMiddleware
 
 from . import api_models as api
+from .assistant.relay import assistant_config
+from .assistant.relay import router as assistant_router
 from .config import settings
 from .polygon import PolygonRequest, summarize_rasters, summarize_xarray
 from .reference import (
@@ -574,7 +576,13 @@ async def get_config(
         "opera_logo": settings.BOWSER_OPERA_LOGO,
         "geotiff_export": True,
         "polygon_stats": True,
+        "assistant": assistant_config(settings),
     }
+
+
+# The Assistant tab: provider status, keys and the chat relay (off unless
+# BOWSER_ASSISTANT is set).
+app.include_router(assistant_router, tags=[api.ASSISTANT])
 
 
 @app.get(

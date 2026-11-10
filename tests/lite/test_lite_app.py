@@ -90,6 +90,7 @@ expected = {
     "opera_logo": False,
     "geotiff_export": False,
     "polygon_stats": False,
+    "assistant": {"enabled": False, "providers": [], "configured": []},
 }
 assert cfg.json() == expected, cfg.json()
 assert c.get("/config").json()["title"] != "Cube B"
