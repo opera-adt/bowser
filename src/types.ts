@@ -94,6 +94,9 @@ export interface BaseMapItem {
   url: string;
   attribution: string;
   label?: string;
+  /** Deepest zoom the provider really serves; past it the map upscales these tiles.
+   *  Unset: DEFAULT_BASEMAP_NATIVE_ZOOM (map/basemapStyle.ts). */
+  maxNativeZoom?: number;
 }
 
 export interface LayerMask {

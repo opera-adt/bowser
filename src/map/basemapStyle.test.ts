@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { baseMaps } from '../basemap';
-import { basemapSource, basemapStack, basemapTiles } from './basemapStyle';
+import { basemapLeafletZoom, basemapSource, basemapStack, basemapTiles, MAP_MAX_ZOOM } from './basemapStyle';
 
 describe('basemap sources for MapLibre', () => {
   it('expands {s} subdomains and keeps plain templates as they are', () => {
@@ -30,5 +30,24 @@ describe('basemap sources for MapLibre', () => {
     expect(basemapStack(a, b, false, 1, 0.4)).toEqual({ bottom: a, top: b, bottomOpacity: 1, topOpacity: 0.4 });
     expect(basemapStack(a, b, true, 1, 0.4)).toEqual({ bottom: b, top: a, bottomOpacity: 0.4, topOpacity: 1 });
     expect(basemapStack(a, null, false, 1, 0.4)).toEqual({ bottom: a, top: null, bottomOpacity: 1, topOpacity: 0.4 });
+  });
+
+  // Past these zooms Esri serves a grey "Map data not yet available" tile, so the
+  // sources stop there and MapLibre / Leaflet upscale the last real tiles.
+  const NATIVE = { esriDark: 16, esriLight: 16, esriHillshade: 16, shadedRelief: 16 } as const;
+
+  it('caps each basemap source at the provider\'s native zoom (MapLibre overzooms past it)', () => {
+    for (const [key, z] of Object.entries(NATIVE)) {
+      expect(basemapSource(baseMaps[key]).maxzoom, key).toBe(z);
+    }
+    expect(basemapSource(baseMaps.esriSatellite).maxzoom).toBe(19);
+  });
+
+  it('gives Leaflet layers maxNativeZoom while the map still zooms to the data\'s max', () => {
+    expect(MAP_MAX_ZOOM).toBe(22);
+    for (const [key, z] of Object.entries(NATIVE)) {
+      expect(basemapLeafletZoom(baseMaps[key]), key).toEqual({ maxZoom: 22, maxNativeZoom: z });
+    }
+    expect(basemapLeafletZoom(baseMaps.esriSatellite)).toEqual({ maxZoom: 22 });
   });
 });
