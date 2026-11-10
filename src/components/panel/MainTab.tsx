@@ -3,6 +3,7 @@ import { useAppContext } from '../../context/AppContext';
 import { useApi, datasetRangeUrl } from '../../hooks/useApi';
 import Histogram from '../Histogram';
 import ColorScalePicker, { type RangeStats } from './ColorScalePicker';
+import LayerInfo from './LayerInfo';
 import { displayUnit } from '../../utils/units';
 import { baseColormap } from '../../utils/colormaps';
 import { LayerOptions, SectionHeader, Switch } from './controls';
@@ -218,9 +219,10 @@ export default function MainTab() {
       {/* ── LAYERS ── */}
       <div className="sidebar-section">
         <SectionHeader label="Layers" />
-        <select className="sidebar-select" value={state.currentDataset} onChange={e => handleDatasetChange(e.target.value)}>
+        <select aria-label="Layer" className="sidebar-select" value={state.currentDataset} onChange={e => handleDatasetChange(e.target.value)}>
           <LayerOptions names={Object.keys(state.datasetInfo)} />
         </select>
+        <LayerInfo info={currentDatasetInfo} />
         {currentDatasetInfo && currentDatasetInfo.x_values.length > 1 && (
           <div className="slider-group">
             <div className="slider-label">
@@ -354,6 +356,7 @@ export default function MainTab() {
           <SectionHeader label="Right Layer" />
 
           <select
+            aria-label="Right layer"
             className="sidebar-select"
             value={state.splitDataset || ''}
             onChange={e => dispatch({ type: 'SET_SPLIT_DATASET', payload: e.target.value || null })}
@@ -361,6 +364,7 @@ export default function MainTab() {
             <option value="">— none —</option>
             <LayerOptions names={Object.keys(state.datasetInfo)} labelOf={name => state.datasetInfo[name]?.label || name} />
           </select>
+          <LayerInfo info={splitDatasetInfo} />
 
           {splitDatasetInfo && splitDatasetInfo.x_values.length > 1 && (
             <div className="slider-group">

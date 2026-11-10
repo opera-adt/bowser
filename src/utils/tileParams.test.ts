@@ -58,6 +58,11 @@ const cases: Record<string, string> = {
 };
 
 describe('buildTileRequest', () => {
+  it.each(['md', 'cog'])('requests explicit 256-pixel tiles in %s mode', (mode) => {
+    const p = new URLSearchParams(req({ dataMode: mode }).split('?')[1]);
+    expect(p.get('tilesize')).toBe('256');
+  });
+
   it('matches the pinned request for every UI state', () => {
     expect(cases).toMatchSnapshot();
   });

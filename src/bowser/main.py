@@ -32,6 +32,7 @@ from starlette.templating import Jinja2Templates
 from starlette_cramjam.middleware import CompressionMiddleware
 
 from .config import settings
+from .polygon import PolygonRequest, summarize_rasters, summarize_xarray
 from .state import BowserState, DatasetRegistry
 from .utils import (
     _uses_spatial_reference,
@@ -56,6 +57,7 @@ from titiler.core.errors import (  # noqa: E402
 )
 from titiler.core.factory import TilerFactory  # noqa: E402
 
+from .layer_info import describe_layer, describe_raster_group  # noqa: E402
 from .readers import CustomReader  # noqa: E402
 from .titiler import Amplitude, JSONResponse, Phase, Rewrap, Shift  # noqa: E402
 
@@ -475,9 +477,9 @@ def create_xarray_dataset_info(ds: xr.Dataset) -> dict:
             "reference_date": _reference_date(labels, dim) if dim else None,
             "available_mask_vars": available_mask_vars,
             "label": attrs.get("long_name", var_name),
-            "unit": attrs.get("units", ""),
             "los_metadata": los_metadata,
             "reference_lonlat": reference_lonlat,
+            **describe_layer(str(var_name), attrs),
         }
 
     return dataset_info
@@ -502,6 +504,7 @@ def create_rastergroup_dataset_info(raster_groups: dict) -> dict:
             "los_metadata": (
                 rg.los_metadata.model_dump() if rg.los_metadata is not None else None
             ),
+            **describe_raster_group(name, [r.layer_attrs for r in rg._reader.readers]),
         }
     return dataset_info
 
@@ -546,6 +549,7 @@ async def get_config(request: Request, dataset: str | None = Query(None)):
     return {
         "title": entry.name if entry is not None else settings.BOWSER_TITLE,
         "opera_logo": settings.BOWSER_OPERA_LOGO,
+        "geotiff_export": True,
     }
 
 
@@ -1197,6 +1201,45 @@ async def get_dataset_range(
             "p95": float(np.percentile(valid, 95)),
         }
     )
+
+
+@app.post("/polygon_timeseries", tags=["Analysis"], response_class=JSONResponse)
+def polygon_timeseries(
+    body: PolygonRequest,
+    target: BowserState = Depends(TargetState),
+):
+    """Summarize stored native pixels inside a WGS84 polygon.
+
+    This first endpoint provides bounded stored-value summaries, independent
+    of map zoom. Interactive references, optional quality masks and component
+    screening are not implicitly applied. Unknown request fields are rejected.
+    """
+    available = (
+        target.dataset.data_vars
+        if target.mode == "md" and target.dataset is not None
+        else target.raster_groups
+    )
+    if available is None or body.variable not in available:
+        raise HTTPException(status_code=404, detail=f"Unknown layer: {body.variable}")
+    try:
+        if target.mode == "md":
+            source = target.dataset[body.variable]
+            extra = [d for d in source.dims if d not in ("x", "y")]
+            if len(extra) > 1:
+                raise ValueError("Source supports at most one non-spatial axis")
+            dim = extra[0] if extra else None
+            labels = _dim_labels(source, dim) if dim else ["Stored layer"]
+            result = summarize_xarray(source, body, labels)
+        else:
+            result = summarize_rasters(target.raster_groups[body.variable], body)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (OSError, rasterio.errors.RasterioError) as exc:
+        logger.warning("Could not read polygon-analysis source: %s", type(exc).__name__)
+        raise HTTPException(
+            status_code=422, detail="Could not read polygon-analysis source"
+        ) from exc
+    return JSONResponse(result)
 
 
 @app.get(

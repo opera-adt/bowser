@@ -2,6 +2,8 @@
 
 Map-based viewer for InSAR time-series outputs — GeoZarr cubes, dolphin workflow directories, or loose GeoTIFFs — served through a local FastAPI server and rendered by titiler in the browser.
 
+The full server also provides a [native polygon statistics API](docs/polygon-statistics.md) for stored raster values.
+
 ![](docs/demo-timeseries.jpg)
 
 ## Quickstart
@@ -102,6 +104,11 @@ Export values are not colorized, rewrapped, or converted between units.
 
 ## CLI Usage
 
+The selected layer's explanation, source units and producer-provided category
+meanings appear under the layer selector, including in split view. See
+[layer information](docs/layer-information.md) for metadata sources and how
+unknown or inconsistent conventions are reported.
+
 ```bash
 $ bowser --help
 Commands:
@@ -119,6 +126,9 @@ Commands:
 ```
 
 ## Developer setup
+
+For the full/lite tile request convention and deterministic image tests, see
+[map tile dimensions and regression images](docs/tile-request-contract.md).
 
 ```bash
 git clone git@github.com:opera-adt/bowser.git && cd bowser

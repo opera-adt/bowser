@@ -6,6 +6,15 @@ import ExportSection from './ExportSection';
 let state: AppState;
 vi.mock('../../context/AppContext', () => ({ useAppContext: () => ({ state }) }));
 
+// The section asks /config whether the server can write GeoTIFFs, then the
+// button requests /export/geotiff. Answer each separately.
+let config: Record<string, unknown>;
+let exportResponse: Partial<Response>;
+
+function exportCalls() {
+  return vi.mocked(fetch).mock.calls.map(c => String(c[0])).filter(u => u.startsWith('/export/geotiff'));
+}
+
 beforeEach(() => {
   state = {
     currentDataset: 'displacement', currentTimeIndex: 1,
@@ -14,7 +23,11 @@ beforeEach(() => {
     refEnabled: true, refMarkerPosition: [34, -118],
     refBufferEnabled: false, refBufferRadius: 50,
   } as unknown as AppState;
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, blob: async () => new Blob() }));
+  config = { title: 'Bowser', geotiff_export: true };
+  exportResponse = { ok: true, blob: async () => new Blob() };
+  vi.stubGlobal('fetch', vi.fn((url: string) => Promise.resolve(
+    url === '/config' ? { ok: true, json: async () => config } : exportResponse,
+  )));
   vi.stubGlobal('alert', vi.fn());
   URL.createObjectURL = vi.fn().mockReturnValue('blob:test');
   URL.revokeObjectURL = vi.fn();
@@ -26,9 +39,13 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 async function exportParams() {
   fireEvent.click(screen.getByText('Data layer (GeoTIFF)'));
-  await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(exportCalls()).toHaveLength(1));
   await waitFor(() => expect(screen.queryByText('Exporting…')).toBeNull());
-  return new URL(String(vi.mocked(fetch).mock.calls[0][0]), window.location.origin).searchParams;
+  return new URL(exportCalls()[0], window.location.origin).searchParams;
+}
+
+function geotiffButton() {
+  return screen.getByRole('button', { name: /GeoTIFF/ }) as HTMLButtonElement;
 }
 
 describe('reference-aware GeoTIFF download', () => {
@@ -73,11 +90,34 @@ describe('reference-aware GeoTIFF download', () => {
   });
 
   it('explains an invalid reference instead of downloading stored values', async () => {
-    vi.mocked(fetch).mockResolvedValue({ ok: false, status: 422, json: async () => ({ detail: 'Reference contains no valid source pixels' }) } as Response);
+    exportResponse = { ok: false, status: 422, json: async () => ({ detail: 'Reference contains no valid source pixels' }) };
     vi.spyOn(console, 'error').mockImplementation(() => {});
     render(<ExportSection />);
     await exportParams();
     expect(alert).toHaveBeenCalledWith('GeoTIFF export failed: Reference contains no valid source pixels');
     expect(URL.createObjectURL).not.toHaveBeenCalled();
+  });
+});
+
+describe('GeoTIFF export availability', () => {
+  it('offers GeoTIFF export when the server can write GeoTIFFs', async () => {
+    render(<ExportSection />);
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/config'));
+    expect(geotiffButton().disabled).toBe(false);
+    expect(screen.queryByText(/needs the full Bowser server/)).toBeNull();
+  });
+
+  it('turns GeoTIFF export off on bowser-lite, and says why', async () => {
+    config = { title: 'Bowser', geotiff_export: false };
+    render(<ExportSection />);
+    await waitFor(() => expect(geotiffButton().disabled).toBe(true));
+    expect(screen.getByText(/needs the full Bowser server/)).toBeTruthy();
+  });
+
+  it('keeps export on when /config has no flag (an older server)', async () => {
+    config = { title: 'Bowser' };
+    render(<ExportSection />);
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/config'));
+    expect(geotiffButton().disabled).toBe(false);
   });
 });
