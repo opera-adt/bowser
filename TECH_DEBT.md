@@ -53,21 +53,24 @@ instead. Update `src/components/MapContainer.tsx` and
 
 ---
 
-### 2. `spatial_ref` round-trips through zarr as a `data_var`, not a `coord`
+### 2. `spatial_ref` is still written to zarr as a `data_var`, not a `coord`
 
-**Where:** `state.load`, `create_xarray_dataset_info` (filters `ndim >= 2` to
-skip it), anywhere iterating `data_vars`.
+**Where:** `bowser._tifs_to_geozarr._write_skeleton` (and any store written
+by rioxarray); the write-side loops in `geozarr.py` (`build_pyramid`,
+`shard_encoding`, `_coarsen_2x2_numpy`) that skip or carry over non-spatial
+variables.
 
-**What's wrong:** rioxarray writes `spatial_ref` as a variable, not a
-coordinate. Downstream iteration has to know to skip it. Surprise factor is
-high.
+**What's wrong:** Both servers now promote `spatial_ref` to a coordinate on
+read (`state._spatial_ref_as_coord`, `lite.cube._normalise`), so nothing
+that iterates a loaded dataset's `data_vars` sees it. Stores still hold it
+as a variable, so a plain `xr.open_zarr` (other tools, the write-side
+helpers) still has to know to skip it. The `ndim >= 2` filters in
+`create_xarray_dataset_info` / `lite.meta.latlon_bounds` stay either way:
+real DISP cubes carry 1-D `perpendicular_baseline` and `reference_time`.
 
-**Fix:** In `annotate_store` / `bowser._tifs_to_geozarr`, call
-`ds = ds.set_coords("spatial_ref")` on write so readers see it as a coord. Or
-promote on read in `state.load`.
-
-**Status:** half done. `bowser.lite.cube` promotes it on read; the full
-server (`state.load`) and the converter still don't.
+**Fix:** Have the converter record `spatial_ref` as a coordinate (a
+`coordinates` attr on each variable it appends). Readers must keep the
+read-side promotion for stores already written.
 
 ---
 

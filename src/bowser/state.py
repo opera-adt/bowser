@@ -32,6 +32,18 @@ logger = logging.getLogger("bowser")
 _WEB_MERCATOR_EQUATOR_M = 40075016.686
 
 
+def _spatial_ref_as_coord(ds: xr.Dataset) -> xr.Dataset:
+    """Return ``ds`` with ``spatial_ref`` as a coordinate, as bowser-lite reads it.
+
+    rioxarray writes the grid mapping as a data variable, so a store reopens
+    with it among ``data_vars``. As a coordinate it stays out of layer loops,
+    and ``rio.write_crs`` keeps its cached ``GeoTransform`` as lite does.
+    """
+    if "spatial_ref" in ds.data_vars:
+        ds = ds.set_coords("spatial_ref")
+    return ds
+
+
 def _open_md(uri: str) -> tuple[xr.Dataset, Transformer, list["PyramidLevel"]]:
     """Open an MD-mode source at ``uri`` and return ``(ds, transformer, levels)``.
 
@@ -75,6 +87,7 @@ def _open_md(uri: str) -> tuple[xr.Dataset, Transformer, list["PyramidLevel"]]:
     if root_attrs:
         ds.attrs = {**root_attrs, **ds.attrs}
 
+    ds = _spatial_ref_as_coord(ds)
     crs = resolve_crs(ds)
     if "spatial_ref" in ds.variables and "time" in ds.spatial_ref.dims:
         ds = ds.assign_coords(spatial_ref=ds.spatial_ref.isel(time=0).drop_vars("time"))
@@ -86,6 +99,7 @@ def _open_md(uri: str) -> tuple[xr.Dataset, Transformer, list["PyramidLevel"]]:
         # Propagate the patched CRS to every level so they all have rio.crs set.
         levels[0] = PyramidLevel.from_dataset(levels[0].asset, ds)
         for i in range(1, len(levels)):
+            levels[i].dataset = _spatial_ref_as_coord(levels[i].dataset)
             levels[i].dataset.rio.write_crs(crs, inplace=True)
     return ds, tr, levels
 
