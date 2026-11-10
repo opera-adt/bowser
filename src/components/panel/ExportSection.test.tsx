@@ -1,7 +1,7 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppState } from '../../types';
-import ExportSection from './ExportSection';
+import ExportSection, { EXPORT_TIMEOUT_MS } from './ExportSection';
 
 let state: AppState;
 vi.mock('../../context/AppContext', () => ({ useAppContext: () => ({ state }) }));
@@ -35,7 +35,7 @@ beforeEach(() => {
   window.history.replaceState({}, '', '/');
 });
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 async function exportParams() {
   fireEvent.click(screen.getByText('Data layer (GeoTIFF)'));
@@ -119,5 +119,71 @@ describe('GeoTIFF export availability', () => {
     render(<ExportSection />);
     await waitFor(() => expect(fetch).toHaveBeenCalledWith('/config'));
     expect(geotiffButton().disabled).toBe(false);
+  });
+});
+
+describe('GeoTIFF export progress', () => {
+  // An export the server never finishes: the request hangs until it is aborted,
+  // like a real fetch.
+  function hangingExport() {
+    let signal: AbortSignal | undefined;
+    vi.mocked(fetch).mockImplementation(((url: string, init?: RequestInit) => {
+      if (url === '/config') return Promise.resolve({ ok: true, json: async () => config } as Response);
+      signal = init?.signal ?? undefined;
+      return new Promise<Response>((_, reject) => {
+        signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+      });
+    }) as typeof fetch);
+    return () => signal;
+  }
+
+  it('shows elapsed time and bytes received while the file downloads', async () => {
+    const chunk = new Uint8Array(512 * 1024);
+    let finish: (() => void) | undefined;
+    const reads = [
+      Promise.resolve({ done: false, value: chunk }),
+      new Promise<{ done: true; value: undefined }>(r => { finish = () => r({ done: true, value: undefined }); }),
+    ];
+    exportResponse = {
+      ok: true,
+      headers: new Headers({ 'Content-Length': String(2 * 1024 * 1024) }),
+      body: { getReader: () => ({ read: () => reads.shift()!, cancel: async () => undefined }) } as unknown as ReadableStream<Uint8Array>,
+    };
+    render(<ExportSection />);
+    fireEvent.click(screen.getByText('Data layer (GeoTIFF)'));
+    expect(await screen.findByText('Exporting… 0 s · 512 KB of 2.0 MB (25%)')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy();
+    finish!();
+    await waitFor(() => expect(screen.queryByText(/Exporting… \d+ s/)).toBeNull());
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+  });
+
+  it('Cancel stops the export and frees the button, without an error', async () => {
+    const signal = hangingExport();
+    render(<ExportSection />);
+    fireEvent.click(screen.getByText('Data layer (GeoTIFF)'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(geotiffButton().disabled).toBe(false));
+    expect(signal()?.aborted).toBe(true);
+    expect(screen.getByText('Data layer (GeoTIFF)')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+    expect(alert).not.toHaveBeenCalled();
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+  });
+
+  it('gives up after the timeout and says why', async () => {
+    vi.useFakeTimers();
+    const signal = hangingExport();
+    render(<ExportSection />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    fireEvent.click(screen.getByText('Data layer (GeoTIFF)'));
+    await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+    expect(screen.getByText('Exporting… 4 s')).toBeTruthy();
+    expect(signal()?.aborted).toBe(false);
+    await act(async () => { await vi.advanceTimersByTimeAsync(EXPORT_TIMEOUT_MS); });
+    expect(signal()?.aborted).toBe(true);
+    expect(screen.getByText(/didn't answer within 2 minutes/)).toBeTruthy();
+    expect(geotiffButton().disabled).toBe(false);
+    expect(alert).not.toHaveBeenCalled();
   });
 });
