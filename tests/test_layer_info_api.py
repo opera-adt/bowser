@@ -47,7 +47,13 @@ def _exercise(work: Path) -> None:
             displacement["source_description"]
             == "Source positive direction: away from sensor."
         )
-        assert displacement["description_source"] == "bowser"
+        assert displacement["description"] == (
+            "Source positive direction: away from sensor."
+        )
+        assert displacement["description_source"] == "source"
+        assert "not automatically total 3D movement" in displacement["guidance"]
+        assert "guidance" not in data["unfamiliar"]
+        assert data["water_mask"]["description_source"] == "bowser"
         assert displacement["los_metadata"] is None
         assert data["water_mask"]["source_flags"] == [
             {"value": "0", "label": "land"},
@@ -76,6 +82,7 @@ def _exercise(work: Path) -> None:
             for key in (
                 "description",
                 "description_source",
+                "guidance",
                 "source_description",
                 "source_flags",
                 "unit",

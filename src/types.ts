@@ -34,6 +34,8 @@ export interface RasterGroup {
   unit?: string;
   description?: string;
   description_source?: 'bowser' | 'source' | 'unknown';
+  // Bowser's general text when the producer's own description leads (absent otherwise).
+  guidance?: string;
   source_description?: string | null;
   source_flags?: Array<{ value: string; label: string }>;
   unit_status?: 'provided' | 'missing' | 'mixed';

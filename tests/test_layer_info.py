@@ -34,7 +34,7 @@ def test_source_description_and_units_are_not_replaced_by_catalog_assumptions():
     }
     original = copy.deepcopy(attrs)
     info = describe_layer("displacement", attrs)
-    assert info["description_source"] == "bowser"
+    assert info["description_source"] == "source"
     assert info["source_description"] == attrs["description"]
     assert info["unit"] == "centimeters"
     assert info["source_flags"] == [
@@ -66,6 +66,54 @@ def test_unknown_source_text_is_used_without_guessing_its_meaning():
     unknown = describe_layer("unfamiliar_observation")
     assert unknown["description_source"] == "unknown"
     assert "documentation" in unknown["description"]
+
+
+@pytest.mark.parametrize("key", ["description", "comment"])
+def test_producer_explanation_leads_and_guidance_is_kept_separately(key):
+    text = "Positive values indicate apparent motion towards the platform."
+    info = describe_layer("displacement", {key: text, "long_name": "LOS disp."})
+    assert info["description"] == text
+    assert info["description_source"] == "source"
+    assert info["guidance"] == describe_layer("displacement")["description"]
+    assert "not automatically total 3D movement" in info["guidance"]
+
+
+def test_saved_summary_note_travels_with_the_guidance():
+    info = describe_layer(
+        "average_temporal_coherence",
+        {"description": "Temporal coherence of phase inversion"},
+    )
+    assert info["description"] == "Temporal coherence of phase inversion"
+    assert "source time support" in info["guidance"]
+
+
+@pytest.mark.parametrize(
+    "attrs",
+    [
+        {},
+        {"long_name": "Linear LOS velocity", "units": "m/yr"},
+        {"description": "   "},
+    ],
+)
+def test_built_in_text_leads_without_a_producer_explanation(attrs):
+    info = describe_layer("velocity", attrs)
+    assert info["description_source"] == "bowser"
+    assert "producer's stated period" in info["description"]
+    assert "guidance" not in info
+
+
+def test_unknown_layers_have_no_separate_guidance():
+    info = describe_layer("unfamiliar", {"description": "Temperature anomaly"})
+    assert info["description"] == "Temperature anomaly"
+    assert "guidance" not in info
+
+
+def test_group_keeps_the_first_rasters_producer_text_and_guidance():
+    headers = [{"description": "First date."}, {"description": "Second date."}]
+    info = describe_raster_group("displacement", headers)
+    assert info["description"] == "First date."
+    assert info["description_source"] == "source"
+    assert "starting date come from the producer" in info["guidance"]
 
 
 def test_a_repeated_variable_label_is_not_treated_as_an_explanation():

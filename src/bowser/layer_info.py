@@ -22,6 +22,7 @@ class LayerInfo(TypedDict):
     source_flags: list[dict[str, str]]
     unit: str
     unit_status: Literal["provided", "missing", "mixed"]
+    guidance: NotRequired[str]
     metadata_notes: NotRequired[list[str]]
 
 
@@ -234,6 +235,9 @@ def describe_layer(name: str, attrs: Mapping[str, Any] | None = None) -> LayerIn
     LayerInfo
         Display text, its origin, original source description, category labels,
         and explicitly supplied units. Missing units remain an empty string.
+        When the producer explains a recognized layer (``description`` or
+        ``comment``), that text is the description and Bowser's general text
+        is returned separately as ``guidance``.
 
     """
     attrs = attrs or {}
@@ -271,24 +275,38 @@ def describe_layer(name: str, attrs: Mapping[str, Any] | None = None) -> LayerIn
         key = "phase_similarity"
         summary = " Saved whole-stack calculation; check its source time support."
     guidance = _GUIDANCE.get(key)
-    description = guidance + summary if guidance else source_explanation
+    if guidance:
+        guidance += summary
+    # A producer's own explanation (description or comment; a long_name is only
+    # a label) leads, and Bowser's general guidance moves to its own field.
+    producer = _text(attrs.get("description")) or _text(attrs.get("comment"))
+    origin: Literal["bowser", "source", "unknown"]
+    if guidance and producer:
+        description, origin = producer, "source"
+    elif guidance:
+        description, origin = guidance, "bowser"
+    elif source_explanation:
+        description, origin = source_explanation, "source"
+    else:
+        description, origin = (
+            (
+                "The producer has not supplied an explanation for this layer; "
+                "consult its documentation before interpretation."
+            ),
+            "unknown",
+        )
     unit = _text(attrs.get("units")) or _text(attrs.get("unit")) or ""
-    return {
-        "description": description
-        or (
-            "The producer has not supplied an explanation for this layer; "
-            "consult its documentation before interpretation."
-        ),
-        "description_source": "bowser"
-        if guidance
-        else "source"
-        if source_explanation
-        else "unknown",
+    info: LayerInfo = {
+        "description": description,
+        "description_source": origin,
         "source_description": source,
         "source_flags": _flags(attrs),
         "unit": unit,
         "unit_status": "provided" if unit else "missing",
     }
+    if guidance and producer:
+        info["guidance"] = guidance
+    return info
 
 
 def describe_raster_group(name: str, headers: Sequence[Mapping[str, Any]]) -> LayerInfo:
