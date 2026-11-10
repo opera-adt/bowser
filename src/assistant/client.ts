@@ -84,8 +84,10 @@ export type ChatEvent =
   | { type: 'tool_call'; id: string; name: string; input: Record<string, unknown>; runs: 'server' | 'agent' }
   | { type: 'tool_result'; id: string; name: string; input: Record<string, unknown>; ok: boolean; result: unknown }
   | { type: 'page_tools'; calls: ToolCall[]; results: ToolResult[] }
+  /** The question's tool calls are used up: the model answers with what it has. */
+  | { type: 'budget'; limit: number }
   | { type: 'error'; kind: string; message: string; code?: string }
-  | { type: 'done'; stop: 'end' | 'max_tokens' | 'refusal' | 'page_tools' | 'max_steps' | 'cancelled'; detail?: string }
+  | { type: 'done'; stop: 'end' | 'max_tokens' | 'refusal' | 'page_tools' | 'max_steps' | 'cancelled' | 'budget'; detail?: string }
   /** A signed-in agent: what it is doing, and its requests to run a tool. */
   | { type: 'status'; text: string }
   | { type: 'permission'; id: string; name: string; title: string; detail: string; options: { kind: string; name: string }[]; timeout: number }
@@ -101,6 +103,12 @@ export interface ChatRequest {
   dataset: string | null;
   /** This chat's id: keeps a signed-in agent's session between questions. */
   conversation?: string;
+  /** The page's layer masks, which the data tools apply (so answers match the map). */
+  page_masks?: { dataset: string; threshold: number; mode: 'min' | 'max' }[];
+  /** A signed-in agent runs Bowser's own tools without asking. */
+  auto_allow?: boolean;
+  /** What the page shows now (pageTools.pageState), told to the model with this question. */
+  page_context?: Record<string, unknown>;
 }
 
 /** A refusal from the relay itself (HTTP status and its detail), before any streaming. */

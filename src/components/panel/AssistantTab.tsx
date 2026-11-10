@@ -5,8 +5,9 @@ import {
   answerPermission, fetchModels, fetchStatus, removeKey, saveKey, signIn, signOut, stopAgent, streamChat, RelayError,
   type AssistantStatus, type ChatEvent, type ConvMessage, type ModelInfo, type ProviderInfo, type SignInMethod, type ToolResult,
 } from '../../assistant/client';
-import { newDone, PAGE_TOOL_NAMES, PAGE_TOOLS, pageState, runPageTool, showResult, type PageContext } from '../../assistant/pageTools';
+import { newDone, PAGE_TOOL_NAMES, pageMasks, pageState, runPageTool, showResult, type PageContext } from '../../assistant/pageTools';
 import { SectionHeader } from './controls';
+import { setWaiting } from '../../assistant/attention';
 
 const PREFS_KEY = 'bowser-assistant';
 const MCP_DOCS = 'https://github.com/opera-adt/bowser/blob/main/docs/mcp.md';
@@ -16,7 +17,13 @@ const MAX_ROUNDS = 8;
 const POLL_MS = 2000;
 const POLL_FOR_MS = 10 * 60 * 1000;
 
-interface Prefs { provider?: string; models?: Record<string, string>; welcomed?: string[] }
+interface Prefs {
+  provider?: string;
+  models?: Record<string, string>;
+  welcomed?: string[];
+  /** A signed-in agent runs Bowser's own tools without asking (this browser only). */
+  autoAllow?: boolean;
+}
 
 /** The service's name in a sign-in button's text: "Sign in with Claude" → "Claude". */
 const serviceName = (m: SignInMethod) => m.label.replace(/^(Sign in|Continue) with /, '');
@@ -42,7 +49,11 @@ type Entry =
   | { kind: 'user' | 'assistant' | 'note'; text: string }
   | { kind: 'tool'; id: string; name: string; input: Record<string, unknown>; state: 'running' | 'ok' | 'error'; where: 'server' | 'page' | 'agent' }
   | { kind: 'error'; text: string; link?: { href: string; text: string } }
-  | { kind: 'permission'; id: string; name: string; title: string; detail: string; always: boolean; state: PermissionState };
+  | {
+    kind: 'permission'; id: string; name: string; title: string; detail: string; always: boolean; state: PermissionState;
+    /** When it was asked (ms) and how long it waits (s); the question, to ask again after a timeout. */
+    at: number; timeout: number; question: string;
+  };
 
 /** Escape-free inline markdown: **bold**, `code`, [links](https://…). */
 function inline(text: string): ReactNode[] {
@@ -115,6 +126,10 @@ export default function AssistantTab() {
   const modelsAsked = useRef(new Set<string>());
 
   const [entries, setEntries] = useState<Entry[]>([]);
+  // Open requests to run a tool: a badge on the rail while another tab is open.
+  const openRequests = entries.filter(e => e.kind === 'permission' && e.state === 'open').length;
+  useEffect(() => { setWaiting(openRequests); }, [openRequests]);
+  useEffect(() => () => setWaiting(0), []);
   const [question, setQuestion] = useState('');
   const [busy, setBusy] = useState(false);
   const [working, setWorking] = useState<string | null>(null);
@@ -314,8 +329,15 @@ export default function AssistantTab() {
     }
   };
 
-  const ask = useCallback(async () => {
-    const text = question.trim();
+  const autoAllow = prefs.autoAllow === true;
+  const toggleAutoAllow = () => {
+    const next = { ...prefs, autoAllow: !autoAllow };
+    setPrefs(next);
+    savePrefs(next);
+  };
+
+  const ask = useCallback(async (again?: string) => {
+    const text = (again ?? question).trim();
     const using = account?.id ?? provider?.id;
     if (!text || busy || !using || !ready) return;
     const ctx: PageContext = {
@@ -326,8 +348,8 @@ export default function AssistantTab() {
     };
     const dataset = currentDatasetId();
     const before = history.current.length;
-    history.current.push({ role: 'user', content: `[page: ${JSON.stringify(pageState(stateRef.current, dataset))}]\n\n${text}` });
-    setQuestion('');
+    history.current.push({ role: 'user', content: text });
+    if (again === undefined) setQuestion('');
     add({ kind: 'user', text });
     setBusy(true);
     setWorking('Thinking…');
@@ -341,8 +363,11 @@ export default function AssistantTab() {
         let detail = '';
         await streamChat(
           {
-            provider: using, model: agent ? '' : model, messages: history.current, page_tools: agent ? [] : PAGE_TOOLS, dataset,
-            ...(agent ? { conversation: conversation.current } : {}),
+            provider: using, model: agent ? '' : model, messages: history.current, page_tools: [], dataset,
+            page_masks: pageMasks(stateRef.current),
+            // What the page shows now: the server tells the model with this request.
+            page_context: pageState(stateRef.current, dataset),
+            ...(agent ? { conversation: conversation.current, auto_allow: autoAllow } : {}),
           },
           (ev: ChatEvent) => {
             switch (ev.type) {
@@ -361,6 +386,7 @@ export default function AssistantTab() {
                 add({
                   kind: 'permission', id: ev.id, name: ev.name, title: ev.title, detail: ev.detail,
                   always: ev.options.some(o => o.kind === 'allow_always'), state: 'open',
+                  at: Date.now(), timeout: ev.timeout, question: text,
                 });
                 break;
               case 'permission_closed':
@@ -372,6 +398,7 @@ export default function AssistantTab() {
                 if (ev.ok) showResult(ev.name, ev.input, ctx);
                 break;
               case 'page_tools': waiting = { calls: ev.calls, results: ev.results }; break;
+              case 'budget': add({ kind: 'note', text: `Stopped after ${ev.limit} tool calls.` }); break;
               case 'error': {
                 failed = true;
                 const usage = ev.code?.startsWith('subscription_sharing_usage') && account?.usage_url;
@@ -426,7 +453,7 @@ export default function AssistantTab() {
       setBusy(false);
       setWorking(null);
     }
-  }, [question, busy, provider, account, agent, ready, model, dispatch, fetchPointTimeSeries, fetchBufferTimeSeries, currentDatasetId]);
+  }, [question, busy, provider, account, agent, ready, model, autoAllow, dispatch, fetchPointTimeSeries, fetchBufferTimeSeries, currentDatasetId]);
 
   const stop = () => {
     abort.current?.abort();
@@ -599,9 +626,23 @@ export default function AssistantTab() {
 
       <div className="sidebar-section ai-chat">
         <SectionHeader label="Assistant" action={
-          <button type="button" className="ov-icon-btn" onClick={newChat} disabled={busy || entries.length === 0}
-            title="New chat" aria-label="New chat"><i className="fa-solid fa-pen-to-square" aria-hidden="true"></i></button>
+          <>
+            {agent && (
+              <button type="button" className={`ov-icon-btn${autoAllow ? ' on' : ''}`} onClick={toggleAutoAllow}
+                aria-pressed={autoAllow} aria-label="Allow Bowser's tools without asking"
+                title={autoAllow
+                  ? "Bowser's tools run without asking (click to ask each time)"
+                  : "Allow Bowser's tools without asking"}>
+                <i className={`fa-solid ${autoAllow ? 'fa-unlock' : 'fa-lock'}`} aria-hidden="true"></i>
+              </button>
+            )}
+            <button type="button" className="ov-icon-btn" onClick={newChat} disabled={busy || entries.length === 0}
+              title="New chat" aria-label="New chat"><i className="fa-solid fa-pen-to-square" aria-hidden="true"></i></button>
+          </>
         } />
+        {agent && autoAllow && (
+          <div className="row-label ai-small" role="status">Auto-allow on: Bowser's tools run without asking, including ones that change the page.</div>
+        )}
         <div className="ai-log" ref={logRef} aria-live="polite">
           {entries.length === 0 && (
             <div className="row-label ai-small">
@@ -611,7 +652,10 @@ export default function AssistantTab() {
           )}
           {entries.map((e, i) => {
             if (e.kind === 'permission') {
-              return <PermissionCard key={i} e={e} agentName={account ? serviceName(account) : 'The agent'} onAnswer={c => void answer(e.id, c)} />;
+              return (
+                <PermissionCard key={i} e={e} agentName={account ? serviceName(account) : 'The agent'}
+                  onAnswer={c => void answer(e.id, c)} onRetry={busy ? undefined : () => void ask(e.question)} />
+              );
             }
             if (e.kind === 'tool') {
               return (
@@ -725,26 +769,50 @@ function SignInRow({ m, inUse, url, onSignIn, onConsent, onSignOut, onUse }: {
   );
 }
 
-/** An agent's request to run a tool: Allow, Always allow (when offered) or Deny. Unanswered, it is declined. */
-function PermissionCard({ e, agentName, onAnswer }: {
+/**
+ * An agent's request to run a tool: Allow, Always allow (when offered) or Deny, with the time
+ * left. It is scrolled into view and outlined while open; unanswered, it is declined, and Retry
+ * asks the same question again.
+ */
+function PermissionCard({ e, agentName, onAnswer, onRetry }: {
   e: Extract<Entry, { kind: 'permission' }>; agentName: string; onAnswer: (c: 'allow' | 'allow_always' | 'reject') => void;
+  onRetry?: () => void;
 }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const open = e.state === 'open';
+  const left = () => Math.max(0, Math.round(e.timeout - (Date.now() - e.at) / 1000));
+  const [secs, setSecs] = useState(left);
+  useEffect(() => {
+    if (!open) return;
+    ref.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+    const t = setInterval(() => setSecs(left()), 1000);
+    return () => clearInterval(t);
+  }, [open]);  // eslint-disable-line react-hooks/exhaustive-deps
+  const clock = secs >= 60 ? `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}` : `${secs} s`;
   const after: Record<Exclude<PermissionState, 'open'>, string> = {
-    allow: 'Allowed.', allow_always: 'Allowed for this chat.', reject: 'Denied.',
-    timeout: 'Not answered in time, so it was denied.', closed: 'No longer asked.',
+    allow: 'Allowed.', allow_always: `Allowed ${e.name} for this chat.`, reject: 'Denied.',
+    timeout: `Not answered in time, so ${e.name} was denied.`, closed: 'No longer asked.',
   };
   return (
-    <div className="ai-permission" role="group" aria-label={`Allow ${e.name}?`}>
+    <div ref={ref} className={`ai-permission${open ? ' open' : ''}`} role="group" aria-label={`Allow ${e.name}?`}>
       <div className="row-label ai-small"><strong>{agentName} wants to run {e.name}</strong></div>
       {e.detail && e.detail !== '{}' && <code className="ai-permission-detail">{e.detail}</code>}
-      {e.state === 'open' ? (
-        <div className="ai-row">
-          <button type="button" className="hist-btn ai-primary ai-inline-btn" onClick={() => onAnswer('allow')}>Allow</button>
-          {e.always && <button type="button" className="hist-btn ai-inline-btn" onClick={() => onAnswer('allow_always')}>Always allow</button>}
-          <button type="button" className="hist-btn ai-inline-btn" onClick={() => onAnswer('reject')}>Deny</button>
-        </div>
+      {open ? (
+        <>
+          <div className="ai-row">
+            <button type="button" className="hist-btn ai-primary ai-inline-btn" onClick={() => onAnswer('allow')}>Allow</button>
+            {e.always && <button type="button" className="hist-btn ai-inline-btn" onClick={() => onAnswer('allow_always')}>Always allow</button>}
+            <button type="button" className="hist-btn ai-inline-btn" onClick={() => onAnswer('reject')}>Deny</button>
+          </div>
+          <div className="row-label ai-small ai-permission-clock" role="timer">Denied in {clock} without an answer.</div>
+        </>
       ) : (
-        <div className="row-label ai-small">{after[e.state]}</div>
+        <div className="row-label ai-small">
+          {after[e.state as Exclude<PermissionState, 'open'>]}
+          {e.state === 'timeout' && onRetry && (
+            <> <button type="button" className="hist-btn ai-inline-btn" onClick={onRetry}>Retry</button></>
+          )}
+        </div>
       )}
     </div>
   );
