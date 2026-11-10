@@ -5,6 +5,7 @@ import Histogram from '../Histogram';
 import ColorScalePicker, { type RangeStats } from './ColorScalePicker';
 import LayerInfo from './LayerInfo';
 import { displayUnit } from '../../utils/units';
+import { readLayerInfoShown, saveLayerInfoShown } from '../../utils/layerInfoPref';
 import { baseColormap } from '../../utils/colormaps';
 import { LayerOptions, SectionHeader, Switch } from './controls';
 
@@ -30,6 +31,12 @@ export default function MainTab() {
     buffer: true,
   });
   const toggleSection = (key: string) => setCollapsed(c => ({ ...c, [key]: !c[key] }));
+  // The layer description notes (main and right-hand layer) follow one per-viewer choice.
+  const [showLayerInfo, setShowLayerInfo] = useState(readLayerInfoShown);
+  const toggleLayerInfo = () => setShowLayerInfo(shown => {
+    saveLayerInfoShown(!shown);
+    return !shown;
+  });
 
   // dataset range cache: { [datasetName]: { min, max, p2, p98 } }
   const [datasetRanges, setDatasetRanges] = useState<Record<string, { min: number; max: number; p2: number; p98: number }>>({});
@@ -218,11 +225,17 @@ export default function MainTab() {
     <>
       {/* ── LAYERS ── */}
       <div className="sidebar-section">
-        <SectionHeader label="Layers" />
+        <SectionHeader label="Layers" action={currentDatasetInfo || splitDatasetInfo ? (
+          <button type="button" className={`ov-icon-btn${showLayerInfo ? ' on' : ''}`} aria-pressed={showLayerInfo}
+            aria-label="Layer description" title={showLayerInfo ? 'Hide layer description' : 'Show layer description'}
+            onClick={toggleLayerInfo}>
+            <i className="fa-solid fa-circle-info" aria-hidden="true"></i>
+          </button>
+        ) : null} />
         <select aria-label="Layer" className="sidebar-select" value={state.currentDataset} onChange={e => handleDatasetChange(e.target.value)}>
           <LayerOptions names={Object.keys(state.datasetInfo)} />
         </select>
-        <LayerInfo info={currentDatasetInfo} />
+        {showLayerInfo && <LayerInfo info={currentDatasetInfo} />}
         {currentDatasetInfo && currentDatasetInfo.x_values.length > 1 && (
           <div className="slider-group">
             <div className="slider-label">
@@ -364,7 +377,7 @@ export default function MainTab() {
             <option value="">— none —</option>
             <LayerOptions names={Object.keys(state.datasetInfo)} labelOf={name => state.datasetInfo[name]?.label || name} />
           </select>
-          <LayerInfo info={splitDatasetInfo} />
+          {showLayerInfo && <LayerInfo info={splitDatasetInfo} />}
 
           {splitDatasetInfo && splitDatasetInfo.x_values.length > 1 && (
             <div className="slider-group">
