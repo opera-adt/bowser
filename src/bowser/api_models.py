@@ -470,6 +470,10 @@ class ConfigInfo(_Fixed):
     polygon_stats: bool = Field(
         description="Whether POST /polygon_timeseries works on this server."
     )
+    geotiff_upload: bool = Field(
+        description="Whether POST /upload_mask and POST /upload_raster work on "
+        "this server."
+    )
 
 
 class ModeInfo(_Fixed):
