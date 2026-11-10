@@ -48,6 +48,41 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     `POST /assistant/permission` and `POST /assistant/stop`; `GET
     /assistant/status` and `GET /config` list the sign-in methods. Signing in
     and signed-in chats answer requests from the same computer only.
+- Bowser's tools act on the page you have open, from every AI path: the
+  Assistant's chat, "Sign in with Claude" (which could not act on the page
+  before) and `bowser mcp` in Claude Code or Claude Desktop. New tools move the
+  map (`get_view`, `fly_to`, `fit_bounds`, `pan`, `zoom`, `go_to`), set 3D
+  terrain and split screen, the reference (`get_reference`,
+  `set_reference_point` with a sampling circle, `reset_reference`), masks
+  (`get_masks`, `set_masks`, `clear_masks`, `set_recommended_mask`) and
+  colours (`get_display`, `set_colormap`, `set_color_range` with the
+  histogram's presets, `set_opacity`), and run any toolbar or panel control
+  (`list_commands`, `run_command`). They are defined once in `bowser.tools`
+  and reach the page through a page channel (`GET /page/events`,
+  `POST /page/focus`, `POST /page/result`, `POST /page/command`): the tab
+  focused most recently acts; only from this computer, with
+  `BOWSER_ASSISTANT_PAGE_KEYS`. `GET /config` says whether it is on
+  (`assistant.page_channel`).
+- `geocode` and `GET /geocode`: place names and addresses to coordinates
+  through OpenStreetMap's Nominatim, at most one request per second, cached,
+  with a User-Agent naming Bowser; `BOWSER_GEOCODER_URL` replaces or turns it
+  off.
+- `find_reference_candidates`, the reference finder (`GET
+  /reference_candidates`) as a tool for every AI path.
+- The data tools apply the page's masks by default (`use_page_masks`), so
+  their answers match the map.
+- Each question tells the model what the page shows (view, layer, date,
+  reference, masks, points, split screen, terrain), and a question may use at
+  most 8 tool calls (`BOWSER_ASSISTANT_TOOL_BUDGET`); a repeated call is
+  refused. The tab says "Stopped after 8 tool calls" when they run out.
+- A signed-in Claude asks less and its questions are hard to miss: Bowser's
+  tools that only read or move the map never ask; "Always allow" covers a tool
+  for the rest of the chat; a lock icon in the chat lets it run all of Bowser's
+  tools without asking (remembered in this browser), while any other tool
+  still asks. An open request is outlined, scrolled into view, counts down and
+  badges the Assistant's rail icon; it waits 10 minutes
+  (`BOWSER_ASSISTANT_PERMISSION_SECONDS`) instead of 2, and after a timeout
+  Retry asks the question again.
 
 ### Changed
 
