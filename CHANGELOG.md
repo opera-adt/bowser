@@ -6,6 +6,18 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Find a stable reference point: `GET /reference_candidates` (full server and
+  bowser-lite, same answers) ranks places by the whole-stack median and
+  standard deviation of temporal coherence and phase similarity, how much of
+  the surrounding circle is coherent, and how much the displacement inside the
+  circle scatters. Main › Reference Point gains *Find a stable reference*: the
+  candidates are numbered on the map and listed, and choosing one (or *Use
+  recommended*) moves the reference there with *Sample around ref marker* at
+  the same radius. See docs/rest-api.md for what the scores mean and their
+  limits.
+
 ### Changed
 
 - The server runs on TiTiler 2.0 (rio-tiler 9), as `pip install` users
