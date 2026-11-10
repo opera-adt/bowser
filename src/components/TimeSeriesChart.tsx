@@ -22,6 +22,7 @@ import ChartAreaButton from './ChartAreaButton';
 import { AREA_BAND_LABELS, areaChartDatasets, areaStatsKey, type AreaBand } from '../utils/polygonSeries';
 import { useAreaReference } from '../hooks/useAreaReference';
 import { useAreaStatsFetch } from '../hooks/useAreaStatsFetch';
+import { readChartDisplayOpen, saveChartDisplayOpen } from '../utils/chartDisplayPref';
 import { refIndexOf, toIsoDate } from '../utils/areaStats';
 
 // Chart.js plugin to wire legend-click visibility to all related datasets (raw, trend,
@@ -118,6 +119,9 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
   const [dsColorOverrides, setDsColorOverrides] = useState<{ [ds: string]: string }>({});
   // Per-dataset y-axis limits; empty string = auto
   const [dsYLimits, setDsYLimits] = useState<{ [ds: string]: { min: string; max: string } }>({});
+  // Marker size, date range and the y rows: folded unless this viewer opened them.
+  const [displayOpen, setDisplayOpen] = useState(readChartDisplayOpen);
+  const toggleDisplay = () => setDisplayOpen(o => { saveChartDisplayOpen(!o); return !o; });
   const chartRef = useRef<ChartJS<'line'>>(null);
   const { panelRef, panelStyle, onDragMouseDown, resizeGrip } = useDraggableResizable({
     defaultWidth: Math.min(560, window.innerWidth * 0.38),
@@ -898,6 +902,20 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     <div id="chart-container" ref={panelRef} style={panelStyle}>
       {headerContent}
 
+      {/* Display options, folded: what they set still applies, and "(custom)" says so. */}
+      {(() => {
+        const custom = !!(state.dateRangeStart || state.dateRangeEnd)
+          || activeChartDs.some(ds => (dsOffsets[ds] ?? 0) !== 0 || !!dsYLimits[ds]?.min || !!dsYLimits[ds]?.max);
+        return (
+          <button type="button" className="chart-fold" aria-expanded={displayOpen} onClick={toggleDisplay}
+            title={custom ? 'Display options (a custom date range, offset or y limits applies)' : 'Display options'}>
+            <span className={`disclosure-chevron${displayOpen ? ' open' : ''}`} aria-hidden="true" />
+            Display options
+            {custom && <span className="chart-fold-custom">(custom)</span>}
+          </button>
+        );
+      })()}
+      {displayOpen && <>
       {/* Marker size + date range sliders */}
       <div className="chart-sliders">
         <label className="chart-slider-label">
@@ -987,6 +1005,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
           </div>
         );
       })}
+      </>}
 
       <div className="chart-content">
         <Line ref={chartRef} data={formattedChartData} options={chartOptions as any} />

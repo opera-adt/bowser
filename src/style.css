@@ -2290,6 +2290,29 @@ img.huechange { filter: hue-rotate(120deg); }
   color: var(--sb-muted);
 }
 
+.chart-fold {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  margin-bottom: 4px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--sb-muted);
+  font-family: inherit;
+  font-size: 0.72em;
+  cursor: pointer;
+}
+
+.chart-fold:hover {
+  color: var(--sb-text);
+}
+
+.chart-fold-custom {
+  color: var(--sb-accent);
+}
+
 .chart-area-band {
   display: inline-flex;
   align-items: center;
