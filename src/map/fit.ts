@@ -74,6 +74,8 @@ export interface Harmonic {
   amplitudeStd: number;
   /** Day of year of the (first) maximum. */
   peakDoy: number;
+  /** 1-sigma of peakDoy, days (the phase's formal error, propagated like the amplitude's). */
+  peakDoyStd: number;
 }
 
 const YEAR_MS = 365.25 * 86_400_000;
@@ -194,7 +196,10 @@ function harmonic(s: number, c: number, varS: number, varC: number, cov: number,
   // s sin(ωy) + c cos(ωy) = A cos(ωy - φ), φ = atan2(s, c); maximum at y = φ / ω (mod period).
   let frac = Math.atan2(s, c) / TWO_PI; // in cycles
   frac = ((frac % 1) + 1) % 1;
-  return { amplitude, amplitudeStd, peakDoy: Math.round(frac * period * 365.25) + 1 };
+  // φ = atan2(s, c): dφ/ds = c/A², dφ/dc = -s/A²; in days, a cycle is ``period`` years.
+  const phaseVar = amplitude > 0 ? Math.max(0, c * c * varS + s * s * varC - 2 * s * c * cov) / amplitude ** 4 : 0;
+  const peakDoyStd = (Math.sqrt(phaseVar) / TWO_PI) * period * 365.25;
+  return { amplitude, amplitudeStd, peakDoy: Math.round(frac * period * 365.25) + 1, peakDoyStd };
 }
 
 const median = (v: number[]) => {
