@@ -143,6 +143,12 @@ PARAMS: dict[str, dict[str, Any]] = {
         "description": "Phase similarity layer.",
         "examples": ["phase_similarity"],
     },
+    "screen_stride": {
+        "description": "Screen with every n-th time chunk of dates, then recheck "
+        "the shortlist with every date (default: 1, or more only when the "
+        "screening read would exceed 4 billion values per layer).",
+        "examples": [1],
+    },
     "displacement_layer": {
         "description": "Displacement layer for the scatter check (skipped when "
         "absent).",
@@ -379,6 +385,16 @@ ROUTES: dict[str, dict[str, Any]] = {
         "`recommended` is the first. The per-pixel reductions are cached per cube "
         "and layer, so only the first call reads the whole stack. Coherence is not "
         "stability: check each candidate's velocity and what is on the ground.",
+        "tags": [STATS],
+    },
+    "GET /reference_candidates/status": {
+        "summary": "Readiness of the reference finder",
+        "description": "Whether the per-pixel statistics that "
+        "`GET /reference_candidates` needs (median and std through time of "
+        "temporal coherence, phase similarity and the water mask) are ready, being "
+        "computed (with progress) or not started. They are computed once per cube "
+        "and kept in memory and on disk; the full server starts computing them in "
+        "the background when it opens a cube (`BOWSER_REFSTATS_WARMUP`).",
         "tags": [STATS],
     },
     "GET /dataset_range/{dataset_name}": {
@@ -835,9 +851,12 @@ class CandidateScreening(_Fixed):
     pixel_size_m: float
     full_pixel_size_m: float
     refined: bool = Field(
-        description="Whether candidates were refined at full resolution."
+        description="Whether the shortlist was recomputed at full resolution "
+        "with every date (after a coarse level or a date subset)."
     )
     circle_pixels: int = Field(description="Pixels in one circle when screening.")
+    date_stride: int = Field(description="Every n-th time chunk was screened.")
+    dates_screened: int = Field(description="Dates the screening statistics used.")
 
 
 class CandidateParameters(_Fixed):
@@ -864,6 +883,27 @@ class ReferenceCandidates(_Fixed):
     cached: bool = Field(
         description="True when the per-pixel stack statistics came from the cache."
     )
+
+
+class StatsLayerStatus(_Fixed):
+    """One layer's per-pixel statistics in ``GET /reference_candidates/status``."""
+
+    state: Literal["idle", "running", "ready"]
+    progress: float = Field(description="0 to 1.")
+
+
+class ReferenceCandidatesStatus(_Fixed):
+    """``GET /reference_candidates/status``."""
+
+    state: Literal["idle", "running", "ready", "unavailable"] = Field(
+        description="ready: a search answers in seconds; running: being "
+        "prepared (by the background warm-up or a search); idle: not started; "
+        "unavailable: the cube lacks the layers."
+    )
+    progress: float = Field(description="0 to 1, over the layers.")
+    layers: dict[str, StatsLayerStatus]
+    detail: Optional[str]
+    warm_up: bool = Field(description="Whether this server warms up opened cubes.")
 
 
 class ValueRange(_Fixed):

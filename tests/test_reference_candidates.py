@@ -86,15 +86,19 @@ def make_dataset(seed: int = 0) -> xr.Dataset:
     )
 
 
-def write_cube(path: Path) -> Path:
-    """Write the synthetic cube as a GeoZarr store both servers open."""
+def write_cube(path: Path, chunks: tuple[int, int, int] = (4, 32, 32)) -> Path:
+    """Write the synthetic cube as a chunked GeoZarr store both servers open."""
     import rioxarray  # noqa: F401
 
     ds = make_dataset()
     for name in ds.data_vars:
         ds[name].attrs["grid_mapping"] = "spatial_ref"
     ds = ds.rio.write_crs(f"EPSG:{EPSG}")
-    ds.to_zarr(path, mode="w", consolidated=False)
+    encoding = {
+        name: {"chunks": chunks if ds[name].ndim == 3 else chunks[1:]}
+        for name in ds.data_vars
+    }
+    ds.to_zarr(path, mode="w", consolidated=False, encoding=encoding)
     return path
 
 

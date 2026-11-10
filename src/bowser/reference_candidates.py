@@ -66,14 +66,11 @@ from __future__ import annotations
 
 import logging
 import math
-import threading
 import time
-import warnings
-import weakref
 from collections.abc import Sequence
-from contextlib import contextmanager
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any, Iterator, Optional
+from typing import Any, Optional
 
 import numpy as np
 import xarray as xr
@@ -82,15 +79,32 @@ from pyproj import CRS, Transformer
 
 from . import api_models as api
 from .reference import select_circle
+from .refstats import (
+    STATS_CACHE,
+    LayerShapeError,
+    Source,
+    as_tyx,
+    nan_median_std,
+    read_workers,
+    selected_dates,
+    stack_median_std,
+    start_warm_up,
+    warm_up_enabled,
+)
 
 logger = logging.getLogger("bowser")
 
-#: Bytes of one layer read at a time by the per-pixel reduction.
-BLOCK_BYTES = 256 * 1024**2
-#: Values reduced at a time (about 1 MB of float32: stays in the CPU cache).
-TILE_ELEMENTS = 2**18
 #: Percentiles reported for the stack's distribution of each median.
 PERCENTILES = (5, 25, 50, 75, 95, 99)
+#: Automatic date stride: screen every date while the screening level holds at
+#: most this many values per layer (Arkabutla: 82 million; a 30 m DISP-S1 frame
+#: at full resolution: 13 billion), else the smallest stride that fits.
+AUTO_STRIDE_VALUES = 4_000_000_000
+
+
+def _quiet() -> Any:
+    """Silence numpy's floating-point warnings (thread-safe, unlike ``warnings``)."""
+    return np.errstate(all="ignore")
 
 
 class CandidateError(ValueError):
@@ -124,6 +138,7 @@ class CandidateParams:
     water_mask_layer: str = "water_mask"
     mask_layers: tuple[str, ...] = ("recommended_mask",)
     max_screen_pixels: int = 16_000_000
+    screen_stride: int | None = None
 
     @property
     def separation_m(self) -> float:
@@ -144,151 +159,8 @@ class CandidateParams:
             raise CandidateError("min_separation_m must be finite and >= 0")
         if not (math.isfinite(self.k_std) and self.k_std >= 0):
             raise CandidateError("k_std must be finite and >= 0")
-
-
-# --- per-pixel reductions (cached) ----------------------------------------------
-
-
-@contextmanager
-def _quiet() -> Iterator[None]:
-    with warnings.catch_warnings(), np.errstate(all="ignore"):
-        warnings.simplefilter("ignore", RuntimeWarning)
-        yield
-
-
-def nan_median_std(block: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Return the NaN-ignoring median and std of ``block`` along axis 0.
-
-    Same values as ``np.nanmedian`` and ``np.nanstd`` (population std), but the
-    median takes one sort instead of numpy's masked-array path, which is several
-    times slower on a ``(time, y, x)`` block. All-NaN pixels give NaN.
-    """
-    a = np.sort(block, axis=0)  # NaN sorts last
-    n = np.count_nonzero(np.isfinite(a), axis=0)
-    lo = np.maximum((n - 1) // 2, 0)[None]
-    hi = np.maximum(n // 2, 0)[None]
-    with _quiet():
-        med = 0.5 * (
-            np.take_along_axis(a, lo, 0)[0].astype(np.float64)
-            + np.take_along_axis(a, hi, 0)[0]
-        )
-        med[n == 0] = np.nan
-        std = np.nanstd(block, axis=0, dtype=np.float64)
-    return med.astype(np.float32), std.astype(np.float32)
-
-
-def _yx_chunks(da: xr.DataArray) -> tuple[int, int]:
-    """Return the store's chunk size along y and x (512 when unknown)."""
-    pref = da.encoding.get("preferred_chunks") or {}
-    chunks = da.encoding.get("chunks")
-    out = []
-    for dim in ("y", "x"):
-        size = pref.get(dim)
-        if size is None and chunks is not None and len(chunks) == da.ndim:
-            size = chunks[da.dims.index(dim)]
-        out.append(int(size) if size else 512)
-    return out[0], out[1]
-
-
-def _as_tyx(da: xr.DataArray) -> xr.DataArray:
-    """``da`` as ``(t, y, x)``: a 2-D layer gets a length-1 leading axis."""
-    if da.ndim == 2:
-        return da.transpose("y", "x").expand_dims("_t")
-    if da.ndim != 3 or not {"y", "x"}.issubset(da.dims):
-        raise CandidateError(f"Layer {da.name} must be (time, y, x) or (y, x)")
-    return da.transpose(..., "y", "x")
-
-
-def stack_median_std(
-    da: xr.DataArray, rows: slice | None = None, cols: slice | None = None
-) -> tuple[np.ndarray, np.ndarray]:
-    """Per-pixel median and std over time of ``da`` (or a window of it).
-
-    Reads chunk-aligned blocks of at most :data:`BLOCK_BYTES`, so a full DISP-S1
-    frame never has to fit in memory.
-    """
-    da = _as_tyx(da)
-    if rows is not None or cols is not None:
-        da = da.isel(y=rows or slice(None), x=cols or slice(None))
-    nt, ny, nx = da.shape
-    cy, cx = _yx_chunks(da)
-    item = max(np.dtype(da.dtype).itemsize, 4)
-    per_chunk_col = nt * cy * cx * item
-    bx = min(nx, cx * max(1, BLOCK_BYTES // max(per_chunk_col, 1)))
-    by = min(ny, cy)
-    med = np.empty((ny, nx), np.float32)
-    std = np.empty((ny, nx), np.float32)
-    for r0 in range(0, ny, by):
-        for c0 in range(0, nx, bx):
-            block = np.asarray(
-                da.isel(y=slice(r0, r0 + by), x=slice(c0, c0 + bx)).values,
-                dtype=np.float32,
-            )
-            _reduce_in_tiles(
-                block, med[r0 : r0 + by, c0 : c0 + bx], std[r0 : r0 + by, c0 : c0 + bx]
-            )
-    return med, std
-
-
-def _reduce_in_tiles(block: np.ndarray, med: np.ndarray, std: np.ndarray) -> None:
-    """Reduce ``block`` into ``med``/``std`` a cache-sized tile at a time.
-
-    A ``(time, y, x)`` block reduced along time in one go strides through
-    memory; reducing tiles of about :data:`TILE_ELEMENTS` values is an order
-    of magnitude faster (0.3 s instead of 7 s for 240 x 256 x 564).
-    """
-    nt, ny, nx = block.shape
-    cols = max(1, min(nx, TILE_ELEMENTS // max(nt, 1)))
-    rows = max(1, TILE_ELEMENTS // max(nt * cols, 1))
-    for r in range(0, ny, rows):
-        for c in range(0, nx, cols):
-            m, s = nan_median_std(block[:, r : r + rows, c : c + cols])
-            med[r : r + rows, c : c + cols] = m
-            std[r : r + rows, c : c + cols] = s
-
-
-class _StatsCache:
-    """Per-dataset, per-layer cache of :func:`stack_median_std` results.
-
-    Keyed by the opened ``xr.Dataset`` object (its ``id``, dropped when the
-    dataset is garbage collected, e.g. evicted from a catalog registry) and the
-    layer name. One lock serialises the computations: two simultaneous first
-    requests would otherwise both read the whole stack.
-    """
-
-    def __init__(self) -> None:
-        self._data: dict[int, dict[str, tuple[np.ndarray, np.ndarray]]] = {}
-        self._lock = threading.RLock()
-        self.computed = 0  # number of layer reductions run (tests read it)
-
-    def get(self, ds: xr.Dataset, name: str) -> tuple[tuple[np.ndarray, ...], bool]:
-        """Return ``((median, std), was_cached)`` for layer ``name`` of ``ds``."""
-        key = id(ds)
-        with self._lock:
-            per_ds = self._data.get(key)
-            if per_ds is not None and name in per_ds:
-                return per_ds[name], True
-            t0 = time.perf_counter()
-            stats = stack_median_std(ds[name])
-            self.computed += 1
-            logger.info(
-                f"reference candidates: median/std of {name} "
-                f"{ds[name].shape} in {time.perf_counter() - t0:.1f} s"
-            )
-            if per_ds is None:
-                per_ds = self._data[key] = {}
-                weakref.finalize(ds, self._data.pop, key, None)
-            per_ds[name] = stats
-            return stats, False
-
-    def clear(self) -> None:
-        """Forget every cached reduction."""
-        with self._lock:
-            self._data.clear()
-
-
-#: The process-wide cache both servers use.
-STATS_CACHE = _StatsCache()
+        if self.screen_stride is not None and self.screen_stride < 1:
+            raise CandidateError("screen_stride must be at least 1")
 
 
 # --- circles ---------------------------------------------------------------------
@@ -412,7 +284,7 @@ def _layer(ds: xr.Dataset, name: str | None, *, required: bool) -> str | None:
 
 
 def _keep_mask(
-    ds: xr.Dataset, layers: dict[str, Any]
+    ds: xr.Dataset, layers: dict[str, Any], stride: int, source: Source | None
 ) -> tuple[np.ndarray | None, bool]:
     """Pixels not excluded by the water mask and (``use_masks``) the masks.
 
@@ -424,11 +296,11 @@ def _keep_mask(
     cached_all = True
     water = layers["water_mask"]
     if water is not None:
-        (wmed, _), cached = STATS_CACHE.get(ds, water)
+        (wmed, _), cached = STATS_CACHE.get(ds, water, source=source)
         cached_all &= cached
         keep = wmed != 0
     for name in layers["masks"]:
-        (mmed, _), cached = STATS_CACHE.get(ds, name)
+        (mmed, _), cached = STATS_CACHE.get(ds, name, stride=stride, source=source)
         cached_all &= cached
         good = mmed >= 0.5
         keep = good if keep is None else keep & good
@@ -447,10 +319,13 @@ def _window_keep(
     return keep
 
 
-def _screen(ds: xr.Dataset, layers: dict[str, Any]) -> tuple[_Screen, bool]:
-    (mc, sc), c1 = STATS_CACHE.get(ds, layers["coherence"])
-    (mp, sp), c2 = STATS_CACHE.get(ds, layers["similarity"])
-    keep, c3 = _keep_mask(ds, layers)
+def _screen(
+    ds: xr.Dataset, layers: dict[str, Any], stride: int, source: Source | None
+) -> tuple[_Screen, bool]:
+    get = STATS_CACHE.get
+    (mc, sc), c1 = get(ds, layers["coherence"], stride=stride, source=source)
+    (mp, sp), c2 = get(ds, layers["similarity"], stride=stride, source=source)
+    keep, c3 = _keep_mask(ds, layers, stride, source)
     valid = np.ones(mc.shape, bool) if keep is None else keep
     return _Screen(mc, sc, mp, sp, valid), c1 and c2 and c3
 
@@ -494,7 +369,7 @@ def displacement_scatter(
     """
     if radius_m <= 0:
         return None, 1
-    da = _as_tyx(ds[name])
+    da = as_tyx(ds[name])
     found = select_circle(da, cx, cy, radius_m, margin_window=True, sqrt_distance=True)
     if found is None:
         found = select_circle(da, cx, cy, radius_m)
@@ -505,9 +380,9 @@ def displacement_scatter(
     if vals.shape[1] < 2:
         return None, int(vals.shape[1])
     with _quiet():
-        resid = vals - np.nanmedian(vals, axis=1, keepdims=True)
-        per_pixel = np.nanstd(resid, axis=0)
-        scatter = float(np.nanmedian(per_pixel))
+        circle_median, _ = nan_median_std(vals.T, np.float64)  # per date
+        _, per_pixel = nan_median_std(vals - circle_median[:, None], np.float64)
+        scatter = float(nan_median_std(per_pixel[:, None], np.float64)[0][0])
     if not math.isfinite(scatter):
         return None, int(vals.shape[1])
     return scatter * _units_to_m(ds[name].attrs.get("units")), int(vals.shape[1])
@@ -540,7 +415,11 @@ def _f(v: Any) -> float | None:
 
 
 def find_reference_candidates(
-    levels: Sequence[xr.Dataset], crs: Any, params: CandidateParams | None = None
+    levels: Sequence[xr.Dataset],
+    crs: Any,
+    params: CandidateParams | None = None,
+    *,
+    sources: Sequence[Source | None] | None = None,
 ) -> dict:
     """Rank stable reference-point candidates (see the module docstring).
 
@@ -553,6 +432,9 @@ def find_reference_candidates(
         The grid's CRS: projected, in metres.
     params : CandidateParams
         Radius, count, spacing, thresholds and layer names.
+    sources : sequence of refstats.Source, optional
+        Where each level was read from, to keep the per-pixel reductions in the
+        disk cache across restarts (memory only without it).
 
     Returns
     -------
@@ -575,38 +457,15 @@ def find_reference_candidates(
         a.unit_conversion_factor != 1.0 for a in crs.axis_info[:2]
     ):
         raise CandidateError("Reference candidates need a projected CRS in metres")
+    li, layers, stride = plan(levels, params)
     full = levels[0]
-    layers: dict[str, Any] = {
-        "coherence": _layer(full, params.coherence_layer, required=True),
-        "similarity": _layer(full, params.similarity_layer, required=True),
-        "displacement": _layer(full, params.displacement_layer, required=False),
-        "velocity": _layer(full, params.velocity_layer, required=False),
-        "water_mask": _layer(full, params.water_mask_layer, required=False),
-        "masks": [
-            m
-            for m in (params.mask_layers if params.use_masks else ())
-            if _layer(full, m, required=False)
-        ],
-    }
-    usable = [
-        i
-        for i, lv in enumerate(levels)
-        if all(
-            n is None or n in lv.data_vars
-            for n in (
-                layers["coherence"],
-                layers["similarity"],
-                layers["water_mask"],
-                *layers["masks"],
-            )
-        )
-    ]
-    li = usable[_choose_level([levels[i] for i in usable], params.max_screen_pixels)]
     ds = levels[li]
+    source = sources[li] if sources is not None else None
     screen_px = _pixel_size(ds)
     full_px = _pixel_size(full)
+    n_dates = sum(b - a for a, b in selected_dates(ds[layers["coherence"]], stride))
 
-    scr, cached = _screen(ds, layers)
+    scr, cached = _screen(ds, layers, stride, source)
     t_stats = time.perf_counter()
     mc_valid = scr.med_c[scr.valid]
     mp_valid = scr.med_p[scr.valid]
@@ -639,15 +498,17 @@ def find_reference_candidates(
     picks = _pick_spaced(order, xv[cc], yv[rr], sep, n_short)
     t_nbhd = time.perf_counter()
 
-    refined = li != 0
+    # A coarse level or a date subset only screens: the shortlist is then
+    # recomputed at full resolution with every date.
+    refined = li != 0 or stride > 1
     if refined:
         fdy, fdx = disc_offsets(full, params.radius_m)
         fruns = _row_runs(fdy, fdx)
         full_disc = fdy.size
+        # Search the coarse pixel's footprint; on level 0, the pixel itself.
+        half = screen_px / 2.0 if li != 0 else 0.0
 
-    to_lonlat = Transformer.from_crs(crs, 4326, always_xy=True)
-    rows_out: list[dict] = []
-    for p in picks:
+    def evaluate(p: int) -> dict[str, Any] | None:
         r, c = int(rr[p]), int(cc[p])
         stats: dict[str, Any] | None
         if not refined:
@@ -671,7 +532,7 @@ def find_reference_candidates(
                 layers,
                 float(xv[c]),
                 float(yv[r]),
-                screen_px,
+                half,
                 full_px,
                 params,
                 k,
@@ -681,7 +542,7 @@ def find_reference_candidates(
                 full_disc,
             )
         if stats is None:
-            continue
+            return None
         scatter = None
         if layers["displacement"] is not None:
             scatter, _ = displacement_scatter(
@@ -691,7 +552,17 @@ def find_reference_candidates(
         final = stats["nscore"] * (s0 / (s0 + scatter) if scatter is not None else 1.0)
         stats["scatter"] = scatter
         stats["final"] = float(final)
-        rows_out.append(stats)
+        return stats
+
+    to_lonlat = Transformer.from_crs(crs, 4326, always_xy=True)
+    # Each shortlisted circle reads its own window of every date: in parallel.
+    workers = min(read_workers(), max(len(picks), 1))
+    if workers > 1:
+        with ThreadPoolExecutor(workers) as pool:
+            evaluated = list(pool.map(evaluate, picks))
+    else:
+        evaluated = [evaluate(p) for p in picks]
+    rows_out: list[dict] = [e for e in evaluated if e is not None]
 
     if refined:  # refined centres moved: keep the spacing
         rows_out.sort(key=lambda s: -s["nscore"])
@@ -788,9 +659,107 @@ def find_reference_candidates(
             "full_pixel_size_m": full_px,
             "refined": refined,
             "circle_pixels": int(dy.size),
+            "date_stride": int(stride),
+            "dates_screened": int(n_dates),
         },
         "cached": bool(cached),
     }
+
+
+def plan(
+    levels: Sequence[xr.Dataset], params: CandidateParams
+) -> tuple[int, dict[str, Any], int]:
+    """Return the screening level, the layers and the date stride of a search."""
+    full = levels[0]
+    layers: dict[str, Any] = {
+        "coherence": _layer(full, params.coherence_layer, required=True),
+        "similarity": _layer(full, params.similarity_layer, required=True),
+        "displacement": _layer(full, params.displacement_layer, required=False),
+        "velocity": _layer(full, params.velocity_layer, required=False),
+        "water_mask": _layer(full, params.water_mask_layer, required=False),
+        "masks": [
+            m
+            for m in (params.mask_layers if params.use_masks else ())
+            if _layer(full, m, required=False)
+        ],
+    }
+    usable = [
+        i
+        for i, lv in enumerate(levels)
+        if all(
+            n is None or n in lv.data_vars
+            for n in (
+                layers["coherence"],
+                layers["similarity"],
+                layers["water_mask"],
+                *layers["masks"],
+            )
+        )
+    ]
+    li = usable[_choose_level([levels[i] for i in usable], params.max_screen_pixels)]
+    stride = params.screen_stride
+    if stride is None:  # automatic: every date unless the screening read is huge
+        ds = levels[li]
+        nt = ds[layers["coherence"]].size // (ds.sizes["y"] * ds.sizes["x"])
+        pixels = ds.sizes["y"] * ds.sizes["x"]
+        stride = 1
+        while nt / stride * pixels > AUTO_STRIDE_VALUES and stride < nt:
+            stride += 1
+    return li, layers, int(stride)
+
+
+def _warm_layers(levels: Sequence[xr.Dataset], params: CandidateParams):
+    li, layers, stride = plan(levels, params)
+    names = [(layers["coherence"], stride), (layers["similarity"], stride)]
+    if layers["water_mask"]:
+        names.append((layers["water_mask"], 1))
+    names += [(m, stride) for m in layers["masks"]]
+    return li, names
+
+
+def warm_up(
+    levels: Sequence[xr.Dataset],
+    *,
+    sources: Sequence[Source | None] | None = None,
+    default: bool = True,
+    params: CandidateParams | None = None,
+) -> bool:
+    """Start computing a cube's default reductions in the background.
+
+    Off when ``BOWSER_REFSTATS_WARMUP`` says so (or ``default`` is False and it is
+    unset), and for cubes without coherence and similarity. Returns whether a
+    warm-up started. Never raises.
+    """
+    if not warm_up_enabled(default) or not levels:
+        return False
+    try:
+        li, names = _warm_layers(levels, params or CandidateParams())
+    except (CandidateError, KeyError):
+        return False
+    except Exception as e:  # noqa: BLE001 - opening a cube must not fail on this
+        logger.warning(f"reference candidates: no warm-up: {e}")
+        return False
+    return start_warm_up(levels[li], names, sources[li] if sources else None)
+
+
+def status(levels: Sequence[xr.Dataset], params: CandidateParams | None = None) -> dict:
+    """Progress of the reductions a default search needs (``GET .../status``)."""
+    params = params or CandidateParams()
+    try:
+        li, names = _warm_layers(levels, params)
+    except (CandidateError, KeyError) as e:
+        return {"state": "unavailable", "progress": 0.0, "layers": {}, "detail": str(e)}
+    ds = levels[li]
+    out: dict[str, dict[str, Any]] = {}
+    for name, stride in names:
+        state, prog = STATS_CACHE.state(ds, name, stride)
+        out[name] = {"state": state, "progress": prog}
+    states = {v["state"] for v in out.values()}
+    overall = (
+        "ready" if states == {"ready"} else "running" if "running" in states else "idle"
+    )
+    progress = sum(v["progress"] for v in out.values()) / max(len(out), 1)
+    return {"state": overall, "progress": progress, "layers": out, "detail": None}
 
 
 def _refine(
@@ -798,7 +767,7 @@ def _refine(
     layers: dict[str, Any],
     x0: float,
     y0: float,
-    screen_px: float,
+    half: float,
     full_px: float,
     params: CandidateParams,
     k: float,
@@ -807,9 +776,8 @@ def _refine(
     runs: list[tuple[int, int, int]],
     disc_size: int,
 ) -> dict | None:
-    """Best full-resolution centre within the coarse pixel at ``(x0, y0)``."""
+    """Best full-resolution centre within ``half`` of ``(x0, y0)``, all dates."""
     xv, yv = full["x"].values, full["y"].values
-    half = screen_px / 2.0
     reach = half + params.radius_m + 2 * full_px
     cols = np.flatnonzero(np.abs(xv - x0) <= reach)
     rows = np.flatnonzero(np.abs(yv - y0) <= reach)
@@ -878,6 +846,9 @@ def candidate_query(
     coherence_layer: str = Query("temporal_coherence", **api.PARAMS["coherence_layer"]),
     similarity_layer: str = Query("phase_similarity", **api.PARAMS["similarity_layer"]),
     displacement_layer: str = Query("displacement", **api.PARAMS["displacement_layer"]),
+    screen_stride: Optional[int] = Query(
+        None, ge=1, le=64, **api.PARAMS["screen_stride"]
+    ),
 ) -> CandidateParams:
     """FastAPI dependency: the ``GET /reference_candidates`` query, for both servers."""
     return CandidateParams(
@@ -892,18 +863,22 @@ def candidate_query(
         coherence_layer=coherence_layer,
         similarity_layer=similarity_layer,
         displacement_layer=displacement_layer,
+        screen_stride=screen_stride,
     )
 
 
 def run_or_http_error(
-    levels: Sequence[xr.Dataset], crs: Any, params: CandidateParams
+    levels: Sequence[xr.Dataset],
+    crs: Any,
+    params: CandidateParams,
+    sources: Sequence[Source | None] | None = None,
 ) -> dict:
     """:func:`find_reference_candidates`, with its errors as HTTP 404 / 400."""
     try:
-        return find_reference_candidates(levels, crs, params)
+        return find_reference_candidates(levels, crs, params, sources=sources)
     except MissingLayerError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
-    except CandidateError as e:
+    except (CandidateError, LayerShapeError) as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
@@ -912,7 +887,11 @@ __all__ = [
     "CandidateParams",
     "MissingLayerError",
     "STATS_CACHE",
+    "Source",
     "candidate_query",
+    "plan",
+    "status",
+    "warm_up",
     "find_reference_candidates",
     "run_or_http_error",
 ]
