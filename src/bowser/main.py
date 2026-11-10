@@ -2473,7 +2473,9 @@ def export_geotiff(
         else:
             rg = target.raster_groups[variable]
             allowed = rg.uses_spatial_ref and rg.algorithm == "shift"
-            idx = 0 if time_idx is None else max(0, min(time_idx, len(rg.file_list) - 1))
+            idx = (
+                0 if time_idx is None else max(0, min(time_idx, len(rg.file_list) - 1))
+            )
             source = rioxarray.open_rasterio(rg.file_list[idx], masked=True).squeeze(
                 "band", drop=True
             )
@@ -2482,6 +2484,8 @@ def export_geotiff(
                 raise ValueError(
                     "This layer does not use an interactive spatial reference"
                 )
+            # Both were checked above: a reference needs ref_lon and ref_lat.
+            assert ref_lon is not None and ref_lat is not None
             offset, tags = reference_offset(
                 source,
                 ref_lon,
