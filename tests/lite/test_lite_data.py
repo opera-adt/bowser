@@ -313,3 +313,13 @@ def test_tile_source_masks_like_the_full_server(regression_cube):
     xr.testing.assert_identical(got.drop_vars("time"), want.drop_vars("time"))
     with pytest.raises(Exception, match="not found"):
         tiles.tile_source(c.dataset, tiles.TileQuery(variable="nope"))
+
+
+def test_datasets_carry_the_cubes_radar_wavelength(tmp_path):
+    """``/datasets``: the radar wavelength a variable records, for the series checks."""
+    c = lcube.open_cube(str(_plain_cube(tmp_path / "w.zarr")))
+    assert "radar_wavelength_m" not in meta.dataset_info(c, True)["displacement"]
+    c.dataset["coh"].attrs["wavelength_m"] = "0.05546576"
+    info = meta.dataset_info(c, True)
+    assert info["displacement"]["radar_wavelength_m"] == 0.05546576
+    assert info["coh"]["radar_wavelength_m"] == 0.05546576

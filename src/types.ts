@@ -50,6 +50,8 @@ export interface RasterGroup {
   // reference_point / tifs-to-geozarr --reference-point). Seeds the moving
   // reference marker; null when the cube carries none.
   reference_lonlat?: [number, number] | null;
+  // The radar wavelength (m) when the cube records it: unwrapping errors are multiples of half of it.
+  radar_wavelength_m?: number | null;
 }
 
 export interface TimeSeriesPoint {

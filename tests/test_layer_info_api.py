@@ -40,6 +40,10 @@ def _exercise(work: Path) -> None:
         assert response.status_code == 200, (mode, response.text)
         data = response.json()
         displacement = data["displacement"]
+        # The cube's radar wavelength (from any variable), for the chart's checks.
+        assert displacement.get("radar_wavelength_m") == (
+            None if mode == "cog" else 0.05546576
+        ), (mode, displacement.get("radar_wavelength_m"))
         assert displacement["unit"] == "cm"
         assert (
             displacement["source_description"]
@@ -115,7 +119,11 @@ def test_actual_dataset_endpoints_and_point_values(tmp_path):
             "unfamiliar": (
                 ("y", "x"),
                 values,
-                {"description": "Temperature anomaly.", "units": "K"},
+                {
+                    "description": "Temperature anomaly.",
+                    "units": "K",
+                    "wavelength_m": "0.05546576",
+                },
             ),
             "undocumented": (("y", "x"), values),
         },
