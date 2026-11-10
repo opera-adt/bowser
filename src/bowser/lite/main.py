@@ -666,10 +666,12 @@ def _check_tms(tms: str) -> None:
         )
 
 
+# TiTiler 2 leaves these out of the tile URL's query (tilesize is re-added
+# last); tile_scale has no meaning there and is passed through unchanged.
 _TILEJSON_DROP = {
     "tilematrixsetid",
     "tile_format",
-    "tile_scale",
+    "tilesize",
     "minzoom",
     "maxzoom",
 }
@@ -691,8 +693,7 @@ def tilejson(
     algorithm: str | None = Query(None),
     algorithm_params: str | None = Query(None),
     tile_format: str | None = Query(None),
-    tile_scale: Annotated[int, Query(gt=0, lt=4)] = 1,
-    tilesize: Annotated[int | None, Query(gt=0)] = None,  # noqa: ARG001 — validated, passed through
+    tilesize: Annotated[int | None, Query(gt=0)] = None,
     minzoom: int | None = Query(None),
     maxzoom: int | None = Query(None),
 ):
@@ -717,13 +718,9 @@ def tilejson(
     )
     min_z = minzoom if minzoom is not None else min_z
     max_z = maxzoom if maxzoom is not None else max_z
-    # Mirror the full server's pinned TiTiler (0.22): an @{scale}x path suffix,
-    # with any tilesize the client sent passed through in the query (the tile
-    # endpoint honours it). Move to TiTiler 2's unsuffixed URLs together with
-    # the full server.
-    url = (
-        f"{request.base_url}md/tiles/{tileMatrixSetId}/{{z}}/{{x}}/{{y}}@{tile_scale}x"
-    )
+    # Mirror the full server's TiTiler 2: no @Nx path suffix, and the tile size
+    # in the query, 512 unless the client asked for another.
+    url = f"{request.base_url}md/tiles/{tileMatrixSetId}/{{z}}/{{x}}/{{y}}"
     if tile_format:
         url += f".{tile_format}"
     qs = [
@@ -731,12 +728,12 @@ def tilejson(
         for k, v in request.query_params.multi_items()
         if k.lower() not in _TILEJSON_DROP
     ]
-    if qs:
-        url += f"?{urlencode(qs)}"
+    qs.append(("tilesize", str(tilesize if tilesize is not None else 512)))
+    url += f"?{urlencode(qs)}"
     ll = geo.transform_bounds(cube.crs, geo.WGS84, bounds)
     return NanJSONResponse(
         {
-            "tilejson": "2.2.0",
+            "tilejson": "3.0.0",
             "version": "1.0.0",
             "scheme": "xyz",
             "tiles": [url],
