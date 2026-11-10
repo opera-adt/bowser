@@ -24,6 +24,7 @@ from fastapi import (
     Response,
     UploadFile,
 )
+from fastapi import Path as PathParam
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response as StarletteResponse
@@ -31,6 +32,7 @@ from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 from starlette_cramjam.middleware import CompressionMiddleware
 
+from . import api_models as api
 from .config import settings
 from .polygon import PolygonRequest, summarize_rasters, summarize_xarray
 from .reference import (
@@ -103,6 +105,7 @@ app = FastAPI(
     openapi_url="/api",
     docs_url="/api.html",
 )
+app.openapi_tags = api.API_TAGS
 
 
 def _load_htpasswd(path: str) -> dict[str, str]:
@@ -250,7 +253,9 @@ def _resolve_state(dataset: str | None) -> BowserState:
         raise HTTPException(status_code=404, detail=str(e)) from e
 
 
-def TargetState(dataset: str | None = Query(None)) -> BowserState:
+def TargetState(
+    dataset: str | None = Query(None, **api.PARAMS["dataset"]),
+) -> BowserState:
     """FastAPI dependency: route a request to its catalog-chosen ``BowserState``.
 
     Every MD endpoint that reads ``target.dataset`` / ``target.raster_groups``
@@ -516,8 +521,14 @@ def create_rastergroup_dataset_info(raster_groups: dict) -> dict:
     return dataset_info
 
 
-@app.get("/datasets")
-async def datasets(dataset: str | None = Query(None)):
+@app.get(
+    "/datasets",
+    responses={200: {"model": api.DatasetsInfo}},
+    **api.route_doc("GET /datasets"),
+)
+async def datasets(
+    dataset: str | None = Query(None, **api.PARAMS["dataset"]),
+):
     """Return the JSON describing all data variables for the chosen dataset.
 
     When ``dataset`` is given, routes through the catalog-loaded store for
@@ -531,14 +542,23 @@ async def datasets(dataset: str | None = Query(None)):
         return create_rastergroup_dataset_info(target.raster_groups)
 
 
-@app.get("/mode")
+@app.get(
+    "/mode", responses={200: {"model": api.ModeInfo}}, **api.route_doc("GET /mode")
+)
 async def get_mode():
     """Return the current data mode (md or cog) for frontend routing."""
     return {"mode": state.mode}
 
 
-@app.get("/config")
-async def get_config(request: Request, dataset: str | None = Query(None)):
+@app.get(
+    "/config",
+    responses={200: {"model": api.ConfigInfo}},
+    **api.route_doc("GET /config"),
+)
+async def get_config(
+    request: Request,
+    dataset: str | None = Query(None, **api.PARAMS["dataset"]),
+):
     """Return app configuration for the frontend.
 
     With a catalog dataset (``?dataset=<id>`` on this request, or on the page
@@ -561,7 +581,11 @@ async def get_config(request: Request, dataset: str | None = Query(None)):
     }
 
 
-@app.get("/catalog")
+@app.get(
+    "/catalog",
+    responses={200: {"model": api.CatalogInfo}},
+    **api.route_doc("GET /catalog"),
+)
 async def get_catalog():
     """Return the registered dataset catalog as JSON for the picker UI.
 
@@ -593,8 +617,12 @@ def _opened_id(name: str, uri: str) -> str:
     return f"{slug}-{hashlib.sha1(uri.encode()).hexdigest()[:8]}"
 
 
-@app.post("/catalog/scan")
-def scan_folder(body: dict = Body(...)):
+@app.post(
+    "/catalog/scan",
+    responses={200: {"model": api.ScanResult}},
+    **api.route_doc("POST /catalog/scan"),
+)
+def scan_folder(body: dict = Body(..., examples=[{"dir": "/data/cubes"}])):
     """List the GeoZarr cubes under a folder (to open with ``POST /catalog/open``).
 
     Off unless ``BOWSER_ALLOW_OPEN`` is set, like opening: it lets a client list the
@@ -616,8 +644,14 @@ def scan_folder(body: dict = Body(...)):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.post("/catalog/open")
-async def open_dataset(body: dict = Body(...)):
+@app.post(
+    "/catalog/open",
+    responses={200: {"model": api.OpenedDataset}},
+    **api.route_doc("POST /catalog/open"),
+)
+async def open_dataset(
+    body: dict = Body(..., examples=[{"uri": "/data/cubes/site_asc.zarr"}]),
+):
     """Open a GeoZarr store by path or URL and add it to the catalog.
 
     Returns ``{id, name}``; the page then loads ``/?dataset=<id>``. Disabled
@@ -675,8 +709,14 @@ async def open_dataset(body: dict = Body(...)):
     return {"id": entry.id, "name": entry.name}
 
 
-@app.get("/variables")
-async def get_variables(dataset: str | None = Query(None)):
+@app.get(
+    "/variables",
+    responses={200: {"model": api.VariablesInfo}},
+    **api.route_doc("GET /variables"),
+)
+async def get_variables(
+    dataset: str | None = Query(None, **api.PARAMS["dataset"]),
+):
     """Get available variables (only for MD mode).
 
     When ``dataset`` is given, resolves to that catalog entry's store;
@@ -861,15 +901,21 @@ def _point_xy(dataset_name: str, lon: float, lat: float) -> tuple[float, float] 
 @app.get(
     "/point",
     response_class=JSONResponse,
+    response_model=api.PointValues,
     responses={200: {"description": "Return the list of values for a point"}},
+    **api.route_doc("GET /point"),
 )
 async def point(
-    dataset_name: str,
-    lon: Annotated[float, Query(..., title="Longitude", ge=-180, le=180)],
-    lat: Annotated[float, Query(..., title="Latitude", ge=-90, le=90)],
+    dataset_name: Annotated[str, Query(**api.PARAMS["dataset_name"])],
+    lon: Annotated[
+        float, Query(..., title="Longitude", ge=-180, le=180, **api.PARAMS["lon"])
+    ],
+    lat: Annotated[
+        float, Query(..., title="Latitude", ge=-90, le=90, **api.PARAMS["lat"])
+    ],
     time_idx: Annotated[
         int | None,
-        Query(title="Time index — read only this step (fast single-value hover)"),
+        Query(title="Time index", **api.PARAMS["time_idx"]),
     ] = None,
 ):
     """Fetch point values. Full time series, or one value when ``time_idx`` is set."""
@@ -880,17 +926,27 @@ async def point(
 @app.get(
     "/chart_point",
     response_class=JSONResponse,
+    response_model=api.ChartPoint,
     responses={200: {"description": "Return the Chart.js-formatted data for a point"}},
+    **api.route_doc("GET /chart_point"),
 )
 async def chart_point(
-    dataset_name: str,
-    lon: Annotated[float, Query(..., title="Longitude", ge=-180, le=180)],
-    lat: Annotated[float, Query(..., title="Latitude", ge=-90, le=90)],
+    dataset_name: Annotated[str, Query(**api.PARAMS["dataset_name"])],
+    lon: Annotated[
+        float, Query(..., title="Longitude", ge=-180, le=180, **api.PARAMS["lon"])
+    ],
+    lat: Annotated[
+        float, Query(..., title="Latitude", ge=-90, le=90, **api.PARAMS["lat"])
+    ],
     ref_lon: Annotated[
-        float | None, Query(..., title="Reference longitude", ge=-180, le=180)
+        float | None,
+        Query(
+            ..., title="Reference longitude", ge=-180, le=180, **api.PARAMS["ref_lon"]
+        ),
     ] = None,
     ref_lat: Annotated[
-        float | None, Query(..., title="Reference latitude", ge=-90, le=90)
+        float | None,
+        Query(..., title="Reference latitude", ge=-90, le=90, **api.PARAMS["ref_lat"]),
     ] = None,
 ):
     """Fetch the Chart.js time series values for a point (relative to a reference)."""
@@ -935,24 +991,18 @@ async def chart_point(
 @app.post(
     "/multi_point",
     response_class=JSONResponse,
+    response_model=api.MultiPointSeries,
     responses={200: {"description": "Return time series data for multiple points"}},
+    **api.route_doc("POST /multi_point"),
 )
 async def multi_point(
-    points: list[dict[str, Any]] = Body(
-        ..., description="List of points with id, lat, lon"
-    ),
-    dataset_name: str = Body(..., description="Dataset name"),
-    ref_lon: Optional[float] = Body(None, description="Reference longitude"),
-    ref_lat: Optional[float] = Body(None, description="Reference latitude"),
-    calculate_trends: bool = Body(
-        False, description="Whether to calculate trend analysis"
-    ),
-    layer_masks: list[dict] = Body(
-        [], description="List of {dataset, threshold, mode} mask dicts"
-    ),
-    ref_buffer_m: float = Body(
-        0.0, description="Buffer radius (m) for median re-referencing; 0 = single pixel"
-    ),
+    points: list[dict[str, Any]] = Body(..., **api.PARAMS["points"]),
+    dataset_name: str = Body(..., **api.PARAMS["dataset_name"]),
+    ref_lon: Optional[float] = Body(None, **api.PARAMS["ref_lon"]),
+    ref_lat: Optional[float] = Body(None, **api.PARAMS["ref_lat"]),
+    calculate_trends: bool = Body(False, **api.PARAMS["calculate_trends"]),
+    layer_masks: list[dict] = Body([], **api.PARAMS["layer_masks"]),
+    ref_buffer_m: float = Body(0.0, **api.PARAMS["ref_buffer_m"]),
 ):
     """Fetch time series data for multiple points efficiently."""
     # Get time values based on data mode
@@ -1057,17 +1107,23 @@ async def multi_point(
 @app.get(
     "/trend_analysis/{dataset_name}",
     response_class=JSONResponse,
+    response_model=api.Trend,
     responses={200: {"description": "Return trend analysis for a point"}},
+    **api.route_doc("GET /trend_analysis/{dataset_name}"),
 )
 async def trend_analysis(
-    dataset_name: str,
-    lon: Annotated[float, Query(title="Longitude", ge=-180, le=180)],
-    lat: Annotated[float, Query(title="Latitude", ge=-90, le=90)],
+    dataset_name: Annotated[str, PathParam(**api.PARAMS["dataset_name"])],
+    lon: Annotated[
+        float, Query(title="Longitude", ge=-180, le=180, **api.PARAMS["lon"])
+    ],
+    lat: Annotated[float, Query(title="Latitude", ge=-90, le=90, **api.PARAMS["lat"])],
     ref_lon: Annotated[
-        float | None, Query(title="Reference longitude", ge=-180, le=180)
+        float | None,
+        Query(title="Reference longitude", ge=-180, le=180, **api.PARAMS["ref_lon"]),
     ] = None,
     ref_lat: Annotated[
-        float | None, Query(title="Reference latitude", ge=-90, le=90)
+        float | None,
+        Query(title="Reference latitude", ge=-90, le=90, **api.PARAMS["ref_lat"]),
     ] = None,
 ):
     """Calculate trend analysis (mm/year rate) for a single point."""
@@ -1102,9 +1158,13 @@ async def trend_analysis(
     return JSONResponse(trend_data)
 
 
-@app.get("/datasets/{dataset_name}/time_bounds")
+@app.get(
+    "/datasets/{dataset_name}/time_bounds",
+    response_model=api.TimeBounds,
+    **api.route_doc("GET /datasets/{dataset_name}/time_bounds"),
+)
 async def get_time_bounds(
-    dataset_name: str,
+    dataset_name: Annotated[str, PathParam(**api.PARAMS["dataset_name"])],
     target: BowserState = Depends(TargetState),
 ):
     """Get time bounds for a dataset to help with trend calculations."""
@@ -1135,8 +1195,15 @@ async def get_time_bounds(
     )
 
 
-@app.get("/colorbar/{cmap_name}")
-async def get_colorbar(cmap_name: str):
+@app.get(
+    "/colorbar/{cmap_name}",
+    response_class=Response,
+    responses=api.image_response("image/webp", "The colorbar as WEBP"),
+    **api.route_doc("GET /colorbar/{cmap_name}"),
+)
+async def get_colorbar(
+    cmap_name: Annotated[str, PathParam(**api.PARAMS["cmap_name"])],
+):
     """Get a WEBP image of a matplotlib colorbar."""
     try:
         colorbar_bytes = generate_colorbar(cmap_name)
@@ -1155,9 +1222,11 @@ async def get_colorbar(cmap_name: str):
             )
         }
     },
+    response_model=api.ValueRange,
+    **api.route_doc("GET /dataset_range/{dataset_name}"),
 )
 async def get_dataset_range(
-    dataset_name: str,
+    dataset_name: Annotated[str, PathParam(**api.PARAMS["dataset_name"])],
     target: BowserState = Depends(TargetState),
 ):
     """Return the value range of a dataset for use in mask threshold sliders."""
@@ -1199,7 +1268,12 @@ async def get_dataset_range(
     )
 
 
-@app.post("/polygon_timeseries", tags=["Analysis"], response_class=JSONResponse)
+@app.post(
+    "/polygon_timeseries",
+    response_class=JSONResponse,
+    response_model=api.PolygonStatistics,
+    **api.route_doc("POST /polygon_timeseries"),
+)
 def polygon_timeseries(
     body: PolygonRequest,
     target: BowserState = Depends(TargetState),
@@ -1242,11 +1316,13 @@ def polygon_timeseries(
     "/histogram/{dataset_name}",
     response_class=JSONResponse,
     responses={200: {"description": "Return histogram data for one time slice"}},
+    response_model=api.Histogram,
+    **api.route_doc("GET /histogram/{dataset_name}"),
 )
 async def get_histogram(
-    dataset_name: str,
-    time_index: Annotated[int, Query(ge=0)] = 0,
-    nbins: Annotated[int, Query(ge=4, le=256)] = 100,
+    dataset_name: Annotated[str, PathParam(**api.PARAMS["dataset_name"])],
+    time_index: Annotated[int, Query(ge=0, **api.PARAMS["time_index"])] = 0,
+    nbins: Annotated[int, Query(ge=4, le=256, **api.PARAMS["nbins"])] = 100,
     target: BowserState = Depends(TargetState),
 ):
     """Compute a histogram of valid pixel values for one time step of a dataset."""
@@ -1326,21 +1402,19 @@ async def get_histogram(
             "description": "Return median + sampled pixel time series within a buffer"
         }
     },
+    response_model=api.BufferSeries,
+    **api.route_doc("POST /buffer_timeseries"),
 )
 async def buffer_timeseries(
-    lon: float = Body(..., description="Center longitude"),
-    lat: float = Body(..., description="Center latitude"),
-    dataset_name: str = Body(..., description="Dataset name"),
-    buffer_m: float = Body(500.0, description="Buffer radius in metres"),
-    n_samples: int = Body(10, description="Number of random pixel samples to return"),
-    ref_lon: Optional[float] = Body(None),
-    ref_lat: Optional[float] = Body(None),
-    layer_masks: list[dict] = Body(
-        [], description="List of {dataset, threshold, mode} mask dicts"
-    ),
-    ref_buffer_m: float = Body(
-        0.0, description="Buffer radius (m) for median re-referencing; 0 = single pixel"
-    ),
+    lon: float = Body(..., **api.PARAMS["lon"]),
+    lat: float = Body(..., **api.PARAMS["lat"]),
+    dataset_name: str = Body(..., **api.PARAMS["dataset_name"]),
+    buffer_m: float = Body(500.0, **api.PARAMS["buffer_m"]),
+    n_samples: int = Body(10, **api.PARAMS["n_samples_buffer"]),
+    ref_lon: Optional[float] = Body(None, **api.PARAMS["ref_lon"]),
+    ref_lat: Optional[float] = Body(None, **api.PARAMS["ref_lat"]),
+    layer_masks: list[dict] = Body([], **api.PARAMS["layer_masks"]),
+    ref_buffer_m: float = Body(0.0, **api.PARAMS["ref_buffer_m"]),
 ):
     """Collect all pixels within a circular buffer, return median + random samples."""
     if state.mode == "md":
@@ -1469,27 +1543,17 @@ async def buffer_timeseries(
     "/profile",
     response_class=JSONResponse,
     responses={200: {"description": "Return values along a line profile"}},
+    response_model=api.Profile,
+    **api.route_doc("POST /profile"),
 )
 async def extract_profile(
-    coords: list[list[float]] = Body(..., description="List of [lon, lat] pairs"),
-    dataset_name: str = Body(..., description="Dataset name"),
-    time_index: int = Body(0, description="Time index"),
-    n_samples: int = Body(
-        200, description="Number of samples along line (used when sampling_interval=0)"
-    ),
-    radius: float = Body(0.0, description="Buffer radius in metres (0 = single line)"),
-    n_random: int = Body(
-        5, description="Number of random sample lines within buffer (legacy)"
-    ),
-    sampling_interval: float = Body(
-        0.0,
-        description=(
-            "Bin spacing in metres along profile (0 = use n_samples). When > 0, "
-            "each bin collects all pixels within ±(sampling_interval/2) of the "
-            "bin centre along the profile direction and within ±radius "
-            "perpendicular, then returns their median."
-        ),
-    ),
+    coords: list[list[float]] = Body(..., **api.PARAMS["coords"]),
+    dataset_name: str = Body(..., **api.PARAMS["dataset_name"]),
+    time_index: int = Body(0, **api.PARAMS["time_index"]),
+    n_samples: int = Body(200, **api.PARAMS["n_samples_profile"]),
+    radius: float = Body(0.0, **api.PARAMS["radius"]),
+    n_random: int = Body(5, **api.PARAMS["n_random"]),
+    sampling_interval: float = Body(0.0, **api.PARAMS["sampling_interval"]),
 ):
     """Sample raster values along a polyline.
 
@@ -1853,6 +1917,8 @@ async def _save_upload(file: "UploadFile", dest: Path) -> None:
     responses={
         200: {"description": "Upload a GeoTIFF mask file and return its server path"}
     },
+    response_model=api.UploadedMask,
+    **api.route_doc("POST /upload_mask"),
 )
 async def upload_mask(file: UploadFile):
     """Accept a GeoTIFF mask upload and store it for use in masking."""
@@ -1869,6 +1935,8 @@ async def upload_mask(file: UploadFile):
     responses={
         200: {"description": "Upload a raster overlay; returns path + metadata"}
     },
+    response_model=api.UploadedRaster,
+    **api.route_doc("POST /upload_raster"),
 )
 async def upload_raster(file: UploadFile):
     """Accept a GeoTIFF overlay upload, store it, and return tiling metadata.
@@ -1918,12 +1986,16 @@ async def upload_raster(file: UploadFile):
     )
 
 
-@app.get("/gnss/stations")
+@app.get(
+    "/gnss/stations",
+    responses={200: {"model": api.GnssStations}},
+    **api.route_doc("GET /gnss/stations"),
+)
 def gnss_stations(
-    west: float = Query(...),
-    south: float = Query(...),
-    east: float = Query(...),
-    north: float = Query(...),
+    west: float = Query(..., **api.PARAMS["west"]),
+    south: float = Query(..., **api.PARAMS["south"]),
+    east: float = Query(..., **api.PARAMS["east"]),
+    north: float = Query(..., **api.PARAMS["north"]),
 ):
     """List UNR GNSS stations in a lon/lat box, nearest the centre first.
 
@@ -1943,8 +2015,12 @@ def gnss_stations(
     }
 
 
-@app.get("/gnss/series/{station}")
-def gnss_series(station: str):
+@app.get(
+    "/gnss/series/{station}",
+    responses={200: {"model": api.GnssSeries}},
+    **api.route_doc("GET /gnss/series/{station}"),
+)
+def gnss_series(station: Annotated[str, PathParam(**api.PARAMS["station"])]):
     """Return a UNR station's daily east, north and up (mm from day one), NA fixed."""
     import urllib.error  # noqa: PLC0415
 
@@ -1972,8 +2048,10 @@ def gnss_series(station: str):
     responses={
         200: {"description": "Named layers advertised by a WMS GetCapabilities"}
     },
+    response_model=api.WmsLayers,
+    **api.route_doc("GET /wms_capabilities"),
 )
-def wms_capabilities(url: str = Query(..., description="WMS base URL")):
+def wms_capabilities(url: str = Query(..., **api.PARAMS["wms_url"])):
     """Proxy a WMS GetCapabilities and return its requestable named layers.
 
     Done server-side because browsers are usually blocked by CORS from reading a
@@ -2137,9 +2215,7 @@ cog_endpoints = TilerFactory(
     path_dependency=InputDependency,
     process_dependency=PostProcessParams,
 )
-app.include_router(
-    cog_endpoints.router, prefix="/cog", tags=["Cloud Optimized GeoTIFF"]
-)
+app.include_router(cog_endpoints.router, prefix="/cog", tags=[api.COG_TILES])
 logger.info("Configured COG endpoints at /cog/*")
 
 # User raster overlays: a *plain* titiler tiler (standard rio_tiler reader, no
@@ -2148,9 +2224,7 @@ logger.info("Configured COG endpoints at /cog/*")
 # rescale=min,max, bidx for RGB). Also exposes /overlay/info, /overlay/statistics
 # and /overlay/WebMercatorQuad/tilejson.json that the frontend uses for metadata.
 overlay_endpoints = TilerFactory(router_prefix="/overlay")
-app.include_router(
-    overlay_endpoints.router, prefix="/overlay", tags=["User raster overlays"]
-)
+app.include_router(overlay_endpoints.router, prefix="/overlay", tags=[api.FILES])
 logger.info("Configured overlay endpoints at /overlay/*")
 
 
@@ -2337,23 +2411,13 @@ def _build_masked_cog_dataarray(
 
 def XarrayPathDependency(
     request: Request,
-    variable: str = Query(..., description="Variable name"),
-    dataset: Optional[str] = Query(
-        None,
-        description=(
-            "Catalog dataset id (multi-dataset mode). Omit to use the single "
-            "store loaded via --stack-file."
-        ),
-    ),
-    time_idx: Optional[int] = Query(None, description="Time index"),
-    mask_variable: Optional[str] = Query(None, description="Mask variable"),
-    mask_min_value: float = Query(0.1, description="Mask minimum value"),
-    layer_masks: Optional[str] = Query(
-        None, description="JSON list of {dataset,threshold,mode} mask dicts"
-    ),
-    custom_mask_path: Optional[str] = Query(
-        None, description="Path to uploaded custom mask GeoTIFF"
-    ),
+    variable: str = Query(..., **api.PARAMS["variable"]),
+    dataset: Optional[str] = Query(None, **api.PARAMS["dataset"]),
+    time_idx: Optional[int] = Query(None, **api.PARAMS["time_idx"]),
+    mask_variable: Optional[str] = Query(None, **api.PARAMS["mask_variable"]),
+    mask_min_value: float = Query(0.1, **api.PARAMS["mask_min_value"]),
+    layer_masks: Optional[str] = Query(None, **api.PARAMS["layer_masks_json"]),
+    custom_mask_path: Optional[str] = Query(None, **api.PARAMS["custom_mask_path"]),
     ref_time_idx: Optional[int] = Query(
         None,
         description=(
@@ -2538,28 +2602,25 @@ def _export_mask_provenance(
 
 @app.get(
     "/export/geotiff",
-    tags=["Export"],
-    responses={200: {"description": "The active layer as a GeoTIFF download"}},
+    response_class=Response,
+    responses=api.image_response(
+        "image/tiff", "The active layer as a GeoTIFF download"
+    ),
+    **api.route_doc("GET /export/geotiff"),
 )
 def export_geotiff(
-    variable: str = Query(..., description="Variable / active layer name"),
-    dataset: Optional[str] = Query(None, description="Catalog dataset id"),
-    time_idx: Optional[int] = Query(None, ge=0, description="Time index"),
-    mask_variable: Optional[str] = Query(
-        None, description="Override mask variable (MD)"
+    variable: str = Query(..., **api.PARAMS["variable"]),
+    dataset: Optional[str] = Query(None, **api.PARAMS["dataset"]),
+    time_idx: Optional[int] = Query(None, ge=0, **api.PARAMS["time_idx"]),
+    mask_variable: Optional[str] = Query(None, **api.PARAMS["mask_variable"]),
+    mask_min_value: Optional[float] = Query(
+        None, **api.PARAMS["export_mask_min_value"]
     ),
-    mask_min_value: Optional[float] = Query(None, description="Primary mask threshold"),
-    layer_masks: Optional[str] = Query(
-        None, description="JSON list of {dataset,threshold,mode} mask dicts"
-    ),
-    custom_mask_path: Optional[str] = Query(
-        None, description="Uploaded custom mask GeoTIFF path"
-    ),
-    ref_lon: Optional[float] = Query(None, description="Reference WGS84 longitude"),
-    ref_lat: Optional[float] = Query(None, description="Reference WGS84 latitude"),
-    ref_buffer_m: float = Query(
-        0.0, description="Reference median radius in meters; zero selects one pixel"
-    ),
+    layer_masks: Optional[str] = Query(None, **api.PARAMS["layer_masks_json"]),
+    custom_mask_path: Optional[str] = Query(None, **api.PARAMS["custom_mask_path"]),
+    ref_lon: Optional[float] = Query(None, **api.PARAMS["ref_lon"]),
+    ref_lat: Optional[float] = Query(None, **api.PARAMS["ref_lat"]),
+    ref_buffer_m: float = Query(0.0, **api.PARAMS["ref_buffer_m"]),
 ):
     """Export the active layer as a (optionally masked) GeoTIFF.
 
@@ -2732,7 +2793,8 @@ md_endpoints = TilerFactory(
     reader_dependency=DefaultDependency,
     process_dependency=PostProcessParams,
 )
-app.include_router(md_endpoints.router, prefix="/md", tags=["Xarray Multi Dimensional"])
+app.include_router(md_endpoints.router, prefix="/md", tags=[api.TILES])
+api.describe_tiler_routes(md_endpoints.router)
 logger.info("Configured MD endpoints at /md/*")
 
 # Add exception handlers
