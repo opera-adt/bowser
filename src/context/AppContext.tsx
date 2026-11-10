@@ -28,6 +28,7 @@ const initialState: AppState = {
   currentDataset: '',
   currentTimeIndex: 0,
   refValues: {},
+  refTimeIndex: {},
   selectedBasemap: 'esriSatellite',
   secondaryBasemap: null,
   basemapOpacity: 1,
@@ -213,6 +214,11 @@ function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppSt
           [action.payload.dataset]: action.payload.values,
         },
       };
+    case 'SET_REF_TIME_INDEX': {
+      const { dataset, index } = action.payload;
+      const { [dataset]: _old, ...rest } = state.refTimeIndex;
+      return { ...state, refTimeIndex: index === null ? rest : { ...rest, [dataset]: index } };
+    }
     case 'SET_BASEMAP':
       return { ...state, selectedBasemap: action.payload };
     case 'SET_SECONDARY_BASEMAP':

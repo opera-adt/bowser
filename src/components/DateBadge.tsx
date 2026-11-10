@@ -1,4 +1,5 @@
 import { useAppContext } from '../context/AppContext';
+import { clampTimeIndex } from '../utils/timeStep';
 
 /** A time label as shown: a date, or a "reference → secondary" pair. */
 export function dateLabel(value: unknown): string {
@@ -18,7 +19,7 @@ export default function DateBadge() {
   const n = info?.x_values.length ?? 0;
   if (state.dateBadge === 'off' || n < 2) return null;
   const i = Math.min(state.currentTimeIndex, n - 1);
-  const go = (next: number) => dispatch({ type: 'SET_TIME_INDEX', payload: Math.max(0, Math.min(n - 1, next)) });
+  const go = (next: number) => dispatch({ type: 'SET_TIME_INDEX', payload: clampTimeIndex(next, n) });
   const tip = `${i + 1} of ${n}${state.currentDataset ? ` · ${state.currentDataset}` : ''}`;
   if (state.dateBadge === 'date') {
     return (

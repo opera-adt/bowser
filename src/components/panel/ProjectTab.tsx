@@ -170,7 +170,7 @@ export default function ProjectTab() {
   const PROJECT_KEYS = [
     'currentDataset', 'currentTimeIndex', 'colormap', 'vmin', 'vmax',
     'opacity', 'dataMode',
-    'refMarkerPosition', 'refEnabled', 'refMarkerVisible',
+    'refMarkerPosition', 'refEnabled', 'refMarkerVisible', 'refTimeIndex',
     'timeSeriesPoints', 'annotations', 'layerMasks', 'customMaskPath', 'overlays', 'fitSettings', 'units',
   ] as const;
   const saveProject = useCallback(() => {
@@ -220,6 +220,7 @@ export default function ProjectTab() {
       refMarkerPosition: isPair,
       refEnabled: isBool,
       refMarkerVisible: isBool,
+      refTimeIndex: (v) => obj(v) && !Array.isArray(v) && Object.values(v).every(i => Number.isInteger(i) && (i as number) >= 0),
       timeSeriesPoints: arrayOf(isPoint),
       annotations: arrayOf(isAnnotation),
       layerMasks: arrayOf(isMask),

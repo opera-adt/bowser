@@ -28,6 +28,7 @@ const base: TileState = {
   wrapPeriod: 0.0277,
   refEnabled: false,
   refValues: {},
+  refTimeIndex: {},
   dataMode: 'md',
   customMaskPath: null,
   layerMasks: [],
@@ -77,5 +78,27 @@ describe('buildTileRequest', () => {
   it('routes md and cog to their own tilers', () => {
     expect(req()).toMatch(/^\/md\/WebMercatorQuad\/tilejson\.json\?/);
     expect(req({ dataMode: 'cog' })).toMatch(/^\/cog\/WebMercatorQuad\/tilejson\.json\?/);
+  });
+});
+
+describe('buildTileRequest relative to another date', () => {
+  const params = (state: Partial<TileState>, over: Partial<Parameters<typeof buildTileRequest>[0]> = {}) =>
+    new URLSearchParams(req(state, over).split('?')[1]);
+
+  it('sends ref_time_idx for the chosen step, clamped', () => {
+    expect(params({ refTimeIndex: { displacement: 0 } }).get('ref_time_idx')).toBe('0');
+    expect(params({ refTimeIndex: { displacement: 9 } }).get('ref_time_idx')).toBe('2');
+  });
+
+  it('moves the reference point by the same difference', () => {
+    const p = params({ refEnabled: true, refValues: { displacement: [0, 0.004, 0.009] }, refTimeIndex: { displacement: 2 } });
+    expect(JSON.parse(p.get('algorithm_params')!).shift).toBeCloseTo(0.004 - 0.009);
+  });
+
+  it('leaves the request as it was without a choice, for other layers, other layer kinds and COG', () => {
+    expect(params({}).has('ref_time_idx')).toBe(false);
+    expect(params({ refTimeIndex: { velocity: 1 } }).has('ref_time_idx')).toBe(false);
+    expect(params({ refTimeIndex: { displacement: 1 } }, { dsInfo: info({ uses_spatial_ref: false }) }).has('ref_time_idx')).toBe(false);
+    expect(params({ refTimeIndex: { displacement: 1 }, dataMode: 'cog' }).has('ref_time_idx')).toBe(false);
   });
 });
