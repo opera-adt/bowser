@@ -132,6 +132,7 @@ def test_save_file_cancelled_writes_nothing(tmp_path, monkeypatch):
     assert api.save_file("x.txt", "eA==") is None
     assert list(tmp_path.iterdir()) == []
 
+
 def test_missing_std_streams_go_to_a_log_file(tmp_path, monkeypatch):
     # A windowed app on Windows has no console: stdout and stderr are None, and
     # uvicorn's log setup used to crash on them ("Unable to configure formatter").

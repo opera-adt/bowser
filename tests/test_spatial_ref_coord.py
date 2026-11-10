@@ -16,7 +16,6 @@ import xarray as xr
 from pyproj import CRS
 
 from bowser.lite import cube as lcube
-from bowser.state import _open_md
 
 pytest.importorskip("rioxarray")
 
@@ -74,6 +73,10 @@ def _store(path: Path, pyramid: bool) -> Path:
 @pytest.mark.parametrize("pyramid", [False, True])
 def test_spatial_ref_is_a_coordinate_on_every_level(tmp_path, pyramid):
     path = _store(tmp_path / "cube.zarr", pyramid)
+    # Imported here: bowser.state reads the settings from the environment at import,
+    # and an import at collection time would fix them before other tests set theirs.
+    from bowser.state import _open_md
+
     ds, _, levels = _open_md(str(path))
     assert len(levels) == (2 if pyramid else 1)
     assert set(ds.data_vars) == {"displacement", "velocity"}
