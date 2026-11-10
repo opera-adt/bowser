@@ -32,6 +32,7 @@ from starlette.templating import Jinja2Templates
 from starlette_cramjam.middleware import CompressionMiddleware
 
 from .config import settings
+from .polygon import PolygonRequest, summarize_rasters, summarize_xarray
 from .state import BowserState, DatasetRegistry
 from .utils import (
     _uses_spatial_reference,
@@ -1200,6 +1201,45 @@ async def get_dataset_range(
             "p95": float(np.percentile(valid, 95)),
         }
     )
+
+
+@app.post("/polygon_timeseries", tags=["Analysis"], response_class=JSONResponse)
+def polygon_timeseries(
+    body: PolygonRequest,
+    target: BowserState = Depends(TargetState),
+):
+    """Summarize stored native pixels inside a WGS84 polygon.
+
+    This first endpoint provides bounded stored-value summaries, independent
+    of map zoom. Interactive references, optional quality masks and component
+    screening are not implicitly applied. Unknown request fields are rejected.
+    """
+    available = (
+        target.dataset.data_vars
+        if target.mode == "md" and target.dataset is not None
+        else target.raster_groups
+    )
+    if available is None or body.variable not in available:
+        raise HTTPException(status_code=404, detail=f"Unknown layer: {body.variable}")
+    try:
+        if target.mode == "md":
+            source = target.dataset[body.variable]
+            extra = [d for d in source.dims if d not in ("x", "y")]
+            if len(extra) > 1:
+                raise ValueError("Source supports at most one non-spatial axis")
+            dim = extra[0] if extra else None
+            labels = _dim_labels(source, dim) if dim else ["Stored layer"]
+            result = summarize_xarray(source, body, labels)
+        else:
+            result = summarize_rasters(target.raster_groups[body.variable], body)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (OSError, rasterio.errors.RasterioError) as exc:
+        logger.warning("Could not read polygon-analysis source: %s", type(exc).__name__)
+        raise HTTPException(
+            status_code=422, detail="Could not read polygon-analysis source"
+        ) from exc
+    return JSONResponse(result)
 
 
 @app.get(
