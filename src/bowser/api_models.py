@@ -467,6 +467,9 @@ class ConfigInfo(_Fixed):
     geotiff_export: bool = Field(
         description="Whether GET /export/geotiff works on this server."
     )
+    polygon_stats: bool = Field(
+        description="Whether POST /polygon_timeseries works on this server."
+    )
 
 
 class ModeInfo(_Fixed):
