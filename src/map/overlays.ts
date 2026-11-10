@@ -129,13 +129,65 @@ export function chartedFeatureColors(o: Overlay, charted: Charted[]): Map<number
   for (const c of charted) {
     if (c.source?.overlayId === o.id && o.id !== DRAWINGS_ID) {
       if (c.source.index < features.length) out.set(c.source.index, c.color);
-    } else if (o.id === DRAWINGS_ID && c.geometry && (!c.source || c.source.overlayId === DRAWINGS_ID)) {
-      const shape = JSON.stringify(c.geometry.coordinates);
-      const i = features.findIndex(f => JSON.stringify(f?.geometry?.coordinates) === shape);
+    } else if (o.id === DRAWINGS_ID) {
+      const i = drawingIndexOf(c, o.data);
       if (i >= 0) out.set(i, c.color);
     }
   }
   return out;
+}
+
+type DrawingFeature = { id?: unknown; geometry?: { coordinates?: unknown } | null; properties?: Record<string, unknown> | null };
+
+/**
+ * The drawn shape an area stands for (one drawn for + Area, or picked from the Drawings): found
+ * by its geometry, since the editor may reorder shapes; -1 when it is not a drawing.
+ */
+export function drawingIndexOf(
+  area: { geometry?: { coordinates: unknown }; source?: { overlayId: string } },
+  drawings: OverlayFeatures | undefined,
+): number {
+  if (!drawings || !area.geometry || (area.source && area.source.overlayId !== DRAWINGS_ID)) return -1;
+  const shape = JSON.stringify(area.geometry.coordinates);
+  return (drawings.features as DrawingFeature[]).findIndex(f => JSON.stringify(f?.geometry?.coordinates) === shape);
+}
+
+/** A drawn shape's name (its ``name`` property), or "" when it has none. */
+export function drawingName(f: unknown): string {
+  const name = (f as DrawingFeature)?.properties?.name;
+  return typeof name === 'string' ? name : '';
+}
+
+/** The drawings with shape ``index`` named ``name`` (an empty name clears it). */
+export function renameDrawing(data: OverlayFeatures, index: number, name: string): OverlayFeatures {
+  return {
+    ...data,
+    features: (data.features as DrawingFeature[]).map((f, i) => {
+      if (i !== index) return f;
+      const { name: _old, ...rest } = f.properties ?? {};
+      return { ...f, properties: name ? { ...rest, name } : rest };
+    }),
+  };
+}
+
+/**
+ * Names carried over to the editor's new feature collection: the editor keeps a shape's id
+ * (and its geometry when it only moved in the list), not always the properties we added.
+ */
+function carryNames(old: OverlayFeatures | undefined, next: OverlayFeatures): OverlayFeatures {
+  if (!old) return next;
+  const before = old.features as DrawingFeature[];
+  const key = (f: DrawingFeature) => (f.id !== undefined && f.id !== null ? `id:${String(f.id)}` : null);
+  const byId = new Map(before.flatMap(f => (key(f) && drawingName(f) ? [[key(f)!, drawingName(f)]] : [])));
+  const byShape = new Map(before.flatMap(f => (drawingName(f) ? [[JSON.stringify(f.geometry?.coordinates), drawingName(f)]] : [])));
+  return {
+    ...next,
+    features: (next.features as DrawingFeature[]).map(f => {
+      if (drawingName(f)) return f;
+      const name = (key(f) && byId.get(key(f)!)) || byShape.get(JSON.stringify(f.geometry?.coordinates));
+      return name ? { ...f, properties: { ...(f.properties ?? {}), name } } : f;
+    }),
+  };
 }
 
 /** The layer colour, with each charted feature (by its generated id, the feature index) in its chart colour. */
@@ -187,8 +239,9 @@ function pointSpec(id: string, o: Overlay, color: unknown): VectorLayerSpec {
 export const DRAWINGS_ID = 'drawings';
 
 /** The overlays with the drawings replaced: added on the first shape, removed with the last. */
-export function withDrawings(overlays: Overlay[], data: OverlayFeatures): Overlay[] {
+export function withDrawings(overlays: Overlay[], incoming: OverlayFeatures): Overlay[] {
   const existing = overlays.find(o => o.id === DRAWINGS_ID);
+  const data = carryNames(existing?.data, incoming);
   if (!data.features.length) return existing ? overlays.filter(o => o.id !== DRAWINGS_ID) : overlays;
   if (existing) return overlays.map(o => (o.id === DRAWINGS_ID ? { ...o, data, bounds: featureBounds(data) } : o));
   return [...overlays, {

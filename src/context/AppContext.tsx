@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useReducer, ReactNode } from 'react';
 import { AppState, AppAction, LegacyAppAction, TimeSeriesPoint, ChartWindow, ChartArea } from '../types';
-import { withDrawings } from '../map/overlays';
+import { DRAWINGS_ID, drawingIndexOf, drawingName, renameDrawing, withDrawings } from '../map/overlays';
 import { DEFAULT_FIT } from '../map/fitSettings';
 import { readUnitSystem, saveUnitSystem } from '../utils/units';
 
@@ -15,6 +15,13 @@ function generatePointId(): string {
 /** A colour no point or area in the chart uses (one palette for both: utils/seriesColors). */
 function getNextColor(state: Pick<AppState, 'timeSeriesPoints' | 'chartAreas'>): string {
   return nextSeriesColor([...state.timeSeriesPoints, ...state.chartAreas]);
+}
+
+/** The overlays with drawn shape ``index`` named ``name`` (no change without drawings or that shape). */
+function withDrawingName(state: AppState, index: number, name: string): AppState['overlays'] {
+  const drawings = state.overlays.find(o => o.id === DRAWINGS_ID);
+  if (!drawings?.data || index < 0 || index >= drawings.data.features.length) return state.overlays;
+  return state.overlays.map(o => (o === drawings ? { ...o, data: renameDrawing(drawings.data!, index, name) } : o));
 }
 
 /** Done waiting for an area: the Draw tools close if "+ Area" opened them. */
@@ -133,15 +140,32 @@ function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppSt
 
     // Areas in the chart: a colour not used by a point or another area.
     case 'ADD_CHART_AREA': {
+      // A drawn shape: its own name if it has one, and the area's name is given to the shape.
+      const drawings = state.overlays.find(o => o.id === DRAWINGS_ID)?.data;
+      const drawn = drawingIndexOf(action.payload, drawings);
+      const name = action.payload.name || (drawn >= 0 ? drawingName(drawings!.features[drawn]) : '') || `Area ${state.chartAreas.length + 1}`;
       const area: ChartArea = {
         id: `area_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
-        name: action.payload.name || `Area ${state.chartAreas.length + 1}`,
+        name,
         color: getNextColor(state),
         visible: true,
         geometry: action.payload.geometry,
         ...(action.payload.source ? { source: action.payload.source } : {}),
       };
-      return { ...state, chartAreas: [...state.chartAreas, area], ...stopAreaDrawing(state) };
+      return {
+        ...state, chartAreas: [...state.chartAreas, area], ...stopAreaDrawing(state),
+        overlays: drawn >= 0 && !drawingName(drawings!.features[drawn]) ? withDrawingName(state, drawn, name) : state.overlays,
+      };
+    }
+    // Renaming a drawn shape renames the areas made from it, and the other way round.
+    case 'RENAME_DRAWING': {
+      const { index, name } = action.payload;
+      const drawings = state.overlays.find(o => o.id === DRAWINGS_ID)?.data;
+      return {
+        ...state,
+        overlays: withDrawingName(state, index, name),
+        chartAreas: state.chartAreas.map(a => (name && drawingIndexOf(a, drawings) === index ? { ...a, name } : a)),
+      };
     }
     // Several areas at once (Zonal stats on a vector layer), each in its own colour.
     case 'ADD_CHART_AREAS': {
@@ -164,11 +188,16 @@ function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppSt
         chartAreas: state.chartAreas.filter(a => a.id !== action.payload),
         areaStats: Object.fromEntries(Object.entries(state.areaStats).filter(([k]) => !k.endsWith(`::${action.payload}`))),
       };
-    case 'UPDATE_CHART_AREA':
+    case 'UPDATE_CHART_AREA': {
+      const area = state.chartAreas.find(a => a.id === action.payload.id);
+      const name = action.payload.updates.name;
+      const drawn = area && name !== undefined ? drawingIndexOf(area, state.overlays.find(o => o.id === DRAWINGS_ID)?.data) : -1;
       return {
         ...state,
         chartAreas: state.chartAreas.map(a => (a.id === action.payload.id ? { ...a, ...action.payload.updates } : a)),
+        overlays: drawn >= 0 ? withDrawingName(state, drawn, name!) : state.overlays,
       };
+    }
     // Drawing an area opens the Draw tools (they start in polygon mode) and closes them after.
     case 'SET_AREA_DRAWING':
       return action.payload

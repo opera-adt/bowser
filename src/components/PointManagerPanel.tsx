@@ -210,7 +210,7 @@ export default function PointManagerPanel() {
               />
             </div>
             <div className="point-coordinates">
-              <small>Area: median, mean and p10–p90</small>
+              <small>Area: median, mean and spread</small>
             </div>
             <div className="point-item-controls">
               <button

@@ -1056,6 +1056,32 @@ img.huechange { filter: hue-rotate(120deg); }
   border: 1px solid var(--sb-border);
 }
 
+/* Overlays › Draw: each drawn shape with its name box (as a point's in the Points panel). */
+.drawing-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.drawing-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.86em;
+}
+
+.drawing-item .point-name-input {
+  min-width: 0;
+}
+
+.drawing-item-pen {
+  flex: none;
+  color: var(--sb-muted);
+  font-size: 0.7em;
+}
+
 .point-coordinates {
   color: var(--sb-muted);
   font-size: 0.78em;

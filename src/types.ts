@@ -339,6 +339,7 @@ export type AppAction =
   | { type: 'SET_IDENTIFY'; payload: IdentifyResult | null }
   | { type: 'OPEN_GNSS_CHART'; payload: GnssStation | null }
   | { type: 'SET_DRAWINGS'; payload: OverlayFeatures }
+  | { type: 'RENAME_DRAWING'; payload: { index: number; name: string } }
   | { type: 'ADD_LAYER_MASK'; payload: LayerMask }
   | { type: 'REMOVE_LAYER_MASK'; payload: string }
   | { type: 'UPDATE_LAYER_MASK'; payload: { id: string; updates: Partial<LayerMask> } }
