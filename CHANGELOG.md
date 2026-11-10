@@ -6,6 +6,16 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `bowser mcp`, an MCP server for AI assistants such as Claude Desktop and
+  Claude Code. Its tools call a running Bowser server (full or lite) for time
+  series, trends, profiles, histograms, polygon statistics and GeoTIFF export,
+  and say what each value is relative to. Over stdio by default, `--http` for
+  streamable HTTP; `--stack-file` opens one cube with bowser-lite in-process.
+  Needs the new `mcp` extra (`pip install 'bowser-insar[mcp]'`). See
+  [docs/mcp.md](docs/mcp.md).
+
 ### Changed
 
 - The server runs on TiTiler 2.0 (rio-tiler 9), as `pip install` users
