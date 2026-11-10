@@ -420,6 +420,17 @@ ROUTES: dict[str, dict[str, Any]] = {
         "last four characters. Never the key itself.",
         "tags": [ASSISTANT],
     },
+    "GET /assistant/models": {
+        "summary": "A provider's models",
+        "description": "The provider's own list of models, asked for with the "
+        "saved or server key (never returned), for the model picker: OpenAI "
+        "chat models, OpenRouter models that take tools, Gemini models that "
+        "generate content, Anthropic's models, or Ollama's installed models. "
+        "Kept for 10 minutes per provider and key; `refresh=true` asks again. "
+        "400 without a key, 401 when the provider rejects it, 502 when it "
+        "cannot be reached; 403 when the Assistant is off.",
+        "tags": [ASSISTANT],
+    },
     "PUT /assistant/key": {
         "summary": "Save a provider's key",
         "description": "Check an API key with its provider and keep it on this "
@@ -557,6 +568,21 @@ class AssistantStatus(_Fixed):
     stored_in: Optional[str] = Field(
         None, description="After PUT: where the key was kept."
     )
+
+
+class AssistantModel(_Fixed):
+    """One model in ``GET /assistant/models``."""
+
+    id: str = Field(description="The model id to send.")
+    label: Optional[str] = Field(None, description="The provider's display name.")
+
+
+class AssistantModels(_Fixed):
+    """``GET /assistant/models``."""
+
+    provider: str
+    models: list[AssistantModel]
+    cached: bool = Field(description="Whether the list came from the cache.")
 
 
 class ModeInfo(_Fixed):

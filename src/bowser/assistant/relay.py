@@ -22,7 +22,9 @@ variable) instead.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
+import time
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -47,6 +49,10 @@ from .providers import (
 MAX_STEPS = 12
 #: A tool result longer than this is cut (the model reads it on every turn).
 RESULT_CHARS = 24_000
+#: Seconds a provider's model list is kept (``GET /assistant/models``).
+MODELS_TTL = 600.0
+#: Model lists by (provider, a hash of the key): (time fetched, models).
+_models_cache: dict[tuple[str, str], tuple[float, list[dict[str, Any]]]] = {}
 #: Hosts a request "from this computer" comes from.
 LOOPBACK = {"127.0.0.1", "::1", "localhost"}
 
@@ -324,6 +330,49 @@ async def assistant_key_remove(
     await asyncio.to_thread(key_store(settings).remove_key, p.id)
     local = await asyncio.to_thread(_ollama_state, settings, ollama, False)
     return _status(settings, local)
+
+
+@router.get(
+    "/assistant/models",
+    responses={200: {"model": api.AssistantModels}},
+    **api.route_doc("GET /assistant/models"),
+)
+async def assistant_models(
+    provider: str = Query(..., description="Provider id, e.g. anthropic."),
+    refresh: bool = Query(False, description="Ask the provider again now."),
+    settings: Any = Depends(get_settings),
+    ollama: Ollama = Depends(get_ollama),
+):
+    """Return the provider's own model list, fetched with its key (never shown)."""
+    _require_enabled(settings)
+    p = _preset(provider)
+    if p.id == "ollama":
+        local = await asyncio.to_thread(_ollama_state, settings, ollama)
+        if local is None:
+            raise HTTPException(
+                status_code=400, detail="Ollama is not installed on this computer."
+            )
+        models = [{"id": m, "label": None} for m in local["models"]]
+        return {"provider": p.id, "models": models, "cached": False}
+    store = key_store(settings)
+    key, _ = await asyncio.to_thread(_key, settings, store, p)
+    if p.needs_key and not key:
+        raise HTTPException(
+            status_code=400, detail=f"Add an API key for {p.label} first."
+        )
+    slot = (p.id, hashlib.sha256((key or "").encode()).hexdigest())
+    hit = _models_cache.get(slot)
+    if hit and not refresh and time.monotonic() - hit[0] < MODELS_TTL:
+        return {"provider": p.id, "models": hit[1], "cached": True}
+    try:
+        models = await open_provider(p, "", key).list_models()
+    except ProviderError as e:
+        status = 401 if e.kind == "auth" else 502
+        raise HTTPException(
+            status_code=status, detail=f"Could not list the models: {e}"
+        ) from e
+    _models_cache[slot] = (time.monotonic(), models)
+    return {"provider": p.id, "models": models, "cached": False}
 
 
 class EventStream(StreamingResponse):

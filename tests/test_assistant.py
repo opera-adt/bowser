@@ -1042,6 +1042,302 @@ def _to_httpx2(handler, request, httpx2):
     return httpx2.Response(r.status_code, content=r.content, headers=dict(r.headers))
 
 
+# --- the providers' model lists ----------------------------------------------------
+
+
+def models_client(tmp_path, monkeypatch, transport, ollama=None, **over):
+    """A client whose providers talk to ``transport``; an empty model cache."""
+    monkeypatch.setattr(relay, "_models_cache", {})
+    monkeypatch.setattr(
+        relay,
+        "open_provider",
+        lambda p, m, key: providers.open_provider(p, m, key, None, transport),
+    )
+    return local(make_app(settings(tmp_path, **over), ollama))
+
+
+def test_openai_models_are_the_chat_models_newest_first_and_cached(
+    tmp_path, monkeypatch
+):
+    seen = []
+
+    def handler(request):
+        seen.append((str(request.url), request.headers.get("authorization")))
+        data = [
+            {"id": "gpt-5-mini", "created": 2},
+            {"id": "text-embedding-3-large", "created": 9},
+            {"id": "tts-1", "created": 9},
+            {"id": "whisper-1", "created": 9},
+            {"id": "gpt-image-1", "created": 9},
+            {"id": "omni-moderation-latest", "created": 9},
+            {"id": "gpt-5.5", "created": 3},
+        ]
+        return httpx.Response(200, json={"object": "list", "data": data})
+
+    client = models_client(
+        tmp_path,
+        monkeypatch,
+        httpx.MockTransport(handler),
+        OPENAI_API_KEY=SecretStr(KEY),
+    )
+    r = client.get("/assistant/models", params={"provider": "openai"})
+    assert r.status_code == 200, r.text
+    assert r.json() == {
+        "provider": "openai",
+        "models": [
+            {"id": "gpt-5.5", "label": None},
+            {"id": "gpt-5-mini", "label": None},
+        ],
+        "cached": False,
+    }
+    assert seen == [("https://api.openai.com/v1/models", f"Bearer {KEY}")]
+    assert KEY not in r.text
+    # Kept for ten minutes: the provider is not asked again...
+    again = client.get("/assistant/models", params={"provider": "openai"})
+    assert again.json()["cached"] is True and len(seen) == 1
+    # ...unless the page asks for a refresh, or the ten minutes are over.
+    fresh = client.get("/assistant/models", params={"provider": "openai", "refresh": 1})
+    assert fresh.json()["cached"] is False and len(seen) == 2
+    monkeypatch.setattr(relay, "MODELS_TTL", 0.0)
+    client.get("/assistant/models", params={"provider": "openai"})
+    assert len(seen) == 3
+    # The models' model validates the response.
+    from bowser import api_models as api  # noqa: PLC0415
+
+    api.AssistantModels.model_validate(r.json())
+
+
+def test_openrouter_models_are_those_that_take_tools(tmp_path, monkeypatch):
+    def handler(request):
+        assert request.url.path == "/api/v1/models"
+        data = [
+            {
+                "id": "old/no-tools",
+                "name": "No tools",
+                "created": 5,
+                "supported_parameters": ["temperature"],
+            },
+            {
+                "id": "anthropic/claude-opus-5.5",
+                "name": "Anthropic: Claude Opus 5.5",
+                "created": 4,
+                "supported_parameters": ["tools", "tool_choice"],
+            },
+            {
+                "id": "openai/gpt-5.5",
+                "name": "OpenAI: GPT-5.5",
+                "created": 7,
+                "supported_parameters": ["tools"],
+            },
+            {"id": "openrouter/auto", "name": "Auto Router", "created": 1},
+        ]
+        return httpx.Response(200, json={"data": data})
+
+    client = models_client(
+        tmp_path,
+        monkeypatch,
+        httpx.MockTransport(handler),
+        OPENROUTER_API_KEY=SecretStr(KEY),
+    )
+    r = client.get("/assistant/models", params={"provider": "openrouter"})
+    assert r.status_code == 200, r.text
+    assert r.json()["models"] == [
+        {"id": "openai/gpt-5.5", "label": "OpenAI: GPT-5.5"},
+        {"id": "anthropic/claude-opus-5.5", "label": "Anthropic: Claude Opus 5.5"},
+        {"id": "openrouter/auto", "label": "Auto Router"},
+    ]
+
+
+def test_gemini_models_that_generate_content_from_every_page(tmp_path, monkeypatch):
+    seen = []
+
+    def handler(request):
+        seen.append(dict(request.url.params))
+        assert request.headers.get("x-goog-api-key") == KEY
+        if "pageToken" not in request.url.params:
+            return httpx.Response(
+                200,
+                json={
+                    "models": [
+                        {
+                            "name": "models/gemini-3.8-flash",
+                            "displayName": "Gemini 3.8 Flash",
+                            "supportedGenerationMethods": [
+                                "generateContent",
+                                "countTokens",
+                            ],
+                        },
+                        {
+                            "name": "models/text-embedding-005",
+                            "displayName": "Text Embedding",
+                            "supportedGenerationMethods": ["embedContent"],
+                        },
+                    ],
+                    "nextPageToken": "p2",
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "models": [
+                    {
+                        "name": "models/gemini-3.8-pro",
+                        "supportedGenerationMethods": ["generateContent"],
+                    }
+                ]
+            },
+        )
+
+    client = models_client(
+        tmp_path,
+        monkeypatch,
+        httpx.MockTransport(handler),
+        GEMINI_API_KEY=SecretStr(KEY),
+    )
+    r = client.get("/assistant/models", params={"provider": "gemini"})
+    assert r.status_code == 200, r.text
+    assert r.json()["models"] == [
+        {"id": "gemini-3.8-flash", "label": "Gemini 3.8 Flash"},
+        {"id": "gemini-3.8-pro", "label": None},
+    ]
+    assert [s.get("pageToken") for s in seen] == [None, "p2"]
+    assert KEY not in r.text and KEY not in json.dumps(seen)
+
+
+def test_anthropic_models_through_the_sdk_every_page(tmp_path, monkeypatch):
+    pytest.importorskip("anthropic")
+    import httpx2  # the SDK's HTTP client  # noqa: PLC0415
+
+    pages = {
+        None: {
+            "data": [
+                {
+                    "type": "model",
+                    "id": "claude-opus-5-5",
+                    "display_name": "Claude Opus 5.5",
+                    "created_at": "2026-09-01T00:00:00Z",
+                }
+            ],
+            "has_more": True,
+            "first_id": "claude-opus-5-5",
+            "last_id": "claude-opus-5-5",
+        },
+        "claude-opus-5-5": {
+            "data": [
+                {
+                    "type": "model",
+                    "id": "claude-haiku-5-5",
+                    "display_name": "Claude Haiku 5.5",
+                    "created_at": "2026-08-01T00:00:00Z",
+                }
+            ],
+            "has_more": False,
+            "first_id": "claude-haiku-5-5",
+            "last_id": "claude-haiku-5-5",
+        },
+    }
+    seen = []
+
+    def handler(request):
+        after = request.url.params.get("after_id")
+        seen.append((request.url.path, after))
+        return httpx2.Response(200, json=pages[after])
+
+    client = models_client(
+        tmp_path,
+        monkeypatch,
+        httpx2.MockTransport(handler),
+        ANTHROPIC_API_KEY=SecretStr(KEY),
+    )
+    r = client.get("/assistant/models", params={"provider": "anthropic"})
+    assert r.status_code == 200, r.text
+    assert r.json()["models"] == [
+        {"id": "claude-opus-5-5", "label": "Claude Opus 5.5"},
+        {"id": "claude-haiku-5-5", "label": "Claude Haiku 5.5"},
+    ]
+    assert seen == [("/v1/models", None), ("/v1/models", "claude-opus-5-5")]
+    assert KEY not in r.text
+
+
+def test_model_list_gates_and_errors(tmp_path, monkeypatch):
+    def denied(_request):
+        return httpx.Response(401, json={"error": {"message": f"bad key {KEY[:6]}"}})
+
+    off = models_client(
+        tmp_path, monkeypatch, httpx.MockTransport(denied), BOWSER_ASSISTANT=False
+    )
+    assert (
+        off.get("/assistant/models", params={"provider": "openai"}).status_code == 403
+    )
+    client = models_client(tmp_path, monkeypatch, httpx.MockTransport(denied))
+    r = client.get("/assistant/models", params={"provider": "openai"})
+    assert r.status_code == 400 and "API key" in r.json()["detail"]
+    assert (
+        client.get("/assistant/models", params={"provider": "nope"}).status_code == 400
+    )
+    assert (
+        client.get("/assistant/models", params={"provider": "chatgpt"}).status_code
+        == 400
+    )
+
+    keyed = models_client(
+        tmp_path,
+        monkeypatch,
+        httpx.MockTransport(denied),
+        OPENAI_API_KEY=SecretStr(KEY),
+    )
+    r = keyed.get("/assistant/models", params={"provider": "openai"})
+    assert r.status_code == 401 and KEY not in r.text
+    assert relay._models_cache == {}  # a failure is not kept
+
+    def down(_request):
+        raise httpx.ConnectError("refused")
+
+    keyed = models_client(
+        tmp_path,
+        monkeypatch,
+        httpx.MockTransport(down),
+        OPENAI_API_KEY=SecretStr(KEY),
+    )
+    r = keyed.get("/assistant/models", params={"provider": "openai"})
+    assert r.status_code == 502 and KEY not in r.text
+
+
+def test_ollama_model_list_is_the_installed_models(tmp_path, monkeypatch):
+    def nothing(_request):
+        raise AssertionError("Ollama's list comes from Ollama itself")
+
+    up = FakeOllama(models=["llama3.2", "qwen3"])
+    client = models_client(tmp_path, monkeypatch, httpx.MockTransport(nothing), up)
+    r = client.get("/assistant/models", params={"provider": "ollama"})
+    assert r.json()["models"] == [
+        {"id": "llama3.2", "label": None},
+        {"id": "qwen3", "label": None},
+    ]
+    gone = models_client(
+        tmp_path, monkeypatch, httpx.MockTransport(nothing), FakeOllama(installed=False)
+    )
+    assert (
+        gone.get("/assistant/models", params={"provider": "ollama"}).status_code == 400
+    )
+
+
+def test_built_in_model_lists_keep_their_defaults():
+    anthropic = providers.preset("anthropic")
+    assert anthropic.model == "claude-opus-5-5"
+    assert anthropic.models == (
+        "claude-opus-5-5",
+        "claude-sonnet-5-5",
+        "claude-haiku-5-5",
+        "claude-fable-5-2",
+        "claude-opus-5",
+        "claude-sonnet-5",
+        "claude-opus-4-8",
+    )
+    for p in providers.PRESETS:
+        assert not p.model or p.model in p.models or p.id == "chatgpt", p.id
+
+
 # --- the real apps -----------------------------------------------------------------
 
 SCRIPT = textwrap.dedent(
