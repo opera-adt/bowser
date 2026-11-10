@@ -322,6 +322,60 @@ def lite(
 
 
 @cli_app.command()
+@click.option(
+    "--url",
+    default="http://127.0.0.1:8000",
+    show_default=True,
+    help="Bowser server to call (`bowser run` or `bowser lite`).",
+)
+@click.option(
+    "-s",
+    "--stack-file",
+    default=None,
+    help="Serve this GeoZarr cube with bowser-lite inside this process, instead "
+    "of calling --url. No polygon statistics or GeoTIFF export (use `bowser run` "
+    "and --url for those).",
+)
+@click.option(
+    "--http",
+    "use_http",
+    is_flag=True,
+    help="Serve MCP over streamable HTTP at /mcp instead of stdio.",
+)
+@click.option(
+    "--host", default="127.0.0.1", show_default=True, help="Interface for --http."
+)
+@click.option(
+    "--port", "-p", default=8765, show_default=True, type=int, help="Port for --http."
+)
+def mcp(url, stack_file, use_http, host, port):
+    """Run an MCP server whose tools read a Bowser server's data.
+
+    For AI assistants such as Claude Desktop or Claude Code: the tools give time
+    series, trends, profiles and statistics from the cube that a running Bowser
+    server has open. Talks MCP over stdio by default. Needs the `mcp` extra:
+    pip install 'bowser-insar[mcp]'. See docs/mcp.md.
+    """
+    try:
+        from .mcp_server import build_server, lite_transport  # noqa: PLC0415
+    except ImportError as e:
+        raise click.ClickException(
+            f"The MCP server needs the `mcp` extra ({e}). Install it with: "
+            "pip install 'bowser-insar[mcp]'"
+        ) from e
+
+    if stack_file:
+        server = build_server("http://bowser-lite", lite_transport(stack_file))
+    else:
+        server = build_server(url)
+    if use_http:
+        click.echo(f"Bowser MCP server on http://{host}:{port}/mcp", err=True)
+        server.run("streamable-http", host=host, port=port)
+    else:
+        server.run("stdio")
+
+
+@cli_app.command()
 # @click.argument("name")
 # @click.argument("files", nargs=-1)
 @click.option(
