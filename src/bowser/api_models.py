@@ -417,7 +417,9 @@ ROUTES: dict[str, dict[str, Any]] = {
         "description": "Whether the Assistant is on, whether the page may save "
         "keys here, and each provider with its default model, whether it has a "
         "key (and where it comes from: `saved` or `environment`) and the key's "
-        "last four characters. Never the key itself.",
+        "last four characters. Never the key itself. Ollama is listed only when "
+        "it is installed on this computer (started in the background if needed "
+        "on the user's own computer), with its installed models.",
         "tags": [ASSISTANT],
     },
     "GET /assistant/models": {
