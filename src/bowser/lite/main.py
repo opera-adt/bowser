@@ -171,6 +171,8 @@ def get_config(request: Request, dataset: str | None = Query(None)):
     The title is the catalog entry's name, from ``?dataset=`` or the Referer.
     ``geotiff_export`` is False: exports need the full server (``bowser run``),
     so the page turns its GeoTIFF button off instead of failing with a 501.
+    ``polygon_stats`` is False for the same reason: ``/polygon_timeseries``
+    answers 501 here, so the chart's "+ Area" button is off.
     """
     if dataset is None and (ref := request.headers.get("referer")):
         values = parse_qs(urlparse(ref).query).get("dataset")
@@ -180,6 +182,7 @@ def get_config(request: Request, dataset: str | None = Query(None)):
         "title": entry.name if entry is not None else settings.BOWSER_TITLE,
         "opera_logo": settings.BOWSER_OPERA_LOGO,
         "geotiff_export": False,
+        "polygon_stats": False,
     }
 
 

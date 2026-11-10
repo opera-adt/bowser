@@ -85,7 +85,12 @@ tj = c.get(
 assert "dataset=cube-b" in tj["tiles"][0], tj
 
 cfg = c.get("/config", headers={"referer": "http://localhost/?dataset=cube-b"})
-expected = {"title": "Cube B", "opera_logo": False, "geotiff_export": False}
+expected = {
+    "title": "Cube B",
+    "opera_logo": False,
+    "geotiff_export": False,
+    "polygon_stats": False,
+}
 assert cfg.json() == expected, cfg.json()
 assert c.get("/config").json()["title"] != "Cube B"
 assert c.get("/point", params={**q, "dataset": "nope"}).status_code == 404
