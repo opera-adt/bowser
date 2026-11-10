@@ -48,6 +48,10 @@ TOOLS = {
     "export_geotiff",
     "geocode",
     "find_reference_candidates",
+    "infrastructure_at",
+    "infrastructure_in_area",
+    "deformation_zones",
+    "site_context",
 }
 #: The page tools: they act on the open page through the server's page channel.
 PAGE_TOOLS = {
@@ -76,6 +80,12 @@ PAGE_TOOLS = {
     "set_opacity",
     "list_commands",
     "run_command",
+    "list_context_layers",
+    "add_context_layer",
+    "remove_context_layer",
+    "highlight_infrastructure",
+    "clear_highlights",
+    "get_areas",
 }
 
 #: Calls each app answers twice: through the MCP tool and through the HTTP API.

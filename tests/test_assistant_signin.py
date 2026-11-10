@@ -45,6 +45,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from pydantic import SecretStr  # noqa: E402
 
 from bowser import api_models as api  # noqa: E402
+from bowser import context  # noqa: E402
 from bowser.assistant import acp, page, relay, signin  # noqa: E402
 from bowser.assistant.keys import KeyStore  # noqa: E402
 
@@ -137,6 +138,28 @@ def make_app(s: SimpleNamespace) -> FastAPI:
     @app.get("/catalog")
     def catalog():
         return {"datasets": []}
+
+    # Deformation zones of a small synthetic cube, and the context routes
+    # (Overpass is a mock in the test that uses them).
+    app.include_router(context.router)
+
+    @app.get("/deformation_zones")
+    def deformation_zones(threshold_mm_yr: float = 5.0, max_zones: int = 50):
+        import test_context  # noqa: PLC0415
+
+        return context.zones_answer(
+            test_context.planted(),
+            test_context.TO_XY,
+            threshold_mm_yr=threshold_mm_yr,
+            sign="both",
+            min_area_m2=0.0,
+            bbox=None,
+            layer=None,
+            coherence_min=None,
+            max_zones=max_zones,
+            ref_lon=None,
+            ref_lat=None,
+        )
 
     return app
 
@@ -1181,6 +1204,49 @@ def test_signed_in_claude_sets_the_reference_masks_split_terrain_and_draw_tools(
     assert open_page.state["draw_tools"] is True
     assert open_page.state["masks"] == masks
     assert open_page.state["terrain"] == {"enabled": True, "exaggeration": 5}
+
+
+def test_signed_in_claude_highlights_the_roads_on_moving_ground(
+    served, open_page, monkeypatch
+):
+    """'Which roads are in the area moving faster than 5 mm/yr?' through the page
+    channel: zones, the roads in the largest, and its highlight on the page."""
+    import test_context  # noqa: PLC0415
+
+    mock = test_context.Services()
+    mock.elements = test_context.roads_through_zone_a()
+    monkeypatch.setattr(context.FETCHER, "transport", httpx.MockTransport(mock.handler))
+    context.FETCHER.clear()
+    context.RESULTS.clear()
+    served.claude.state.write_text("signed in")
+    calls = [
+        "Which roads are in the area moving faster than 5 mm/yr?",
+        'CALL deformation_zones {"threshold_mm_yr": 5}',
+        'CALL infrastructure_in_area {"zone": "Z1", "kinds": ["roads"]}',
+        'CALL highlight_infrastructure {"zone": "Z1", "kinds": ["roads"], '
+        '"color": "#ff0000"}',
+    ]
+    with httpx.Client(base_url=served.url, timeout=120) as c:
+        c.post("/assistant/signin", json={"method": "claude"})
+        results, asked = _ask(c, "ctx-1", "\n".join(calls), auto_allow=True)
+    assert asked == []
+    assert all(r["ok"] for r in results), results
+    zones_found, roads, _ = (r["result"] for r in results)
+    assert zones_found["zones"][0]["zone"] == "Z1"
+    assert roads["summary"]["roads"]["named"][0]["name"] == "Levee Rd"
+    assert [c[0] for c in open_page.page.commands] == [
+        "draw_highlight",
+        "draw_highlight",
+        "highlight_infrastructure",
+    ]
+    assert open_page.page.commands[1][1]["result_id"] == roads["result_id"]
+    assert open_page.page.commands[2][1] == {
+        "kinds": ["roads"],
+        "zone": "Z1",
+        "color": "#ff0000",
+    }
+    assert len(mock.requests) == 1  # one Overpass request; the page asks the server
+    context.RESULTS.clear()
 
 
 def test_auto_allow_covers_only_bowsers_tools(served, open_page):
