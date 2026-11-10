@@ -1595,21 +1595,22 @@ img.huechange { filter: hue-rotate(120deg); }
 
 .zs-stats {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 2px 8px;
-  margin: 2px 0 0;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 3px 8px;
+  margin: 3px 0 0;
   padding-left: 16px;
   font-size: 0.74em;
 }
 
 .zs-stats div {
   display: flex;
-  justify-content: space-between;
-  gap: 4px;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .zs-stats dt {
   color: var(--sb-muted);
+  font-size: 0.9em;
 }
 
 .zs-stats dd {

@@ -95,7 +95,7 @@ export default function SeriesStylePopover() {
               </div>
             );
           })}
-          <div className="row-label" style={{ fontSize: '0.9em' }}>A point's colour is also its marker on the map.</div>
+          <div className="row-label" style={{ fontSize: '0.9em' }}>A colour is also the feature's colour on the map.</div>
         </div>
       )}
     </div>
