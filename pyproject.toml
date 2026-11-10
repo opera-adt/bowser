@@ -10,7 +10,14 @@ readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.11"
 
 dependencies = [
-  "titiler.xarray[minimal,http]",
+  # TiTiler 2 (rio-tiler 9). 2.1+ needs Starlette >=1, which the cap below
+  # rules out for now; lifting it is a separate change.
+  "titiler.xarray>=2.0.5,<3",
+  # TiTiler 2 dropped the "minimal"/"http" extras: fsspec + aiohttp open
+  # http(s) stores, h5netcdf reads netCDF stacks.
+  "fsspec",
+  "aiohttp",
+  "h5netcdf",
   # Cap <0.6: starlette-cramjam 0.6.x corrupts compressed StaticFiles responses
   # on Starlette >=0.49 (h11 "Too much data for declared Content-Length").
   "starlette-cramjam<0.6",

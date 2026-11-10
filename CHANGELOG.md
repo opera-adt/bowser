@@ -6,6 +6,15 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- The server runs on TiTiler 2.0 (rio-tiler 9), as `pip install` users
+  already did: the lock had kept TiTiler 0.22. Tile URLs no longer carry an
+  `@1x` suffix, TileJSON reports spec 3.0.0, and the tile size is a `tilesize`
+  query parameter (512 unless the page asks for 256, which it does). bowser-lite
+  mirrors this. `fsspec`, `aiohttp` and `h5netcdf`, which TiTiler 2's dropped
+  `minimal`/`http` extras used to bring, are now declared directly.
+
 ## [0.6.1] - 2026-11-05
 
 First release with desktop installers attached.
