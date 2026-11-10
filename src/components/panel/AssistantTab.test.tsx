@@ -19,8 +19,19 @@ const provider = (over: Record<string, unknown>) => ({
 });
 const ANTHROPIC = provider({ id: 'anthropic', label: 'Anthropic', wire: 'anthropic', model: 'claude-opus-5-5', models: ['claude-opus-5-5', 'claude-sonnet-5-5'], key_url: 'https://console.anthropic.com/settings/keys' });
 const OLLAMA = provider({ id: 'ollama', label: 'Ollama (local)', model: 'qwen3', models: ['qwen3'], needs_key: false, local: true, auth: 'none', configured: true });
-const CHATGPT = provider({ id: 'chatgpt', label: 'Sign in with ChatGPT', wire: 'responses', auth: 'sign_in', available: false, note: 'Coming in a later version.' });
-const STATUS = { enabled: true, page_keys: true, default_provider: null, providers: [ANTHROPIC, OLLAMA, CHATGPT] };
+const method = (over: Record<string, unknown> & { id: string }) => ({
+  state: 'signed_out', account: null, plan: null, detail: null, install_url: null, usage_url: null, model: '', models: [], ...over,
+});
+const CLAUDE_IN = method({
+  id: 'claude', label: 'Sign in with Claude', kind: 'local_agent', vendor: 'Anthropic',
+  blurb: 'Uses Claude Code on this computer and your Claude plan.', install_url: 'https://code.claude.com/docs/en/setup',
+});
+const CHATGPT_IN = method({
+  id: 'chatgpt', label: 'Continue with ChatGPT', kind: 'oauth', vendor: 'OpenAI', blurb: 'Uses your ChatGPT plan.',
+  usage_url: 'https://chatgpt.com/settings/usage?tab=overview',
+});
+const SIGN_IN = { allowed: true, reason: null, methods: [CLAUDE_IN, CHATGPT_IN] };
+const STATUS = { enabled: true, page_keys: true, default_provider: null, providers: [ANTHROPIC, OLLAMA], sign_in: SIGN_IN };
 
 const sse = (...events: object[]) => new Response(events.map(e => `data: ${JSON.stringify(e)}\n\n`).join(''), {
   headers: { 'content-type': 'text/event-stream' },
@@ -58,6 +69,11 @@ function Seed({ setup = [] }: { setup?: AppAction[] }) {
   return state.datasetInfo.displacement ? <AssistantTab /> : null;
 }
 const renderTab = () => render(<AppProvider><Seed /></AppProvider>);
+/** Open the setup section and the API key form behind "Use an API key". */
+async function openKeys() {
+  fireEvent.click(await screen.findByRole('button', { name: 'Sign in or use a key' }));
+  fireEvent.click(screen.getByRole('button', { name: /Use an API key/ }));
+}
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -73,18 +89,17 @@ describe('AssistantTab', () => {
   });
 
   it('chooses a provider, saves a key on the server and removes it', async () => {
-    const saved = { ...STATUS, stored_in: 'the system keychain', providers: [{ ...ANTHROPIC, configured: true, source: 'saved', hint: '…abcd', store: 'keyring' }, OLLAMA, CHATGPT] };
+    const saved = { ...STATUS, stored_in: 'the system keychain', providers: [{ ...ANTHROPIC, configured: true, source: 'saved', hint: '…abcd', store: 'keyring' }, OLLAMA] };
     const calls = server(STATUS, [], c => {
       if (c.url === '/assistant/key' && c.method === 'PUT') return json(saved);
       if (c.url.startsWith('/assistant/key') && c.method === 'DELETE') return json(STATUS);
       return null;
     });
     renderTab();
-    fireEvent.click(await screen.findByRole('button', { name: 'Provider and key' }));
+    await openKeys();
     const select = screen.getByRole('combobox', { name: 'Provider' }) as HTMLSelectElement;
-    // ChatGPT sign-in is listed, not offered yet.
-    const chatgpt = within(select).getByRole('option', { name: /Sign in with ChatGPT/ }) as HTMLOptionElement;
-    expect(chatgpt.disabled).toBe(true);
+    // Signing in is not a provider with a key.
+    expect(within(select).queryByRole('option', { name: /ChatGPT/ })).toBeNull();
     // A local provider takes no key and no base URL: nothing to set up.
     expect(screen.queryByLabelText('API key')).toBeNull();
     expect(screen.queryByRole('textbox', { name: 'Base URL' })).toBeNull();
@@ -108,7 +123,6 @@ describe('AssistantTab', () => {
     // The key is not kept in the page.
     expect(JSON.stringify(localStorage)).not.toContain('sk-ant');
     expect(document.body.innerHTML).not.toContain('sk-ant-test');
-    expect(screen.getByRole('link', { name: 'how to connect' }).getAttribute('href')).toContain('docs/mcp.md');
 
     fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
     expect(await screen.findByLabelText('API key')).toBeTruthy();
@@ -116,7 +130,7 @@ describe('AssistantTab', () => {
   });
 
   it("shows the provider's live model list once a key is saved, merged with the built-in one, and refreshes it", async () => {
-    const keyed = { ...STATUS, default_provider: 'anthropic', providers: [{ ...ANTHROPIC, configured: true, source: 'saved', hint: '…abcd' }, OLLAMA, CHATGPT] };
+    const keyed = { ...STATUS, default_provider: 'anthropic', providers: [{ ...ANTHROPIC, configured: true, source: 'saved', hint: '…abcd' }, OLLAMA] };
     const lists = [
       [{ id: 'claude-opus-5-5', label: 'Claude Opus 5.5' }, { id: 'claude-next-6', label: 'Claude Next 6' }],
       [{ id: 'claude-next-6', label: 'Claude Next 6' }, { id: 'claude-newer-7', label: null }],
@@ -124,7 +138,7 @@ describe('AssistantTab', () => {
     const calls = server(keyed, [], c => (c.url.startsWith('/assistant/models')
       ? json({ provider: 'anthropic', models: lists.shift(), cached: false }) : null));
     renderTab();
-    fireEvent.click(await screen.findByRole('button', { name: 'Provider and key' }));
+    await openKeys();
     const options = () => Array.from(document.querySelectorAll('#ai-models option')).map(o => [(o as HTMLOptionElement).value, o.getAttribute('label')]);
     await waitFor(() => expect(options()).toEqual([
       ['claude-opus-5-5', 'Claude Opus 5.5'], ['claude-next-6', 'Claude Next 6'], ['claude-sonnet-5-5', null],
@@ -147,7 +161,7 @@ describe('AssistantTab', () => {
   it('asks a local provider for its models at once, and says quietly when the list cannot be loaded', async () => {
     const calls = server(STATUS);
     renderTab();
-    fireEvent.click(await screen.findByRole('button', { name: 'Provider and key' }));
+    await openKeys();
     const note = await screen.findByText("Couldn't load the model list.");
     expect(note.getAttribute('role')).toBe('status');
     expect(calls.filter(c => c.url.startsWith('/assistant/models')).map(c => c.url)).toEqual(['/assistant/models?provider=ollama']);
@@ -259,6 +273,164 @@ describe('AssistantTab', () => {
     render(<AppProvider><Hidden /></AppProvider>);
     await new Promise(r => setTimeout(r, 20));
     expect(calls.filter(c => c.url.startsWith('/assistant'))).toHaveLength(0);
+  });
+});
+
+describe('AssistantTab sign-in', () => {
+  const signedIn = (id: string, over: Record<string, unknown> = {}) => ({
+    ...STATUS,
+    sign_in: { ...SIGN_IN, methods: SIGN_IN.methods.map(m => (m.id === id ? { ...m, state: 'signed_in', ...over } : m)) },
+  });
+  const CHATGPT_ON = signedIn('chatgpt', { account: 'me@example.com', plan: 'ChatGPT plan', models: ['gpt-6.1-sol'], model: 'gpt-6.1-sol' });
+  const CLAUDE_ON = signedIn('claude', { account: 'me@example.com', plan: 'Max' });
+
+  it('lists the sign-in buttons from the server, with the API key form below them', async () => {
+    const off = { ...STATUS, providers: [ANTHROPIC] };  // nothing ready: the setup opens by itself
+    server(off);
+    renderTab();
+    const claude = await screen.findByRole('button', { name: 'Sign in with Claude' });
+    expect(screen.getByRole('button', { name: 'Continue with ChatGPT' })).toBeTruthy();
+    expect(screen.getByText('Uses Claude Code on this computer and your Claude plan.')).toBeTruthy();
+    // The buttons come in the server's order, before "Use an API key".
+    const buttons = screen.getAllByRole('button').map(b => b.textContent?.trim());
+    expect(buttons.indexOf('Sign in with Claude')).toBeLessThan(buttons.indexOf('Continue with ChatGPT'));
+    expect(buttons.indexOf('Continue with ChatGPT')).toBeLessThan(buttons.findIndex(t => t?.includes('Use an API key')));
+    expect(claude).toBeTruthy();
+    expect(screen.queryByLabelText('API key')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Use an API key/ }));
+    expect(screen.getByLabelText('API key')).toBeTruthy();
+    expect((screen.getByRole('textbox', { name: 'Question' }) as HTMLTextAreaElement).placeholder).toBe('Sign in or add a key above');
+  });
+
+  it('continues with ChatGPT in a new tab, waits, then shows who is signed in and signs out', async () => {
+    const pending = { ...STATUS, sign_in: { ...SIGN_IN, methods: [CLAUDE_IN, { ...CHATGPT_IN, state: 'pending' }] }, sign_in_url: 'https://auth.openai.com/api/accounts/authorize?x=1' };
+    const tab = { opener: {}, location: { href: '' }, close: vi.fn() };
+    vi.stubGlobal('open', vi.fn(() => tab));
+    let phase: 'out' | 'pending' | 'done' = 'out';
+    const calls = server(STATUS, [], c => {
+      if (c.url === '/assistant/signin' && c.method === 'POST') { phase = 'pending'; return json(pending); }
+      if (c.url.startsWith('/assistant/status')) return json(phase === 'done' ? CHATGPT_ON : phase === 'pending' ? pending : STATUS);
+      if (c.url.startsWith('/assistant/signin?method=chatgpt') && c.method === 'DELETE') return json({ ...STATUS, note: null });
+      return null;
+    });
+    renderTab();
+    fireEvent.click(await screen.findByRole('button', { name: 'Sign in or use a key' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue with ChatGPT' }));
+    expect(await screen.findByText(/Finish signing in on OpenAI's page/)).toBeTruthy();
+    expect(calls.find(c => c.url === '/assistant/signin')!.body).toEqual({ method: 'chatgpt' });
+    // The tab opened on the click goes to OpenAI's page, and cannot reach this one.
+    expect(tab.location.href).toBe(pending.sign_in_url);
+    expect(tab.opener).toBeNull();
+    expect(screen.getByRole('link', { name: 'Open the page again' }).getAttribute('href')).toBe(pending.sign_in_url);
+    phase = 'done';
+    // The tab asks the server until the sign-in is done, then uses the account.
+    expect(await screen.findByText(/ChatGPT · Signed in as me@example.com · ChatGPT plan/, {}, { timeout: 4000 })).toBeTruthy();
+    expect((screen.getByRole('textbox', { name: 'Question' }) as HTMLTextAreaElement).disabled).toBe(false);
+    expect(screen.getByText(/Using ChatGPT plan/)).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Manage usage' }).getAttribute('href')).toContain('chatgpt.com/settings/usage');
+    // The welcome note shows once.
+    expect(screen.getByText("You're using your ChatGPT plan")).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Got it' }));
+    expect(screen.queryByText("You're using your ChatGPT plan")).toBeNull();
+    // No token anywhere in the page.
+    expect(JSON.stringify(localStorage)).not.toMatch(/access|refresh/);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in or use a key' }));
+    const row = screen.getByLabelText('ChatGPT');
+    expect(within(row).getByText(/Signed in as me@example.com · ChatGPT plan/)).toBeTruthy();
+    expect(within(row).getByText(/In use/)).toBeTruthy();
+    fireEvent.click(within(row).getByRole('button', { name: 'Sign out' }));
+    expect(await screen.findByRole('button', { name: 'Continue with ChatGPT' })).toBeTruthy();
+    expect(calls.some(c => c.method === 'DELETE' && c.url === '/assistant/signin?method=chatgpt')).toBe(true);
+  }, 10000);
+
+  it('says how to get Claude Code when it is not installed', async () => {
+    const missing = { ...STATUS, providers: [ANTHROPIC], sign_in: { ...SIGN_IN, methods: [{ ...CLAUDE_IN, state: 'not_installed' }, CHATGPT_IN] } };
+    server(missing);
+    renderTab();
+    const button = await screen.findByRole('button', { name: 'Sign in with Claude' }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(screen.getByText(/Claude Code is needed: install it from/)).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'claude.com' }).getAttribute('href')).toBe('https://code.claude.com/docs/en/setup');
+  });
+
+  it("shows the agent's permission request, sends the answer, and stops the agent on Stop and New chat", async () => {
+    const calls = server(CLAUDE_ON, [
+      sse(
+        { type: 'status', text: "Starting Anthropic's agent…" },
+        { type: 'tool_call', id: 't1', name: 'point_timeseries', input: { lon: -90.1, lat: 34.75 }, runs: 'agent' },
+        { type: 'permission', id: 'p1', name: 'point_timeseries', title: 'mcp__bowser__point_timeseries', detail: '{"lon": -90.1, "lat": 34.75}', options: [{ kind: 'allow_once', name: 'Allow' }, { kind: 'allow_always', name: 'Always' }, { kind: 'reject_once', name: 'Reject' }], timeout: 120 },
+        { type: 'tool_result', id: 't1', name: 'point_timeseries', input: { lon: -90.1, lat: 34.75 }, ok: true, result: null },
+        { type: 'text', text: 'It is stable.' },
+        { type: 'message', message: { role: 'assistant', content: 'It is stable.' } },
+        { type: 'done', stop: 'end' },
+      ),
+    ], c => (c.url === '/assistant/permission' ? json({ ok: true }) : c.url === '/assistant/stop' ? json({ stopped: 1 }) : null));
+    renderTab();
+    expect(await screen.findByText(/Claude · Signed in as me@example.com · Max/)).toBeTruthy();
+    expect(screen.getByText(/Answered by Claude Code on this computer/)).toBeTruthy();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Question' }), { target: { value: 'Is it moving?' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    const card = await screen.findByRole('group', { name: 'Allow point_timeseries?' });
+    expect(within(card).getByText('Claude wants to run point_timeseries')).toBeTruthy();
+    expect(within(card).getByText('{"lon": -90.1, "lat": 34.75}')).toBeTruthy();
+    fireEvent.click(within(card).getByRole('button', { name: 'Allow' }));
+    expect(await within(card).findByText('Allowed.')).toBeTruthy();
+    const chat = calls.find(c => c.url === '/assistant/chat')!.body;
+    expect(chat.provider).toBe('claude');
+    expect(chat.page_tools).toEqual([]);
+    expect(chat.conversation).toMatch(/^[A-Za-z0-9_-]+$/);
+    expect(calls.find(c => c.url === '/assistant/permission')!.body).toEqual({ conversation: chat.conversation, id: 'p1', choice: 'allow' });
+    // The agent's tool put its point on the map.
+    await waitFor(() => expect(stateRef.timeSeriesPoints).toHaveLength(1));
+    expect(await screen.findByText('It is stable.')).toBeTruthy();
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'New chat' })[1]);
+    await waitFor(() => expect(calls.some(c => c.url === '/assistant/stop')).toBe(true));
+    expect(calls.find(c => c.url === '/assistant/stop')!.body).toEqual({ conversation: chat.conversation });
+  });
+
+  it('a declined or unanswered request says so', async () => {
+    server(CLAUDE_ON, [
+      sse(
+        { type: 'permission', id: 'p1', name: 'list_layers', title: 'list_layers', detail: '{}', options: [{ kind: 'allow_once', name: 'Allow' }, { kind: 'reject_once', name: 'Reject' }], timeout: 120 },
+        { type: 'permission_closed', id: 'p1', outcome: 'timeout' },
+        { type: 'text', text: 'Not allowed.' },
+        { type: 'done', stop: 'end' },
+      ),
+    ]);
+    renderTab();
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Question' }), { target: { value: 'layers?' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    const card = await screen.findByRole('group', { name: 'Allow list_layers?' });
+    expect(await within(card).findByText('Not answered in time, so it was denied.')).toBeTruthy();
+    expect(within(card).queryByRole('button', { name: 'Always allow' })).toBeNull();
+  });
+
+  it('shows Manage usage when the ChatGPT plan limit is reached', async () => {
+    server(CHATGPT_ON, [sse({ type: 'error', kind: 'rate_limit', code: 'subscription_sharing_usage_limit_exceeded', message: 'ChatGPT: Usage limit reached.' })]);
+    renderTab();
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Question' }), { target: { value: 'hi' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toMatch(/Usage limit reached/);
+    expect(within(alert).getByRole('link', { name: 'Manage usage' }).getAttribute('href')).toContain('chatgpt.com/settings/usage');
+  });
+
+  it('explains on a shared server that signing in needs your own computer', async () => {
+    const hosted = {
+      ...STATUS, page_keys: false, providers: [{ ...ANTHROPIC, configured: true, source: 'environment' }],
+      sign_in: { allowed: false, reason: 'Signing in works when Bowser runs on your own computer (bowser run, bowser lite or the desktop app); this server uses its own key.', methods: [] },
+    };
+    server(hosted);
+    renderTab();
+    fireEvent.click(await screen.findByRole('button', { name: 'Sign in or use a key' }));
+    expect(screen.getByText(/Signing in works when Bowser runs on your own computer/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Sign in with|Continue with/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Use an API key/ })).toBeNull();
+    expect(screen.getByText('This server provides the key.')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'how to connect' })).toBeTruthy();
   });
 });
 
