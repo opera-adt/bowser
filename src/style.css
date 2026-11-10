@@ -2213,5 +2213,6 @@ img.huechange { filter: hue-rotate(120deg); }
   left: 0;
   z-index: 30;
   width: 210px;
+  box-sizing: border-box;
   box-shadow: var(--shadow-md, 0 4px 14px rgba(0, 0, 0, 0.18));
 }
