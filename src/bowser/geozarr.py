@@ -25,6 +25,8 @@ import numpy as np
 import xarray as xr
 from rasterio.crs import CRS
 
+from .constants import TILE_SIZE
+
 BloscCname = Literal["lz4", "lz4hc", "blosclz", "snappy", "zlib", "zstd"]
 
 __all__ = [
@@ -473,7 +475,7 @@ def build_pyramid(
     path: str | Path,
     *,
     level0: str = "0",
-    min_size: int = 256,
+    min_size: int = TILE_SIZE,
     max_levels: int = 6,
     config: ZarrWriteConfig | None = None,
     level_0_ds: xr.Dataset | None = None,

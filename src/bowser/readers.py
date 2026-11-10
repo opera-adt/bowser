@@ -32,6 +32,7 @@ from rio_tiler.types import BBox, Indexes
 from tqdm.contrib.concurrent import thread_map
 
 from ._dates import get_dates
+from .constants import TILE_SIZE
 
 
 def _patch_rasterio_float16() -> None:
@@ -622,7 +623,7 @@ class CustomReader(BaseReader):
         tile_x: int,
         tile_y: int,
         tile_z: int,
-        tilesize: int = 256,
+        tilesize: int = TILE_SIZE,
         indexes: Optional[Indexes] = None,
         expression: Optional[str] = None,
         **kwargs: Any,

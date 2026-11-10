@@ -23,14 +23,16 @@ import xarray as xr
 import zarr
 from pyproj import CRS, Transformer
 
-TILE = 256
+from .constants import TILE_SIZE
+
+TILE = TILE_SIZE
 # Web Mercator: half the extent of the square world, in metres.
 ORIGIN = math.pi * 6378137.0
 VIEW_CUBE_VERSION = "1"
 
 
 def mercator_res(zoom: int) -> float:
-    """Pixel size (metres in EPSG:3857) at ``zoom`` for 256-px tiles."""
+    """Pixel size (metres in EPSG:3857) at ``zoom`` for ``TILE``-px tiles."""
     return 2 * ORIGIN / (TILE * 2**zoom)
 
 

@@ -25,6 +25,7 @@ import numpy as np
 import xarray as xr
 from fastapi import HTTPException
 
+from ..constants import TILE_SIZE
 from . import colormaps, geo, warp
 from .cube import Cube, spatial_ref_attrs
 from .meta import non_spatial_dim
@@ -336,7 +337,7 @@ def sample_tile(
     x: int,
     y: int,
     z: int,
-    tilesize: int = 256,
+    tilesize: int = TILE_SIZE,
 ) -> np.ma.MaskedArray:
     """Return the ``(1, tilesize, tilesize)`` masked source values for one tile."""
     da, masked = tile_source(ds, q)
@@ -483,7 +484,7 @@ def valid_range(da: xr.DataArray) -> tuple[float, float] | None:
 
 
 def render_tile(
-    cube: Cube, q: TileQuery, x: int, y: int, z: int, tilesize: int = 256
+    cube: Cube, q: TileQuery, x: int, y: int, z: int, tilesize: int = TILE_SIZE
 ) -> bytes:
     """One PNG tile: pick the pyramid level for ``z``, sample, render."""
     ds = cube.dataset_for_tile_zoom(z)

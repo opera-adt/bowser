@@ -5,6 +5,8 @@ from typing import Any
 
 import click
 
+from .constants import TILE_SIZE
+
 
 @click.group()
 def cli_app():
@@ -1300,10 +1302,15 @@ def register(
 )
 @click.option(
     "--min-pyramid-size",
-    default=256,
+    default=TILE_SIZE,
     show_default=True,
     type=int,
-    help="Stop building pyramid when min(y, x) drops below this.",
+    help=(
+        "Stop building pyramid when min(y, x) drops below this. Defaults to "
+        "the map tile size (bowser.constants.TILE_SIZE) that the servers' "
+        "pyramid level picker assumes; change one without the other and "
+        "low-zoom tiles degrade."
+    ),
 )
 @click.option(
     "--reference-point",

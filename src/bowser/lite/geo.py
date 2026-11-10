@@ -22,10 +22,12 @@ from typing import Any
 import numpy as np
 from pyproj import CRS, Transformer
 
+from ..constants import TILE_SIZE
+
 #: Half the Web Mercator world width (metres).
 WEB_MERCATOR_HALF_M = 20037508.342789244
-#: Web Mercator pixel size at zoom 0 for 256-pixel tiles (metres).
-_ZOOM0_CELL_M = 2 * WEB_MERCATOR_HALF_M / 256
+#: Web Mercator pixel size at zoom 0 for ``TILE_SIZE``-pixel tiles (metres).
+_ZOOM0_CELL_M = 2 * WEB_MERCATOR_HALF_M / TILE_SIZE
 #: The zoom range of the WebMercatorQuad tile matrix set.
 TMS_MINZOOM, TMS_MAXZOOM = 0, 24
 
@@ -192,9 +194,9 @@ def warp_output_bounds(
     return c, f + h * e, c + w * a, f
 
 
-def cell_size(z: int, tilesize: int = 256) -> float:
+def cell_size(z: int, tilesize: int = TILE_SIZE) -> float:
     """Web Mercator pixel size (metres) at zoom ``z``."""
-    return _ZOOM0_CELL_M * 256 / tilesize / (1 << z)
+    return _ZOOM0_CELL_M * TILE_SIZE / tilesize / (1 << z)
 
 
 def zoom_for_res(res: float, min_z: int = TMS_MINZOOM, max_z: int = TMS_MAXZOOM) -> int:
@@ -214,7 +216,7 @@ def zoom_for_res(res: float, min_z: int = TMS_MINZOOM, max_z: int = TMS_MAXZOOM)
     return zoom
 
 
-def _max_overview_level(width: int, height: int, minsize: int = 256) -> int:
+def _max_overview_level(width: int, height: int, minsize: int = TILE_SIZE) -> int:
     level, factor = 0, 1
     while min(width // factor, height // factor) > minsize:
         factor *= 2
@@ -237,7 +239,7 @@ def dataset_zoom_range(
         )
         res = max(abs(a), abs(e))
     maxzoom = zoom_for_res(res)
-    minzoom = zoom_for_res(res * 2 ** _max_overview_level(w, h, 256))
+    minzoom = zoom_for_res(res * 2 ** _max_overview_level(w, h, TILE_SIZE))
     return minzoom, maxzoom
 
 
@@ -269,7 +271,7 @@ def _normalize(b: Bounds) -> Bounds:
 
 
 def tile_pixel_centers(
-    x: int, y: int, z: int, tilesize: int = 256
+    x: int, y: int, z: int, tilesize: int = TILE_SIZE
 ) -> tuple[np.ndarray, np.ndarray]:
     """EPSG:3857 x and y (1-D) of a tile's pixel centres, left-right and top-bottom."""
     left, bottom, right, top = tile_bounds(x, y, z)

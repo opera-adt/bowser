@@ -23,6 +23,7 @@ from pyproj import CRS, Transformer
 from xarray.backends.zarr import ZarrBackendEntrypoint
 
 from ..catalog import CatalogEntry, load_catalog
+from ..constants import TILE_SIZE
 from . import geo
 
 if (
@@ -138,7 +139,7 @@ class Cube:
         """Always ``"md"``: lite serves GeoZarr cubes only."""
         return "md"
 
-    def dataset_for_tile_zoom(self, z: int, tile_size: int = 256) -> xr.Dataset:
+    def dataset_for_tile_zoom(self, z: int, tile_size: int = TILE_SIZE) -> xr.Dataset:
         """Return the coarsest level whose pixel fits in a tile pixel at zoom ``z``."""
         if len(self.levels) <= 1:
             return self.dataset
