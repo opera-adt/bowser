@@ -645,6 +645,7 @@ def _tile_query(
     colormap_name: str | None,
     algorithm: str | None,
     algorithm_params: str | None,
+    ref_time_idx: int | None = None,
 ) -> tiles.TileQuery:
     if colormap_name is not None and colormap_name.lower() not in colormaps.names():
         raise HTTPException(
@@ -657,6 +658,7 @@ def _tile_query(
         mask_variable=mask_variable,
         mask_min_value=mask_min_value,
         layer_masks=layer_masks,
+        ref_time_idx=ref_time_idx,
         rescale=tiles.parse_rescale(rescale),
         colormap_name=colormap_name,
         algorithm=algo,
@@ -718,6 +720,7 @@ def tilejson(
     tilesize: Annotated[int | None, Query(gt=0)] = None,
     minzoom: int | None = Query(None),
     maxzoom: int | None = Query(None),
+    ref_time_idx: int | None = Query(None),
 ):
     """TileJSON for the MD tiler: tile URL template, lon/lat bounds and zoom range."""
     _check_tms(tileMatrixSetId)
@@ -732,6 +735,7 @@ def tilejson(
         colormap_name,
         algorithm,
         algorithm_params,
+        ref_time_idx,
     )
     da, _ = tiles.tile_source(cube.dataset, q)
     bounds = cube.bounds(da)
@@ -790,6 +794,7 @@ def _tile(
     algorithm: str | None,
     algorithm_params: str | None,
     tilesize: int | None,
+    ref_time_idx: int | None = None,
 ) -> Response:
     _check_tms(tileMatrixSetId)
     if fmt not in (None, "png"):
@@ -813,6 +818,7 @@ def _tile(
         colormap_name,
         algorithm,
         algorithm_params,
+        ref_time_idx,
     )
     try:
         size = tilesize if tilesize is not None else 256 * scale
@@ -836,6 +842,9 @@ _TILE_QUERY = {
     "colormap_name": Query(None, description="Colormap name"),
     "algorithm": Query(None, description="shift, rewrap, phase or amplitude"),
     "algorithm_params": Query(None, description="JSON algorithm parameters"),
+    "ref_time_idx": Query(
+        None, description="Time index to show the step relative to (value minus it)"
+    ),
 }
 
 
@@ -861,6 +870,7 @@ def _make_tile_route(path: str) -> None:
         colormap_name: Optional[str] = _TILE_QUERY["colormap_name"],
         algorithm: Optional[str] = _TILE_QUERY["algorithm"],
         algorithm_params: Optional[str] = _TILE_QUERY["algorithm_params"],
+        ref_time_idx: Optional[int] = _TILE_QUERY["ref_time_idx"],
         scale: int = 1,
         format: Optional[str] = None,  # noqa: A002 — titiler's parameter name
         tilesize: Optional[int] = Query(None, gt=0),
@@ -868,7 +878,7 @@ def _make_tile_route(path: str) -> None:
         return _tile(
             tileMatrixSetId, z, x, y, scale, format, variable, dataset, time_idx,
             mask_variable, mask_min_value, layer_masks, custom_mask_path, rescale,
-            colormap_name, algorithm, algorithm_params, tilesize,
+            colormap_name, algorithm, algorithm_params, tilesize, ref_time_idx,
         )  # fmt: skip
 
     app.add_api_route(path, tile, methods=["GET"], response_class=Response, name="tile")

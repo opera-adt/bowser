@@ -129,7 +129,7 @@ beforeEach(() => {
     return new Response(JSON.stringify([0, 0.001]));
   }));
 });
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); localStorage.clear(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); vi.restoreAllMocks(); localStorage.clear(); });
 
 async function mount() {
   const view = render(<MapLibreMap />);
@@ -156,6 +156,15 @@ describe('MapLibreMap without WebGL', () => {
 });
 
 describe('MapLibreMap', () => {
+  it('dark basemap source stops at its native zoom 16; data and map still go to 22', async () => {
+    mockState.selectedBasemap = 'esriDark';
+    const { map } = await mount();
+    expect(map.sources.get('basemap-bottom').tiles[0]).toContain('World_Dark_Gray_Base');
+    expect(map.sources.get('basemap-bottom').maxzoom).toBe(16);
+    expect(map.sources.get('data-1').maxzoom).toBe(22);
+    expect(map.opts.maxZoom ?? 22).toBeGreaterThanOrEqual(22);   // MapLibre's default maxZoom is 22
+  });
+
   it('draws the basemap, fits the data and adds the raster layer on top', async () => {
     const { map } = await mount();
     expect(map.sources.get('basemap-bottom').tiles[0]).toContain('World_Imagery');
@@ -271,6 +280,46 @@ describe('MapLibreMap', () => {
     await act(async () => { fireEvent.click(view.getByRole('checkbox')); });
     expect(map.terrain).toBeNull();
     expect(map.eased[map.eased.length - 1]).toEqual({ pitch: 0, bearing: 0 });
+  });
+
+  it('3D terrain remembered on: no DEM tiles at 0,0 before /datasets answers, terrain after the fit', async () => {
+    localStorage.setItem('bowser.maplibre.terrain', JSON.stringify({ enabled: true, exaggeration: 3 }));
+    mockState.currentDataset = null;
+    mockState.datasetInfo = {};
+    // where the camera is when the DEM source goes in
+    const fittedAtTerrain: unknown[] = [];
+    const addSource = FakeMap.prototype.addSource;
+    vi.spyOn(FakeMap.prototype, 'addSource').mockImplementation(function (this: InstanceType<typeof FakeMap>, id: string, src: any) {
+      if (id === 'terrain-dem') fittedAtTerrain.push(this.fitted);
+      return addSource.call(this, id, src);
+    });
+    const { view, map } = await mount();
+    expect(map.opts.center).toEqual([0, 0]);
+    expect(map.fitted).toBeNull();
+    expect(map.sources.has('terrain-dem')).toBe(false);
+    expect(map.terrain).toBeNull();
+    expect(map.eased).toEqual([]);
+
+    mockState.currentDataset = 'displacement';
+    mockState.datasetInfo = { displacement: info };
+    await act(async () => { view.rerender(<MapLibreMap />); });
+    expect(map.fitted).toEqual([[-117.68, 33.95], [-117.66, 33.97]]);
+    expect(fittedAtTerrain).toEqual([[[-117.68, 33.95], [-117.66, 33.97]]]);
+    expect(map.terrain).toEqual({ source: 'terrain-dem', exaggeration: 3 });
+    expect(map.eased[map.eased.length - 1]).toEqual({ pitch: 60 });
+  });
+
+  it('3D terrain remembered on, data known at load: the DEM source goes in after the fit', async () => {
+    localStorage.setItem('bowser.maplibre.terrain', JSON.stringify({ enabled: true, exaggeration: 2 }));
+    const fittedAtTerrain: unknown[] = [];
+    const addSource = FakeMap.prototype.addSource;
+    vi.spyOn(FakeMap.prototype, 'addSource').mockImplementation(function (this: InstanceType<typeof FakeMap>, id: string, src: any) {
+      if (id === 'terrain-dem') fittedAtTerrain.push(this.fitted);
+      return addSource.call(this, id, src);
+    });
+    const { map } = await mount();
+    expect(fittedAtTerrain).toEqual([[[-117.68, 33.95], [-117.66, 33.97]]]);
+    expect(map.terrain).toEqual({ source: 'terrain-dem', exaggeration: 2 });
   });
 
   it('view sync: "fit to dataset" moves the camera, panning reports the bounds', async () => {

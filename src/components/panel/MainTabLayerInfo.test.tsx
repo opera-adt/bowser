@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppProvider, useAppContext } from '../../context/AppContext';
 import type { RasterGroup } from '../../types';
 import MainTab from './MainTab';
+import { LAYER_INFO_KEY } from '../../utils/layerInfoPref';
 
 vi.mock('../Histogram', () => ({ default: () => null }));
 afterEach(cleanup);
@@ -43,5 +44,45 @@ describe('MainTab layer information', () => {
     fireEvent.change(screen.getByRole('combobox', { name: 'Layer' }), { target: { value: 'velocity' } });
     expect(screen.queryByText('Quality guidance.')).toBeNull();
     expect(screen.getAllByText('Rate guidance.')).toHaveLength(2);
+  });
+
+  it('the (i) button hides and shows both notes and remembers the choice', () => {
+    const { unmount } = render(<AppProvider><Seed /></AppProvider>);
+    const button = screen.getByRole('button', { name: 'Layer description' });
+    expect(button.getAttribute('aria-pressed')).toBe('true');
+    expect(button.getAttribute('title')).toBe('Hide layer description');
+    fireEvent.click(button);
+    expect(screen.queryAllByRole('note', { name: 'Layer information' })).toHaveLength(0);
+    expect(button.getAttribute('aria-pressed')).toBe('false');
+    expect(button.getAttribute('title')).toBe('Show layer description');
+    expect(localStorage.getItem(LAYER_INFO_KEY)).toBe('hidden');
+    unmount();
+
+    // A later visit starts hidden; showing again clears the saved choice.
+    render(<AppProvider><Seed /></AppProvider>);
+    expect(screen.queryAllByRole('note', { name: 'Layer information' })).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Layer description' }));
+    expect(screen.getAllByRole('note', { name: 'Layer information' })).toHaveLength(2);
+    expect(localStorage.getItem(LAYER_INFO_KEY)).toBeNull();
+  });
+
+  it('still toggles when storage refuses the preference', () => {
+    // Other settings keep working; only this preference is refused.
+    const real = localStorage;
+    const refuse = <A extends unknown[], R>(fn: (key: string, ...rest: A) => R) => (key: string, ...rest: A): R => {
+      if (key === LAYER_INFO_KEY) throw new Error('storage denied');
+      return fn.call(real, key, ...rest);
+    };
+    const guarded = Object.assign(Object.create(real), {
+      getItem: refuse(real.getItem), setItem: refuse(real.setItem), removeItem: refuse(real.removeItem),
+    });
+    Object.defineProperty(globalThis, 'localStorage', { value: guarded, configurable: true, writable: true });
+    Object.defineProperty(window, 'localStorage', { value: guarded, configurable: true, writable: true });
+    render(<AppProvider><Seed /></AppProvider>);
+    expect(screen.getAllByRole('note', { name: 'Layer information' })).toHaveLength(2);
+    fireEvent.click(screen.getByRole('button', { name: 'Layer description' }));
+    expect(screen.queryAllByRole('note', { name: 'Layer information' })).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Layer description' }));
+    expect(screen.getAllByRole('note', { name: 'Layer information' })).toHaveLength(2);
   });
 });

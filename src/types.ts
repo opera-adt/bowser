@@ -34,6 +34,8 @@ export interface RasterGroup {
   unit?: string;
   description?: string;
   description_source?: 'bowser' | 'source' | 'unknown';
+  // Bowser's general text when the producer's own description leads (absent otherwise).
+  guidance?: string;
   source_description?: string | null;
   source_flags?: Array<{ value: string; label: string }>;
   unit_status?: 'provided' | 'missing' | 'mixed';
@@ -104,6 +106,9 @@ export interface BaseMapItem {
   url: string;
   attribution: string;
   label?: string;
+  /** Deepest zoom the provider really serves; past it the map upscales these tiles.
+   *  Unset: DEFAULT_BASEMAP_NATIVE_ZOOM (map/basemapStyle.ts). */
+  maxNativeZoom?: number;
 }
 
 export interface LayerMask {
@@ -206,6 +211,8 @@ export interface AppState {
   currentDataset: string;
   currentTimeIndex: number;
   refValues: { [key: string]: number[] };
+  /** Per layer: the time step it is shown relative to (Main › Layers › ref); absent = as stored. */
+  refTimeIndex: { [dataset: string]: number };
   selectedBasemap: string;
   secondaryBasemap: string | null;
   basemapOpacity: number;
@@ -287,6 +294,7 @@ export type AppAction =
   | { type: 'SET_CURRENT_DATASET'; payload: string }
   | { type: 'SET_TIME_INDEX'; payload: number }
   | { type: 'SET_REF_VALUES'; payload: { dataset: string; values: number[] } }
+  | { type: 'SET_REF_TIME_INDEX'; payload: { dataset: string; index: number | null } }
   | { type: 'SET_BASEMAP'; payload: string }
   | { type: 'SET_SECONDARY_BASEMAP'; payload: string | null }
   | { type: 'SET_BASEMAP_OPACITY'; payload: number }

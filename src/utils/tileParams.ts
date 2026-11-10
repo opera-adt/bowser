@@ -1,4 +1,5 @@
 import type { AppState, RasterGroup } from '../types';
+import { activeRefTime } from './refDate';
 
 /** The parts of the app state that decide a raster tile request. */
 export type TileState = Pick<
@@ -9,6 +10,7 @@ export type TileState = Pick<
   | 'wrapPeriod'
   | 'refEnabled'
   | 'refValues'
+  | 'refTimeIndex'
   | 'dataMode'
   | 'customMaskPath'
   | 'layerMasks'
@@ -37,6 +39,8 @@ export function buildTileRequest(req: TileRequest): { endpoint: string; params: 
   const { dataset, dsInfo, vmin, vmax, colormap, state } = req;
   const maxIdx = dsInfo.x_values.length - 1;
   const timeIdx = Math.max(0, Math.min(req.timeIndex, maxIdx));
+  // Shown relative to another date: the tiler subtracts that step before the shift below.
+  const refTimeIdx = activeRefTime(dsInfo, state.refTimeIndex?.[dataset], state.dataMode);
 
   const params: Record<string, string> = {
     variable: dataset,
@@ -63,7 +67,9 @@ export function buildTileRequest(req: TileRequest): { endpoint: string; params: 
     const algorithmParams: Record<string, number> = {};
     if (state.refEnabled && state.refValues[dataset] && dsInfo.algorithm === 'shift') {
       const refArr = state.refValues[dataset];
-      const shift = refArr[timeIdx] ?? refArr[0];
+      let shift = refArr[timeIdx] ?? refArr[0];
+      // The reference point moves by the same difference as every other pixel.
+      if (shift !== undefined && refTimeIdx !== null) shift -= refArr[refTimeIdx] ?? 0;
       if (shift !== undefined) algorithmParams.shift = shift;
     }
     if (state.wrapEnabled) {
@@ -96,6 +102,8 @@ export function buildTileRequest(req: TileRequest): { endpoint: string; params: 
   if (state.dataMode === 'md' && state.customMaskPath) {
     params.custom_mask_path = state.customMaskPath;
   }
+
+  if (refTimeIdx !== null) params.ref_time_idx = refTimeIdx.toString();
 
   if (req.datasetId) params.dataset = req.datasetId;
 

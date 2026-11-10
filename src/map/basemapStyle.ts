@@ -9,6 +9,15 @@ import type { BaseMapItem } from '../types';
 
 const SUBDOMAINS = ['a', 'b', 'c'];
 
+/** How far either map lets the user zoom in (the data raster serves tiles this deep). */
+export const MAP_MAX_ZOOM = 22;
+/** Native zoom for basemaps that do not set ``maxNativeZoom``. */
+export const DEFAULT_BASEMAP_NATIVE_ZOOM = 19;
+
+export function basemapNativeZoom(item: BaseMapItem): number {
+  return item.maxNativeZoom ?? DEFAULT_BASEMAP_NATIVE_ZOOM;
+}
+
 export function basemapTiles(url: string): string[] {
   return url.includes('{s}') ? SUBDOMAINS.map(s => url.replace('{s}', s)) : [url];
 }
@@ -21,8 +30,22 @@ export interface RasterSource {
   maxzoom: number;
 }
 
+/** ``maxzoom`` is the provider's native max, so MapLibre overzooms past it. */
 export function basemapSource(item: BaseMapItem): RasterSource {
-  return { type: 'raster', tiles: basemapTiles(item.url), tileSize: 256, attribution: item.attribution, maxzoom: 19 };
+  return {
+    type: 'raster', tiles: basemapTiles(item.url), tileSize: 256, attribution: item.attribution,
+    maxzoom: basemapNativeZoom(item),
+  };
+}
+
+/**
+ * Leaflet TileLayer zoom props: request tiles up to the native max, upscale them beyond.
+ * Basemaps without a ``maxNativeZoom`` keep requesting every zoom, as before.
+ */
+export function basemapLeafletZoom(item: BaseMapItem): { maxZoom: number; maxNativeZoom?: number } {
+  return item.maxNativeZoom === undefined
+    ? { maxZoom: MAP_MAX_ZOOM }
+    : { maxZoom: MAP_MAX_ZOOM, maxNativeZoom: item.maxNativeZoom };
 }
 
 /** Bottom/top basemap and their opacities, honouring the "swapped" toggle (as in the Leaflet map). */

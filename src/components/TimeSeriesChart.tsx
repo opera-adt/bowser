@@ -17,6 +17,7 @@ import { describeFit, fitSeries, modelCurve, modelLabel, rSquared } from '../map
 import type { FitResult } from '../map/fit';
 import { displayUnit } from '../utils/units';
 import { saveFile } from '../utils/saveFile';
+import { activeRefTime, refDateLabel, refDateMarker, relativeChartData, relativeTo } from '../utils/refDate';
 import ChartAreaButton from './ChartAreaButton';
 import { areaChartDatasets, polygonEmptyMessage, type PolygonTimeSeries } from '../utils/polygonSeries';
 import { referenceValues } from '../map/interactions';
@@ -102,8 +103,26 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
   const { fetchMultiPointTimeSeries, fetchBufferTimeSeries, fetchPointTimeSeries, fetchPolygonTimeSeries } = useApi();
   const themeVersion = useThemeVersion();
   // chartData keyed by dataset name
-  const [chartDataMap, setChartDataMap] = useState<{ [ds: string]: MultiPointTimeSeriesData }>({});
-  const [bufferData, setBufferData] = useState<{ [key: string]: BufferResult }>({});
+  const [fetchedDataMap, setChartDataMap] = useState<{ [ds: string]: MultiPointTimeSeriesData }>({});
+  const [fetchedBuffer, setBufferData] = useState<{ [key: string]: BufferResult }>({});
+  // Layers shown relative to another date (Main › Layers › ref): that step's label, per layer.
+  const refX = useMemo(() => {
+    const out: { [ds: string]: string | number } = {};
+    for (const [ds, chosen] of Object.entries(state.refTimeIndex)) {
+      const info = state.datasetInfo[ds];
+      const i = activeRefTime(info, chosen, state.dataMode);
+      if (i !== null) out[ds] = info.x_values[i];
+    }
+    return out;
+  }, [state.refTimeIndex, state.datasetInfo, state.dataMode]);
+  // Each series minus its own value at that date, as the map's tiles.
+  const chartDataMap = useMemo(() => relativeChartData(fetchedDataMap, refX), [fetchedDataMap, refX]);
+  const bufferData = useMemo(() => Object.fromEntries(Object.entries(fetchedBuffer).map(([key, b]) => {
+    const ds = key.split('::')[0];
+    return [key, ds in refX
+      ? { ...b, median: relativeTo(b.median, refX[ds]), samples: b.samples.map(s => relativeTo(s, refX[ds])) }
+      : b];
+  })), [fetchedBuffer, refX]);
   const [isLoading, setIsLoading] = useState(false);
   const [isZoomed, setIsZoomed] = useState(false);
   // Per-dataset vertical offset (in data units) for separating overlapping layers
@@ -409,9 +428,9 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     const mutedColor = cssVar('--sb-muted',  '#7880a8');
     const gridColor  = cssVar('--sb-border', '#2c2f4a');
 
-    const referenceDate = activeChartDs.length > 0
-      ? state.datasetInfo[activeChartDs[0]]?.reference_date
-      : null;
+    const referenceDate = activeChartDs.length === 0 ? null
+      : activeChartDs[0] in refX ? refDateLabel(refX[activeChartDs[0]])
+      : state.datasetInfo[activeChartDs[0]]?.reference_date;
 
     // Determine x-axis scale type from label format of the first active dataset:
     // - integer → linear; "YYYY-MM-DD_YYYY-MM-DD" → category; ISO date → time
@@ -455,9 +474,10 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     activeChartDs.forEach((ds, i) => {
       const info = state.datasetInfo[ds];
       const shownUnit = displayUnit(info?.unit, state.units).label;
-      const yLabel = info?.label && shownUnit
+      const baseYLabel = info?.label && shownUnit
         ? `${info.label} (${shownUnit})`
         : info?.label || shownUnit || ds;
+      const yLabel = ds in refX ? `${baseYLabel} relative to ${refDateLabel(refX[ds])}` : baseYLabel;
       const axisColor = dsColorOverrides[ds] ?? (i === 0 ? mutedColor : mutedColor);
       const offset = dsOffsets[ds] ?? 0;
       const lim = dsYLimits[ds];
@@ -558,7 +578,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
       onClick: handleChartClick,
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [themeVersion, state.units, state.showTrends, state.vmin, state.vmax, state.datasetInfo, state.bufferEnabled, handleChartClick, JSON.stringify(activeChartDs), JSON.stringify(dsOffsets), JSON.stringify(dsColorOverrides), JSON.stringify(dsYLimits), firstAreaLabel, JSON.stringify(Object.fromEntries(Object.entries(chartDataMap).map(([k, v]) => [k, v.datasets.flatMap(d => d.data.map(pt => pt.y))]))) ]);
+  }, [themeVersion, refX, state.units, state.showTrends, state.vmin, state.vmax, state.datasetInfo, state.bufferEnabled, handleChartClick, JSON.stringify(activeChartDs), JSON.stringify(dsOffsets), JSON.stringify(dsColorOverrides), JSON.stringify(dsYLimits), firstAreaLabel, JSON.stringify(Object.fromEntries(Object.entries(chartDataMap).map(([k, v]) => [k, v.datasets.flatMap(d => d.data.map(pt => pt.y))]))) ]);
 
   if (!state.showChart) return null;
 
@@ -808,6 +828,9 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     const colorOverride = dsColorOverrides[dsName] ?? null;
     const axisIdx = activeChartDs.indexOf(dsName);
     const yAxisID = `y${axisIdx}`;
+    // The date the series is relative to (chosen, or as stored), marked on each series.
+    const refAt = refX[dsName] ?? dsInfo?.reference_date;
+    const refIso = refAt === undefined || refAt === null ? null : toIsoDate(refAt);
 
     cd.datasets.forEach(dataset => {
       const baseLabel = multiDs ? `${dataset.label} [${dsName}]` : dataset.label;
@@ -848,6 +871,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
           borderColor, backgroundColor: borderColor,
           borderWidth: 0, fill: false,
           ...look, showLine: false, pointRadius: look.pointRadius || ms,
+          ...refDateMarker(medianData, refIso, borderColor, borderColor, look.pointRadius || ms),
         });
       } else {
         const isoData = dataset.data
@@ -866,6 +890,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
           backgroundColor,
           borderWidth: 2, tension: 0.1, fill: false,
           ...look,
+          ...refDateMarker(isoData, refIso, borderColor, backgroundColor, look.pointRadius),
         });
 
         const fit = fits[`${dsName}::${dataset.pointId}`]?.fit;

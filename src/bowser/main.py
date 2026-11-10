@@ -33,6 +33,13 @@ from starlette_cramjam.middleware import CompressionMiddleware
 
 from .config import settings
 from .polygon import PolygonRequest, summarize_rasters, summarize_xarray
+from .reference import (
+    pool,
+    reference_median,
+    reference_offset,
+    select_circle,
+    select_point,
+)
 from .state import BowserState, DatasetRegistry
 from .utils import (
     _uses_spatial_reference,
@@ -781,23 +788,12 @@ async def _get_ref_median(
 
     tr = _T.from_crs(4326, state.dataset.rio.crs, always_xy=True)
     cx, cy = tr.transform(lon, lat)
-    res_x = float(abs(da.x[1] - da.x[0])) if da.x.size > 1 else 1.0
-    res_y = float(abs(da.y[1] - da.y[0])) if da.y.size > 1 else 1.0
-
-    x_slice = da.x.sel(x=slice(cx - buffer_m - res_x, cx + buffer_m + res_x))
-    y_slice = da.y.sel(y=slice(cy + buffer_m + res_y, cy - buffer_m - res_y))
-    if x_slice.size == 0 or y_slice.size == 0:
+    circle = select_circle(da, cx, cy, buffer_m, margin_window=True, sqrt_distance=True)
+    if circle is None:
         return await _get_point_values(dataset_name, lon, lat, layer_masks)
-
-    window = da.sel(x=x_slice, y=y_slice)
-    xx, yy = np.meshgrid(x_slice.values, y_slice.values)
-    in_circle = np.sqrt((xx - cx) ** 2 + (yy - cy) ** 2) <= buffer_m
-
-    arr = window.values  # (time, ny, nx)
-    arr_masked = np.where(in_circle[np.newaxis, :, :], arr, np.nan)
-    flat = arr_masked.reshape(arr.shape[0], -1)  # (time, n_pixels)
-
-    return np.nanmedian(flat, axis=1)  # (time,)
+    # (time,) for a (time, y, x) variable. A 2-D variable is pooled per window
+    # row, as before; its series has no time axis to plot either way.
+    return reference_median(pool(*circle))
 
 
 async def _get_point_values(
@@ -827,8 +823,7 @@ async def _get_point_values(
                 da = da.isel({dim: max(0, min(time_idx, da.sizes[dim] - 1))})
         da = _apply_layer_masks_md(da, layer_masks or [], time_idx=time_idx)
         x, y = state.transformer_from_lonlat.transform(lon, lat)
-        point_data = da.sel(x=x, y=y, method="nearest")
-        return np.atleast_1d(point_data.values)
+        return np.atleast_1d(select_point(da, x, y, "nearest").values[..., 0, 0])
     else:  # cog mode
         if dataset_name not in state.raster_groups:
             raise HTTPException(
@@ -1364,26 +1359,13 @@ async def buffer_timeseries(
         tr = _T.from_crs(4326, state.dataset.rio.crs, always_xy=True)
         cx, cy = tr.transform(lon, lat)
 
-        res_x = float(abs(da.x[1] - da.x[0])) if da.x.size > 1 else 1.0
-        res_y = float(abs(da.y[1] - da.y[0])) if da.y.size > 1 else 1.0
-
-        # Select spatial window
-        x_slice = da.x.sel(x=slice(cx - buffer_m - res_x, cx + buffer_m + res_x))
-        y_slice = da.y.sel(y=slice(cy + buffer_m + res_y, cy - buffer_m - res_y))
-        if x_slice.size == 0 or y_slice.size == 0:
+        # The same circle a buffered reference selects (see _get_ref_median).
+        circle = select_circle(
+            da, cx, cy, buffer_m, margin_window=True, sqrt_distance=True
+        )
+        if circle is None:
             raise HTTPException(status_code=404, detail="Buffer outside dataset extent")
-
-        window = da.sel(x=x_slice, y=y_slice)
-        # Circular mask
-        xx, yy = np.meshgrid(x_slice.values, y_slice.values)
-        dist = np.sqrt((xx - cx) ** 2 + (yy - cy) ** 2)
-        in_circle = dist <= buffer_m  # (ny, nx)
-
-        # Stack time series for valid pixels: shape (time, n_valid)
-        arr = window.values  # (time, ny, nx)
-        mask2d = in_circle[np.newaxis, :, :]
-        arr_masked = np.where(mask2d, arr, np.nan)  # (time, ny, nx)
-        flat = arr_masked.reshape(arr.shape[0], -1)  # (time, n_pixels)
+        flat = pool(*circle)  # (time, n_pixels), NaN outside the circle
 
         # Reference subtraction (use buffer median when ref_buffer_m > 0)
         if ref_lon is not None and ref_lat is not None:
@@ -1418,12 +1400,6 @@ async def buffer_timeseries(
         r0, r1 = max(0, row_c - pr_y), min(reader0.shape[0], row_c + pr_y + 1)
         c0, c1 = max(0, col_c - pr_x), min(reader0.shape[1], col_c + pr_x + 1)
 
-        rows, cols = np.meshgrid(np.arange(r0, r1), np.arange(c0, c1), indexing="ij")
-        xs = tf.c + (cols + 0.5) * tf.a
-        ys = tf.f + (rows + 0.5) * tf.e
-        dist = np.sqrt((xs - cx) ** 2 + (ys - cy) ** 2)
-        in_circle = (dist <= buffer_m).ravel()
-
         # Read full stack for window — shape (T, ny, nx) via slicing
         T = len(rg.file_list)
         ny, nx = r1 - r0, c1 - c0
@@ -1437,7 +1413,18 @@ async def buffer_timeseries(
                 if nodata is not None:
                     patch[patch == nodata] = np.nan
                 flat_full[t_idx] = patch.ravel()
-        flat = flat_full[:, in_circle]
+        # The window's pixel centres, then the circle a buffered reference uses.
+        window = xr.DataArray(
+            flat_full.reshape(T, ny, nx),
+            dims=("time", "y", "x"),
+            coords={
+                "x": tf.c + (np.arange(c0, c1) + 0.5) * tf.a,
+                "y": tf.f + (np.arange(r0, r1) + 0.5) * tf.e,
+            },
+        )
+        circle = select_circle(window, cx, cy, buffer_m, sqrt_distance=True)
+        assert circle is not None  # only a margin window can miss the grid
+        flat = circle.values[:, circle.inside]
 
         if ref_lon is not None and ref_lat is not None:
             ref_vals = await _get_point_values(dataset_name, ref_lon, ref_lat)
@@ -1449,11 +1436,7 @@ async def buffer_timeseries(
     if flat.shape[1] == 0:
         raise HTTPException(status_code=404, detail="No valid pixels in buffer")
 
-    import warnings as _w  # noqa: PLC0415
-
-    with _w.catch_warnings():
-        _w.simplefilter("ignore", RuntimeWarning)
-        median_ts = np.nanmedian(flat, axis=1).tolist()
+    median_ts = reference_median(flat).tolist()
 
     # Random sample (up to n_samples)
     rng = np.random.default_rng(42)
@@ -2171,6 +2154,22 @@ app.include_router(
 logger.info("Configured overlay endpoints at /overlay/*")
 
 
+def _minus_reference_step(
+    da: "xr.DataArray", full: "xr.DataArray", dim: str, ref_time_idx: int
+) -> "xr.DataArray":
+    """Return ``da`` minus ``full`` at step ``ref_time_idx`` (clamped), per pixel.
+
+    Re-references a displacement step to another date: NaN where either is NaN.
+    ``da``'s attributes, encoding and coordinates are kept, so nodata handling
+    downstream is unchanged.
+    """
+    ref = full.isel({dim: max(0, min(ref_time_idx, full.sizes[dim] - 1))}, drop=True)
+    with xr.set_options(keep_attrs=True):
+        out = da - ref
+    out.encoding = dict(da.encoding)
+    return out
+
+
 # MD mode: use xarray approach
 def _build_masked_md_dataarray(
     ds: "xr.Dataset",
@@ -2182,12 +2181,18 @@ def _build_masked_md_dataarray(
     custom_mask_path: Optional[str],
     *,
     strict_masks: bool = False,
+    ref_time_idx: Optional[int] = None,
 ) -> "xr.DataArray":
     """Build the masked 2-D/3-D DataArray for ``variable`` from a GeoZarr ``ds``.
 
     Shared by the tile path (``XarrayPathDependency``) and the GeoTIFF export so
     both apply identical masking: the recommended mask (for ``displacement``),
     the threshold layer masks, and an uploaded custom mask.
+
+    With ``ref_time_idx`` (and ``time_idx``), the step is shown relative to
+    another date: ``variable`` at ``time_idx`` minus ``variable`` at
+    ``ref_time_idx``, before any mask (and so before the tile algorithm).
+    Ignored for a variable without a time axis.
     """
     if variable not in ds.variables:
         raise HTTPException(status_code=404, detail=f"Variable {variable} not found")
@@ -2212,7 +2217,10 @@ def _build_masked_md_dataarray(
         if dim is not None:
             # Clamp to the valid range so an out-of-bounds index returns the
             # nearest edge slice rather than raising IndexError (a 500).
+            full = da
             da = da.isel({dim: max(0, min(time_idx, da.sizes[dim] - 1))})
+            if ref_time_idx is not None:
+                da = _minus_reference_step(da, full, dim, ref_time_idx)
         if mask_da is not None:
             mdim = _non_spatial_dim(mask_da)
             if mdim is not None:
@@ -2346,6 +2354,13 @@ def XarrayPathDependency(
     custom_mask_path: Optional[str] = Query(
         None, description="Path to uploaded custom mask GeoTIFF"
     ),
+    ref_time_idx: Optional[int] = Query(
+        None,
+        description=(
+            "Show the time step relative to this one: the value at time_idx "
+            "minus the value at ref_time_idx, per pixel"
+        ),
+    ),
 ) -> xr.DataArray:
     """Create a DataArray from query parameters.
 
@@ -2372,6 +2387,7 @@ def XarrayPathDependency(
         mask_min_value,
         layer_masks,
         custom_mask_path,
+        ref_time_idx=ref_time_idx,
     )
 
 
@@ -2630,8 +2646,6 @@ def export_geotiff(
     if crs is not None:
         da = da.rio.write_crs(crs)
     if reference_requested:
-        from .export import reference_offset  # noqa: PLC0415
-
         if target.mode == "md":
             allowed = (
                 settings.BOWSER_USE_SPATIAL_REFERENCE_DISP
