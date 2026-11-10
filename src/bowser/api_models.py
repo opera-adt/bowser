@@ -99,6 +99,55 @@ PARAMS: dict[str, dict[str, Any]] = {
         "description": "WGS84 latitude of the reference point.",
         "examples": [33.96289],
     },
+    "radius_m": {
+        "description": "Radius in metres of the circle around each candidate "
+        "(the reference circle to use with it); 0 judges single pixels.",
+        "examples": [100.0],
+    },
+    "n_candidates": {"description": "Number of candidates.", "examples": [5]},
+    "min_separation_m": {
+        "description": "Minimum distance in metres between candidates "
+        "(default 3 x radius_m).",
+        "examples": [300.0],
+    },
+    "use_masks": {
+        "description": "Also exclude pixels outside the recommended mask on most "
+        "dates (water is always excluded).",
+        "examples": [False],
+    },
+    "coherence_min": {
+        "description": "Minimum median temporal coherence of a viable pixel "
+        "(default: the `quantile` of the cube's medians).",
+        "examples": [0.8],
+    },
+    "similarity_min": {
+        "description": "Minimum median phase similarity of a viable pixel "
+        "(default: the `quantile` of the cube's medians).",
+        "examples": [0.7],
+    },
+    "quantile": {
+        "description": "Quantile of the cube's medians used as the default "
+        "thresholds (0.95: the top 5%).",
+        "examples": [0.95],
+    },
+    "k_std": {
+        "description": "Weight of the standard deviations in the pixel score "
+        "(median - k_std x std).",
+        "examples": [1.0],
+    },
+    "coherence_layer": {
+        "description": "Temporal coherence layer.",
+        "examples": ["temporal_coherence"],
+    },
+    "similarity_layer": {
+        "description": "Phase similarity layer.",
+        "examples": ["phase_similarity"],
+    },
+    "displacement_layer": {
+        "description": "Displacement layer for the scatter check (skipped when "
+        "absent).",
+        "examples": ["displacement"],
+    },
     "time_idx": {
         "description": "Index along the layer's time axis; read only this step.",
         "examples": [0],
@@ -313,6 +362,24 @@ ROUTES: dict[str, dict[str, Any]] = {
         "re-referenced and masked like `/multi_point`.",
         "tags": [SERIES],
         **_DATASET_EXTRA,
+    },
+    "GET /reference_candidates": {
+        "summary": "Stable reference-point candidates",
+        "description": "Rank places to put the reference point. Per pixel, the "
+        "median and standard deviation over the whole stack of temporal coherence "
+        "and phase similarity (water excluded; with `use_masks`, pixels outside the "
+        "recommended mask on most dates too). A pixel is viable when both medians "
+        "reach the thresholds (default: the top 5% of the cube's own medians); its "
+        "score is ((med_coh - k std_coh) + (med_sim - k std_sim)) / 2. Each viable "
+        "pixel's circle of `radius_m` (the circle 'Sample around ref marker' "
+        "averages) is scored by viable fraction x mean score; the best centres at "
+        "least `min_separation_m` apart are then ranked after a displacement check "
+        "(scatter of each pixel about the circle median through time). Each "
+        "candidate has the `lon`, `lat` and `radius_m` to set as the reference; "
+        "`recommended` is the first. The per-pixel reductions are cached per cube "
+        "and layer, so only the first call reads the whole stack. Coherence is not "
+        "stability: check each candidate's velocity and what is on the ground.",
+        "tags": [STATS],
     },
     "GET /dataset_range/{dataset_name}": {
         "summary": "Value range of a layer",
@@ -686,6 +753,117 @@ class BufferSeries(_Fixed):
     median: list[ChartXY]
     samples: list[list[ChartXY]]
     n_pixels: int = Field(description="Pixels with data within the circle.")
+
+
+class ReferenceCandidate(_Fixed):
+    """One candidate of ``GET /reference_candidates``."""
+
+    rank: int = Field(description="1 is the best.")
+    lon: float = Field(description="WGS84 longitude of the pixel centre.")
+    lat: float = Field(description="WGS84 latitude of the pixel centre.")
+    radius_m: float = Field(description="Reference circle radius to use with it.")
+    x: float = Field(description="Easting in the cube's CRS.")
+    y: float = Field(description="Northing in the cube's CRS.")
+    row: int = Field(description="Pixel row at full resolution.")
+    col: int = Field(description="Pixel column at full resolution.")
+    temporal_coherence_median: Optional[float]
+    temporal_coherence_std: Optional[float]
+    phase_similarity_median: Optional[float]
+    phase_similarity_std: Optional[float]
+    pixel_score: Optional[float] = Field(
+        description="((med_coh - k std_coh) + (med_sim - k std_sim)) / 2."
+    )
+    viable_fraction: Optional[float] = Field(
+        description="Share of the circle's pixels that are viable."
+    )
+    mean_score: Optional[float] = Field(
+        description="Mean pixel score of the circle's valid pixels."
+    )
+    neighbourhood_score: Optional[float] = Field(
+        description="viable_fraction x mean_score."
+    )
+    displacement_scatter_m: Optional[float] = Field(
+        description="Median over the circle of std through time of "
+        "(pixel - circle median) displacement, in metres; low is good."
+    )
+    score: Optional[float] = Field(
+        description="neighbourhood_score x s0 / (s0 + displacement_scatter_m)."
+    )
+    velocity: Optional[float] = Field(
+        description="The velocity layer at the pixel, in its units."
+    )
+    reason: str
+
+
+class CandidateThresholds(_Fixed):
+    """Thresholds and weights ``GET /reference_candidates`` used."""
+
+    temporal_coherence_median_min: float
+    phase_similarity_median_min: float
+    from_quantile: dict[str, bool] = Field(
+        description="Per layer: true when the threshold came from `quantile`."
+    )
+    quantile: float
+    k_std: float
+    scatter_scale_m: float = Field(description="s0 of the final score.")
+
+
+class CandidateDistribution(_Fixed):
+    """Percentiles of the per-pixel medians over the valid pixels."""
+
+    temporal_coherence_median: dict[str, Optional[float]]
+    phase_similarity_median: dict[str, Optional[float]]
+    n_valid_pixels: int
+    n_viable_pixels: int
+
+
+class CandidateLayers(_Fixed):
+    """The layers ``GET /reference_candidates`` read (null when absent)."""
+
+    temporal_coherence: str
+    phase_similarity: str
+    displacement: Optional[str]
+    velocity: Optional[str]
+    water_mask: Optional[str]
+    masks: list[str]
+
+
+class CandidateScreening(_Fixed):
+    """The grid the search ran on."""
+
+    level: int = Field(description="Pyramid level screened (0: full resolution).")
+    pixel_size_m: float
+    full_pixel_size_m: float
+    refined: bool = Field(
+        description="Whether candidates were refined at full resolution."
+    )
+    circle_pixels: int = Field(description="Pixels in one circle when screening.")
+
+
+class CandidateParameters(_Fixed):
+    """The search parameters used."""
+
+    radius_m: float
+    min_separation_m: float
+    n: int
+    use_masks: bool
+
+
+class ReferenceCandidates(_Fixed):
+    """``GET /reference_candidates``."""
+
+    recommended: Optional[ReferenceCandidate] = Field(
+        description="The first candidate: set it with its lon, lat and radius_m."
+    )
+    candidates: list[ReferenceCandidate]
+    thresholds: CandidateThresholds
+    distribution: CandidateDistribution
+    parameters: CandidateParameters
+    layers: CandidateLayers
+    screening: CandidateScreening
+    cached: bool = Field(
+        description="True when the per-pixel stack statistics came from the cache."
+    )
 
 
 class ValueRange(_Fixed):

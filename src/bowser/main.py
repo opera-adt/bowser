@@ -26,6 +26,7 @@ from fastapi import (
 )
 from fastapi import Path as PathParam
 from fastapi.middleware.cors import CORSMiddleware
+from pyproj import CRS
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response as StarletteResponse
 from starlette.staticfiles import StaticFiles
@@ -42,6 +43,7 @@ from .reference import (
     select_circle,
     select_point,
 )
+from .reference_candidates import CandidateParams, candidate_query, run_or_http_error
 from .state import BowserState, DatasetRegistry
 from .utils import (
     _uses_spatial_reference,
@@ -1532,6 +1534,32 @@ async def buffer_timeseries(
             ],
             "n_pixels": int(flat.shape[1]),
         }
+    )
+
+
+@app.get(
+    "/reference_candidates",
+    response_class=JSONResponse,
+    response_model=api.ReferenceCandidates,
+    **api.route_doc("GET /reference_candidates"),
+)
+def reference_candidates(
+    params: CandidateParams = Depends(candidate_query),
+    target: BowserState = Depends(TargetState),
+):
+    """Rank stable reference-point candidates (see ``bowser.reference_candidates``).
+
+    A plain ``def``: FastAPI runs it in its thread pool, so the first call's
+    whole-stack read does not block the event loop.
+    """
+    if target.mode != "md":
+        raise HTTPException(
+            status_code=400, detail="Reference candidates need a GeoZarr cube"
+        )
+    levels = [lv.dataset for lv in target.levels] if target.levels else []
+    levels = levels or [target.dataset]
+    return JSONResponse(
+        run_or_http_error(levels, CRS.from_user_input(target.dataset.rio.crs), params)
     )
 
 

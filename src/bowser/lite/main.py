@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Optional
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import numpy as np
-from fastapi import Body, FastAPI, HTTPException, Query, Request, Response
+from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi import Path as PathParam
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import FileResponse, JSONResponse, RedirectResponse
@@ -34,6 +34,7 @@ from starlette.staticfiles import StaticFiles
 from .. import api_models as api
 from ..catalog import CatalogEntry, load_catalog, save_catalog
 from ..config import settings
+from ..reference_candidates import CandidateParams, candidate_query, run_or_http_error
 from ..utils import calculate_trend
 from . import colormaps, geo, meta, sampling, tiles
 from .auth import BasicAuthMiddleware
@@ -661,6 +662,22 @@ def buffer_timeseries(
             "n_pixels": int(flat.shape[1]),
         }
     )
+
+
+@app.get(
+    "/reference_candidates",
+    response_class=NanJSONResponse,
+    response_model=api.ReferenceCandidates,
+    **api.route_doc("GET /reference_candidates"),
+)
+def reference_candidates(
+    params: CandidateParams = Depends(candidate_query),
+    dataset: str | None = Query(None, **api.PARAMS["dataset"]),
+):
+    """Rank stable reference-point candidates; runs in FastAPI's thread pool."""
+    cube = resolve(dataset)
+    levels = [lv.dataset for lv in cube.levels]
+    return NanJSONResponse(run_or_http_error(levels, cube.crs, params))
 
 
 @app.post(

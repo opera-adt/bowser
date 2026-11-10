@@ -232,6 +232,7 @@ def real_cube_requests(bounds: list[float], zooms=range(10, 16)) -> list[dict]:
             "params": {"time_index": 120, "nbins": 50},
         },
         {"name": "histogram_velocity", "path": "/histogram/velocity"},
+        {"name": "reference_candidates", "path": "/reference_candidates"},
         {
             "name": "point",
             "path": "/point",

@@ -168,6 +168,8 @@ SCRIPT = textwrap.dedent(
         "lon": lon, "lat": lat, "dataset_name": "displacement", "buffer_m": 90,
         "n_samples": 3, "ref_lon": rlon, "ref_lat": rlat,
     })
+    check("reference_candidates", "GET", "/reference_candidates",
+          params={"radius_m": 60, "n": 3})
     line = {"coords": [[rlon, rlat], edge], "dataset_name": "displacement",
             "time_index": 5}
     check("profile_list", "POST", "/profile", json={**line, "n_samples": 20})
