@@ -4,6 +4,7 @@ import { useApi, datasetRangeUrl } from '../../hooks/useApi';
 import Histogram from '../Histogram';
 import ColorScalePicker, { type RangeStats } from './ColorScalePicker';
 import LayerInfo from './LayerInfo';
+import TimeStepper from './TimeStepper';
 import { displayUnit } from '../../utils/units';
 import { baseColormap } from '../../utils/colormaps';
 import { LayerOptions, SectionHeader, Switch } from './controls';
@@ -233,11 +234,8 @@ export default function MainTab() {
                 {currentTimeValue}
               </button>
             </div>
-            <input type="range" className="sidebar-range"
-              min="0" max={currentDatasetInfo.x_values.length - 1} step="1"
-              value={state.currentTimeIndex}
-              onChange={e => dispatch({ type: 'SET_TIME_INDEX', payload: parseInt(e.target.value) })}
-            />
+            <TimeStepper key={state.currentDataset} value={state.currentTimeIndex} count={currentDatasetInfo.x_values.length}
+              onChange={i => dispatch({ type: 'SET_TIME_INDEX', payload: i })} />
           </div>
         )}
       </div>

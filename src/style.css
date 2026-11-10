@@ -2137,3 +2137,40 @@ img.huechange { filter: hue-rotate(120deg); }
 .date-badge.date-only {
   padding: 4px 12px;
 }
+
+/* ── Main › Layers: ‹ › beside the time step slider; click twice to play ── */
+.time-stepper {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.time-step-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.time-step-row .sidebar-range {
+  flex: 1;
+  min-width: 0;
+}
+
+.time-step-btn.playing {
+  background: var(--sb-surface2);
+  color: var(--sb-accent);
+}
+
+.time-step-btn:focus-visible {
+  outline: 2px solid var(--sb-accent);
+  outline-offset: 1px;
+}
+
+.time-speed-pop .row-label {
+  font-size: 0.78em;
+}
+
+.time-speed-pop .hist-btn[aria-pressed="true"] {
+  background: var(--sb-accent);
+  color: var(--sb-bg);
+}
