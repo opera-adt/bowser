@@ -2,9 +2,8 @@
 
 The full server provides `POST /polygon_timeseries` for read-only summaries of
 stored GeoZarr or single-band GeoTIFF values inside one WGS84 GeoJSON Polygon
-or MultiPolygon. The endpoint is the backend foundation for polygon charts;
-this contribution does not add or replace drawing tools, import controls, or
-chart UI. Upstream already supports drawing and importing geographic features.
+or MultiPolygon. The time-series chart uses it for areas (see below); the
+polygons come from the existing drawing and file-import tools.
 
 ```python
 import requests
@@ -27,6 +26,23 @@ response.raise_for_status()
 result = response.json()
 print(result["labels"], [row["median"] for row in result["statistics"]])
 ```
+
+## In the time-series chart
+
+The chart's **+ Area** button lists the polygons on the map (drawn with the
+Draw tools or read from vector files) and adds the one picked; with none, it
+starts drawing a polygon and uses the finished shape. Each area is drawn in one
+colour: the median as a line, the mean dashed, and the p10–p90 band shaded.
+The band is the middle 80 % of the pixels: it is centred on the median like
+the median itself, does not assume a symmetric spread, and is not widened by a
+few outlying (for example unwrapping-error) pixels as mean ± spatial standard
+deviation would be. It is spatial spread, not measurement uncertainty.
+
+When the viewer's reference is on for the layer, the chart subtracts the same
+reference value per date that the map and the point series use, so areas and
+points can be compared ("relative to the reference" in the tooltip). The
+optional masks are not applied to areas; the chart says so when masks are on.
+Bowser-lite reports `polygon_stats: false` in `/config` and the button is off.
 
 ## Selection and calculations
 

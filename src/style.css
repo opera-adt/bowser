@@ -2137,3 +2137,77 @@ img.huechange { filter: hue-rotate(120deg); }
 .date-badge.date-only {
   padding: 4px 12px;
 }
+
+/* ── Areas in the chart (+ Area) ─────────────────────────── */
+.chart-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.chart-btn:disabled:hover {
+  background: var(--sb-surface2);
+  color: var(--sb-accent);
+  border-color: var(--sb-border);
+}
+
+.area-pick-pop {
+  width: 220px;
+}
+
+.area-pick-item {
+  flex: none;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chart-areas {
+  margin-bottom: 4px;
+  padding-bottom: 4px;
+}
+
+.chart-area-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  background: var(--sb-surface2);
+  border: 1px solid var(--sb-border);
+  border-radius: 10px;
+  font-size: 0.72em;
+  color: var(--sb-text);
+  flex-shrink: 0;
+}
+
+.chart-area-chip.hidden {
+  opacity: 0.45;
+}
+
+.chart-area-chip button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  color: var(--sb-muted);
+  font-size: 0.9em;
+  line-height: 1;
+}
+
+.chart-area-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex: none;
+}
+
+.chart-area-note {
+  font-size: 0.72em;
+  color: var(--sb-muted);
+}
+
+.chart-area-error {
+  margin-bottom: 4px;
+  font-size: 0.75em;
+  color: var(--sb-red);
+}

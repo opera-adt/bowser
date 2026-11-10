@@ -60,6 +60,16 @@ export interface TimeSeriesPoint {
   trendData?: { [dataset: string]: { slope: number; intercept: number; rSquared: number; mmPerYear: number; stdMmPerYear?: number; rateUnit?: string } };
 }
 
+/** A polygon summarised in the chart (POST /polygon_timeseries): median, mean and p10–p90 band. */
+export interface ChartArea {
+  id: string;
+  name: string;
+  color: string;
+  visible: boolean;
+  /** GeoJSON Polygon or MultiPolygon in WGS84. */
+  geometry: { type: 'Polygon' | 'MultiPolygon'; coordinates: unknown };
+}
+
 export interface MultiPointTimeSeriesData {
   labels: string[];
   datasets: {
@@ -186,6 +196,11 @@ export interface Overlay {
 export interface AppState {
   datasetInfo: { [key: string]: RasterGroup };
   timeSeriesPoints: TimeSeriesPoint[];
+  chartAreas: ChartArea[];
+  /** True while the chart's "+ Area" waits for a polygon drawn on the map. */
+  areaDrawing: boolean;
+  /** The Draw tools were off before "+ Area" opened them: close them again once it is done. */
+  areaOpenedTools: boolean;
   chartWindows: ChartWindow[];
   refMarkerPosition: [number, number];
   currentDataset: string;
@@ -261,6 +276,10 @@ export type AppAction =
   | { type: 'ADD_TIME_SERIES_POINT'; payload: { position: [number, number]; name?: string } }
   | { type: 'REMOVE_TIME_SERIES_POINT'; payload: string }
   | { type: 'UPDATE_TIME_SERIES_POINT'; payload: { id: string; updates: Partial<TimeSeriesPoint> } }
+  | { type: 'ADD_CHART_AREA'; payload: { geometry: ChartArea['geometry']; name?: string } }
+  | { type: 'REMOVE_CHART_AREA'; payload: string }
+  | { type: 'UPDATE_CHART_AREA'; payload: { id: string; updates: Partial<ChartArea> } }
+  | { type: 'SET_AREA_DRAWING'; payload: boolean }
   | { type: 'SET_POINT_DATA'; payload: { pointId: string; dataset: string; data: number[] } }
   | { type: 'SET_POINT_TREND_DATA'; payload: { pointId: string; dataset: string; trend: { slope: number; intercept: number; rSquared: number; mmPerYear: number; stdMmPerYear?: number; rateUnit?: string } } }
   | { type: 'LOAD_PROJECT'; payload: Partial<AppState> }

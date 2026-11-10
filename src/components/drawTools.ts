@@ -25,6 +25,11 @@ export function useDrawTools(map: maplibregl.Map | null, ready: boolean) {
   // The shapes to load when the tools open (read at that moment, not a dependency).
   const drawingsRef = useRef<OverlayFeatures | undefined>(undefined);
   drawingsRef.current = state.overlays.find(o => o.id === DRAWINGS_ID)?.data;
+  // The chart's "+ Area" waits for the next polygon drawn (read in the editor's callback).
+  const areaDrawingRef = useRef(state.areaDrawing);
+  areaDrawingRef.current = state.areaDrawing;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const editorRef = useRef<any>(null);
 
   useEffect(() => {
     if (!ready || !map || !enabled) return;
@@ -37,6 +42,14 @@ export function useDrawTools(map: maplibregl.Map | null, ready: boolean) {
       if (!editor) return;
       const fc = editor.getAllFeatureCollection() as OverlayFeatures;
       dispatch({ type: 'SET_DRAWINGS', payload: fc });
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const onCreate = (feature: any) => {
+      sync();
+      const geometry = feature?.geometry;
+      if (areaDrawingRef.current && (geometry?.type === 'Polygon' || geometry?.type === 'MultiPolygon')) {
+        dispatch({ type: 'ADD_CHART_AREA', payload: { geometry } });
+      }
     };
     const container = map.getContainer();
 
@@ -59,7 +72,7 @@ export function useDrawTools(map: maplibregl.Map | null, ready: boolean) {
         editModes: EDIT_MODES,
         showFeatureProperties: false,
         fitBoundsOnLoad: false,
-        onFeatureCreate: sync,
+        onFeatureCreate: onCreate,
         onFeatureEdit: sync,
         onFeatureDelete: sync,
         onHistoryChange: sync,
@@ -70,6 +83,14 @@ export function useDrawTools(map: maplibregl.Map | null, ready: boolean) {
       const saved = drawingsRef.current;
       if (saved?.features.length) await editor.loadGeoJson(saved);
       CONTAINER_EVENTS.forEach(ev => container.addEventListener(ev, sync));
+      // Polygon mode only once the editor's snapping helper has started: switching modes while it
+      // is still starting makes Geoman start it twice ("Action instance already exists").
+      for (let i = 0; i < 20 && !geoman.actionInstances?.helper__snapping; i++) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      if (cancelled) return;
+      editorRef.current = editor;
+      if (areaDrawingRef.current) editor.enableDrawMode('polygon');
     })().catch(err => {
       console.error('Drawing tools failed to load:', err);
       dispatch({ type: 'SET_OVERLAY_MESSAGE', payload: `Drawing tools could not load: ${(err as Error).message}` });
@@ -78,6 +99,7 @@ export function useDrawTools(map: maplibregl.Map | null, ready: boolean) {
 
     return () => {
       cancelled = true;
+      editorRef.current = null;
       CONTAINER_EVENTS.forEach(ev => container.removeEventListener(ev, sync));
       if (editor) {
         sync();
@@ -86,5 +108,10 @@ export function useDrawTools(map: maplibregl.Map | null, ready: boolean) {
       try { geoman?.destroy({ removeSources: true }); } catch { /* map already gone */ }
     };
   }, [ready, map, enabled, dispatch]);
+
+  // "+ Area" while the tools are already open: start a polygon now.
+  useEffect(() => {
+    if (state.areaDrawing) editorRef.current?.enableDrawMode('polygon');
+  }, [state.areaDrawing]);
 
 }

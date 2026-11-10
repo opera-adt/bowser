@@ -195,6 +195,41 @@ export default function PointManagerPanel() {
             </div>
           ))
         )}
+
+        {/* Areas added with the chart's + Area: rename, hide or remove like points */}
+        {state.chartAreas.map(area => (
+          <div key={area.id} className="point-item">
+            <div className="point-item-header">
+              <div className="point-color-indicator" style={{ backgroundColor: area.color, borderRadius: 2 }}></div>
+              <input
+                type="text"
+                value={area.name}
+                aria-label="Area name"
+                onChange={(e) => dispatch({ type: 'UPDATE_CHART_AREA', payload: { id: area.id, updates: { name: e.target.value } } })}
+                className="point-name-input"
+              />
+            </div>
+            <div className="point-coordinates">
+              <small>Area: median, mean and p10–p90</small>
+            </div>
+            <div className="point-item-controls">
+              <button
+                onClick={() => dispatch({ type: 'UPDATE_CHART_AREA', payload: { id: area.id, updates: { visible: !area.visible } } })}
+                className="pure-button"
+                title={area.visible ? 'Hide area' : 'Show area'}
+              >
+                <i className={`fa-solid ${area.visible ? 'fa-eye' : 'fa-eye-slash'}`}></i>
+              </button>
+              <button
+                onClick={() => dispatch({ type: 'REMOVE_CHART_AREA', payload: area.id })}
+                className="pure-button button-error"
+                title="Remove area"
+              >
+                <i className="fa-solid fa-trash"></i>
+              </button>
+            </div>
+          </div>
+        ))}
       </div>
 
       <div className="point-manager-help">

@@ -36,6 +36,10 @@ const LAT = 33.95859;
 const REF_LON = -117.67984;
 const REF_LAT = 33.96289;
 const MASK = [{ id: 'm1', dataset: 'temporal_coherence', threshold: 0.7, mode: 'min' as const }];
+const SQUARE = {
+  type: 'Polygon' as const,
+  coordinates: [[[LON, LAT], [LON + 0.005, LAT], [LON + 0.005, LAT + 0.005], [LON, LAT + 0.005], [LON, LAT]]],
+};
 const POINTS = [{ id: 'p1', lat: LAT, lon: LON, color: '#f00', name: 'dam' }];
 
 async function exerciseEveryCall() {
@@ -51,6 +55,7 @@ async function exerciseEveryCall() {
   await api.fetchTrendAnalysis(LON, LAT, 'displacement', REF_LON, REF_LAT);
   await api.fetchTimeBounds('displacement');
   await api.fetchBufferTimeSeries(LON, LAT, 'displacement', 90, 5, REF_LON, REF_LAT, MASK, 30);
+  await api.fetchPolygonTimeSeries('displacement', SQUARE);
   return calls;
 }
 

@@ -90,6 +90,45 @@ exports[`useApi request contract > catalog mode routes every call to ?dataset=<i
     "method": "POST",
     "url": "/buffer_timeseries?dataset=prado-034-a-019",
   },
+  {
+    "body": {
+      "geometry": {
+        "coordinates": [
+          [
+            [
+              -117.67462,
+              33.95859,
+            ],
+            [
+              -117.66962000000001,
+              33.95859,
+            ],
+            [
+              -117.66962000000001,
+              33.96359,
+            ],
+            [
+              -117.67462,
+              33.96359,
+            ],
+            [
+              -117.67462,
+              33.95859,
+            ],
+          ],
+        ],
+        "type": "Polygon",
+      },
+      "percentiles": [
+        10,
+        90,
+      ],
+      "support": "common",
+      "variable": "displacement",
+    },
+    "method": "POST",
+    "url": "/polygon_timeseries?dataset=prado-034-a-019",
+  },
 ]
 `;
 
@@ -182,6 +221,45 @@ exports[`useApi request contract > single-dataset mode (no ?dataset=) 1`] = `
     },
     "method": "POST",
     "url": "/buffer_timeseries",
+  },
+  {
+    "body": {
+      "geometry": {
+        "coordinates": [
+          [
+            [
+              -117.67462,
+              33.95859,
+            ],
+            [
+              -117.66962000000001,
+              33.95859,
+            ],
+            [
+              -117.66962000000001,
+              33.96359,
+            ],
+            [
+              -117.67462,
+              33.96359,
+            ],
+            [
+              -117.67462,
+              33.95859,
+            ],
+          ],
+        ],
+        "type": "Polygon",
+      },
+      "percentiles": [
+        10,
+        90,
+      ],
+      "support": "common",
+      "variable": "displacement",
+    },
+    "method": "POST",
+    "url": "/polygon_timeseries",
   },
 ]
 `;

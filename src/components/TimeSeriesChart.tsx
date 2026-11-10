@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useDraggableResizable } from '../hooks/useDraggableResizable.tsx';
-import { Chart as ChartJS, TimeScale, LinearScale, CategoryScale, PointElement, LineElement, Title, Tooltip, Legend, InteractionItem } from 'chart.js';
+import { Chart as ChartJS, TimeScale, LinearScale, CategoryScale, PointElement, LineElement, Title, Tooltip, Legend, Filler, InteractionItem } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import 'chartjs-adapter-date-fns';
 import zoomPlugin from 'chartjs-plugin-zoom';
@@ -17,6 +17,9 @@ import { describeFit, fitSeries, modelCurve, modelLabel, rSquared } from '../map
 import type { FitResult } from '../map/fit';
 import { displayUnit } from '../utils/units';
 import { saveFile } from '../utils/saveFile';
+import ChartAreaButton from './ChartAreaButton';
+import { areaChartDatasets, polygonEmptyMessage, type PolygonTimeSeries } from '../utils/polygonSeries';
+import { referenceValues } from '../map/interactions';
 
 // Chart.js plugin to wire legend-click visibility to all related datasets (raw, trend,
 // residual, samples, median) that share the same base label.
@@ -53,7 +56,7 @@ const linkedLegendPlugin = {
 
 ChartJS.register(linkedLegendPlugin);
 
-ChartJS.register(TimeScale, LinearScale, CategoryScale, PointElement, LineElement, Title, Tooltip, Legend, zoomPlugin);
+ChartJS.register(TimeScale, LinearScale, CategoryScale, PointElement, LineElement, Title, Tooltip, Legend, Filler, zoomPlugin);
 
 /** Read a CSS variable from the document root at call time. */
 function cssVar(name: string, fallback: string): string {
@@ -96,7 +99,7 @@ interface BufferResult {
 export default function TimeSeriesChart({ windowId }: { windowId: string }) {
   const { state, dispatch } = useAppContext();
   const window_ = state.chartWindows.find(w => w.id === windowId);
-  const { fetchMultiPointTimeSeries, fetchBufferTimeSeries } = useApi();
+  const { fetchMultiPointTimeSeries, fetchBufferTimeSeries, fetchPointTimeSeries, fetchPolygonTimeSeries } = useApi();
   const themeVersion = useThemeVersion();
   // chartData keyed by dataset name
   const [chartDataMap, setChartDataMap] = useState<{ [ds: string]: MultiPointTimeSeriesData }>({});
@@ -241,6 +244,52 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     fetchBufferTimeSeries,
   ]);
 
+  // ── Areas (+ Area): statistics per area × layer, fetched once (an area's polygon never changes) ──
+  const visibleAreas = state.chartAreas.filter(a => a.visible);
+  const [areaResults, setAreaResults] = useState<Record<string, { data?: PolygonTimeSeries; error?: string }>>({});
+  const areaRequested = useRef(new Set<string>());
+  useEffect(() => {
+    if (!state.showChart) return;
+    for (const dsName of activeDatasetsForChart) {
+      for (const area of visibleAreas) {
+        const key = `${dsName}::${area.id}`;
+        if (areaRequested.current.has(key)) continue;
+        areaRequested.current.add(key);
+        fetchPolygonTimeSeries(dsName, area.geometry).then(res => {
+          const entry = 'data' in res
+            ? (polygonEmptyMessage(res.data) ? { error: polygonEmptyMessage(res.data)! } : { data: res.data })
+            : { error: res.error };
+          setAreaResults(prev => ({ ...prev, [key]: entry }));
+        });
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.showChart, JSON.stringify(activeDatasetsForChart), JSON.stringify(visibleAreas.map(a => a.id)), fetchPolygonTimeSeries]);
+
+  // The server's statistics use the cube's stored reference. With the viewer's reference on, the
+  // same values the map subtracts are taken off (one per date), as /multi_point does for points:
+  // the map's own (state.refValues) for the layer on the map, else fetched the same way.
+  const refBufferM = state.refEnabled && state.refBufferEnabled ? state.refBufferRadius : 0;
+  const refKey = (ds: string) => `${ds}|${state.refMarkerPosition.join(',')}|${refBufferM}`;
+  const [fetchedRef, setFetchedRef] = useState<Record<string, number[]>>({});
+  const usesRef = (ds: string) => !!state.datasetInfo[ds]?.uses_spatial_ref && state.refEnabled;
+  const mapRef = (ds: string) => (ds === state.currentDataset ? state.refValues[ds] : undefined);
+  useEffect(() => {
+    if (!state.showChart || visibleAreas.length === 0) return;
+    for (const ds of activeDatasetsForChart) {
+      if (!usesRef(ds) || mapRef(ds) || fetchedRef[refKey(ds)]) continue;
+      const key = refKey(ds);
+      referenceValues(state, ds, state.refMarkerPosition, { fetchPointTimeSeries, fetchBufferTimeSeries })
+        .then(values => { if (values) setFetchedRef(prev => ({ ...prev, [key]: values })); })
+        .catch(err => console.error('Error fetching reference values for an area:', err));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.showChart, visibleAreas.length, JSON.stringify(activeDatasetsForChart), state.refEnabled, state.refMarkerPosition,
+      refBufferM, state.currentDataset, state.refValues, state.datasetInfo]);
+  /** The reference to subtract: null when off for the layer, undefined while it is fetched. */
+  const areaReference = (ds: string): number[] | null | undefined =>
+    !usesRef(ds) ? null : (mapRef(ds) ?? fetchedRef[refKey(ds)]);
+
   // Derive a single merged chartData view from chartDataMap for click/export
   // Use the first available dataset as the canonical labels source
   const firstDs = Object.values(chartDataMap)[0] ?? null;
@@ -348,8 +397,12 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     void saveFile(blob, `time-series-${activeDatasetsForChart[0]}-${new Date().toISOString().slice(0, 16).replace(/[:.]/g, '-')}.csv`);
   }, [chartDataMap, firstDs, activeDatasetsForChart, state.timeSeriesPoints, fits, state.fitSettings, state.datasetInfo, state.units]);
 
-  // Ordered list of dataset names currently in chartDataMap
-  const activeChartDs = Object.keys(chartDataMap);
+  // Layers with an area answer (they may have no point data).
+  const areaDsNames = activeDatasetsForChart.filter(ds => visibleAreas.some(a => areaResults[`${ds}::${a.id}`]?.data));
+  const firstAreaLabel = areaDsNames.flatMap(ds => visibleAreas.map(a => areaResults[`${ds}::${a.id}`]?.data?.labels?.[0]))
+    .find(l => l !== undefined);
+  // Ordered list of dataset names in the chart (one y axis each)
+  const activeChartDs = [...new Set([...Object.keys(chartDataMap), ...areaDsNames])];
 
   const chartOptions = useMemo(() => {
     const textColor  = cssVar('--sb-text',   '#dde0f0');
@@ -362,9 +415,9 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
 
     // Determine x-axis scale type from label format of the first active dataset:
     // - integer → linear; "YYYY-MM-DD_YYYY-MM-DD" → category; ISO date → time
-    const firstLabel = activeChartDs.length > 0
+    const firstLabel = (activeChartDs.length > 0
       ? chartDataMap[activeChartDs[0]]?.labels?.[0]
-      : undefined;
+      : undefined) ?? firstAreaLabel;
     const labelType: 'time' | 'category' | 'linear' =
       typeof firstLabel === 'number' ? 'linear'
       : typeof firstLabel === 'string' && firstLabel.includes('_') ? 'category'
@@ -441,10 +494,12 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
             padding: 16,
             color: textColor,
             generateLabels: (chart: any) => {
-              const isBuffer = chart.data.datasets.some((ds: any) => ds.label?.endsWith(' median'));
+              const isBuffer = chart.data.datasets.some((ds: any) => !ds._area && ds.label?.endsWith(' median'));
               return chart.data.datasets
                 .map((ds: any, index: number) => ({ ds, index }))
                 .filter(({ ds }: any) => {
+                  // An area: one entry each for its median, mean and band.
+                  if (ds._area) return !!ds._legend;
                   if (ds.label.includes(' sample ')) return false;
                   if (ds.label.endsWith(' trend')) return false;
                   if (ds.label.endsWith(' residual')) return false;
@@ -452,15 +507,16 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
                   return !ds.label.endsWith(' median');
                 })
                 .map(({ ds, index }: any) => {
-                  const baseLabel = (ds as any)._baseLabel || ds.label;
+                  const baseLabel = (ds as any)._legend || (ds as any)._baseLabel || ds.label;
                   const trendMmPerYear = (ds as any)._trendMmPerYear;
                   const rateUnit = (ds as any)._rateUnit ?? 'mm';
                   const displayText = baseLabel + (trendMmPerYear !== undefined && state.showTrends
                     ? ` (${trendMmPerYear.toFixed(rateUnit === 'in' ? 2 : 1)} ${rateUnit}/yr)` : '');
                   return {
                     text: displayText,
-                    pointStyle: (ds.pointStyle ?? 'circle') as any,
-                    fillStyle: ds.borderColor,
+                    pointStyle: (ds._area ? (ds.fill ? 'rect' : 'line') : (ds.pointStyle ?? 'circle')) as any,
+                    fillStyle: ds._area && ds.fill ? ds.backgroundColor : ds.borderColor,
+                    lineDash: ds._area ? ds.borderDash : undefined,
                     strokeStyle: ds.borderColor,
                     fontColor: textColor,
                     lineWidth: 2,
@@ -479,9 +535,11 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
               if (!ds) return '';
               const unit = (ds as any)._unit || 'm';
               let label = `${(ds as any)._baseLabel || ds.label}: ${context.parsed.y.toFixed(4)} ${unit}`;
+              if ((ds as any)._area) label = `${ds.label}: ${context.parsed.y.toFixed(4)} ${unit}`;
               const mmPy = (ds as any)._trendMmPerYear;
               const rateUnit = (ds as any)._rateUnit ?? 'mm';
               if (mmPy !== undefined && state.showTrends) label += ` (${mmPy.toFixed(rateUnit === 'in' ? 2 : 1)} ${rateUnit}/yr)`;
+              if ((ds as any)._note) label += `, ${(ds as any)._note}`;
               return label;
             },
           },
@@ -500,7 +558,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
       onClick: handleChartClick,
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [themeVersion, state.units, state.showTrends, state.vmin, state.vmax, state.datasetInfo, state.bufferEnabled, handleChartClick, JSON.stringify(activeChartDs), JSON.stringify(dsOffsets), JSON.stringify(dsColorOverrides), JSON.stringify(dsYLimits), JSON.stringify(Object.fromEntries(Object.entries(chartDataMap).map(([k, v]) => [k, v.datasets.flatMap(d => d.data.map(pt => pt.y))]))) ]);
+  }, [themeVersion, state.units, state.showTrends, state.vmin, state.vmax, state.datasetInfo, state.bufferEnabled, handleChartClick, JSON.stringify(activeChartDs), JSON.stringify(dsOffsets), JSON.stringify(dsColorOverrides), JSON.stringify(dsYLimits), firstAreaLabel, JSON.stringify(Object.fromEntries(Object.entries(chartDataMap).map(([k, v]) => [k, v.datasets.flatMap(d => d.data.map(pt => pt.y))]))) ]);
 
   if (!state.showChart) return null;
 
@@ -514,6 +572,17 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     payload: { id: `chart_${Date.now()}`, dsNames: [] },
   });
   const closeThis = () => dispatch({ type: 'REMOVE_CHART_WINDOW', payload: windowId });
+
+  const multiDs = activeDatasetsForChart.length > 1;
+  // A failed area (bad or too-large polygon, no valid pixels, lite server): one short line.
+  const areaErrors = activeDatasetsForChart.flatMap(ds => visibleAreas.flatMap(a => {
+    const error = areaResults[`${ds}::${a.id}`]?.error;
+    return error ? [`${multiDs ? `${a.name} [${ds}]` : a.name}: ${error}`] : [];
+  }));
+  const areaPending = activeDatasetsForChart.some(ds => visibleAreas.some(a => {
+    const r = areaResults[`${ds}::${a.id}`];
+    return !r || (r.data && areaReference(ds) === undefined);
+  }));
 
   const headerContent = (
     <>
@@ -537,6 +606,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
               <i className="fa-solid fa-magnifying-glass-minus"></i>
             </button>
           )}
+          <ChartAreaButton />
           <SeriesStylePopover />
           <button className="chart-btn" onClick={handleExportToCSV} title="Export CSV">
             <i className="fa-solid fa-download"></i>
@@ -606,6 +676,21 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
             onClick={() => setWinDs([])} title="Reset to map layer">↺ reset</button>
         )}
       </div>
+      {(state.chartAreas.length > 0 || state.areaDrawing) && (
+        <div className="chart-sliders chart-areas">
+          {state.chartAreas.map(a => (
+            <span key={a.id} className={`chart-area-chip${a.visible ? '' : ' hidden'}`} title={a.name}>
+              <span className="chart-area-swatch" style={{ background: a.color }} />
+              {a.name}
+              <button onClick={() => dispatch({ type: 'REMOVE_CHART_AREA', payload: a.id })} title={`Remove ${a.name}`}>✕</button>
+            </span>
+          ))}
+          {state.areaDrawing && <span className="chart-area-note">Draw the area on the map: click the first point to finish.</span>}
+        </div>
+      )}
+      {areaErrors.length > 0 && (
+        <div className="chart-area-error" role="alert">{areaErrors.join(' · ')}</div>
+      )}
       {state.showTrends && (
         <ModelCard settings={state.fitSettings} picking={picking} onPick={setPicking}
           onChange={patch => dispatch({ type: 'SET_FIT_SETTINGS', payload: patch })} />
@@ -613,12 +698,12 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     </>
   );
 
-  if (state.timeSeriesPoints.length === 0) {
+  if (state.timeSeriesPoints.length === 0 && visibleAreas.length === 0) {
     return (
       <div id="chart-container" ref={panelRef} style={panelStyle}>
         {headerContent}
         <div className="chart-placeholder">
-          <p>No points selected.</p><p><small>Click on the map to add points.</small></p>
+          <p>No points selected.</p><p><small>Click on the map to add points, or add an area with + Area.</small></p>
         </div>
         {resizeGrip}
       </div>
@@ -635,8 +720,37 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     );
   }
 
+  // ── Area series: median, dashed mean and p10–p90 band per area, in the area's colour ──
+  const dateStart = state.dateRangeStart ? new Date(state.dateRangeStart).getTime() : -Infinity;
+  const dateEnd   = state.dateRangeEnd   ? new Date(state.dateRangeEnd).getTime()   : Infinity;
+  const inRange = (x: string) => { const t = new Date(x).getTime(); return t >= dateStart && t <= dateEnd; };
+  const areaDatasets = activeChartDs.flatMap(dsName => {
+    const reference = areaReference(dsName);
+    if (reference === undefined) return [];
+    const shown = displayUnit(state.datasetInfo[dsName]?.unit, state.units);
+    return visibleAreas.flatMap(area => {
+      const result = areaResults[`${dsName}::${area.id}`]?.data;
+      if (!result) return [];
+      return areaChartDatasets({
+        result, name: multiDs ? `${area.name} [${dsName}]` : area.name, color: area.color,
+        factor: shown.factor, unit: shown.label, yAxisID: `y${activeChartDs.indexOf(dsName)}`,
+        reference, toX: toIsoDate, inRange,
+      });
+    });
+  });
+  const hasAreaData = areaDatasets.some(d => (d.data as unknown[]).length > 0);
+
   // A masked point comes back as a dataset with no points: that is no data too.
-  if (!Object.values(chartDataMap).some(d => d.datasets.some(series => series.data.length > 0))) {
+  if (!hasAreaData && areaPending && !Object.values(chartDataMap).some(d => d.datasets.some(series => series.data.length > 0))) {
+    return (
+      <div id="chart-container" ref={panelRef} style={panelStyle}>
+        {headerContent}
+        <div className="chart-placeholder"><p>Loading…</p></div>
+        {resizeGrip}
+      </div>
+    );
+  }
+  if (!hasAreaData && !Object.values(chartDataMap).some(d => d.datasets.some(series => series.data.length > 0))) {
     return (
       <div id="chart-container" ref={panelRef} style={panelStyle}>
         {headerContent}
@@ -654,7 +768,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
                   </button>
                 </>
               )
-              : <p>No data for selected points.</p>
+              : <p>No data for {state.timeSeriesPoints.length > 0 ? 'selected points' : 'the selected areas'}.</p>
           }
         </div>
         {resizeGrip}
@@ -663,14 +777,11 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
   }
 
   // ── Build unified dataset list from all active chart datasets ─────────────
-  const multiDs = activeDatasetsForChart.length > 1;
-  const dateStart = state.dateRangeStart ? new Date(state.dateRangeStart).getTime() : -Infinity;
-  const dateEnd   = state.dateRangeEnd   ? new Date(state.dateRangeEnd).getTime()   : Infinity;
-
-  // Collect all ISO dates across all datasets for the x-axis
-  const allIsoLabels = [...new Set(
-    Object.values(chartDataMap).flatMap(cd => cd.labels.map(toIsoDate))
-  )].sort();
+  // Collect all ISO dates across all datasets (points and areas) for the x-axis
+  const allIsoLabels = [...new Set([
+    ...Object.values(chartDataMap).flatMap(cd => cd.labels.map(toIsoDate)),
+    ...areaDsNames.flatMap(ds => visibleAreas.flatMap(a => areaResults[`${ds}::${a.id}`]?.data?.labels.map(toIsoDate) ?? [])),
+  ])].sort();
 
   const isoLabels = allIsoLabels.filter(d => {
     const t = new Date(d).getTime();
@@ -792,7 +903,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     });
   });
 
-  const formattedChartData = { labels: isoLabels, datasets: datasetList };
+  const formattedChartData = { labels: isoLabels, datasets: [...datasetList, ...areaDatasets] };
   const minDate = allIsoLabels[0] ?? '';
   const maxDate = allIsoLabels[allIsoLabels.length - 1] ?? '';
   const sliderStart = state.dateRangeStart ?? minDate;
@@ -908,6 +1019,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
       <div className="chart-help">
         <small>
           {picking ? `Click the chart where the ${picking} goes · ` : ''}Scroll to zoom · Drag to pan · Click points to sync map time
+          {visibleAreas.length > 0 && state.layerMasks.length > 0 && <> · Areas: masks not applied</>}
           {state.bufferEnabled && Object.keys(bufferData).length > 0 && (
             <> · Buffer: {Object.values(bufferData).map((b: any) => b.n_pixels).join(', ')} px</>
           )}

@@ -1,0 +1,152 @@
+/**
+ * Areas in the time-series chart: the polygons a user can pick, the POST /polygon_timeseries
+ * request, and the chart series built from its answer (median, mean and the p10–p90 band).
+ *
+ * The server summarises stored values (the cube's own reference). When the viewer's reference
+ * is on, the caller passes the reference values the map uses (one per date) and they are
+ * subtracted here, so an area and a point are on the same footing. Subtracting one number per
+ * date shifts the median, mean and every percentile by that number; the spread is unchanged.
+ */
+import type { ChartArea, Overlay } from '../types';
+
+/** p10 and p90: the band holds the middle 80 % of the pixels. */
+export const AREA_PERCENTILES = [10, 90] as const;
+export const AREA_BAND_LABEL = 'p10–p90';
+
+export interface PolygonStatistics {
+  count: number;
+  mean: number | null;
+  median: number | null;
+  spatial_std: number | null;
+  minimum: number | null;
+  maximum: number | null;
+  percentiles: Record<string, number | null>;
+}
+
+export interface PolygonTimeSeries {
+  labels: string[];
+  units: string | null;
+  statistics: PolygonStatistics[];
+  polygon_pixels?: number;
+  common_pixels?: number;
+  warnings?: string[];
+}
+
+/** A polygon on the map that can become a chart area. */
+export interface PolygonChoice {
+  key: string;
+  name: string;
+  geometry: ChartArea['geometry'];
+}
+
+interface GeoJsonFeature {
+  geometry?: { type?: string; coordinates?: unknown } | null;
+  properties?: Record<string, unknown> | null;
+}
+
+/** Polygons drawn with the Draw tools or read from vector files, in layer order. */
+export function polygonChoices(overlays: Overlay[]): PolygonChoice[] {
+  const out: PolygonChoice[] = [];
+  for (const o of overlays) {
+    if (o.type !== 'vector' || !o.data) continue;
+    let n = 0;
+    (o.data.features as GeoJsonFeature[]).forEach((f, i) => {
+      const g = f?.geometry;
+      if (!g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon')) return;
+      n += 1;
+      const p = f.properties ?? {};
+      const own = [p.name, p.Name, p.NAME, p.title, p.label].find(v => typeof v === 'string' && v.trim());
+      out.push({
+        key: `${o.id}:${i}`,
+        name: own ? String(own) : `${o.name} ${n}`,
+        geometry: { type: g.type, coordinates: g.coordinates },
+      });
+    });
+  }
+  return out;
+}
+
+/** The request body: the cube's own values on the dates' common pixels. */
+export function polygonRequestBody(variable: string, geometry: ChartArea['geometry']) {
+  return { variable, geometry, support: 'common' as const, percentiles: [...AREA_PERCENTILES] };
+}
+
+/** A short message for a failed request (422 bad or too-large polygon, 501 on bowser-lite). */
+export function polygonErrorMessage(status: number, body: unknown): string {
+  if (status === 501) return 'needs the full Bowser server';
+  const detail = (body as { detail?: unknown } | null)?.detail;
+  if (typeof detail === 'string' && detail) return detail;
+  if (Array.isArray(detail) && typeof detail[0]?.msg === 'string') {
+    return detail[0].msg.replace(/^Value error, /, '');
+  }
+  return `request failed (HTTP ${status})`;
+}
+
+/** Why an answer can't be drawn (no pixel had a value), or null when it can. */
+export function polygonEmptyMessage(result: PolygonTimeSeries): string | null {
+  return result.statistics.some(r => r.count > 0 && r.median !== null) ? null : 'no valid pixels inside the area';
+}
+
+export interface AreaSeriesOptions {
+  result: PolygonTimeSeries;
+  name: string;
+  color: string;
+  /** Data → display unit (displayUnit(...).factor). */
+  factor: number;
+  unit: string;
+  yAxisID: string;
+  /** The reference value per date (state.refValues[dataset]) when the viewer's reference is on. */
+  reference: number[] | null;
+  /** A label → the chart's x value. */
+  toX: (label: string) => string;
+  /** Whether an x value is inside the chosen date range. */
+  inRange: (x: string) => boolean;
+}
+
+/**
+ * The Chart.js datasets for one area, all in its colour: the band's upper and lower edges
+ * (the upper fills down to the lower; they must stay adjacent), the median and the dashed mean.
+ */
+export function areaChartDatasets(o: AreaSeriesOptions): Record<string, unknown>[] {
+  const relative = o.reference !== null;
+  const series = (pick: (r: PolygonStatistics) => number | null) => {
+    const out: { x: string; y: number }[] = [];
+    o.result.statistics.forEach((row, i) => {
+      const v = pick(row);
+      const ref = o.reference ? o.reference[i] : 0;
+      if (v === null || v === undefined || !Number.isFinite(v) || !Number.isFinite(ref)) return;
+      const x = o.toX(o.result.labels[i]);
+      if (o.inRange(x)) out.push({ x, y: (v - ref) * o.factor });
+    });
+    return out;
+  };
+  const [lo, hi] = AREA_PERCENTILES.map(String);
+  const band = `${o.name} ${AREA_BAND_LABEL}`;
+  const common = {
+    _area: true, _unit: o.unit, _note: relative ? 'relative to the reference' : undefined,
+    yAxisID: o.yAxisID, tension: 0, borderColor: o.color, pointHoverRadius: 0,
+    order: 1,  // behind the points (Chart.js draws higher orders first)
+  };
+  return [
+    {
+      ...common, label: `${o.name} p${hi}`, _baseLabel: band, _legend: band,
+      data: series(r => r.percentiles[hi]),
+      fill: '+1', backgroundColor: `${o.color}33`, borderWidth: 0, pointRadius: 0,
+    },
+    {
+      ...common, label: `${o.name} p${lo}`, _baseLabel: band,
+      data: series(r => r.percentiles[lo]),
+      fill: false, backgroundColor: 'transparent', borderWidth: 0, pointRadius: 0,
+    },
+    {
+      ...common, label: `${o.name} median`, _baseLabel: `${o.name} median`, _legend: `${o.name} median`,
+      data: series(r => r.median),
+      fill: false, backgroundColor: o.color, borderWidth: 2, pointRadius: 0, pointHoverRadius: 3,
+    },
+    {
+      ...common, label: `${o.name} mean`, _baseLabel: `${o.name} mean`, _legend: `${o.name} mean`,
+      data: series(r => r.mean),
+      fill: false, backgroundColor: 'transparent', borderWidth: 2, borderDash: [6, 4], pointRadius: 0,
+    },
+  ];
+}

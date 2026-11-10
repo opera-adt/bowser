@@ -71,9 +71,31 @@ export interface RefApi {
 }
 
 /**
+ * The reference time series the map subtracts for ``ds`` with the marker at ``position``:
+ * the buffer median when the reference buffer is on (one value per date, NaN where the
+ * buffer had none), else the value at the point.
+ */
+export async function referenceValues(
+  state: Pick<AppState, 'datasetInfo' | 'refBufferEnabled' | 'refBufferRadius'>,
+  ds: string,
+  [lat, lng]: LatLng,
+  api: RefApi,
+): Promise<number[] | undefined> {
+  if (state.refBufferEnabled && state.refBufferRadius > 0) {
+    const result = await api.fetchBufferTimeSeries(lng, lat, ds, state.refBufferRadius, 0);
+    if (result?.median) {
+      const xValues = state.datasetInfo[ds]?.x_values?.map(String) ?? result.labels?.map(String) ?? [];
+      const byX = Object.fromEntries(result.median.map(pt => [String(pt.x), pt.y]));
+      return xValues.map((x: string) => byX[x] ?? NaN);
+    }
+  }
+  return api.fetchPointTimeSeries(lng, lat, ds);
+}
+
+/**
  * Reference marker dropped at ``position``: move it, then (for "shift" datasets)
- * fetch the reference time series, as the buffer median when the reference buffer is
- * on, else at the point. Dispatches as it goes so the marker moves immediately.
+ * fetch the reference time series (referenceValues). Dispatches as it goes so the
+ * marker moves immediately.
  */
 export async function refDragEnd(
   state: Pick<AppState, 'currentDataset' | 'datasetInfo' | 'refBufferEnabled' | 'refBufferRadius'>,
@@ -87,16 +109,7 @@ export async function refDragEnd(
   const info = ds ? state.datasetInfo[ds] : null;
   if (!ds || info?.algorithm !== 'shift') return;
   try {
-    let values: number[] | undefined;
-    if (state.refBufferEnabled && state.refBufferRadius > 0) {
-      const result = await api.fetchBufferTimeSeries(lng, lat, ds, state.refBufferRadius, 0);
-      if (result?.median) {
-        const xValues = state.datasetInfo[ds]?.x_values?.map(String) ?? result.labels?.map(String) ?? [];
-        const byX = Object.fromEntries(result.median.map(pt => [String(pt.x), pt.y]));
-        values = xValues.map((x: string) => byX[x] ?? NaN);
-      }
-    }
-    if (!values) values = await api.fetchPointTimeSeries(lng, lat, ds);
+    const values = await referenceValues(state, ds, position, api);
     if (values) dispatch({ type: 'SET_REF_VALUES', payload: { dataset: ds, values } });
   } catch (err) {
     console.error('Error updating reference values after drag:', err);

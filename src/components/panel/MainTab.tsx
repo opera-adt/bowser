@@ -7,6 +7,7 @@ import LayerInfo from './LayerInfo';
 import { displayUnit } from '../../utils/units';
 import { baseColormap } from '../../utils/colormaps';
 import { LayerOptions, SectionHeader, Switch } from './controls';
+import { referenceValues } from '../../map/interactions';
 
 /** A layer's percentiles, for the colour scale's range presets. */
 async function rangeOf(dataset: string): Promise<RangeStats | null> {
@@ -170,22 +171,9 @@ export default function MainTab() {
   // Only the newest lookup may set the values: an older answer arriving late would undo a reset.
   const refRequest = useRef(0);
   const setRefValues = async (ds: string, position: [number, number] = state.refMarkerPosition) => {
-    const [lat, lng] = position;
     const request = ++refRequest.current;
     try {
-      let values: number[] | undefined;
-      if (state.refBufferEnabled && state.refBufferRadius > 0) {
-        const result = await fetchBufferTimeSeries(lng, lat, ds, state.refBufferRadius, 0);
-        if (result?.median) {
-          // Re-align sparse {x,y} array back to full-length index array
-          const xValues = state.datasetInfo[ds]?.x_values?.map(String) ?? result.labels?.map(String) ?? [];
-          const byX = Object.fromEntries(result.median.map((pt: { x: string; y: number }) => [String(pt.x), pt.y]));
-          values = xValues.map((x: string) => byX[x] ?? NaN);
-        }
-      }
-      if (!values) {
-        values = await fetchPointTimeSeries(lng, lat, ds);
-      }
+      const values = await referenceValues(state, ds, position, { fetchPointTimeSeries, fetchBufferTimeSeries });
       if (values && request === refRequest.current) dispatch({ type: 'SET_REF_VALUES', payload: { dataset: ds, values } });
     } catch (error) {
       console.error('Error setting reference values:', error);
