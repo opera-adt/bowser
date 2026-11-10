@@ -1885,14 +1885,6 @@ img.huechange { filter: hue-rotate(120deg); }
   min-width: 0;
 }
 
-/* A long model name stays on one line (the full name is the button's tooltip). */
-.chart-btn-label {
-  max-width: 150px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /* ── Point styles (chart Style button) ─────────────────────── */
 .series-style {
   position: relative;

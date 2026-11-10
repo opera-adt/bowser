@@ -590,15 +590,15 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
         <h4 style={{ margin: 0, fontSize: '0.9em' }}>Time Series</h4>
         <div className="chart-controls">
           <button className={`chart-btn${state.showTrends ? ' active' : ''}`} onClick={() => dispatch({ type: 'TOGGLE_TRENDS' })}
-            aria-pressed={state.showTrends}
+            aria-pressed={state.showTrends} aria-label="Model"
             title={state.showTrends ? `Model: ${modelLabel(state.fitSettings)}` : 'Fit a model: polynomial, seasonal terms, steps and segments (as in the OPERA DISP portal)'}>
             <i className={`fa-solid ${state.showTrends ? 'fa-chart-line' : 'fa-chart-simple'}`}></i>
-            <span className="chart-btn-label">{state.showTrends ? `Model: ${modelLabel(state.fitSettings)}` : 'Model'}</span>
           </button>
           {state.showTrends && (
-            <button className="chart-btn" onClick={() => dispatch({ type: 'TOGGLE_RESIDUALS' })} title="Show residuals">
+            <button className={`chart-btn${state.showResiduals ? ' active' : ''}`} onClick={() => dispatch({ type: 'TOGGLE_RESIDUALS' })}
+              aria-pressed={state.showResiduals} aria-label="Residuals"
+              title={state.showResiduals ? 'Hide residuals' : 'Show residuals'}>
               <i className="fa-solid fa-wave-square"></i>
-              {state.showResiduals ? 'Resid ✓' : 'Resid'}
             </button>
           )}
           {isZoomed && (

@@ -93,19 +93,19 @@ const renderApp = (setup: AppAction[], ui: React.ReactNode) =>
 describe('+ Area button', () => {
   it('starts drawing a polygon on the map when there is none to pick', async () => {
     renderApp([], <ChartAreaButton />);
-    fireEvent.click(screen.getByRole('button', { name: /\+ Area/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add an area' }));
     expect(stateRef.areaDrawing).toBe(true);
     expect(stateRef.drawingEnabled).toBe(true);
     expect(screen.queryByText('Add an area to the chart:')).toBeNull();
     // Pressing it again stops waiting and closes the tools it opened.
-    fireEvent.click(screen.getByRole('button', { name: /\+ Area/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add an area' }));
     expect(stateRef.areaDrawing).toBe(false);
     expect(stateRef.drawingEnabled).toBe(false);
   });
 
   it('leaves the Draw tools open when they were open before', () => {
     renderApp([{ type: 'SET_DRAWING_ENABLED', payload: true }], <ChartAreaButton />);
-    fireEvent.click(screen.getByRole('button', { name: /\+ Area/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add an area' }));
     act(() => dispatchRef({ type: 'ADD_CHART_AREA', payload: { geometry: SQUARE } }));
     expect(stateRef.areaDrawing).toBe(false);
     expect(stateRef.drawingEnabled).toBe(true);
@@ -115,7 +115,7 @@ describe('+ Area button', () => {
     const line = { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [[0, 0], [1, 1]] } };
     const poly = { type: 'Feature', properties: { name: 'Dam crest' }, geometry: SQUARE };
     renderApp([{ type: 'SET_OVERLAYS', payload: [drawingsOverlay([line, poly])] }], <ChartAreaButton />);
-    fireEvent.click(screen.getByRole('button', { name: /\+ Area/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add an area' }));
     expect(screen.getByText('Add an area to the chart:')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Dam crest' }));
     expect(stateRef.chartAreas).toHaveLength(1);
@@ -125,7 +125,7 @@ describe('+ Area button', () => {
 
   it('offers drawing a new area under the list', () => {
     renderApp([{ type: 'SET_OVERLAYS', payload: [drawingsOverlay([{ geometry: SQUARE }])] }], <ChartAreaButton />);
-    fireEvent.click(screen.getByRole('button', { name: /\+ Area/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add an area' }));
     fireEvent.click(screen.getByRole('button', { name: /Draw a new area/ }));
     expect(stateRef.areaDrawing).toBe(true);
   });
@@ -133,7 +133,7 @@ describe('+ Area button', () => {
   it('is off, with the reason, on bowser-lite', async () => {
     config = { title: 'Bowser', geotiff_export: false, polygon_stats: false };
     renderApp([], <ChartAreaButton />);
-    const button = screen.getByRole('button', { name: /\+ Area/ }) as HTMLButtonElement;
+    const button = screen.getByRole('button', { name: 'Add an area' }) as HTMLButtonElement;
     await waitFor(() => expect(button.disabled).toBe(true));
     expect(button.title).toBe(AREA_NEEDS_SERVER);
   });

@@ -49,9 +49,8 @@ export default function ChartAreaButton() {
   return (
     <div className="series-style" ref={rootRef}>
       <button className={`chart-btn${open || state.areaDrawing ? ' active' : ''}`} disabled={!supported}
-        aria-expanded={open} aria-pressed={state.areaDrawing} onClick={onClick} title={title}>
+        aria-expanded={open} aria-pressed={state.areaDrawing} aria-label="Add an area" onClick={onClick} title={title}>
         <i className="fa-solid fa-draw-polygon"></i>
-        <span className="chart-btn-label">+ Area</span>
       </button>
       {open && (
         <div className="series-style-pop area-pick-pop" onMouseDown={e => e.stopPropagation()}>
