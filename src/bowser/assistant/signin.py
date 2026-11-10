@@ -163,7 +163,7 @@ def method(method_id: str) -> Method | None:
 
 
 def secret_name(m: Method) -> str:
-    """The key store's name for a method's tokens."""
+    """Return the key store's name for a method's tokens."""
     return f"signin:{m.id}"
 
 
@@ -326,7 +326,9 @@ async def _post_form(
                 headers={"Accept": "application/json"},
             )
     except httpx.TransportError as e:
-        raise SignInError(f"Could not reach the sign-in server ({type(e).__name__}).") from e
+        raise SignInError(
+            f"Could not reach the sign-in server ({type(e).__name__})."
+        ) from e
     if r.status_code >= 400:
         raise _TokenError(_oauth_error(r))
     try:
@@ -360,8 +362,9 @@ _DEAD_GRANT = {
 async def verify_id_token(
     spec: OAuthSpec, id_token: str, client_id: str, nonce: str, transport: Any = None
 ) -> dict[str, Any]:
-    """Check an ID token's signature (the issuer's JWKS), issuer, audience,
-    expiry and nonce; return its claims.
+    """Check an ID token and return its claims.
+
+    Checks the signature (the issuer's JWKS), issuer, audience, expiry and nonce.
     """
     import httpx  # noqa: PLC0415
     import jwt  # noqa: PLC0415
@@ -390,7 +393,9 @@ async def verify_id_token(
             options={"require": ["exp", "iat", "iss", "aud", "sub"]},
         )
     except jwt.PyJWTError as e:
-        raise SignInError(f"The ID token did not check out ({type(e).__name__}).") from e
+        raise SignInError(
+            f"The ID token did not check out ({type(e).__name__})."
+        ) from e
     if not secrets.compare_digest(str(claims.get("nonce") or ""), nonce):
         raise SignInError("The ID token is not from this sign-in (nonce).")
     if not claims.get("sub"):
@@ -537,8 +542,10 @@ def _lock(name: str) -> asyncio.Lock:
 
 
 async def sign_out(m: Method, store: KeyStore, transport: Any = None) -> bool:
-    """Revoke the refresh token and forget the tokens; return whether the
-    provider confirmed the revocation (the tokens are forgotten either way).
+    """Revoke the refresh token and forget the tokens.
+
+    Return whether the provider confirmed the revocation (the tokens are
+    forgotten either way).
 
     The app's registration (client id) and this computer's id stay, for the
     next sign-in.
@@ -684,8 +691,10 @@ STATUS_SECONDS = 20.0
 
 
 async def agent_state(m: Method, fresh: bool = False) -> AgentState:
-    """Whether the agent's program is installed and signed in (not cached when
-    ``fresh``). Runs the program's own status command; reads no credentials.
+    """Return whether the agent's program is installed and signed in.
+
+    Runs the program's own status command (cached briefly, unless ``fresh``);
+    reads no credentials.
     """
     spec = m.agent
     assert spec is not None
@@ -805,12 +814,16 @@ def end_login(m: Method) -> None:
 
 
 def mcp_command(base_url: str) -> tuple[str, list[str], dict[str, str]]:
-    """Return ``(command, args, env)`` running ``bowser mcp --url base_url``
-    with this Python, for an agent to start.
+    """Return ``(command, args, env)`` running ``bowser mcp --url base_url``.
+
+    With this Python (or the desktop app's executable), for an agent to start.
     """
     import bowser  # noqa: PLC0415
 
     env: dict[str, str] = {"NO_PROXY": "127.0.0.1,localhost,::1"}
+    if getattr(sys, "frozen", False):
+        # The desktop app: its own executable runs the MCP server.
+        return sys.executable, ["--mcp-url", base_url], env
     root = str(Path(bowser.__file__).resolve().parents[1])
     import sysconfig  # noqa: PLC0415
 
