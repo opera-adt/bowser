@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
 import { downloadLayer, type ExportFormat } from '../../map/exportLayer';
 import { SectionHeader } from './controls';
+import { exportFilename } from '../../utils/exportFilename';
 import { saveFile } from '../../utils/saveFile';
 
 const FORMATS: { value: ExportFormat; label: string }[] = [
@@ -55,16 +56,7 @@ export default function ExportSection() {
         throw new Error(typeof error?.detail === 'string' ? error.detail : `HTTP ${res.status}`);
       }
       const blob = await res.blob();
-      const masked = state.layerMasks.length > 0 || !!state.customMaskPath;
-      // Name the file by the layer's actual time label (e.g. a date or
-      // reference_secondary pair) rather than the bare slice index; fall back
-      // to `t<index>` for datasets without a time axis. Sanitize for a path:
-      // strip the time-of-day after `T` and replace filename-unsafe chars.
-      const timeVal = state.datasetInfo[state.currentDataset]?.x_values?.[state.currentTimeIndex];
-      const timeToken = timeVal == null
-        ? `t${state.currentTimeIndex}`
-        : String(timeVal).split('T')[0].replace(/[^0-9A-Za-z._-]/g, '-');
-      await saveFile(blob, `${state.currentDataset}_${timeToken}${masked ? '_masked' : ''}.tif`);
+      await saveFile(blob, exportFilename(res.headers.get('Content-Disposition'), state.currentDataset));
     } catch (err) {
       console.error('GeoTIFF export failed:', err);
       alert(`GeoTIFF export failed: ${(err as Error).message}`);
