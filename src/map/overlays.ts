@@ -115,10 +115,96 @@ export interface VectorLayerSpec {
   layout?: Record<string, unknown>;
 }
 
-/** The MapLibre layers of a vector overlay: polygons get a fill and an outline. */
-export function vectorLayerSpecs(o: Overlay): VectorLayerSpec[] {
+type Charted = { color: string; geometry?: { coordinates: unknown }; source?: { overlayId: string; index: number } };
+
+/**
+ * The chart colour of each of a vector layer's features that is in the time-series chart (an
+ * area or a point taken from it), by feature index. A shape drawn for + Area has no source; it
+ * is found among the Drawings by its geometry (drawn shapes can be reordered by the editor).
+ */
+export function chartedFeatureColors(o: Overlay, charted: Charted[]): Map<number, string> {
+  const out = new Map<number, string>();
+  if (o.type !== 'vector' || !o.data) return out;
+  const features = o.data.features as Array<{ geometry?: { coordinates?: unknown } | null }>;
+  for (const c of charted) {
+    if (c.source?.overlayId === o.id && o.id !== DRAWINGS_ID) {
+      if (c.source.index < features.length) out.set(c.source.index, c.color);
+    } else if (o.id === DRAWINGS_ID) {
+      const i = drawingIndexOf(c, o.data);
+      if (i >= 0) out.set(i, c.color);
+    }
+  }
+  return out;
+}
+
+type DrawingFeature = { id?: unknown; geometry?: { coordinates?: unknown } | null; properties?: Record<string, unknown> | null };
+
+/**
+ * The drawn shape an area stands for (one drawn for + Area, or picked from the Drawings): found
+ * by its geometry, since the editor may reorder shapes; -1 when it is not a drawing.
+ */
+export function drawingIndexOf(
+  area: { geometry?: { coordinates: unknown }; source?: { overlayId: string } },
+  drawings: OverlayFeatures | undefined,
+): number {
+  if (!drawings || !area.geometry || (area.source && area.source.overlayId !== DRAWINGS_ID)) return -1;
+  const shape = JSON.stringify(area.geometry.coordinates);
+  return (drawings.features as DrawingFeature[]).findIndex(f => JSON.stringify(f?.geometry?.coordinates) === shape);
+}
+
+/** A drawn shape's name (its ``name`` property), or "" when it has none. */
+export function drawingName(f: unknown): string {
+  const name = (f as DrawingFeature)?.properties?.name;
+  return typeof name === 'string' ? name : '';
+}
+
+/** The drawings with shape ``index`` named ``name`` (an empty name clears it). */
+export function renameDrawing(data: OverlayFeatures, index: number, name: string): OverlayFeatures {
+  return {
+    ...data,
+    features: (data.features as DrawingFeature[]).map((f, i) => {
+      if (i !== index) return f;
+      const { name: _old, ...rest } = f.properties ?? {};
+      return { ...f, properties: name ? { ...rest, name } : rest };
+    }),
+  };
+}
+
+/**
+ * Names carried over to the editor's new feature collection: the editor keeps a shape's id
+ * (and its geometry when it only moved in the list), not always the properties we added.
+ */
+function carryNames(old: OverlayFeatures | undefined, next: OverlayFeatures): OverlayFeatures {
+  if (!old) return next;
+  const before = old.features as DrawingFeature[];
+  const key = (f: DrawingFeature) => (f.id !== undefined && f.id !== null ? `id:${String(f.id)}` : null);
+  const byId = new Map(before.flatMap(f => (key(f) && drawingName(f) ? [[key(f)!, drawingName(f)]] : [])));
+  const byShape = new Map(before.flatMap(f => (drawingName(f) ? [[JSON.stringify(f.geometry?.coordinates), drawingName(f)]] : [])));
+  return {
+    ...next,
+    features: (next.features as DrawingFeature[]).map(f => {
+      if (drawingName(f)) return f;
+      const name = (key(f) && byId.get(key(f)!)) || byShape.get(JSON.stringify(f.geometry?.coordinates));
+      return name ? { ...f, properties: { ...(f.properties ?? {}), name } } : f;
+    }),
+  };
+}
+
+/** The layer colour, with each charted feature (by its generated id, the feature index) in its chart colour. */
+export function linkedColor(base: unknown, charted: Map<number, string>): unknown {
+  if (charted.size === 0) return base;
+  return ['match', ['id'], ...[...charted].sort((a, b) => a[0] - b[0]).flat(), base];
+}
+
+/**
+ * The MapLibre layers of a vector overlay: polygons get a fill and an outline. ``charted`` (from
+ * chartedFeatureColors) draws the features in the chart in their chart colour; the source needs
+ * ``generateId`` so a feature's id is its index.
+ */
+export function vectorLayerSpecs(o: Overlay, charted: Map<number, string> = new Map()): VectorLayerSpec[] {
   const id = `overlay-${o.id}`;
-  const color: unknown = o.classColors ? classColorExpression(o.classColors, o.color ?? '#a3a3a3') : o.color ?? '#5bc0be';
+  const base: unknown = o.classColors ? classColorExpression(o.classColors, o.color ?? '#a3a3a3') : o.color ?? '#5bc0be';
+  const color = linkedColor(base, charted);
   return [
     { id: `${id}-fill`, type: 'fill', filter: POLYGONS, paint: { 'fill-color': color, 'fill-opacity': o.opacity * 0.25 } },
     { id: `${id}-line`, type: 'line', filter: LINES, paint: { 'line-color': color, 'line-opacity': o.opacity, 'line-width': o.lineWidth ?? 2 } },
@@ -153,8 +239,9 @@ function pointSpec(id: string, o: Overlay, color: unknown): VectorLayerSpec {
 export const DRAWINGS_ID = 'drawings';
 
 /** The overlays with the drawings replaced: added on the first shape, removed with the last. */
-export function withDrawings(overlays: Overlay[], data: OverlayFeatures): Overlay[] {
+export function withDrawings(overlays: Overlay[], incoming: OverlayFeatures): Overlay[] {
   const existing = overlays.find(o => o.id === DRAWINGS_ID);
+  const data = carryNames(existing?.data, incoming);
   if (!data.features.length) return existing ? overlays.filter(o => o.id !== DRAWINGS_ID) : overlays;
   if (existing) return overlays.map(o => (o.id === DRAWINGS_ID ? { ...o, data, bounds: featureBounds(data) } : o));
   return [...overlays, {

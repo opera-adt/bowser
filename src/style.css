@@ -1056,6 +1056,32 @@ img.huechange { filter: hue-rotate(120deg); }
   border: 1px solid var(--sb-border);
 }
 
+/* Overlays › Draw: each drawn shape with its name box (as a point's in the Points panel). */
+.drawing-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.drawing-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.86em;
+}
+
+.drawing-item .point-name-input {
+  min-width: 0;
+}
+
+.drawing-item-pen {
+  flex: none;
+  color: var(--sb-muted);
+  font-size: 0.7em;
+}
+
 .point-coordinates {
   color: var(--sb-muted);
   font-size: 0.78em;
@@ -1409,6 +1435,25 @@ img.huechange { filter: hue-rotate(120deg); }
   color: var(--sb-red);
 }
 
+.ov-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.ov-icon-btn:disabled:hover {
+  background: none;
+  color: var(--sb-muted);
+}
+
+/* Zonal stats under a vector layer: progress, then any note (a cap reached). */
+.ov-zonal-note {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--sb-muted);
+  font-size: 0.72em;
+}
+
 .ov-opacity {
   display: flex;
   align-items: center;
@@ -1525,6 +1570,56 @@ img.huechange { filter: hue-rotate(120deg); }
 .maplibregl-ctrl-top-right > .maplibregl-ctrl {
   max-height: calc(100vh - 210px);
   overflow-y: auto;
+}
+
+/* ── Stats tab: one card per area (as an Overlays row) ───────── */
+.zs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.zs-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  background: var(--sb-surface2);
+  border-radius: var(--radius-sm);
+}
+
+.zs-row.hidden {
+  opacity: 0.55;
+}
+
+.zs-source {
+  max-width: none;
+  padding-left: 16px;
+}
+
+.zs-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 3px 8px;
+  margin: 3px 0 0;
+  padding-left: 16px;
+  font-size: 0.74em;
+}
+
+.zs-stats div {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.zs-stats dt {
+  color: var(--sb-muted);
+  font-size: 0.9em;
+}
+
+.zs-stats dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── GNSS tab ────────────────────────────────────────────────── */
@@ -1940,6 +2035,30 @@ img.huechange { filter: hue-rotate(120deg); }
   flex: 1;
 }
 
+.series-style-area {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-top: 4px;
+  border-top: 1px solid var(--sb-border);
+}
+
+.series-style-sub {
+  padding-left: 30px;
+  color: var(--sb-muted);
+}
+
+.series-style-sub label {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.series-style-sub input[type="range"] {
+  flex: 1;
+  min-width: 0;
+}
+
 .series-style-name {
   flex: 1;
   min-width: 0;
@@ -2200,6 +2319,43 @@ img.huechange { filter: hue-rotate(120deg); }
 .chart-area-note {
   font-size: 0.72em;
   color: var(--sb-muted);
+}
+
+.chart-fold {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  margin-bottom: 4px;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--sb-muted);
+  font-family: inherit;
+  font-size: 0.72em;
+  cursor: pointer;
+}
+
+.chart-fold:hover {
+  color: var(--sb-text);
+}
+
+.chart-fold-custom {
+  color: var(--sb-accent);
+}
+
+.chart-area-band {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.chart-area-band .sidebar-select {
+  width: auto;
+  height: 22px;
+  padding: 1px 4px;
+  font-size: 1em;
 }
 
 .chart-area-error {

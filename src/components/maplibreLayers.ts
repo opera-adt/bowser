@@ -8,7 +8,7 @@ import { useAppContext } from '../context/AppContext';
 import { baseMaps } from '../basemap';
 import { basemapSource, basemapStack } from '../map/basemapStyle';
 import { TERRAIN_SOURCE, TERRAIN_SOURCE_ID, terrainSpec } from '../map/terrain';
-import { DRAWINGS_ID, overlayOnMap, overlaySource, vectorLayerSpecs } from '../map/overlays';
+import { chartedFeatureColors, DRAWINGS_ID, overlayOnMap, overlaySource, vectorLayerSpecs } from '../map/overlays';
 import { contextLayerSpec, OFM_ATTRIBUTION, OFM_TILEJSON } from '../map/contextLayers';
 import { pmtilesVectorSpecs } from '../map/pmtiles';
 import { ensureMarker } from '../map/markers';
@@ -143,6 +143,9 @@ function overlayKey(o: Overlay): string {
 export function useOverlayLayers(map: maplibregl.Map | null, ready: boolean, which: 'main' | 'right') {
   const { state } = useAppContext();
   const builtRef = useRef(new Map<string, { key: string; layers: string[] }>());
+  // Features in the chart (areas and points from a layer) are drawn in their chart colour.
+  const charted = [...(state.chartAreas ?? []), ...(state.timeSeriesPoints ?? [])];
+  const chartedKey = JSON.stringify(charted.map(c => [c.color, c.source, 'geometry' in c && !c.source ? c.geometry : null]));
   useEffect(() => {
     if (!ready || !map) return;
     // While drawing, Geoman draws the shapes itself.
@@ -165,7 +168,8 @@ export function useOverlayLayers(map: maplibregl.Map | null, ready: boolean, whi
       const anchor = () => (o.aboveData ? firstOverlayId(map) : belowData());
       if (!built.has(source)) {
         if (o.type === 'vector') {
-          map.addSource(source, { type: 'geojson', data: (o.data ?? { type: 'FeatureCollection', features: [] }) as never });
+          // generateId: a feature's id is its index, so charted features can take their chart colour.
+          map.addSource(source, { type: 'geojson', generateId: true, data: (o.data ?? { type: 'FeatureCollection', features: [] }) as never });
           if (o.marker && o.marker !== 'circle') ensureMarker(map, o.marker);
           for (const l of vectorLayerSpecs(o)) {
             map.addLayer({ id: l.id, type: l.type, source, filter: l.filter, paint: l.paint, ...(l.layout ? { layout: l.layout } : {}), metadata } as never, anchor());
@@ -198,7 +202,7 @@ export function useOverlayLayers(map: maplibregl.Map | null, ready: boolean, whi
         built.set(source, { key: overlayKey(o), layers: overlayLayerIds(o) });
       }
       if (o.type === 'vector') {
-        for (const l of vectorLayerSpecs(o)) {
+        for (const l of vectorLayerSpecs(o, chartedFeatureColors(o, charted))) {
           for (const [prop, value] of Object.entries(l.paint)) map.setPaintProperty(l.id, prop as never, value as never);
           for (const [prop, value] of Object.entries(l.layout ?? {})) map.setLayoutProperty(l.id, prop as never, value as never);
         }
@@ -214,7 +218,7 @@ export function useOverlayLayers(map: maplibregl.Map | null, ready: boolean, whi
       }
       overlayLayerIds(o).forEach(id => map.moveLayer(id, anchor()));
     }
-  }, [ready, map, which, state.overlays, state.splitScreen, state.drawingEnabled]);
+  }, [ready, map, which, state.overlays, state.splitScreen, state.drawingEnabled, chartedKey]);
 }
 
 /** Buffer circles around time-series points and the reference point (dashed, faint fill). */

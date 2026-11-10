@@ -5,6 +5,7 @@ import MainTab from './panel/MainTab';
 import OverlaysTab from './panel/OverlaysTab';
 import ProjectTab from './panel/ProjectTab';
 import GnssTab from './panel/GnssTab';
+import StatsTab from './panel/StatsTab';
 import operaEmblem from '../assets/opera-emblem.png';
 import bowserMark from '../assets/bowser-mark.svg';
 
@@ -16,6 +17,7 @@ const svg = (body: JSX.Element) => (
 const TABS = [
   { id: 'main', label: 'Main', icon: svg(<><path d="M4 7h9M19 7h1M4 17h1M11 17h9" /><circle cx="16" cy="7" r="2.5" /><circle cx="8" cy="17" r="2.5" /></>) },
   { id: 'overlays', label: 'Overlays', icon: svg(<><path d="m12 3.5 8.5 5-8.5 5-8.5-5 8.5-5Z" /><path d="m3.5 12.5 8.5 5 8.5-5" /><path d="m3.5 16 8.5 5 8.5-5" /></>) },
+  { id: 'stats', label: 'Stats', icon: svg(<><path d="M4 20h16" /><path d="M7 16.5v-5M12 16.5V6M17 16.5v-8" /></>) },
   { id: 'gnss', label: 'GNSS', icon: svg(<><circle cx="12" cy="18" r="2" /><path d="M8.5 14.5a5 5 0 0 1 7 0M5.5 11.5a9.2 9.2 0 0 1 13 0M2.5 8.5a13.4 13.4 0 0 1 19 0" /></>) },
   { id: 'project', label: 'Project', icon: svg(<><path d="M6 3.5h8l4.5 4.5v11a1.5 1.5 0 0 1-1.5 1.5H6A1.5 1.5 0 0 1 4.500 19V5A1.5 1.5 0 0 1 6 3.5Z" /><path d="M14 3.5V8h4.500" /><path d="M8 13h7M8 16.500h7" /></>) },
 ] as const;
@@ -25,13 +27,15 @@ type TabId = (typeof TABS)[number]['id'];
 const TAB_CONTENT: Record<TabId, () => JSX.Element> = {
   main: MainTab,
   overlays: OverlaysTab,
+  stats: StatsTab,
   gnss: GnssTab,
   project: ProjectTab,
 };
 
 export default function ControlPanel({ title, operaLogo }: { title: string; operaLogo: boolean }) {
   const { state, dispatch } = useAppContext();
-  const [tab, setTab] = useState<TabId>('main');
+  const tab: TabId = TABS.some(t => t.id === state.panelTab) ? state.panelTab as TabId : 'main';
+  const setTab = (id: TabId) => dispatch({ type: 'SET_PANEL_TAB', payload: id });
 
   return (
     <div id="menu">

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { polygonChoices } from '../utils/polygonSeries';
+import { AREA_NEEDS_SERVER, usePolygonStats } from '../hooks/usePolygonStats';
 
-/** Why the button is off on bowser-lite (its /config says polygon_stats: false). */
-export const AREA_NEEDS_SERVER = 'Area statistics need the full Bowser server';
+export { AREA_NEEDS_SERVER };
 
 /**
  * The chart header's "+ Area" button: add a polygon's median, mean and p10–p90 band to the
@@ -13,18 +13,9 @@ export const AREA_NEEDS_SERVER = 'Area statistics need the full Bowser server';
 export default function ChartAreaButton() {
   const { state, dispatch } = useAppContext();
   const [open, setOpen] = useState(false);
-  const [supported, setSupported] = useState(true);
+  const supported = usePolygonStats();
   const rootRef = useRef<HTMLDivElement>(null);
   const choices = polygonChoices(state.overlays);
-
-  useEffect(() => {
-    let live = true;
-    fetch('/config')
-      .then(r => (r.ok ? r.json() : null))
-      .then(cfg => { if (live && cfg?.polygon_stats === false) setSupported(false); })
-      .catch(() => undefined);
-    return () => { live = false; };
-  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -57,7 +48,7 @@ export default function ChartAreaButton() {
           <div className="row-label">Add an area to the chart:</div>
           {choices.map(c => (
             <button key={c.key} type="button" className="hist-btn area-pick-item" title={c.name}
-              onClick={() => { setOpen(false); dispatch({ type: 'ADD_CHART_AREA', payload: { geometry: c.geometry, name: c.name } }); }}>
+              onClick={() => { setOpen(false); dispatch({ type: 'ADD_CHART_AREA', payload: { geometry: c.geometry, name: c.name, source: c.source } }); }}>
               {c.name}
             </button>
           ))}

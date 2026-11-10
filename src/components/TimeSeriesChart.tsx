@@ -19,8 +19,11 @@ import { displayUnit } from '../utils/units';
 import { saveFile } from '../utils/saveFile';
 import { activeRefTime, refDateLabel, refDateMarker, relativeChartData, relativeTo } from '../utils/refDate';
 import ChartAreaButton from './ChartAreaButton';
-import { areaChartDatasets, polygonEmptyMessage, type PolygonTimeSeries } from '../utils/polygonSeries';
-import { referenceValues } from '../map/interactions';
+import { AREA_BAND_LABELS, areaChartDatasets, areaStatsKey, type AreaBand } from '../utils/polygonSeries';
+import { useAreaReference } from '../hooks/useAreaReference';
+import { useAreaStatsFetch } from '../hooks/useAreaStatsFetch';
+import { readChartDisplayOpen, saveChartDisplayOpen } from '../utils/chartDisplayPref';
+import { refIndexOf, toIsoDate } from '../utils/areaStats';
 
 // Chart.js plugin to wire legend-click visibility to all related datasets (raw, trend,
 // residual, samples, median) that share the same base label.
@@ -75,21 +78,6 @@ function useThemeVersion(): number {
   return v;
 }
 
-/** Convert "YYYYMMDD_YYYYMMDD" or "YYYYMMDD" → "YYYY-MM-DD" (secondary/only date).
- *
- * Stringify defensively: some datasets surface numeric x-values (e.g.
- * integer indices when a dim has no date coord), and Chart.js hands them
- * straight to us. Without this, `.includes` throws on the numeric branch.
- */
-function toIsoDate(xVal: string | number): string {
-  const s = typeof xVal === 'string' ? xVal : String(xVal);
-  const dateStr = s.includes('_') ? s.split('_').pop()! : s;
-  if (/^\d{8}$/.test(dateStr)) {
-    return `${dateStr.slice(0, 4)}-${dateStr.slice(4, 6)}-${dateStr.slice(6, 8)}`;
-  }
-  return s;
-}
-
 interface BufferResult {
   labels: string[];
   median: Array<{ x: string; y: number }>;
@@ -100,7 +88,7 @@ interface BufferResult {
 export default function TimeSeriesChart({ windowId }: { windowId: string }) {
   const { state, dispatch } = useAppContext();
   const window_ = state.chartWindows.find(w => w.id === windowId);
-  const { fetchMultiPointTimeSeries, fetchBufferTimeSeries, fetchPointTimeSeries, fetchPolygonTimeSeries } = useApi();
+  const { fetchMultiPointTimeSeries, fetchBufferTimeSeries } = useApi();
   const themeVersion = useThemeVersion();
   // chartData keyed by dataset name
   const [fetchedDataMap, setChartDataMap] = useState<{ [ds: string]: MultiPointTimeSeriesData }>({});
@@ -131,6 +119,9 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
   const [dsColorOverrides, setDsColorOverrides] = useState<{ [ds: string]: string }>({});
   // Per-dataset y-axis limits; empty string = auto
   const [dsYLimits, setDsYLimits] = useState<{ [ds: string]: { min: string; max: string } }>({});
+  // Marker size, date range and the y rows: folded unless this viewer opened them.
+  const [displayOpen, setDisplayOpen] = useState(readChartDisplayOpen);
+  const toggleDisplay = () => setDisplayOpen(o => { saveChartDisplayOpen(!o); return !o; });
   const chartRef = useRef<ChartJS<'line'>>(null);
   const { panelRef, panelStyle, onDragMouseDown, resizeGrip } = useDraggableResizable({
     defaultWidth: Math.min(560, window.innerWidth * 0.38),
@@ -265,49 +256,12 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
 
   // ── Areas (+ Area): statistics per area × layer, fetched once (an area's polygon never changes) ──
   const visibleAreas = state.chartAreas.filter(a => a.visible);
-  const [areaResults, setAreaResults] = useState<Record<string, { data?: PolygonTimeSeries; error?: string }>>({});
-  const areaRequested = useRef(new Set<string>());
-  useEffect(() => {
-    if (!state.showChart) return;
-    for (const dsName of activeDatasetsForChart) {
-      for (const area of visibleAreas) {
-        const key = `${dsName}::${area.id}`;
-        if (areaRequested.current.has(key)) continue;
-        areaRequested.current.add(key);
-        fetchPolygonTimeSeries(dsName, area.geometry).then(res => {
-          const entry = 'data' in res
-            ? (polygonEmptyMessage(res.data) ? { error: polygonEmptyMessage(res.data)! } : { data: res.data })
-            : { error: res.error };
-          setAreaResults(prev => ({ ...prev, [key]: entry }));
-        });
-      }
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.showChart, JSON.stringify(activeDatasetsForChart), JSON.stringify(visibleAreas.map(a => a.id)), fetchPolygonTimeSeries]);
+  // Kept in AppState (the Stats tab lists them too); Zonal stats may have asked already.
+  const areaResults = state.areaStats;
+  useAreaStatsFetch(activeDatasetsForChart, visibleAreas, state.showChart);
 
-  // The server's statistics use the cube's stored reference. With the viewer's reference on, the
-  // same values the map subtracts are taken off (one per date), as /multi_point does for points:
-  // the map's own (state.refValues) for the layer on the map, else fetched the same way.
-  const refBufferM = state.refEnabled && state.refBufferEnabled ? state.refBufferRadius : 0;
-  const refKey = (ds: string) => `${ds}|${state.refMarkerPosition.join(',')}|${refBufferM}`;
-  const [fetchedRef, setFetchedRef] = useState<Record<string, number[]>>({});
-  const usesRef = (ds: string) => !!state.datasetInfo[ds]?.uses_spatial_ref && state.refEnabled;
-  const mapRef = (ds: string) => (ds === state.currentDataset ? state.refValues[ds] : undefined);
-  useEffect(() => {
-    if (!state.showChart || visibleAreas.length === 0) return;
-    for (const ds of activeDatasetsForChart) {
-      if (!usesRef(ds) || mapRef(ds) || fetchedRef[refKey(ds)]) continue;
-      const key = refKey(ds);
-      referenceValues(state, ds, state.refMarkerPosition, { fetchPointTimeSeries, fetchBufferTimeSeries })
-        .then(values => { if (values) setFetchedRef(prev => ({ ...prev, [key]: values })); })
-        .catch(err => console.error('Error fetching reference values for an area:', err));
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.showChart, visibleAreas.length, JSON.stringify(activeDatasetsForChart), state.refEnabled, state.refMarkerPosition,
-      refBufferM, state.currentDataset, state.refValues, state.datasetInfo]);
-  /** The reference to subtract: null when off for the layer, undefined while it is fetched. */
-  const areaReference = (ds: string): number[] | null | undefined =>
-    !usesRef(ds) ? null : (mapRef(ds) ?? fetchedRef[refKey(ds)]);
+  // The viewer's reference taken off each area (useAreaReference).
+  const areaReference = useAreaReference(activeDatasetsForChart, state.showChart && visibleAreas.length > 0);
 
   // Derive a single merged chartData view from chartDataMap for click/export
   // Use the first available dataset as the canonical labels source
@@ -417,8 +371,8 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
   }, [chartDataMap, firstDs, activeDatasetsForChart, state.timeSeriesPoints, fits, state.fitSettings, state.datasetInfo, state.units]);
 
   // Layers with an area answer (they may have no point data).
-  const areaDsNames = activeDatasetsForChart.filter(ds => visibleAreas.some(a => areaResults[`${ds}::${a.id}`]?.data));
-  const firstAreaLabel = areaDsNames.flatMap(ds => visibleAreas.map(a => areaResults[`${ds}::${a.id}`]?.data?.labels?.[0]))
+  const areaDsNames = activeDatasetsForChart.filter(ds => visibleAreas.some(a => areaResults[areaStatsKey(ds, a.id)]?.data));
+  const firstAreaLabel = areaDsNames.flatMap(ds => visibleAreas.map(a => areaResults[areaStatsKey(ds, a.id)]?.data?.labels?.[0]))
     .find(l => l !== undefined);
   // Ordered list of dataset names in the chart (one y axis each)
   const activeChartDs = [...new Set([...Object.keys(chartDataMap), ...areaDsNames])];
@@ -596,12 +550,12 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
   const multiDs = activeDatasetsForChart.length > 1;
   // A failed area (bad or too-large polygon, no valid pixels, lite server): one short line.
   const areaErrors = activeDatasetsForChart.flatMap(ds => visibleAreas.flatMap(a => {
-    const error = areaResults[`${ds}::${a.id}`]?.error;
+    const error = areaResults[areaStatsKey(ds, a.id)]?.error;
     return error ? [`${multiDs ? `${a.name} [${ds}]` : a.name}: ${error}`] : [];
   }));
   const areaPending = activeDatasetsForChart.some(ds => visibleAreas.some(a => {
-    const r = areaResults[`${ds}::${a.id}`];
-    return !r || (r.data && areaReference(ds) === undefined);
+    const r = areaResults[areaStatsKey(ds, a.id)];
+    return !r || !!r.pending || (!!r.data && areaReference(ds) === undefined);
   }));
 
   const headerContent = (
@@ -705,6 +659,15 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
               <button onClick={() => dispatch({ type: 'REMOVE_CHART_AREA', payload: a.id })} title={`Remove ${a.name}`}>✕</button>
             </span>
           ))}
+          {state.chartAreas.length > 0 && (
+            <label className="chart-area-note chart-area-band">
+              Band
+              <select className="sidebar-select" aria-label="Area band" value={state.areaBand}
+                onChange={e => dispatch({ type: 'SET_AREA_BAND', payload: e.target.value as AreaBand })}>
+                {(Object.keys(AREA_BAND_LABELS) as AreaBand[]).map(b => <option key={b} value={b}>{AREA_BAND_LABELS[b]}</option>)}
+              </select>
+            </label>
+          )}
           {state.areaDrawing && <span className="chart-area-note">Draw the area on the map: click the first point to finish.</span>}
         </div>
       )}
@@ -749,12 +712,13 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     if (reference === undefined) return [];
     const shown = displayUnit(state.datasetInfo[dsName]?.unit, state.units);
     return visibleAreas.flatMap(area => {
-      const result = areaResults[`${dsName}::${area.id}`]?.data;
+      const result = areaResults[areaStatsKey(dsName, area.id)]?.data;
       if (!result) return [];
       return areaChartDatasets({
-        result, name: multiDs ? `${area.name} [${dsName}]` : area.name, color: area.color,
+        result, name: multiDs ? `${area.name} [${dsName}]` : area.name, color: dsColorOverrides[dsName] ?? area.color,
         factor: shown.factor, unit: shown.label, yAxisID: `y${activeChartDs.indexOf(dsName)}`,
-        reference, toX: toIsoDate, inRange,
+        reference, toX: toIsoDate, inRange, band: state.areaBand, style: area,
+        refIndex: dsName in refX ? refIndexOf(result, refX[dsName]) : null,
       });
     });
   });
@@ -800,7 +764,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
   // Collect all ISO dates across all datasets (points and areas) for the x-axis
   const allIsoLabels = [...new Set([
     ...Object.values(chartDataMap).flatMap(cd => cd.labels.map(toIsoDate)),
-    ...areaDsNames.flatMap(ds => visibleAreas.flatMap(a => areaResults[`${ds}::${a.id}`]?.data?.labels.map(toIsoDate) ?? [])),
+    ...areaDsNames.flatMap(ds => visibleAreas.flatMap(a => areaResults[areaStatsKey(ds, a.id)]?.data?.labels.map(toIsoDate) ?? [])),
   ])].sort();
 
   const isoLabels = allIsoLabels.filter(d => {
@@ -825,7 +789,6 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     const unit = shown.label;
     const rateUnit = shown.rate?.label;
     const k = shown.factor;
-    const colorOverride = dsColorOverrides[dsName] ?? null;
     const axisIdx = activeChartDs.indexOf(dsName);
     const yAxisID = `y${axisIdx}`;
     // The date the series is relative to (chosen, or as stored), marked on each series.
@@ -834,9 +797,10 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
 
     cd.datasets.forEach(dataset => {
       const baseLabel = multiDs ? `${dataset.label} [${dsName}]` : dataset.label;
-      // The point's own colour and style (Style button); a per-layer colour wins when several layers share the chart.
+      // The point's own colour and style (Style button), as on the map; a layer's colour
+      // (Display options) wins for that layer's series, so layers sharing the chart tell apart.
       const point = state.timeSeriesPoints.find(p => p.id === dataset.pointId);
-      const borderColor = colorOverride ?? point?.color ?? dataset.borderColor;
+      const borderColor = dsColorOverrides[dsName] ?? point?.color ?? dataset.borderColor;
       const backgroundColor = `${borderColor}33`;
       const look = seriesStyle(point?.marker, point?.line, ms);
 
@@ -938,6 +902,20 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     <div id="chart-container" ref={panelRef} style={panelStyle}>
       {headerContent}
 
+      {/* Display options, folded: what they set still applies, and "(custom)" says so. */}
+      {(() => {
+        const custom = !!(state.dateRangeStart || state.dateRangeEnd)
+          || activeChartDs.some(ds => (dsOffsets[ds] ?? 0) !== 0 || !!dsYLimits[ds]?.min || !!dsYLimits[ds]?.max);
+        return (
+          <button type="button" className="chart-fold" aria-expanded={displayOpen} onClick={toggleDisplay}
+            title={custom ? 'Display options (a custom date range, offset or y limits applies)' : 'Display options'}>
+            <span className={`disclosure-chevron${displayOpen ? ' open' : ''}`} aria-hidden="true" />
+            Display options
+            {custom && <span className="chart-fold-custom">(custom)</span>}
+          </button>
+        );
+      })()}
+      {displayOpen && <>
       {/* Marker size + date range sliders */}
       <div className="chart-sliders">
         <label className="chart-slider-label">
@@ -968,10 +946,11 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
         )}
       </div>
 
-      {/* Per-dataset controls (offset + color) — shown for ALL datasets when multiple */}
+      {/* Per-dataset controls (offset + colour of the layer's series and y axis) — shown for ALL datasets when multiple */}
       {activeChartDs.map((ds, i) => {
         const off = dsOffsets[ds] ?? 0;
-        const baseColor = chartDataMap[ds]?.datasets[0]?.borderColor ?? '#7880a8';
+        const baseColor = chartDataMap[ds]?.datasets[0]?.borderColor
+          ?? visibleAreas.find(a => areaResults[`${ds}::${a.id}`]?.data)?.color ?? '#7880a8';
         const color = dsColorOverrides[ds] ?? baseColor;
         const info = state.datasetInfo[ds];
         const unit = displayUnit(info?.unit, state.units).label;
@@ -989,7 +968,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
               <label className="chart-slider-label" style={{ flex: '1 1 100%' }}>
                 <input type="color" value={color.length === 7 ? color : baseColor}
                   style={{ width: 20, height: 20, padding: 0, border: 'none', background: 'none', cursor: 'pointer', flexShrink: 0 }}
-                  title="Change layer color"
+                  title="Colour of this layer's series and y axis"
                   onChange={e => setDsColorOverrides(prev => ({ ...prev, [ds]: e.target.value }))}
                 />
                 <span style={{ color, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 80 }} title={ds}>{ds}</span>
@@ -1027,6 +1006,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
           </div>
         );
       })}
+      </>}
 
       <div className="chart-content">
         <Line ref={chartRef} data={formattedChartData} options={chartOptions as any} />

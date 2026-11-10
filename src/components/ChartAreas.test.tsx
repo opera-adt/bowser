@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppProvider, useAppContext } from '../context/AppContext';
 import type { AppAction, AppState, Overlay, RasterGroup } from '../types';
 import { areaChartDatasets, polygonChoices, polygonErrorMessage, type PolygonTimeSeries } from '../utils/polygonSeries';
+import { chartedFeatureColors, vectorLayerSpecs } from '../map/overlays';
 
 // Chart.js can't draw in jsdom: keep what the chart would draw.
 const drawn = vi.hoisted(() => ({ data: null as null | { labels: string[]; datasets: any[] }, options: null as any }));
@@ -164,7 +165,7 @@ describe('area series', () => {
   };
 
   it('are the p10–p90 band, the median and the dashed mean, in one colour', () => {
-    const ds = areaChartDatasets({ ...base, reference: null });
+    const ds = areaChartDatasets({ ...base, reference: null, band: 'pct' });
     expect(ds.map(d => d.label)).toEqual(['Area 1 p90', 'Area 1 p10', 'Area 1 median', 'Area 1 mean']);
     expect(ds.map(d => d._legend)).toEqual(['Area 1 p10–p90', undefined, 'Area 1 median', 'Area 1 mean']);
     expect(ds[0].fill).toBe('+1');  // the upper edge fills down to the lower one
@@ -176,13 +177,39 @@ describe('area series', () => {
   });
 
   it('take off the reference per date and convert units', () => {
-    const ds = areaChartDatasets({ ...base, reference: REF, factor: 1000 / 25.4, unit: 'in' });
+    const ds = areaChartDatasets({ ...base, reference: REF, factor: 1000 / 25.4, unit: 'in', band: 'pct' });
     const ys = (i: number) => (ds[i].data as any[]).map(p => +p.y.toFixed(6));
     const inch = (m: number) => +(m * 1000 / 25.4).toFixed(6);
     expect(ys(2)).toEqual([inch(0), inch(0.006), inch(0.012)]);       // median − ref
     expect(ys(3)).toEqual([inch(0), inch(0.007), inch(0.013)]);       // mean − ref
     expect(ys(1)).toEqual([inch(-0.001), inch(0.004), inch(0.008)]);  // p10 − ref
     expect(ds[2]._note).toBe('relative to the reference');
+  });
+
+  it('band the mean ± 1 std by default, the std not shifted by the reference', () => {
+    const ds = areaChartDatasets({ ...base, reference: REF });
+    expect(ds.map(d => d.label)).toEqual(['Area 1 +1 std', 'Area 1 −1 std', 'Area 1 median', 'Area 1 mean']);
+    expect(ds.map(d => d._legend)).toEqual(['Area 1 mean ± 1 std', undefined, 'Area 1 median', 'Area 1 mean']);
+    const ys = (i: number) => (ds[i].data as any[]).map(p => +p.y.toFixed(6));
+    expect(ys(3)).toEqual([0, 0.007, 0.013]);           // mean − ref
+    expect(ys(0)).toEqual([0.001, 0.009, 0.016]);       // + std
+    expect(ys(1)).toEqual([-0.001, 0.005, 0.010]);      // − std
+  });
+
+  it('are zero on a chosen reference date: each line minus its own value there', () => {
+    const pct = areaChartDatasets({ ...base, reference: REF, band: 'pct', refIndex: 1 });
+    const ys = (d: Record<string, unknown>) => (d.data as any[]).map(p => +p.y.toFixed(6));
+    // After the viewer reference: median [0, .006, .012], mean [0, .007, .013], p10 [-.001, .004, .008], p90 [.001, .010, .017].
+    expect(ys(pct[2])).toEqual([-0.006, 0, 0.006]);
+    expect(ys(pct[3])).toEqual([-0.007, 0, 0.006]);
+    expect(ys(pct[1])).toEqual([-0.005, 0, 0.004]);
+    expect(ys(pct[0])).toEqual([-0.009, 0, 0.007]);
+    expect(pct[2]._note).toBe('relative to the reference');
+    // The std band sits on the shifted mean, its width unchanged.
+    const std = areaChartDatasets({ ...base, reference: null, refIndex: 0 });
+    expect(ys(std[0])).toEqual([0.001, 0.013, 0.024]);
+    // A reference date the answer doesn't have: nothing to draw, as for a point.
+    expect(areaChartDatasets({ ...base, reference: null, refIndex: -1 }).every(d => (d.data as unknown[]).length === 0)).toBe(true);
   });
 
   it('leave out dates without pixels or reference, and outside the date range', () => {
@@ -224,18 +251,81 @@ describe('areas in the time-series chart', () => {
     const ys = (label: string) => byLabel[label].data.map((p: any) => +p.y.toFixed(6));
     expect(ys('Field median')).toEqual([0, 0.006, 0.012]);
     expect(ys('Field mean')).toEqual([0, 0.007, 0.013]);
-    expect(ys('Field p90')).toEqual([0.001, 0.010, 0.017]);
+    expect(ys('Field +1 std')).toEqual([0.001, 0.009, 0.016]);
     // The legend shows median, mean and the band once each; the tooltip says what it is relative to.
     const legend = drawn.options.plugins.legend.labels.generateLabels({
       data: drawn.data, isDatasetVisible: () => true,
     });
-    expect(legend.map((l: any) => l.text)).toEqual(['Field p10–p90', 'Field median', 'Field mean']);
+    expect(legend.map((l: any) => l.text)).toEqual(['Field mean ± 1 std', 'Field median', 'Field mean']);
     expect(legend.map((l: any) => l.lineDash)).toEqual([undefined, undefined, [6, 4]]);
     expect(screen.queryByText(/masks not applied/)).toBeNull();
     const median = drawn.data!.datasets.indexOf(byLabel['Field median']);
     const tip = drawn.options.plugins.tooltip.callbacks.label({ chart: { data: drawn.data }, datasetIndex: median, parsed: { y: 0.006 } });
     expect(tip).toBe('Field median: 0.0060 m, relative to the reference');
     expect(screen.getByTitle('Remove Field')).toBeTruthy();
+  });
+
+  it('switches the band to p10–p90 and remembers the choice', async () => {
+    renderApp(open, <ChartOfFirstWindow />);
+    await waitFor(() => expect(drawn.data?.datasets.some(d => d.label === 'Field +1 std')).toBe(true));
+    const select = screen.getByRole('combobox', { name: 'Area band' }) as HTMLSelectElement;
+    expect(select.value).toBe('std');
+    fireEvent.change(select, { target: { value: 'pct' } });
+    await waitFor(() => expect(drawn.data?.datasets.some(d => d.label === 'Field p90')).toBe(true));
+    expect(drawn.data!.datasets.some(d => d.label === 'Field +1 std')).toBe(false);
+    expect(localStorage.getItem('bowser-area-band')).toBe('pct');
+    cleanup();
+    renderApp(open, <ChartOfFirstWindow />);
+    expect((screen.getByRole('combobox', { name: 'Area band' }) as HTMLSelectElement).value).toBe('pct');
+    localStorage.removeItem('bowser-area-band');
+  });
+
+  it('draws areas relative to a chosen reference date, as points are', async () => {
+    renderApp([...open, { type: 'SET_REF_TIME_INDEX', payload: { dataset: 'displacement', index: 1 } }], <ChartOfFirstWindow />);
+    await waitFor(() => expect(drawn.data?.datasets.some(d => d.label === 'Field median')).toBe(true));
+    const byLabel = Object.fromEntries(drawn.data!.datasets.map(d => [d.label, d]));
+    const ys = (label: string) => byLabel[label].data.map((p: any) => +p.y.toFixed(6));
+    expect(ys('Field median')).toEqual([-0.006, 0, 0.006]);
+    expect(ys('Field mean')).toEqual([-0.007, 0, 0.006]);
+  });
+
+  it('keeps one colour per area across chart layers, listed once in Style, and on the map', async () => {
+    const areaLayer: Overlay = { id: 'v1', name: 'areas', type: 'vector', visible: true, opacity: 1, color: '#5bc0be',
+      data: { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { name: 'Field' }, geometry: SQUARE }] } };
+    renderApp([
+      { type: 'SET_DATASETS', payload: { displacement: layer('displacement'), phase_similarity: { ...layer('phase_similarity'), uses_spatial_ref: false, unit: '' } } },
+      { type: 'SET_OVERLAYS', payload: [areaLayer] },
+      { type: 'TOGGLE_CHART' },
+      { type: 'SET_REF_VALUES', payload: { dataset: 'displacement', values: REF } },
+      { type: 'ADD_CHART_AREA', payload: { geometry: SQUARE, name: 'Field', source: { overlayId: 'v1', layer: 'areas', index: 0 } } },
+    ], <ChartOfFirstWindow />);
+    act(() => dispatchRef({ type: 'SET_CHART_WINDOW_DS', payload: { id: stateRef.chartWindows[0].id, dsNames: ['displacement', 'phase_similarity'] } }));
+    await waitFor(() => expect(drawn.data?.datasets.filter(d => d._area && (d.data as unknown[]).length > 0)).toHaveLength(8));
+    fireEvent.click(screen.getByTitle(/Style the points and areas/));
+    expect(screen.getAllByLabelText('Colour of Field')).toHaveLength(1);
+    fireEvent.change(screen.getByLabelText('Colour of Field'), { target: { value: '#00aa00' } });
+    await waitFor(() => expect(drawn.data!.datasets.filter(d => d._area).every(d => d.borderColor === '#00aa00')).toBe(true));
+    const areaSets = drawn.data!.datasets.filter(d => d._area);
+    expect(areaSets.map(d => d.label)).toEqual([
+      'Field [displacement] +1 std', 'Field [displacement] −1 std', 'Field [displacement] median', 'Field [displacement] mean',
+      'Field [phase_similarity] +1 std', 'Field [phase_similarity] −1 std', 'Field [phase_similarity] median', 'Field [phase_similarity] mean',
+    ]);
+    expect(areaSets[0].backgroundColor).toBe('#00aa0033');
+    expect(areaSets[4].backgroundColor).toBe('#00aa0033');
+    // Layers differ by their y axis, not by colour.
+    expect(new Set(areaSets.map(d => d.yAxisID))).toEqual(new Set(['y0', 'y1']));
+    const fill = vectorLayerSpecs(areaLayer, chartedFeatureColors(areaLayer, stateRef.chartAreas))[0].paint['fill-color'];
+    expect(fill).toEqual(['match', ['id'], 0, '#00aa00', '#5bc0be']);
+    // A layer's colour (Display options) recolours that layer's series and y axis, so the two
+    // layers tell apart; the other layer and the map keep the feature's colour.
+    fireEvent.click(screen.getByRole('button', { name: /Display options/ }));
+    fireEvent.change(screen.getAllByTitle("Colour of this layer's series and y axis")[1], { target: { value: '#ff00ff' } });
+    await waitFor(() => expect(drawn.options.scales.y1.ticks.color).toBe('#ff00ff'));
+    const recoloured = drawn.data!.datasets.filter(d => d._area);
+    expect(recoloured.filter(d => d.yAxisID === 'y1').every(d => d.borderColor === '#ff00ff')).toBe(true);
+    expect(recoloured.filter(d => d.yAxisID === 'y0').every(d => d.borderColor === '#00aa00')).toBe(true);
+    expect(vectorLayerSpecs(areaLayer, chartedFeatureColors(areaLayer, stateRef.chartAreas))[0].paint['fill-color'])
+      .toEqual(['match', ['id'], 0, '#00aa00', '#5bc0be']);
   });
 
   it('fetches the reference like the map for a chart layer that is not on the map', async () => {

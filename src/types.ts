@@ -2,8 +2,9 @@ import type { FitSettings } from './map/fitSettings';
 import type { IdentifyResult } from './map/identify';
 import type { GnssStation } from './map/gnss';
 import type { UnitSystem } from './utils/units';
-import type { LineStyle, MarkerShape } from './map/seriesStyle';
+import type { AreaStyle, LineStyle, MarkerShape } from './map/seriesStyle';
 import type { PointMarker } from './map/markers';
+import type { AreaBand, PolygonTimeSeries } from './utils/polygonSeries';
 
 export interface LosMetadata {
   // Satellite ground-track heading, degrees clockwise from north
@@ -58,18 +59,29 @@ export interface TimeSeriesPoint {
   marker?: MarkerShape;
   line?: LineStyle;
   data?: { [dataset: string]: number[] };
+  /** The vector layer feature it came from (Zonal stats); absent for a point clicked on the map. */
+  source?: { overlayId: string; layer: string; index: number };
   // mmPerYear is in rateUnit/yr (mm in metric, in in imperial); the name is kept for saved projects.
   trendData?: { [dataset: string]: { slope: number; intercept: number; rSquared: number; mmPerYear: number; stdMmPerYear?: number; rateUnit?: string } };
 }
 
-/** A polygon summarised in the chart (POST /polygon_timeseries): median, mean and p10–p90 band. */
-export interface ChartArea {
+/** A polygon summarised in the chart (POST /polygon_timeseries): median, mean and a band. */
+export interface ChartArea extends Partial<AreaStyle> {
   id: string;
   name: string;
   color: string;
   visible: boolean;
   /** GeoJSON Polygon or MultiPolygon in WGS84. */
   geometry: { type: 'Polygon' | 'MultiPolygon'; coordinates: unknown };
+  /** The vector layer feature it came from; absent for an area drawn on the map. */
+  source?: { overlayId: string; layer: string; index: number };
+}
+
+/** One area's statistics for one layer: waiting, the answer, or why there is none. */
+export interface AreaStats {
+  pending?: boolean;
+  data?: PolygonTimeSeries;
+  error?: string;
 }
 
 export interface MultiPointTimeSeriesData {
@@ -202,6 +214,12 @@ export interface AppState {
   datasetInfo: { [key: string]: RasterGroup };
   timeSeriesPoints: TimeSeriesPoint[];
   chartAreas: ChartArea[];
+  /** Area statistics per layer and area, keyed areaStatsKey(dataset, areaId). */
+  areaStats: { [key: string]: AreaStats };
+  /** The band around each area in the chart: mean ± 1 std or p10–p90. */
+  areaBand: AreaBand;
+  /** The side panel's tab (Main, Overlays, Stats, GNSS, Project). */
+  panelTab: string;
   /** True while the chart's "+ Area" waits for a polygon drawn on the map. */
   areaDrawing: boolean;
   /** The Draw tools were off before "+ Area" opened them: close them again once it is done. */
@@ -280,10 +298,14 @@ export interface AppState {
 
 export type AppAction =
   | { type: 'SET_DATASETS'; payload: { [key: string]: RasterGroup } }
-  | { type: 'ADD_TIME_SERIES_POINT'; payload: { position: [number, number]; name?: string } }
+  | { type: 'ADD_TIME_SERIES_POINT'; payload: { position: [number, number]; name?: string; source?: TimeSeriesPoint['source'] } }
   | { type: 'REMOVE_TIME_SERIES_POINT'; payload: string }
   | { type: 'UPDATE_TIME_SERIES_POINT'; payload: { id: string; updates: Partial<TimeSeriesPoint> } }
-  | { type: 'ADD_CHART_AREA'; payload: { geometry: ChartArea['geometry']; name?: string } }
+  | { type: 'ADD_CHART_AREA'; payload: { geometry: ChartArea['geometry']; name?: string; source?: ChartArea['source'] } }
+  | { type: 'ADD_CHART_AREAS'; payload: Array<Pick<ChartArea, 'id' | 'name' | 'geometry' | 'source'>> }
+  | { type: 'SET_PANEL_TAB'; payload: string }
+  | { type: 'SET_AREA_BAND'; payload: AreaBand }
+  | { type: 'SET_AREA_STATS'; payload: { [key: string]: AreaStats } }
   | { type: 'REMOVE_CHART_AREA'; payload: string }
   | { type: 'UPDATE_CHART_AREA'; payload: { id: string; updates: Partial<ChartArea> } }
   | { type: 'SET_AREA_DRAWING'; payload: boolean }
@@ -322,6 +344,7 @@ export type AppAction =
   | { type: 'SET_IDENTIFY'; payload: IdentifyResult | null }
   | { type: 'OPEN_GNSS_CHART'; payload: GnssStation | null }
   | { type: 'SET_DRAWINGS'; payload: OverlayFeatures }
+  | { type: 'RENAME_DRAWING'; payload: { index: number; name: string } }
   | { type: 'ADD_LAYER_MASK'; payload: LayerMask }
   | { type: 'REMOVE_LAYER_MASK'; payload: string }
   | { type: 'UPDATE_LAYER_MASK'; payload: { id: string; updates: Partial<LayerMask> } }

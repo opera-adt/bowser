@@ -4,7 +4,7 @@ import { ACCEPT, useAddFiles } from '../../hooks/useAddFiles';
 import { geologyOverlay, soilsOverlay } from '../../map/services';
 import { inspectPmtiles, pmtilesOverlay } from '../../map/pmtiles';
 import { CONTEXT_LAYERS, contextOverlay, LAND_COVER_YEARS, landCoverOverlay, type ContextKey } from '../../map/contextLayers';
-import { DATA_ROW, DRAWINGS_ID, overlayRows, reorderOverlays } from '../../map/overlays';
+import { DATA_ROW, DRAWINGS_ID, drawingIndexOf, drawingName, overlayRows, reorderOverlays } from '../../map/overlays';
 import { downloadLayer } from '../../map/exportLayer';
 import { browserHasWebGL2, chooseMap } from '../../map/mapChoice';
 import OverlayRow from './OverlayRow';
@@ -202,7 +202,11 @@ function ContextView() {
 
 const ON_MAPLIBRE = chooseMap(window.location.search, browserHasWebGL2) === 'maplibre';
 
-/** GeoLibre's drawing and editing tools on the map; what is drawn is the Drawings layer. */
+const SHAPE_LABEL: Record<string, string> = {
+  Polygon: 'Polygon', MultiPolygon: 'Polygon', LineString: 'Line', MultiLineString: 'Line', Point: 'Marker', MultiPoint: 'Marker',
+};
+
+/** GeoLibre's drawing and editing tools on the map; what is drawn is the Drawings layer, each shape named here. */
 function DrawView() {
   const { state, dispatch } = useAppContext();
   const drawings = state.overlays.find(o => o.id === DRAWINGS_ID);
@@ -236,6 +240,23 @@ function DrawView() {
       <div className="row-label" style={{ fontSize: '0.78em' }}>
         {count === 0 ? 'Nothing drawn yet.' : `${count} shape${count === 1 ? '' : 's'} in the Drawings layer.`}
       </div>
+      {count > 0 && (
+        <div className="drawing-list" role="list" aria-label="Drawn shapes">
+          {(drawings!.data!.features as Array<{ geometry?: { type?: string } | null }>).map((f, i) => {
+            const kind = SHAPE_LABEL[f?.geometry?.type ?? ''] ?? 'Shape';
+            const charted = state.chartAreas.find(a => drawingIndexOf(a, drawings!.data) === i);
+            return (
+              <div key={i} className="drawing-item" role="listitem">
+                <span className="ov-swatch" style={{ background: charted?.color ?? drawings!.color }} title={charted ? 'In the chart' : undefined} />
+                <input type="text" className="point-name-input" value={drawingName(f)} placeholder={`${kind} ${i + 1}`}
+                  aria-label={`Name of ${kind.toLowerCase()} ${i + 1}`}
+                  onChange={e => dispatch({ type: 'RENAME_DRAWING', payload: { index: i, name: e.target.value } })} />
+                <i className="fa-solid fa-pen drawing-item-pen" aria-hidden="true"></i>
+              </div>
+            );
+          })}
+        </div>
+      )}
       {count > 0 && (
         <div style={{ display: 'flex', gap: 6 }}>
           <button type="button" className="hist-btn" onClick={() => downloadLayer('drawings', drawings!.data!.features as never, 'geojson')}>Save GeoJSON</button>

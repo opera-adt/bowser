@@ -26,3 +26,34 @@ export function seriesStyle(marker: MarkerShape = 'circle', line: LineStyle = 's
     pointBorderWidth: marker === 'star' || marker === 'cross' ? 2 : 1,
   };
 }
+
+/** How an area is drawn: its median line, the dashed mean, and the band. Stored on the area. */
+export interface AreaStyle {
+  /** Width of the median and mean lines, px. */
+  lineWidth: number;
+  /** The median's line (the mean is always dashed). */
+  line: LineStyle;
+  showMean: boolean;
+  showBand: boolean;
+  /** Band fill opacity, 0–1. */
+  bandOpacity: number;
+}
+
+export const AREA_STYLE: AreaStyle = { lineWidth: 2, line: 'solid', showMean: true, showBand: true, bandOpacity: 0.2 };
+
+/** An area's style with the defaults filled in. */
+export function areaStyle(a: Partial<AreaStyle>): AreaStyle {
+  return {
+    lineWidth: a.lineWidth ?? AREA_STYLE.lineWidth,
+    line: a.line ?? AREA_STYLE.line,
+    showMean: a.showMean ?? AREA_STYLE.showMean,
+    showBand: a.showBand ?? AREA_STYLE.showBand,
+    bandOpacity: a.bandOpacity ?? AREA_STYLE.bandOpacity,
+  };
+}
+
+/** A #rrggbb colour with an opacity, as #rrggbbaa. */
+export function withOpacity(color: string, opacity: number): string {
+  const a = Math.round(Math.max(0, Math.min(1, opacity)) * 255).toString(16).padStart(2, '0');
+  return /^#[0-9a-f]{6}$/i.test(color) ? `${color}${a}` : color;
+}
