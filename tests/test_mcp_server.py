@@ -280,13 +280,19 @@ def test_point_timeseries(answers):
         res["reference"]["point"] == api["datasets"]["displacement"]["reference_lonlat"]
     )
     assert "cube's reference point" in res["reference"]["note"]
-    assert "2026-01-01" in res["reference"]["note"]
+    assert "does not name its reference date" in res["reference"]["note"]
 
     raw = mcp["point_raw"]
     _close(
         raw["values"], _mm([d["y"] for d in api["chart_raw"]["datasets"][0]["data"]])
     )
     assert raw["reference"]["point"] is None
+    assert raw["reference"]["note"] == (
+        "Values as stored, nothing subtracted: relative to the producer's "
+        "reference point. The cube does not name its reference date: values are "
+        "changes since the producer's, which can be before the first date shown, "
+        "so the first value need not be 0."
+    )
 
     buffered = mcp["point_buffer"]
     data = api["multi_buffer"]["datasets"][0]["data"]

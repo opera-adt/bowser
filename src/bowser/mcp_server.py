@@ -10,7 +10,13 @@ Needs the optional ``mcp`` extra (``pip install 'bowser-insar[mcp]'``). Nothing
 else in Bowser imports this module.
 """
 
+import contextlib
+import functools
+import inspect
+import json
 import math
+import os
+import sys
 from pathlib import Path
 from typing import Annotated, Any, Literal
 from urllib.parse import urlencode
@@ -58,10 +64,11 @@ What the numbers are. Displacement is measured along the radar's line of sight
 north-south motion is barely seen. The sign convention comes from the producer
 (for OPERA DISP-S1, positive is towards the satellite). Values are relative, not
 absolute: relative to a reference point (the point is assumed stable, which is not
-guaranteed) and to a reference date (the first date of the series, or the cube's
-reference date). Every result says which reference was used. Changing the
-reference point changes every value; a moving reference makes stable ground look
-like it moves. Lengths stored in metres are given in mm, rates in mm/yr.
+guaranteed) and to a reference date (which can be before the first date shown,
+so a series need not start at 0). Every result says which reference was used.
+Changing the reference point changes every value; a moving reference makes
+stable ground look like it moves. Lengths stored in metres are given in mm,
+rates in mm/yr.
 
 Reading a time series: never interpret displacement from the curve alone. First
 establish what is on the ground at that point (ask the user, or use other tools you
@@ -277,11 +284,6 @@ def _n_steps(info: dict) -> int:
     return len(info.get("x_values") or []) or 1
 
 
-def _ref_date(info: dict) -> str | None:
-    labels = info.get("x_values") or []
-    return info.get("reference_date") or (str(labels[0]) if labels else None)
-
-
 def _inside(info: dict, lon: float, lat: float) -> bool:
     b = info.get("latlon_bounds")
     if not b or len(b) != 4:
@@ -324,8 +326,6 @@ def build_server(
         """
 
         def register(fn):
-            import functools  # noqa: PLC0415
-
             @functools.wraps(fn)
             async def wrapped(*args, **kwargs):
                 try:
@@ -364,7 +364,8 @@ def build_server(
         if (ref_lon is None) != (ref_lat is None):
             raise BowserError("Give both ref_lon and ref_lat, or neither.")
         relative = bool(info.get("uses_spatial_ref"))
-        date = _ref_date(info) if relative else None
+        series = relative and bool(info.get("x_values"))
+        date = info.get("reference_date") if series else None
         if ref_lon is not None and ref_lat is not None:
             check_point(info, ref_lon, ref_lat, "Reference point")
             where = f"the reference point you gave ({ref_lon}, {ref_lat})"
@@ -374,12 +375,26 @@ def build_server(
             ref_lon, ref_lat = point
             where = f"the cube's reference point ({ref_lon}, {ref_lat})"
         else:
-            where = "nothing subtracted: values as stored (the producer's reference)"
+            where = ""
             point = None
-        note = f"Relative to {where}" if point else where.capitalize()
+        if point:
+            note = f"Relative to {where}"
+        elif relative:
+            note = "Values as stored, nothing subtracted: relative to the "
+            note += "producer's reference point"
+        else:
+            note = "Values as stored, nothing subtracted"
         if date:
-            note += f", and to the reference date {date}"
-        note += "."
+            note += f" and to the reference date {date}."
+        elif series:
+            note += ". The cube does not name its reference date: values are "
+            note += "changes since the producer's, which can be before the first "
+            note += "date shown, so the first value need not be 0."
+        else:
+            note += "."
+        if relative and not point and use_cube_reference:
+            note += " The cube names no reference point; give ref_lon and "
+            note += "ref_lat to choose one on stable ground."
         if not relative and point:
             note += " This layer is not normally re-referenced (it is not a "
             note += "displacement or velocity); compare the raw values instead."
@@ -464,7 +479,7 @@ def build_server(
             if labels:
                 entry["first_date"], entry["last_date"] = labels[0], labels[-1]
             if info.get("uses_spatial_ref"):
-                entry["reference_date"] = _ref_date(info)
+                entry["reference_date"] = info.get("reference_date")
             for key in ("guidance", "metadata_notes"):
                 if info.get(key):
                     entry[key] = info[key]
@@ -1047,8 +1062,6 @@ def build_server(
             "ref_buffer_m": ref_buffer_m or None,
         }
         if layer_masks:
-            import json  # noqa: PLC0415
-
             params["layer_masks"] = json.dumps([m.model_dump() for m in layer_masks])
         url = api.url("/export/geotiff", params)
         out: dict[str, Any] = {"layer": layer, "url": url}
@@ -1083,8 +1096,6 @@ def _filename(r: httpx.Response, layer: str, time_index: int | None) -> str:
 
 def _describe(fn) -> str:
     """Return a function's docstring as one tool description (dedented)."""
-    import inspect  # noqa: PLC0415
-
     return inspect.cleandoc(fn.__doc__ or "")
 
 
@@ -1097,10 +1108,6 @@ def lite_transport(stack_file: str) -> httpx.ASGITransport:
     imports it. Its start-up messages go to stderr: on the stdio transport,
     stdout carries the MCP messages.
     """
-    import contextlib  # noqa: PLC0415
-    import os  # noqa: PLC0415
-    import sys  # noqa: PLC0415
-
     os.environ["BOWSER_STACK_DATA_FILE"] = str(Path(stack_file).expanduser())
     with contextlib.redirect_stdout(sys.stderr):
         from bowser.lite.main import app  # noqa: PLC0415
