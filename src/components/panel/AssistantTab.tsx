@@ -360,8 +360,7 @@ export default function AssistantTab() {
             )}
             {provider?.local && (
               <div className="row-label ai-small">
-                A model on your own computer or network: no key, nothing leaves it.{' '}
-                {provider.key_url && <a href={provider.key_url} target="_blank" rel="noopener noreferrer">Get Ollama</a>}
+                A model installed with Ollama on the computer that runs Bowser: no key, nothing leaves it.
               </div>
             )}
             <SubscriptionNote />

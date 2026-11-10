@@ -33,6 +33,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .. import api_models as api
 from .keys import KeyStore, default_path
+from .ollama import Ollama
 from .providers import (
     PRESETS,
     Preset,
@@ -70,6 +71,13 @@ def get_settings() -> Any:
     return settings
 
 
+def get_ollama() -> Ollama:
+    """Return the server's Ollama (a dependency, so tests can give a fake)."""
+    from .ollama import OLLAMA  # noqa: PLC0415
+
+    return OLLAMA
+
+
 def key_store(settings: Any) -> KeyStore:
     """Return the key store at ``BOWSER_ASSISTANT_KEY_FILE`` or the default."""
     path = settings.BOWSER_ASSISTANT_KEY_FILE
@@ -99,15 +107,33 @@ def _key(settings: Any, store: KeyStore, p: Preset) -> tuple[str | None, str | N
     return (env, "environment") if env else (None, None)
 
 
-def assistant_config(settings: Any) -> dict[str, Any]:
+def _ollama_state(
+    settings: Any, ollama: Ollama, start: bool = True
+) -> dict[str, Any] | None:
+    """Return None when Ollama is not installed here, else its state.
+
+    ``{"running": bool, "models": [...]}``. Ollama is started when it is not
+    running, ``start`` is true and the server is on the user's own computer
+    (``BOWSER_ASSISTANT_PAGE_KEYS``); a shared server only uses one already
+    running.
+    """
+    if not settings.BOWSER_ASSISTANT or not ollama.binary():
+        return None
+    up = ollama.ensure(start=start and bool(settings.BOWSER_ASSISTANT_PAGE_KEYS))
+    return {"running": up, "models": ollama.models() if up else []}
+
+
+def assistant_config(settings: Any, ollama: Ollama | None = None) -> dict[str, Any]:
     """Return the Assistant's entry of ``GET /config``.
 
-    Reads the key file's index only (never the keychain), so it is cheap.
+    Reads the key file's index only (never the keychain) and looks for the
+    ``ollama`` program without starting it, so it is cheap.
     """
     if not settings.BOWSER_ASSISTANT:
         return {"enabled": False, "providers": [], "configured": []}
     store = key_store(settings)
-    providers = [p for p in PRESETS if p.available]
+    installed = (ollama or get_ollama()).binary() is not None
+    providers = [p for p in PRESETS if p.available and (p.id != "ollama" or installed)]
     configured = [
         p.id
         for p in providers
@@ -121,16 +147,28 @@ def assistant_config(settings: Any) -> dict[str, Any]:
     }
 
 
-def _status(settings: Any) -> dict[str, Any]:
+def _status(settings: Any, local: dict[str, Any] | None) -> dict[str, Any]:
+    """Return ``GET /assistant/status``; ``local`` is :func:`_ollama_state`."""
     enabled = bool(settings.BOWSER_ASSISTANT)
     page_keys = enabled and bool(settings.BOWSER_ASSISTANT_PAGE_KEYS)
     store = key_store(settings)
     out = []
     for p in PRESETS if enabled else ():
+        models, available, note = list(p.models), p.available, p.note
+        model = p.model
+        if p.id == "ollama":
+            if local is None:  # not installed here: not offered at all
+                continue
+            models = local["models"]
+            available = bool(models)
+            if not local["running"]:
+                note = "Ollama did not start."
+            elif not models:
+                note = "No local models are installed."
+            model = p.model if p.model in models else (models or [p.model])[0]
         saved = store.describe(p.id) if page_keys else {"saved": False}
         env = _env_key(settings, p)
         source = "saved" if saved["saved"] else "environment" if env else None
-        model = p.model
         if settings.BOWSER_AI_PROVIDER == p.id and settings.BOWSER_AI_MODEL:
             model = settings.BOWSER_AI_MODEL
         out.append(
@@ -139,14 +177,14 @@ def _status(settings: Any) -> dict[str, Any]:
                 "label": p.label,
                 "wire": p.wire,
                 "model": model,
-                "models": list(p.models),
+                "models": models,
                 "needs_key": p.needs_key,
                 "local": p.local,
                 "auth": p.auth,
-                "available": p.available,
-                "note": p.note,
+                "available": available,
+                "note": note,
                 "key_url": p.key_url,
-                "configured": p.available and (bool(source) or not p.needs_key),
+                "configured": available and (bool(source) or not p.needs_key),
                 "source": source,
                 "hint": saved.get("hint") if saved["saved"] else None,
                 "store": saved.get("store") if saved["saved"] else None,
@@ -226,9 +264,11 @@ router = APIRouter()
     responses={200: {"model": api.AssistantStatus}},
     **api.route_doc("GET /assistant/status"),
 )
-def assistant_status(settings: Any = Depends(get_settings)):
+def assistant_status(
+    settings: Any = Depends(get_settings), ollama: Ollama = Depends(get_ollama)
+):
     """Return the providers and which have a key (never the key)."""
-    return _status(settings)
+    return _status(settings, _ollama_state(settings, ollama))
 
 
 @router.put(
@@ -240,6 +280,7 @@ async def assistant_key_set(
     request: Request,
     body: KeyBody = Body(..., examples=[{"provider": "anthropic", "key": "sk-..."}]),
     settings: Any = Depends(get_settings),
+    ollama: Ollama = Depends(get_ollama),
 ):
     """Check a key with its provider and keep it on this computer."""
     _require_page_keys(settings, request)
@@ -262,7 +303,8 @@ async def assistant_key_set(
     stored_in = (
         "the system keychain" if store_kind == "keyring" else "a file only you can read"
     )
-    return {**_status(settings), "stored_in": stored_in}
+    local = await asyncio.to_thread(_ollama_state, settings, ollama, False)
+    return {**_status(settings, local), "stored_in": stored_in}
 
 
 @router.delete(
@@ -274,12 +316,14 @@ async def assistant_key_remove(
     request: Request,
     provider: str = Query(..., description="Provider id, e.g. anthropic."),
     settings: Any = Depends(get_settings),
+    ollama: Ollama = Depends(get_ollama),
 ):
     """Forget a provider's saved key."""
     _require_page_keys(settings, request)
     p = _preset(provider)
     await asyncio.to_thread(key_store(settings).remove_key, p.id)
-    return _status(settings)
+    local = await asyncio.to_thread(_ollama_state, settings, ollama, False)
+    return _status(settings, local)
 
 
 class EventStream(StreamingResponse):
@@ -303,10 +347,19 @@ async def assistant_chat(
     request: Request,
     body: ChatBody,
     settings: Any = Depends(get_settings),
+    ollama: Ollama = Depends(get_ollama),
 ):
     """Run the conversation with the provider; stream events (SSE)."""
     _require_enabled(settings)
     p = _preset(body.provider)
+    if p.id == "ollama":
+        local = await asyncio.to_thread(_ollama_state, settings, ollama)
+        if local is None:
+            raise HTTPException(
+                status_code=400, detail="Ollama is not installed on this computer."
+            )
+        if not local["running"]:
+            raise HTTPException(status_code=502, detail="Ollama did not start.")
     model = body.model.strip()
     if settings.BOWSER_AI_PROVIDER == p.id and not model:
         model = settings.BOWSER_AI_MODEL

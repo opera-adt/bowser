@@ -88,6 +88,8 @@ describe('AssistantTab', () => {
     expect(screen.queryByLabelText('API key')).toBeNull();
     expect(screen.queryByRole('textbox', { name: 'Base URL' })).toBeNull();
     expect(screen.queryByRole('button', { name: /save/i })).toBeNull();
+    expect(screen.getByText(/installed with Ollama on the computer that runs Bowser/)).toBeTruthy();
+    expect(screen.queryByRole('link', { name: /Get Ollama/ })).toBeNull();
 
     fireEvent.change(select, { target: { value: 'anthropic' } });
     expect((screen.getByRole('combobox', { name: 'Model' }) as HTMLInputElement).value).toBe('claude-opus-5-5');

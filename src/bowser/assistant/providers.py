@@ -107,12 +107,12 @@ PRESETS: tuple[Preset, ...] = (
         id="ollama",
         label="Ollama (local)",
         wire="openai",
-        base_url="http://localhost:11434/v1",
+        # Offered only when installed here; see .ollama.
+        base_url="http://127.0.0.1:11434/v1",
         model="qwen3",
         models=("qwen3",),
         needs_key=False,
         local=True,
-        key_url="https://ollama.com/download",
         auth="none",
     ),
     # The seam for OpenAI's "Sign in with ChatGPT" for open-source apps: an

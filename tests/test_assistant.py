@@ -10,6 +10,9 @@
 - the three wire formats against mock transports: OpenAI tool-call fragments,
   Gemini's parts, and Anthropic through the SDK (adaptive thinking, no sampling
   parameters or forced tool choice, refusals);
+- Ollama: offered only when installed on the server's computer, started in
+  the background when needed (a fake ``which``, process and transport) and
+  stopped on exit only if Bowser started it; its models are the installed ones;
 - ``/config`` and a chat whose data tool reads the real cube, on the full server
   and on bowser-lite (each in its own interpreter).
 
@@ -78,11 +81,34 @@ def settings(tmp_path: Path, **over) -> SimpleNamespace:
     return SimpleNamespace(**base)
 
 
-def make_app(s: SimpleNamespace) -> FastAPI:
-    """The relay's routes, a fake /datasets for the data tools, and /config."""
+class FakeOllama:
+    """Ollama as the relay sees it: installed or not, running, its models."""
+
+    def __init__(self, installed=True, running=True, models=("qwen3",)):
+        self.installed, self.up, self._models = installed, running, list(models)
+        self.starts: list[bool] = []
+
+    def binary(self):
+        return "/usr/bin/ollama" if self.installed else None
+
+    def ensure(self, start=True):
+        self.starts.append(start)
+        return self.installed and self.up
+
+    def models(self):
+        return list(self._models)
+
+
+def make_app(s: SimpleNamespace, ollama=None) -> FastAPI:
+    """The relay's routes, a fake /datasets for the data tools, and /config.
+
+    Ollama is a fake (installed, running, with qwen3) unless one is given.
+    """
+    ollama = ollama or FakeOllama()
     app = FastAPI()
     app.include_router(relay.router)
     app.dependency_overrides[relay.get_settings] = lambda: s
+    app.dependency_overrides[relay.get_ollama] = lambda: ollama
 
     @app.get("/datasets")
     def datasets():
@@ -90,7 +116,7 @@ def make_app(s: SimpleNamespace) -> FastAPI:
 
     @app.get("/config")
     def config():
-        return {"assistant": relay.assistant_config(s)}
+        return {"assistant": relay.assistant_config(s, ollama)}
 
     return app
 
@@ -440,6 +466,157 @@ def test_tools_sent_to_the_model_are_the_mcp_tools(tmp_path, monkeypatch):
     assert names == set(sent) - {"export_geotiff"}
 
 
+# --- Ollama on this computer -------------------------------------------------------
+
+
+def test_ollama_is_hidden_when_not_installed(tmp_path):
+    gone = FakeOllama(installed=False)
+    client = local(make_app(settings(tmp_path), gone))
+    status = client.get("/assistant/status").json()
+    assert "ollama" not in [p["id"] for p in status["providers"]]
+    assert "ollama" not in client.get("/config").json()["assistant"]["providers"]
+    chat = {"provider": "ollama", "messages": [{"role": "user", "content": "hi"}]}
+    r = client.post("/assistant/chat", json=chat)
+    assert r.status_code == 400 and "not installed" in r.json()["detail"]
+    assert gone.starts == []
+
+
+def test_ollama_lists_its_installed_models_or_says_there_are_none(tmp_path):
+    def status_with(fake, s=None):
+        app = make_app(s or settings(tmp_path), fake)
+        status = local(app).get("/assistant/status").json()
+        return next(p for p in status["providers"] if p["id"] == "ollama")
+
+    up = FakeOllama(models=["llama3.2", "qwen3"])
+    o = status_with(up)
+    assert o["models"] == ["llama3.2", "qwen3"] and o["model"] == "qwen3"
+    assert o["available"] and o["configured"] and "base_url" not in o
+    assert up.starts == [True]  # started on the user's own computer when needed
+
+    assert status_with(FakeOllama(models=["mistral"]))["model"] == "mistral"
+
+    o = status_with(FakeOllama(models=[]))
+    assert (o["available"], o["note"]) == (False, "No local models are installed.")
+
+    # A shared server never starts it; one not running is listed as not started.
+    hosted = FakeOllama(running=False)
+    o = status_with(hosted, settings(tmp_path, BOWSER_ASSISTANT_PAGE_KEYS=False))
+    assert hosted.starts == [False]
+    assert (o["available"], o["note"]) == (False, "Ollama did not start.")
+
+
+class FakeProcess:
+    """A started ``ollama serve``: running until stopped (or ``exits``)."""
+
+    def __init__(self, argv, exits=False, **kwargs):
+        self.argv, self.kwargs = argv, kwargs
+        self.returncode = 1 if exits else None
+        self.terminated = False
+
+    def poll(self):
+        return self.returncode
+
+    def terminate(self):
+        self.terminated = True
+        self.returncode = 0
+
+    def kill(self):
+        self.returncode = -9
+
+    def wait(self, timeout=None):  # noqa: ARG002
+        return self.returncode
+
+
+def _ollama_server(state):
+    """Ollama's API: answers only once ``state["up"]``; two models installed."""
+
+    def handler(request):
+        if not state["up"]:
+            raise httpx.ConnectError("refused")
+        if request.url.path == "/api/version":
+            return httpx.Response(200, json={"version": "0.12.0"})
+        if request.url.path == "/api/tags":
+            models = [{"name": "qwen3:latest"}, {"name": "llama3.2:3b"}]
+            return httpx.Response(200, json={"models": models})
+        return httpx.Response(404)
+
+    return httpx.MockTransport(handler)
+
+
+def test_ollama_is_started_in_the_background_and_stopped_on_exit(tmp_path, monkeypatch):
+    from bowser.assistant import ollama as local_ollama  # noqa: PLC0415
+
+    monkeypatch.setenv("OPENAI_API_KEY", KEY)
+    registered = []
+    monkeypatch.setattr(local_ollama.atexit, "register", registered.append)
+    state = {"up": False}
+    started = []
+
+    def popen(argv, **kwargs):
+        started.append(FakeProcess(argv, **kwargs))
+        state["up"] = True  # it answers once started
+        return started[-1]
+
+    o = local_ollama.Ollama(
+        which=lambda name: f"/opt/bin/{name}",
+        popen=popen,
+        transport=_ollama_server(state),
+        log_dir=tmp_path / "cache",
+    )
+    assert o.ensure() is True
+    (proc,) = started
+    assert proc.argv == ["/opt/bin/ollama", "serve"]
+    env = proc.kwargs["env"]
+    assert env["OLLAMA_HOST"] == "127.0.0.1:11434"
+    assert "OPENAI_API_KEY" not in env and KEY not in json.dumps(env)
+    assert (tmp_path / "cache" / "ollama.log").exists()
+    assert o.started_here and registered == [o.stop]
+    assert o.models() == ["llama3.2:3b", "qwen3"]
+    assert o.ensure() is True and len(started) == 1  # not started twice
+    o.stop()
+    assert proc.terminated and not o.started_here
+
+
+def test_ollama_already_running_is_used_and_never_stopped(tmp_path):
+    from bowser.assistant import ollama as local_ollama  # noqa: PLC0415
+
+    def popen(*_a, **_k):
+        raise AssertionError("must not start a second Ollama")
+
+    o = local_ollama.Ollama(
+        which=lambda _name: "/opt/bin/ollama",
+        popen=popen,
+        transport=_ollama_server({"up": True}),
+        log_dir=tmp_path,
+    )
+    assert o.ensure() is True and not o.started_here
+    o.stop()  # nothing of Bowser's to stop
+
+
+def test_ollama_that_does_not_start_or_is_not_allowed_to(tmp_path):
+    from bowser.assistant import ollama as local_ollama  # noqa: PLC0415
+
+    started = []
+
+    def popen(argv, **kwargs):
+        started.append(FakeProcess(argv, exits=True, **kwargs))
+        return started[-1]
+
+    o = local_ollama.Ollama(
+        which=lambda _name: "/opt/bin/ollama",
+        popen=popen,
+        transport=_ollama_server({"up": False}),
+        log_dir=tmp_path,
+        start_timeout=5,
+    )
+    assert o.ensure(start=False) is False and started == []
+    assert o.ensure() is False and len(started) == 1  # it exited at once
+    assert o.models() == []
+    missing = local_ollama.Ollama(which=lambda _name: None, popen=popen)
+    assert missing.binary() is None and missing.ensure() is False
+    assert len(started) == 1
+
+
 # --- wire formats ------------------------------------------------------------------
 
 
@@ -598,7 +775,7 @@ def test_unreachable_local_server_is_provider_down():
     with pytest.raises(ProviderError) as e:
         run_stream(p, HISTORY)
     assert e.value.kind == "provider_down"
-    assert "localhost:11434" in str(e.value)
+    assert "127.0.0.1:11434" in str(e.value)
 
 
 def test_gemini_parts_signatures_and_schema():
@@ -882,8 +1059,11 @@ SCRIPT = textwrap.dedent(
         "bowser.lite.main" if which == "lite" else "bowser.main"
     ).app
 
-    from bowser.assistant import relay
+    from bowser.assistant import ollama, relay
     from bowser.assistant.providers import ToolCall, Turn
+
+    # Never look for (or start) a real Ollama.
+    ollama.OLLAMA = ollama.Ollama(which=lambda _name: None)
 
     class Scripted:
         def __init__(self):
@@ -900,7 +1080,7 @@ SCRIPT = textwrap.dedent(
     relay.open_provider = lambda *_a, **_k: Scripted()
     http = TestClient(app, client=("127.0.0.1", 50000))
     chat = http.post("/assistant/chat", json={
-        "provider": "ollama",
+        "provider": "openrouter",
         "messages": [{"role": "user", "content": "series?"}],
     })
     lon, lat = CENTER_LONLAT
