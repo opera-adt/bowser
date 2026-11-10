@@ -584,6 +584,7 @@ async def stop(conversation: str | None = None) -> int:
 def kill_all_now() -> None:
     """Kill every agent at once (at exit, when there is no event loop)."""
     for s in list(SESSIONS.values()):
-        if s.proc is not None and s.proc.returncode is None:
-            _kill(s.proc, signal.SIGKILL)
+        proc = getattr(s, "proc", None)
+        if proc is not None and proc.returncode is None:
+            _kill(proc, signal.SIGKILL)
     SESSIONS.clear()
