@@ -11,7 +11,7 @@ import inspect
 
 from click.testing import CliRunner
 
-from bowser import constants, geozarr, state, view_cube
+from bowser import constants, geozarr, view_cube
 from bowser.cli import cli_app
 from bowser.lite import cube as lcube
 from bowser.lite import geo, tiles
@@ -27,6 +27,10 @@ def test_tile_size_is_256():
 
 
 def test_pyramid_stop_size_and_level_pickers_share_the_tile_size():
+    # Imported here: bowser.state reads the settings from the environment at import,
+    # and an import at collection time would fix them before other tests set theirs.
+    from bowser import state
+
     cmd = cli_app.commands["tifs-to-geozarr"]
     opt = next(p for p in cmd.params if p.name == "min_pyramid_size")
     assert opt.default == constants.TILE_SIZE
