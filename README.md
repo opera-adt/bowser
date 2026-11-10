@@ -123,6 +123,8 @@ an error rather than silently exporting a different reference.
 
 API clients can pass `ref_lon`, `ref_lat`, and optionally `ref_buffer_m` to
 `/export/geotiff`. Omitting these parameters preserves the stored reference.
+`ref_time_idx` exports the step relative to another date, as the viewer's
+"ref: <date>" menu shows it on the map (GeoZarr cubes).
 Export values are not colorized, rewrapped, or converted between units.
 
 ## CLI Usage

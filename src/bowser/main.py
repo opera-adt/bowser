@@ -36,6 +36,7 @@ from . import api_models as api
 from .config import settings
 from .polygon import PolygonRequest, summarize_rasters, summarize_xarray
 from .reference import (
+    PointMethod,
     pool,
     reference_median,
     reference_offset,
@@ -2481,6 +2482,39 @@ def _export_time_context(
     }
 
 
+def _export_reference_step(
+    target: BowserState, variable: str, ref_time_idx: int | None
+) -> dict | None:
+    """Return the (clamped) step an export is relative to, as the map's tiles.
+
+    ``None`` without ``ref_time_idx``. A layer with no time axis, or a
+    direct-GeoTIFF dataset (whose tiler has no ``ref_time_idx``), is a 422
+    rather than an export that silently ignores the chosen date.
+    """
+    if ref_time_idx is None:
+        return None
+    if target.mode != "md":
+        raise HTTPException(
+            status_code=422,
+            detail="ref_time_idx is only supported for GeoZarr exports",
+        )
+    if variable not in target.dataset.data_vars:
+        raise HTTPException(status_code=404, detail=f"Unknown layer: {variable}")
+    source = target.dataset[variable]
+    dim = _non_spatial_dim(source)
+    if dim is None:
+        raise HTTPException(
+            status_code=422, detail=f"{variable} has no time axis for ref_time_idx"
+        )
+    labels = _dim_labels(source, dim)
+    idx = max(0, min(ref_time_idx, source.sizes[dim] - 1))
+    return {
+        "index": idx,
+        "label": labels[idx] if idx < len(labels) else None,
+        "coordinate": str(source[dim].values[idx]),
+    }
+
+
 def _export_mask_provenance(
     target: BowserState,
     variable: str,
@@ -2611,6 +2645,7 @@ def export_geotiff(
     ref_lon: Optional[float] = Query(None, **api.PARAMS["ref_lon"]),
     ref_lat: Optional[float] = Query(None, **api.PARAMS["ref_lat"]),
     ref_buffer_m: float = Query(0.0, **api.PARAMS["ref_buffer_m"]),
+    ref_time_idx: Optional[int] = Query(None, ge=0, **api.PARAMS["ref_time_idx"]),
 ):
     """Export the active layer as a (optionally masked) GeoTIFF.
 
@@ -2625,6 +2660,12 @@ def export_geotiff(
     display masks affect output coverage, not reference sampling. Omitting
     the coordinates preserves the stored reference. Invalid references return
     HTTP 422 rather than silently exporting values in a different reference.
+
+    With ``ref_time_idx`` (GeoZarr layers with a time axis only), the step is
+    relative to another date as on the map's tiles: each pixel is its value at
+    ``time_idx`` minus its value at ``ref_time_idx``, and a spatial reference
+    is the reference's value at ``time_idx`` minus its value at
+    ``ref_time_idx``.
     """
     import tempfile  # noqa: PLC0415
 
@@ -2640,6 +2681,7 @@ def export_geotiff(
     )
     if reference_requested and (ref_lon is None or ref_lat is None):
         raise HTTPException(status_code=422, detail="Supply both ref_lon and ref_lat")
+    ref_step = _export_reference_step(target, variable, ref_time_idx)
     applied_masks = _export_mask_provenance(
         target,
         variable,
@@ -2659,6 +2701,7 @@ def export_geotiff(
             layer_masks,
             custom_mask_path,
             strict_masks=True,
+            ref_time_idx=None if ref_step is None else ref_step["index"],
         )
         fallback_crs = target.dataset.rio.crs
     else:  # cog
@@ -2697,22 +2740,30 @@ def export_geotiff(
     if crs is not None:
         da = da.rio.write_crs(crs)
     if reference_requested:
+        ref_source = None
         if target.mode == "md":
             allowed = (
                 settings.BOWSER_USE_SPATIAL_REFERENCE_DISP
                 and _uses_spatial_reference(variable, target.dataset[variable])
             )
-            source = target.dataset[variable]
-            source_dim = _non_spatial_dim(source)
+            full = target.dataset[variable]
+            source = full
+            source_dim = _non_spatial_dim(full)
             if source_dim is not None:
                 idx = (
                     0
                     if time_idx is None
-                    else max(0, min(time_idx, source.sizes[source_dim] - 1))
+                    else max(0, min(time_idx, full.sizes[source_dim] - 1))
                 )
-                source = source.isel({source_dim: idx})
+                source = full.isel({source_dim: idx})
             if source.rio.crs is None and crs is not None:
                 source = source.rio.write_crs(crs)
+            # The map's shift for another reference date: the reference's value
+            # on the shown date minus its value on that date.
+            if ref_step is not None and source_dim is not None:
+                ref_source = full.isel({source_dim: ref_step["index"]})
+                if ref_source.rio.crs is None and crs is not None:
+                    ref_source = ref_source.rio.write_crs(crs)
         else:
             rg = target.raster_groups[variable]
             allowed = rg.uses_spatial_ref and rg.algorithm == "shift"
@@ -2729,13 +2780,28 @@ def export_geotiff(
                 )
             # Both were checked above: a reference needs ref_lon and ref_lat.
             assert ref_lon is not None and ref_lat is not None
-            offset, tags = reference_offset(
-                source,
-                ref_lon,
-                ref_lat,
-                ref_buffer_m,
-                point_method="nearest" if target.mode == "md" else "containing",
+            point_method: PointMethod = (
+                "nearest" if target.mode == "md" else "containing"
             )
+            offset, tags = reference_offset(
+                source, ref_lon, ref_lat, ref_buffer_m, point_method=point_method
+            )
+            if ref_source is not None:
+                at_ref, ref_tags = reference_offset(
+                    ref_source,
+                    ref_lon,
+                    ref_lat,
+                    ref_buffer_m,
+                    point_method=point_method,
+                )
+                offset -= at_ref
+                tags["BOWSER_REFERENCE_VALUE"] = str(offset)
+                tags["BOWSER_REFERENCE_VALID_PIXELS"] = str(
+                    min(
+                        int(tags["BOWSER_REFERENCE_VALID_PIXELS"]),
+                        int(ref_tags["BOWSER_REFERENCE_VALID_PIXELS"]),
+                    )
+                )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         finally:
@@ -2754,6 +2820,7 @@ def export_geotiff(
         da.attrs,
         masks=applied_masks,
         export_nodata=da.rio.nodata,
+        reference_step=ref_step,
         **context,
     )
     da.attrs.update(tags)
