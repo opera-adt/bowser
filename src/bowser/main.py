@@ -2381,6 +2381,11 @@ def export_geotiff(
     custom_mask_path: Optional[str] = Query(
         None, description="Uploaded custom mask GeoTIFF path"
     ),
+    ref_lon: Optional[float] = Query(None, description="Reference WGS84 longitude"),
+    ref_lat: Optional[float] = Query(None, description="Reference WGS84 latitude"),
+    ref_buffer_m: float = Query(
+        0.0, description="Reference median radius in meters; zero selects one pixel"
+    ),
 ):
     """Export the active layer as a (optionally masked) GeoTIFF.
 
@@ -2389,6 +2394,12 @@ def export_geotiff(
     via :func:`_build_masked_cog_dataarray` — recommended mask, layer masks, and
     a custom mask. Masked-out pixels become ``NaN`` nodata; native resolution;
     one 2-D slice for ``time_idx``.
+
+    When both reference coordinates are supplied, subtract the raw source's
+    point value (or circular median) in the same layer/time slice. Optional
+    display masks affect output coverage, not reference sampling. Omitting
+    the coordinates preserves the stored reference. Invalid references return
+    HTTP 422 rather than silently exporting values in a different reference.
     """
     import tempfile  # noqa: PLC0415
 
@@ -2397,6 +2408,11 @@ def export_geotiff(
     from starlette.responses import FileResponse  # noqa: PLC0415
 
     target = _resolve_state(dataset)
+    reference_requested = (
+        ref_lon is not None or ref_lat is not None or ref_buffer_m != 0
+    )
+    if reference_requested and (ref_lon is None or ref_lat is None):
+        raise HTTPException(status_code=422, detail="Supply both ref_lon and ref_lat")
     if target.mode == "md":
         da = _build_masked_md_dataarray(
             target.dataset,
@@ -2434,6 +2450,57 @@ def export_geotiff(
     crs = da.rio.crs or fallback_crs
     if crs is not None:
         da = da.rio.write_crs(crs)
+    if reference_requested:
+        from .export import reference_offset  # noqa: PLC0415
+
+        if target.mode == "md":
+            allowed = (
+                settings.BOWSER_USE_SPATIAL_REFERENCE_DISP
+                and _uses_spatial_reference(variable, target.dataset[variable])
+            )
+            source = target.dataset[variable]
+            source_dim = _non_spatial_dim(source)
+            if source_dim is not None:
+                idx = (
+                    0
+                    if time_idx is None
+                    else max(0, min(time_idx, source.sizes[source_dim] - 1))
+                )
+                source = source.isel({source_dim: idx})
+            if source.rio.crs is None and crs is not None:
+                source = source.rio.write_crs(crs)
+        else:
+            rg = target.raster_groups[variable]
+            allowed = rg.uses_spatial_ref and rg.algorithm == "shift"
+            idx = (
+                0 if time_idx is None else max(0, min(time_idx, len(rg.file_list) - 1))
+            )
+            source = rioxarray.open_rasterio(rg.file_list[idx], masked=True).squeeze(
+                "band", drop=True
+            )
+        try:
+            if not allowed:
+                raise ValueError(
+                    "This layer does not use an interactive spatial reference"
+                )
+            # Both were checked above: a reference needs ref_lon and ref_lat.
+            assert ref_lon is not None and ref_lat is not None
+            offset, tags = reference_offset(
+                source,
+                ref_lon,
+                ref_lat,
+                ref_buffer_m,
+                point_method="nearest" if target.mode == "md" else "containing",
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        finally:
+            if target.mode == "cog":
+                source.close()
+        # Keep masks, units, georeferencing and source attrs across arithmetic.
+        attrs = dict(da.attrs)
+        da = da - offset
+        da.attrs = {**attrs, **tags}
     if np.issubdtype(da.dtype, np.floating):
         da = da.rio.write_nodata(float("nan"), encoded=False)
 

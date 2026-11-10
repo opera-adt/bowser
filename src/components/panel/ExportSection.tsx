@@ -40,9 +40,20 @@ export default function ExportSection() {
         ));
       }
       if (state.customMaskPath) params.set('custom_mask_path', state.customMaskPath);
+      const info = state.datasetInfo[state.currentDataset];
+      if (state.refEnabled && info?.uses_spatial_ref && info.algorithm === 'shift') {
+        params.set('ref_lat', String(state.refMarkerPosition[0]));
+        params.set('ref_lon', String(state.refMarkerPosition[1]));
+        if (state.refBufferEnabled && state.refBufferRadius > 0) {
+          params.set('ref_buffer_m', String(state.refBufferRadius));
+        }
+      }
 
       const res = await fetch(`/export/geotiff?${params.toString()}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        const error = await res.json().catch(() => null);
+        throw new Error(typeof error?.detail === 'string' ? error.detail : `HTTP ${res.status}`);
+      }
       const blob = await res.blob();
       const masked = state.layerMasks.length > 0 || !!state.customMaskPath;
       // Name the file by the layer's actual time label (e.g. a date or
@@ -60,7 +71,9 @@ export default function ExportSection() {
     } finally {
       setExporting(false);
     }
-  }, [state.currentDataset, state.currentTimeIndex, state.layerMasks, state.customMaskPath, state.datasetInfo]);
+  }, [state.currentDataset, state.currentTimeIndex, state.layerMasks, state.customMaskPath,
+    state.datasetInfo, state.refEnabled, state.refMarkerPosition,
+    state.refBufferEnabled, state.refBufferRadius]);
 
   const vectors = state.overlays.filter(o => o.type === 'vector' && o.data?.features.length);
   const [format, setFormat] = useState<ExportFormat>('geojson');
@@ -73,7 +86,7 @@ export default function ExportSection() {
           <button className="hist-btn" style={{ width: '100%' }}
             disabled={!state.currentDataset || exporting || !canExport}
             title={canExport
-              ? 'Download the active layer as a GeoTIFF (masking applied if enabled)'
+              ? 'Download native values with active masks and the selected spatial reference; reference details are saved in the GeoTIFF'
               : 'GeoTIFF export needs the full Bowser server (bowser run)'}
             onClick={handleExportGeoTIFF}>
             <i className={`fa-solid ${exporting ? 'fa-spinner fa-spin' : 'fa-download'}`} style={{ marginRight: 6 }}></i>

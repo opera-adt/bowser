@@ -81,6 +81,27 @@ bowser run --stack-file cube.zarr
 
 For a **multi-dataset catalog** (pick from a map of bounding boxes at startup) and an **EC2 deployment** serving cubes from a private S3 bucket, see [`deploy/README.md`](deploy/README.md) for the `bowser register` CLI, the Docker image, and the EC2 bootstrap script end-to-end.
 
+## GeoTIFF exports and spatial reference
+
+On the full server (`bowser run`), the Export panel saves native-resolution layer
+values, with the active masks and selected point or median-area reference
+applied. The reference value is
+sampled from the original layer at the selected date, before optional display
+masks, just as in the reference controls. Valid zeros remain valid; masked or
+source-nodata pixels remain nodata. Source files are never modified.
+
+For reference-enabled layers, the GeoTIFF records the requested WGS84 position,
+buffer radius, number of valid reference pixels, value subtracted, and operation
+in `BOWSER_REFERENCE_*` metadata tags. Disabling spatial referencing exports
+stored values. Layers without spatial referencing, such as quality masks, are
+not shifted. Median-area export currently requires a projected grid in meters;
+geographic grids support point references. An invalid or empty reference raises
+an error rather than silently exporting a different reference.
+
+API clients can pass `ref_lon`, `ref_lat`, and optionally `ref_buffer_m` to
+`/export/geotiff`. Omitting these parameters preserves the stored reference.
+Export values are not colorized, rewrapped, or converted between units.
+
 ## CLI Usage
 
 The selected layer's explanation, source units and producer-provided category
