@@ -4,21 +4,16 @@ import { withDrawings } from '../map/overlays';
 import { DEFAULT_FIT } from '../map/fitSettings';
 import { readUnitSystem, saveUnitSystem } from '../utils/units';
 
-// Color palette for different points
-const POINT_COLORS = [
-  '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
-  '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'
-];
+import { nextSeriesColor } from '../utils/seriesColors';
 
 // Generate unique ID for points
 function generatePointId(): string {
   return `point_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }
 
-// Get next available color
-function getNextColor(existingPoints: Array<Pick<TimeSeriesPoint, 'color'>>): string {
-  const usedColors = new Set(existingPoints.map(p => p.color));
-  return POINT_COLORS.find(color => !usedColors.has(color)) || POINT_COLORS[existingPoints.length % POINT_COLORS.length];
+/** A colour no point or area in the chart uses (one palette for both: utils/seriesColors). */
+function getNextColor(state: Pick<AppState, 'timeSeriesPoints' | 'chartAreas'>): string {
+  return nextSeriesColor([...state.timeSeriesPoints, ...state.chartAreas]);
 }
 
 /** Done waiting for an area: the Draw tools close if "+ Area" opened them. */
@@ -106,7 +101,7 @@ function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppSt
     // Multi-point actions
     case 'ADD_TIME_SERIES_POINT': {
       const id = generatePointId();
-      const color = getNextColor(state.timeSeriesPoints);
+      const color = getNextColor(state);
       const name = action.payload.name || `Point ${state.timeSeriesPoints.length + 1}`;
       const newPoint: TimeSeriesPoint = {
         id,
@@ -136,7 +131,7 @@ function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppSt
       const area: ChartArea = {
         id: `area_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
         name: action.payload.name || `Area ${state.chartAreas.length + 1}`,
-        color: getNextColor([...state.timeSeriesPoints, ...state.chartAreas]),
+        color: getNextColor(state),
         visible: true,
         geometry: action.payload.geometry,
       };
@@ -215,7 +210,7 @@ function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppSt
       } else {
         // Add as new point if no legacy point exists
         const id = generatePointId();
-        const color = getNextColor(state.timeSeriesPoints);
+        const color = getNextColor(state);
         const newPoint: TimeSeriesPoint = {
           id,
           name: 'Legacy Point',
