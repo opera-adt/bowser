@@ -2,10 +2,25 @@
 
 Map-based viewer for InSAR time-series outputs — GeoZarr cubes, dolphin workflow directories, or loose GeoTIFFs — served through a local FastAPI server and rendered by titiler in the browser.
 
-The full server also provides a [native polygon statistics API](docs/polygon-statistics.md) for stored raster values.
-GeoTIFF downloads include [export dates, source, mask, and reference provenance](docs/geotiff-export-provenance.md).
+![Bowser: a DISP-S1 cube re-referenced to 2016-09-24, with two points in the time-series chart](docs/images/viewer.jpg)
 
-![](docs/demo-timeseries.jpg)
+## What you can do
+
+- **Browse the cube in time.** Step through dates with ‹ ›, click an arrow again to play forward or backward, and right-click it to set the speed.
+- **Reference in space and time.** Pick a reference point, or the median of a circle around it. Click **ref: <date>** beside the time step to show every pixel and series relative to another date; each series' point on that date is marked in the chart.
+- **Plot time series.** Click the map to add points. Fit a model (polynomial, seasonal terms, steps), show residuals, compare several layers on separate y axes, and style each series from the chart's palette button.
+- **Area statistics.** Add a drawn or loaded polygon to the chart with the area button: median, dashed mean and a mean ± 1 std or p10–p90 band.
+- **Zonal statistics for your own files.** Load a GeoJSON, KML, GPX, CSV or shapefile (.shp with its sidecar files, or zipped) under Overlays and click its chart icon: each polygon becomes a chart area and each point a time series, in the same colour on the map and in the chart. The **Stats** tab lists mean, median, std, p10, p90 and trend per area, with a CSV download.
+- **Understand each layer.** The layer's description, from the producer's metadata when it has one, shows under the layer selector; the (i) button hides or shows it. See [layer information](docs/layer-information.md).
+- **Export.** Download the current layer as a GeoTIFF with the masks and reference applied, with progress and Cancel. The file records its [dates, source, masks and reference](docs/geotiff-export-provenance.md).
+- **Context.** Satellite, topographic, relief and hillshade basemaps, 3D terrain, GNSS stations, geology, land cover, drawing and measuring tools.
+
+The full server also provides a [polygon statistics API](docs/polygon-statistics.md) for stored raster values.
+
+<p>
+  <img src="docs/images/chart-areas.jpg" alt="Time-series chart with three points and two areas from a loaded polygon file" width="58%">
+  <img src="docs/images/stats-tab.jpg" alt="Stats tab: mean, median, std, p10, p90 and trend for each area" width="36%">
+</p>
 
 ## Quickstart
 
@@ -17,7 +32,7 @@ uvx --from bowser-insar bowser run --stack-file example-cube.zarr
 
 Open the `http://127.0.0.1:8000` link that bowser prints.
 
-> **Note on PyPI installing an GDAL**: The PyPI wheel is enough for GeoZarr cubes
+> **Note on PyPI installs and GDAL**: The PyPI wheel is enough for GeoZarr cubes
 > and plain GeoTIFFs. For other input formats, `pixi` is the easiest way:
 >
 > ```bash
@@ -66,7 +81,7 @@ pixi run -e writer bowser tifs-to-geozarr \
 
 ### DISP-S1 → GeoZarr cube
 
-To work with DISP-S1 products, you may convert them once into a single pyramidal GeoZarr cube, then serve that. The converter handles the reference-date bookkeeping for morving temporal reference,, builds multiscale pyramids, and writes GeoZarr convention attributes so titiler can pick the right overview per tile zoom.
+To work with DISP-S1 products, you may convert them once into a single pyramidal GeoZarr cube, then serve that. The converter handles the reference-date bookkeeping for a moving temporal reference, builds multiscale pyramids, and writes GeoZarr convention attributes so titiler can pick the right overview per tile zoom.
 
 ```bash
 # 1. prepare per-band GeoTIFFs and a bowser_rasters.json
@@ -104,11 +119,6 @@ API clients can pass `ref_lon`, `ref_lat`, and optionally `ref_buffer_m` to
 Export values are not colorized, rewrapped, or converted between units.
 
 ## CLI Usage
-
-The selected layer's explanation, source units and producer-provided category
-meanings appear under the layer selector, including in split view. See
-[layer information](docs/layer-information.md) for metadata sources and how
-unknown or inconsistent conventions are reported.
 
 ```bash
 $ bowser --help
