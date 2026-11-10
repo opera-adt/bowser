@@ -10,6 +10,9 @@ const MARKER_LABEL: Record<PointMarker, string> = {
 import { MAX_CLASSES, OTHER_COLOR, SOIL_FIELDS, soilColoring, type SoilField } from '../../map/soilClasses';
 import type { Overlay } from '../../types';
 import { Switch } from './controls';
+import { zonalKinds } from '../../utils/polygonSeries';
+import { AREA_NEEDS_SERVER, usePolygonStats } from '../../hooks/usePolygonStats';
+import { useZonalStats, type ZonalProgress } from '../../hooks/useZonalStats';
 
 export type DropSide = 'above' | 'below' | null;
 
@@ -31,6 +34,9 @@ export default function OverlayRow({ overlay: o, dropSide, onDragStart, onDragEn
   const [open, setOpen] = useState(false);
   const rowRef = useRef<HTMLDivElement>(null);
   const update = (updates: Partial<Overlay>) => dispatch({ type: 'UPDATE_OVERLAY', payload: { id: o.id, updates } });
+  const zonal = zonalKinds(o);
+  const [zonalStatus, setZonalStatus] = useState<{ progress: ZonalProgress | null; notes: string[] }>({ progress: null, notes: [] });
+  const zonalBusy = !!zonalStatus.progress && zonalStatus.progress.done < zonalStatus.progress.total;
 
   return (
     <div ref={rowRef} className={`ov-row${dropSide ? ` drop-${dropSide}` : ''}`}
@@ -61,6 +67,8 @@ export default function OverlayRow({ overlay: o, dropSide, onDragStart, onDragEn
             <i className="fa-solid fa-crosshairs"></i>
           </button>
         )}
+        {(zonal.polygons > 0 || zonal.points > 0) && <ZonalStatsButton overlay={o} polygons={zonal.polygons} points={zonal.points}
+          busy={zonalBusy} onStatus={setZonalStatus} />}
         {(
           <button type="button" className="ov-icon-btn" title="Style" aria-expanded={open} onClick={() => setOpen(v => !v)}>
             <span className={`disclosure-chevron${open ? ' open' : ''}`} aria-hidden="true" />
@@ -70,6 +78,12 @@ export default function OverlayRow({ overlay: o, dropSide, onDragStart, onDragEn
           <i className="fa-solid fa-xmark"></i>
         </button>
       </div>
+      {(zonalBusy || zonalStatus.notes.length > 0) && (
+        <div className="ov-zonal-note" role="status">
+          {zonalBusy && <span>Zonal stats: {zonalStatus.progress!.done}/{zonalStatus.progress!.total} areas</span>}
+          {zonalStatus.notes.map(n => <span key={n}>{n}</span>)}
+        </div>
+      )}
       <div className="ov-opacity">
         <span className="ov-type">{TYPE_LABEL[o.type]}</span>
         <input type="range" className="sidebar-range" min="0" max="1" step="0.05" value={o.opacity} aria-label={`Opacity of ${o.name}`}
@@ -254,5 +268,35 @@ export default function OverlayRow({ overlay: o, dropSide, onDragStart, onDragEn
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Zonal stats for a vector layer: every polygon's median, mean and spread and every point's
+ * series go to the chart (and the Stats tab). Off on bowser-lite when the layer has only polygons.
+ */
+function ZonalStatsButton({ overlay, polygons, points, busy, onStatus }: {
+  overlay: Overlay; polygons: number; points: number; busy: boolean;
+  onStatus: (s: { progress: ZonalProgress | null; notes: string[] }) => void;
+}) {
+  const supported = usePolygonStats();
+  const run = useZonalStats(supported);
+  const off = polygons > 0 && points === 0 && !supported;
+  const what = [polygons > 0 ? 'each polygon’s mean, median and spread' : '', points > 0 ? 'each point’s time series' : '']
+    .filter(Boolean).join(' and ');
+  const title = off ? AREA_NEEDS_SERVER : busy ? 'Working out zonal stats…' : `Zonal stats: ${what} in the chart${polygons > 0 ? ' and the Stats tab' : ''}`;
+
+  const onClick = async () => {
+    let progress: ZonalProgress | null = null;
+    onStatus({ progress, notes: [] });
+    const notes = await run(overlay, p => { progress = p; onStatus({ progress: p, notes: [] }); });
+    onStatus({ progress, notes });
+  };
+
+  return (
+    <button type="button" className={`ov-icon-btn${busy ? ' on' : ''}`} title={title} aria-label="Zonal stats"
+      disabled={off || busy} onClick={() => void onClick()}>
+      <i className={`fa-solid ${busy ? 'fa-spinner fa-spin' : 'fa-chart-column'}`}></i>
+    </button>
   );
 }

@@ -26,6 +26,7 @@ const initialState: AppState = {
   datasetInfo: {},
   timeSeriesPoints: [],
   chartAreas: [],
+  areaStats: {},
   areaDrawing: false,
   areaOpenedTools: false,
   refMarkerPosition: [0, 0],
@@ -134,11 +135,26 @@ function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppSt
         color: getNextColor(state),
         visible: true,
         geometry: action.payload.geometry,
+        ...(action.payload.source ? { source: action.payload.source } : {}),
       };
       return { ...state, chartAreas: [...state.chartAreas, area], ...stopAreaDrawing(state) };
     }
+    // Several areas at once (Zonal stats on a vector layer), each in its own colour.
+    case 'ADD_CHART_AREAS': {
+      const chartAreas = [...state.chartAreas];
+      for (const a of action.payload) {
+        chartAreas.push({ ...a, color: getNextColor({ timeSeriesPoints: state.timeSeriesPoints, chartAreas }), visible: true });
+      }
+      return { ...state, chartAreas };
+    }
+    case 'SET_AREA_STATS':
+      return { ...state, areaStats: { ...state.areaStats, ...action.payload } };
     case 'REMOVE_CHART_AREA':
-      return { ...state, chartAreas: state.chartAreas.filter(a => a.id !== action.payload) };
+      return {
+        ...state,
+        chartAreas: state.chartAreas.filter(a => a.id !== action.payload),
+        areaStats: Object.fromEntries(Object.entries(state.areaStats).filter(([k]) => !k.endsWith(`::${action.payload}`))),
+      };
     case 'UPDATE_CHART_AREA':
       return {
         ...state,

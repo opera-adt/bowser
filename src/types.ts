@@ -4,6 +4,7 @@ import type { GnssStation } from './map/gnss';
 import type { UnitSystem } from './utils/units';
 import type { LineStyle, MarkerShape } from './map/seriesStyle';
 import type { PointMarker } from './map/markers';
+import type { PolygonTimeSeries } from './utils/polygonSeries';
 
 export interface LosMetadata {
   // Satellite ground-track heading, degrees clockwise from north
@@ -68,6 +69,15 @@ export interface ChartArea {
   visible: boolean;
   /** GeoJSON Polygon or MultiPolygon in WGS84. */
   geometry: { type: 'Polygon' | 'MultiPolygon'; coordinates: unknown };
+  /** The vector layer feature it came from; absent for an area drawn on the map. */
+  source?: { overlayId: string; layer: string; index: number };
+}
+
+/** One area's statistics for one layer: waiting, the answer, or why there is none. */
+export interface AreaStats {
+  pending?: boolean;
+  data?: PolygonTimeSeries;
+  error?: string;
 }
 
 export interface MultiPointTimeSeriesData {
@@ -197,6 +207,8 @@ export interface AppState {
   datasetInfo: { [key: string]: RasterGroup };
   timeSeriesPoints: TimeSeriesPoint[];
   chartAreas: ChartArea[];
+  /** Area statistics per layer and area, keyed areaStatsKey(dataset, areaId). */
+  areaStats: { [key: string]: AreaStats };
   /** True while the chart's "+ Area" waits for a polygon drawn on the map. */
   areaDrawing: boolean;
   /** The Draw tools were off before "+ Area" opened them: close them again once it is done. */
@@ -278,7 +290,9 @@ export type AppAction =
   | { type: 'ADD_TIME_SERIES_POINT'; payload: { position: [number, number]; name?: string } }
   | { type: 'REMOVE_TIME_SERIES_POINT'; payload: string }
   | { type: 'UPDATE_TIME_SERIES_POINT'; payload: { id: string; updates: Partial<TimeSeriesPoint> } }
-  | { type: 'ADD_CHART_AREA'; payload: { geometry: ChartArea['geometry']; name?: string } }
+  | { type: 'ADD_CHART_AREA'; payload: { geometry: ChartArea['geometry']; name?: string; source?: ChartArea['source'] } }
+  | { type: 'ADD_CHART_AREAS'; payload: Array<Pick<ChartArea, 'id' | 'name' | 'geometry' | 'source'>> }
+  | { type: 'SET_AREA_STATS'; payload: { [key: string]: AreaStats } }
   | { type: 'REMOVE_CHART_AREA'; payload: string }
   | { type: 'UPDATE_CHART_AREA'; payload: { id: string; updates: Partial<ChartArea> } }
   | { type: 'SET_AREA_DRAWING'; payload: boolean }

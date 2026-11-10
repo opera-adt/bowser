@@ -37,12 +37,33 @@ export interface PolygonChoice {
   key: string;
   name: string;
   geometry: ChartArea['geometry'];
+  source: NonNullable<ChartArea['source']>;
+}
+
+/** A point feature that can become a time-series point. */
+export interface PointChoice {
+  key: string;
+  name: string;
+  /** [lat, lon], as TimeSeriesPoint.position. */
+  position: [number, number];
 }
 
 interface GeoJsonFeature {
   geometry?: { type?: string; coordinates?: unknown } | null;
   properties?: Record<string, unknown> | null;
 }
+
+/** A feature's own name (name, Name, NAME, title or label), else ``fallback``. */
+export function featureName(properties: Record<string, unknown> | null | undefined, fallback: string): string {
+  const p = properties ?? {};
+  const own = [p.name, p.Name, p.NAME, p.title, p.label].find(v => typeof v === 'string' && v.trim());
+  return own ? String(own) : fallback;
+}
+
+const isPolygon = (g: GeoJsonFeature['geometry']) => g?.type === 'Polygon' || g?.type === 'MultiPolygon';
+const isPoint = (g: GeoJsonFeature['geometry']) =>
+  g?.type === 'Point' && Array.isArray(g.coordinates) && g.coordinates.length >= 2
+  && g.coordinates.slice(0, 2).every(v => typeof v === 'number' && Number.isFinite(v));
 
 /** Polygons drawn with the Draw tools or read from vector files, in layer order. */
 export function polygonChoices(overlays: Overlay[]): PolygonChoice[] {
@@ -52,19 +73,43 @@ export function polygonChoices(overlays: Overlay[]): PolygonChoice[] {
     let n = 0;
     (o.data.features as GeoJsonFeature[]).forEach((f, i) => {
       const g = f?.geometry;
-      if (!g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon')) return;
+      if (!g || !isPolygon(g)) return;
       n += 1;
-      const p = f.properties ?? {};
-      const own = [p.name, p.Name, p.NAME, p.title, p.label].find(v => typeof v === 'string' && v.trim());
       out.push({
         key: `${o.id}:${i}`,
-        name: own ? String(own) : `${o.name} ${n}`,
-        geometry: { type: g.type, coordinates: g.coordinates },
+        name: featureName(f.properties, `${o.name} ${n}`),
+        geometry: { type: g.type as 'Polygon' | 'MultiPolygon', coordinates: g.coordinates },
+        source: { overlayId: o.id, layer: o.name, index: i },
       });
     });
   }
   return out;
 }
+
+/** A vector layer's point features, named like its polygons ("<layer> N" without a name). */
+export function pointChoices(o: Overlay): PointChoice[] {
+  if (o.type !== 'vector' || !o.data) return [];
+  const out: PointChoice[] = [];
+  (o.data.features as GeoJsonFeature[]).forEach((f, i) => {
+    if (!isPoint(f?.geometry)) return;
+    const [lon, lat] = f.geometry!.coordinates as number[];
+    out.push({ key: `${o.id}:${i}`, name: featureName(f.properties, `${o.name} ${out.length + 1}`), position: [lat, lon] });
+  });
+  return out;
+}
+
+/** Whether a layer has polygons or points to summarise (lines alone have none). */
+export function zonalKinds(o: Overlay): { polygons: number; points: number } {
+  if (o.type !== 'vector' || !o.data) return { polygons: 0, points: 0 };
+  const features = o.data.features as GeoJsonFeature[];
+  return {
+    polygons: features.filter(f => isPolygon(f?.geometry)).length,
+    points: features.filter(f => isPoint(f?.geometry)).length,
+  };
+}
+
+/** Where an area's statistics for a layer are kept (AppState.areaStats). */
+export const areaStatsKey = (dataset: string, areaId: string) => `${dataset}::${areaId}`;
 
 /** The request body: the cube's own values on the dates' common pixels. */
 export function polygonRequestBody(variable: string, geometry: ChartArea['geometry']) {

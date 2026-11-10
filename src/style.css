@@ -1405,6 +1405,25 @@ img.huechange { filter: hue-rotate(120deg); }
   color: var(--sb-red);
 }
 
+.ov-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.ov-icon-btn:disabled:hover {
+  background: none;
+  color: var(--sb-muted);
+}
+
+/* Zonal stats under a vector layer: progress, then any note (a cap reached). */
+.ov-zonal-note {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--sb-muted);
+  font-size: 0.72em;
+}
+
 .ov-opacity {
   display: flex;
   align-items: center;

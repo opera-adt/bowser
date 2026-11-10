@@ -19,7 +19,8 @@ import { displayUnit } from '../utils/units';
 import { saveFile } from '../utils/saveFile';
 import { activeRefTime, refDateLabel, refDateMarker, relativeChartData, relativeTo } from '../utils/refDate';
 import ChartAreaButton from './ChartAreaButton';
-import { areaChartDatasets, polygonEmptyMessage, type PolygonTimeSeries } from '../utils/polygonSeries';
+import { areaChartDatasets, areaStatsKey } from '../utils/polygonSeries';
+import { fetchAreaStats } from '../utils/zonalStats';
 import { referenceValues } from '../map/interactions';
 
 // Chart.js plugin to wire legend-click visibility to all related datasets (raw, trend,
@@ -265,23 +266,21 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
 
   // ── Areas (+ Area): statistics per area × layer, fetched once (an area's polygon never changes) ──
   const visibleAreas = state.chartAreas.filter(a => a.visible);
-  const [areaResults, setAreaResults] = useState<Record<string, { data?: PolygonTimeSeries; error?: string }>>({});
+  // Kept in AppState (the Stats tab lists them too); Zonal stats may have asked already.
+  const areaResults = state.areaStats;
   const areaRequested = useRef(new Set<string>());
   useEffect(() => {
     if (!state.showChart) return;
+    const byDs = new Map<string, typeof visibleAreas>();
     for (const dsName of activeDatasetsForChart) {
       for (const area of visibleAreas) {
-        const key = `${dsName}::${area.id}`;
-        if (areaRequested.current.has(key)) continue;
+        const key = areaStatsKey(dsName, area.id);
+        if (areaRequested.current.has(key) || key in state.areaStats) continue;
         areaRequested.current.add(key);
-        fetchPolygonTimeSeries(dsName, area.geometry).then(res => {
-          const entry = 'data' in res
-            ? (polygonEmptyMessage(res.data) ? { error: polygonEmptyMessage(res.data)! } : { data: res.data })
-            : { error: res.error };
-          setAreaResults(prev => ({ ...prev, [key]: entry }));
-        });
+        byDs.set(dsName, [...(byDs.get(dsName) ?? []), area]);
       }
     }
+    for (const [dsName, areas] of byDs) void fetchAreaStats(areas, [dsName], fetchPolygonTimeSeries, dispatch);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.showChart, JSON.stringify(activeDatasetsForChart), JSON.stringify(visibleAreas.map(a => a.id)), fetchPolygonTimeSeries]);
 
@@ -417,8 +416,8 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
   }, [chartDataMap, firstDs, activeDatasetsForChart, state.timeSeriesPoints, fits, state.fitSettings, state.datasetInfo, state.units]);
 
   // Layers with an area answer (they may have no point data).
-  const areaDsNames = activeDatasetsForChart.filter(ds => visibleAreas.some(a => areaResults[`${ds}::${a.id}`]?.data));
-  const firstAreaLabel = areaDsNames.flatMap(ds => visibleAreas.map(a => areaResults[`${ds}::${a.id}`]?.data?.labels?.[0]))
+  const areaDsNames = activeDatasetsForChart.filter(ds => visibleAreas.some(a => areaResults[areaStatsKey(ds, a.id)]?.data));
+  const firstAreaLabel = areaDsNames.flatMap(ds => visibleAreas.map(a => areaResults[areaStatsKey(ds, a.id)]?.data?.labels?.[0]))
     .find(l => l !== undefined);
   // Ordered list of dataset names in the chart (one y axis each)
   const activeChartDs = [...new Set([...Object.keys(chartDataMap), ...areaDsNames])];
@@ -596,12 +595,12 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
   const multiDs = activeDatasetsForChart.length > 1;
   // A failed area (bad or too-large polygon, no valid pixels, lite server): one short line.
   const areaErrors = activeDatasetsForChart.flatMap(ds => visibleAreas.flatMap(a => {
-    const error = areaResults[`${ds}::${a.id}`]?.error;
+    const error = areaResults[areaStatsKey(ds, a.id)]?.error;
     return error ? [`${multiDs ? `${a.name} [${ds}]` : a.name}: ${error}`] : [];
   }));
   const areaPending = activeDatasetsForChart.some(ds => visibleAreas.some(a => {
-    const r = areaResults[`${ds}::${a.id}`];
-    return !r || (r.data && areaReference(ds) === undefined);
+    const r = areaResults[areaStatsKey(ds, a.id)];
+    return !r || !!r.pending || (!!r.data && areaReference(ds) === undefined);
   }));
 
   const headerContent = (
@@ -749,7 +748,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     if (reference === undefined) return [];
     const shown = displayUnit(state.datasetInfo[dsName]?.unit, state.units);
     return visibleAreas.flatMap(area => {
-      const result = areaResults[`${dsName}::${area.id}`]?.data;
+      const result = areaResults[areaStatsKey(dsName, area.id)]?.data;
       if (!result) return [];
       return areaChartDatasets({
         result, name: multiDs ? `${area.name} [${dsName}]` : area.name, color: area.color,
@@ -800,7 +799,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
   // Collect all ISO dates across all datasets (points and areas) for the x-axis
   const allIsoLabels = [...new Set([
     ...Object.values(chartDataMap).flatMap(cd => cd.labels.map(toIsoDate)),
-    ...areaDsNames.flatMap(ds => visibleAreas.flatMap(a => areaResults[`${ds}::${a.id}`]?.data?.labels.map(toIsoDate) ?? [])),
+    ...areaDsNames.flatMap(ds => visibleAreas.flatMap(a => areaResults[areaStatsKey(ds, a.id)]?.data?.labels.map(toIsoDate) ?? [])),
   ])].sort();
 
   const isoLabels = allIsoLabels.filter(d => {
