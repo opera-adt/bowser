@@ -15,6 +15,19 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   streamable HTTP; `--stack-file` opens one cube with bowser-lite in-process.
   Needs the new `mcp` extra (`pip install 'bowser-insar[mcp]'`). See
   [docs/mcp.md](docs/mcp.md).
+- An Assistant tab in the side panel: a chat with your own AI provider
+  (Anthropic, OpenAI, Google Gemini, OpenRouter, Ollama or any
+  OpenAI-compatible server) that answers with the same data tools as
+  `bowser mcp` and acts on the page: it flies the map, adds time-series
+  points, sets the reference point and date, switches layers, opens the chart
+  and adds overlays. API keys are checked with the provider and kept on the
+  server (system keychain or a private file), never in the browser; the chat
+  goes through the server (`POST /assistant/chat`). On for `bowser run`,
+  `bowser lite` and the desktop app on your own computer
+  (`--assistant/--no-assistant`); off on a shared server unless
+  `BOWSER_ASSISTANT` is set, with the server's own key (`BOWSER_AI_PROVIDER`,
+  `BOWSER_AI_KEY`). `GET /config` says whether it is on. Needs the new
+  `assistant` extra (`pip install 'bowser-insar[assistant]'`).
 
 ### Changed
 
