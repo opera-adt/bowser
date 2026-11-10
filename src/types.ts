@@ -57,6 +57,8 @@ export interface TimeSeriesPoint {
   marker?: MarkerShape;
   line?: LineStyle;
   data?: { [dataset: string]: number[] };
+  /** The vector layer feature it came from (Zonal stats); absent for a point clicked on the map. */
+  source?: { overlayId: string; layer: string; index: number };
   // mmPerYear is in rateUnit/yr (mm in metric, in in imperial); the name is kept for saved projects.
   trendData?: { [dataset: string]: { slope: number; intercept: number; rSquared: number; mmPerYear: number; stdMmPerYear?: number; rateUnit?: string } };
 }
@@ -291,7 +293,7 @@ export interface AppState {
 
 export type AppAction =
   | { type: 'SET_DATASETS'; payload: { [key: string]: RasterGroup } }
-  | { type: 'ADD_TIME_SERIES_POINT'; payload: { position: [number, number]; name?: string } }
+  | { type: 'ADD_TIME_SERIES_POINT'; payload: { position: [number, number]; name?: string; source?: TimeSeriesPoint['source'] } }
   | { type: 'REMOVE_TIME_SERIES_POINT'; payload: string }
   | { type: 'UPDATE_TIME_SERIES_POINT'; payload: { id: string; updates: Partial<TimeSeriesPoint> } }
   | { type: 'ADD_CHART_AREA'; payload: { geometry: ChartArea['geometry']; name?: string; source?: ChartArea['source'] } }

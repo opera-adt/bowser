@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppProvider, useAppContext } from '../context/AppContext';
 import type { AppAction, AppState, Overlay, RasterGroup } from '../types';
 import { areaChartDatasets, polygonChoices, polygonErrorMessage, type PolygonTimeSeries } from '../utils/polygonSeries';
+import { chartedFeatureColors, vectorLayerSpecs } from '../map/overlays';
 
 // Chart.js can't draw in jsdom: keep what the chart would draw.
 const drawn = vi.hoisted(() => ({ data: null as null | { labels: string[]; datasets: any[] }, options: null as any }));
@@ -286,6 +287,40 @@ describe('areas in the time-series chart', () => {
     const ys = (label: string) => byLabel[label].data.map((p: any) => +p.y.toFixed(6));
     expect(ys('Field median')).toEqual([-0.006, 0, 0.006]);
     expect(ys('Field mean')).toEqual([-0.007, 0, 0.006]);
+  });
+
+  it('keeps one colour per area across chart layers, listed once in Style, and on the map', async () => {
+    const areaLayer: Overlay = { id: 'v1', name: 'areas', type: 'vector', visible: true, opacity: 1, color: '#5bc0be',
+      data: { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { name: 'Field' }, geometry: SQUARE }] } };
+    renderApp([
+      { type: 'SET_DATASETS', payload: { displacement: layer('displacement'), phase_similarity: { ...layer('phase_similarity'), uses_spatial_ref: false, unit: '' } } },
+      { type: 'SET_OVERLAYS', payload: [areaLayer] },
+      { type: 'TOGGLE_CHART' },
+      { type: 'SET_REF_VALUES', payload: { dataset: 'displacement', values: REF } },
+      { type: 'ADD_CHART_AREA', payload: { geometry: SQUARE, name: 'Field', source: { overlayId: 'v1', layer: 'areas', index: 0 } } },
+    ], <ChartOfFirstWindow />);
+    act(() => dispatchRef({ type: 'SET_CHART_WINDOW_DS', payload: { id: stateRef.chartWindows[0].id, dsNames: ['displacement', 'phase_similarity'] } }));
+    await waitFor(() => expect(drawn.data?.datasets.filter(d => d._area && (d.data as unknown[]).length > 0)).toHaveLength(8));
+    fireEvent.click(screen.getByTitle(/Style the points and areas/));
+    expect(screen.getAllByLabelText('Colour of Field')).toHaveLength(1);
+    fireEvent.change(screen.getByLabelText('Colour of Field'), { target: { value: '#00aa00' } });
+    await waitFor(() => expect(drawn.data!.datasets.filter(d => d._area).every(d => d.borderColor === '#00aa00')).toBe(true));
+    const areaSets = drawn.data!.datasets.filter(d => d._area);
+    expect(areaSets.map(d => d.label)).toEqual([
+      'Field [displacement] +1 std', 'Field [displacement] −1 std', 'Field [displacement] median', 'Field [displacement] mean',
+      'Field [phase_similarity] +1 std', 'Field [phase_similarity] −1 std', 'Field [phase_similarity] median', 'Field [phase_similarity] mean',
+    ]);
+    expect(areaSets[0].backgroundColor).toBe('#00aa0033');
+    expect(areaSets[4].backgroundColor).toBe('#00aa0033');
+    // Layers differ by their y axis, not by colour.
+    expect(new Set(areaSets.map(d => d.yAxisID))).toEqual(new Set(['y0', 'y1']));
+    const fill = vectorLayerSpecs(areaLayer, chartedFeatureColors(areaLayer, stateRef.chartAreas))[0].paint['fill-color'];
+    expect(fill).toEqual(['match', ['id'], 0, '#00aa00', '#5bc0be']);
+    // A layer's colour (Display options) colours its y axis, never the feature's series.
+    fireEvent.click(screen.getByRole('button', { name: /Display options/ }));
+    fireEvent.change(screen.getAllByTitle("Colour of this layer's y axis")[1], { target: { value: '#ff00ff' } });
+    await waitFor(() => expect(drawn.options.scales.y1.ticks.color).toBe('#ff00ff'));
+    expect(drawn.data!.datasets.filter(d => d._area).every(d => d.borderColor === '#00aa00')).toBe(true);
   });
 
   it('fetches the reference like the map for a chart layer that is not on the map', async () => {

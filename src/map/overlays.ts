@@ -115,10 +115,44 @@ export interface VectorLayerSpec {
   layout?: Record<string, unknown>;
 }
 
-/** The MapLibre layers of a vector overlay: polygons get a fill and an outline. */
-export function vectorLayerSpecs(o: Overlay): VectorLayerSpec[] {
+type Charted = { color: string; geometry?: { coordinates: unknown }; source?: { overlayId: string; index: number } };
+
+/**
+ * The chart colour of each of a vector layer's features that is in the time-series chart (an
+ * area or a point taken from it), by feature index. A shape drawn for + Area has no source; it
+ * is found among the Drawings by its geometry (drawn shapes can be reordered by the editor).
+ */
+export function chartedFeatureColors(o: Overlay, charted: Charted[]): Map<number, string> {
+  const out = new Map<number, string>();
+  if (o.type !== 'vector' || !o.data) return out;
+  const features = o.data.features as Array<{ geometry?: { coordinates?: unknown } | null }>;
+  for (const c of charted) {
+    if (c.source?.overlayId === o.id && o.id !== DRAWINGS_ID) {
+      if (c.source.index < features.length) out.set(c.source.index, c.color);
+    } else if (o.id === DRAWINGS_ID && c.geometry && (!c.source || c.source.overlayId === DRAWINGS_ID)) {
+      const shape = JSON.stringify(c.geometry.coordinates);
+      const i = features.findIndex(f => JSON.stringify(f?.geometry?.coordinates) === shape);
+      if (i >= 0) out.set(i, c.color);
+    }
+  }
+  return out;
+}
+
+/** The layer colour, with each charted feature (by its generated id, the feature index) in its chart colour. */
+export function linkedColor(base: unknown, charted: Map<number, string>): unknown {
+  if (charted.size === 0) return base;
+  return ['match', ['id'], ...[...charted].sort((a, b) => a[0] - b[0]).flat(), base];
+}
+
+/**
+ * The MapLibre layers of a vector overlay: polygons get a fill and an outline. ``charted`` (from
+ * chartedFeatureColors) draws the features in the chart in their chart colour; the source needs
+ * ``generateId`` so a feature's id is its index.
+ */
+export function vectorLayerSpecs(o: Overlay, charted: Map<number, string> = new Map()): VectorLayerSpec[] {
   const id = `overlay-${o.id}`;
-  const color: unknown = o.classColors ? classColorExpression(o.classColors, o.color ?? '#a3a3a3') : o.color ?? '#5bc0be';
+  const base: unknown = o.classColors ? classColorExpression(o.classColors, o.color ?? '#a3a3a3') : o.color ?? '#5bc0be';
+  const color = linkedColor(base, charted);
   return [
     { id: `${id}-fill`, type: 'fill', filter: POLYGONS, paint: { 'fill-color': color, 'fill-opacity': o.opacity * 0.25 } },
     { id: `${id}-line`, type: 'line', filter: LINES, paint: { 'line-color': color, 'line-opacity': o.opacity, 'line-width': o.lineWidth ?? 2 } },

@@ -66,6 +66,7 @@ export interface PointChoice {
   name: string;
   /** [lat, lon], as TimeSeriesPoint.position. */
   position: [number, number];
+  source: NonNullable<ChartArea['source']>;
 }
 
 interface GeoJsonFeature {
@@ -113,7 +114,10 @@ export function pointChoices(o: Overlay): PointChoice[] {
   (o.data.features as GeoJsonFeature[]).forEach((f, i) => {
     if (!isPoint(f?.geometry)) return;
     const [lon, lat] = f.geometry!.coordinates as number[];
-    out.push({ key: `${o.id}:${i}`, name: featureName(f.properties, `${o.name} ${out.length + 1}`), position: [lat, lon] });
+    out.push({
+      key: `${o.id}:${i}`, name: featureName(f.properties, `${o.name} ${out.length + 1}`), position: [lat, lon],
+      source: { overlayId: o.id, layer: o.name, index: i },
+    });
   });
   return out;
 }

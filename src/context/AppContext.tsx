@@ -115,6 +115,7 @@ function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppSt
         visible: true,
         data: {},
         trendData: {},
+        ...(action.payload.source ? { source: action.payload.source } : {}),
       };
       return {
         ...state,

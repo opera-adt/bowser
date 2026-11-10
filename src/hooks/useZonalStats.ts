@@ -35,7 +35,7 @@ export function useZonalStats(polygonStats: boolean) {
     const have = new Set(state.timeSeriesPoints.map(p => `${p.name}|${p.position.join(',')}`));
     for (const p of points) {
       if (have.has(`${p.name}|${p.position.join(',')}`)) continue;
-      dispatch({ type: 'ADD_TIME_SERIES_POINT', payload: { position: p.position, name: p.name } });
+      dispatch({ type: 'ADD_TIME_SERIES_POINT', payload: { position: p.position, name: p.name, source: p.source } });
       added = true;
     }
 

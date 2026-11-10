@@ -450,6 +450,36 @@ describe('MapLibreMap', () => {
     expect(map.sources.has('overlay-a')).toBe(false);
   });
 
+  it('charted features: drawn in their chart colour, following a colour change; the rest keep the layer colour', async () => {
+    const { view, map } = await mount();
+    const square = (x: number) => ({ type: 'Polygon', coordinates: [[[x, 0], [x + 1, 0], [x + 1, 1], [x, 0]]] });
+    const vector = { id: 'v', name: 'areas', type: 'vector', visible: true, opacity: 1, color: '#5bc0be', data: { type: 'FeatureCollection', features: [
+      { type: 'Feature', properties: {}, geometry: square(0) },
+      { type: 'Feature', properties: {}, geometry: square(2) },
+      { type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [5, 5] } },
+    ] } };
+    const area = { id: 'a1', name: 'areas 1', color: '#ff0000', visible: true, geometry: square(0), source: { overlayId: 'v', layer: 'areas', index: 0 } };
+    const point = { id: 'p1', name: 'areas 1', position: [5, 5], color: '#00ff00', visible: true, source: { overlayId: 'v', layer: 'areas', index: 2 } };
+    Object.assign(mockState, { overlays: [vector], chartAreas: [area], timeSeriesPoints: [point] });
+    view.rerender(<MapLibreMap />);
+    await act(async () => {});
+    expect(map.sources.get('overlay-v').generateId).toBe(true);
+    const linked = (c: string) => ['match', ['id'], 0, c, 2, '#00ff00', '#5bc0be'];
+    expect(map.getLayer('overlay-v-fill')!.paint['fill-color']).toEqual(linked('#ff0000'));
+    expect(map.getLayer('overlay-v-line')!.paint['line-color']).toEqual(linked('#ff0000'));
+    expect(map.getLayer('overlay-v-point')!.paint['circle-color']).toEqual(linked('#ff0000'));
+    // A colour changed in the chart's Style button follows on the map.
+    mockState.chartAreas = [{ ...area, color: '#0000ff' }];
+    view.rerender(<MapLibreMap />);
+    await act(async () => {});
+    expect(map.getLayer('overlay-v-fill')!.paint['fill-color']).toEqual(linked('#0000ff'));
+    // Out of the chart: the layer colour again.
+    Object.assign(mockState, { chartAreas: [], timeSeriesPoints: [] });
+    view.rerender(<MapLibreMap />);
+    await act(async () => {});
+    expect(map.getLayer('overlay-v-fill')!.paint['fill-color']).toBe('#5bc0be');
+  });
+
   it('buffer circles: one per visible point and the reference buffer, cleared when turned off', async () => {
     const { view, map } = await mount();
     Object.assign(mockState, { bufferEnabled: true, bufferRadius: 300, refEnabled: true, refBufferEnabled: true,
