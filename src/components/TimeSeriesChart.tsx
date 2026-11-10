@@ -653,7 +653,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
       {(state.chartAreas.length > 0 || state.areaDrawing) && (
         <div className="chart-sliders chart-areas">
           {state.chartAreas.map(a => (
-            <span key={a.id} className={`chart-area-chip${a.visible ? '' : ' hidden'}`} title={a.name}>
+            <span key={a.id} className={`chart-area-chip${a.visible ? '' : ' area-hidden'}`} title={a.name}>
               <span className="chart-area-swatch" style={{ background: a.color }} />
               {a.name}
               <button onClick={() => dispatch({ type: 'REMOVE_CHART_AREA', payload: a.id })} title={`Remove ${a.name}`}>✕</button>

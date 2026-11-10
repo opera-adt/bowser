@@ -128,7 +128,7 @@ export default function StatsTab() {
           </div>
           <div className="zs-list" role="list" aria-label="Zonal stats">
             {sorted.map(({ area: a, entry, pixels, stats, trend }) => (
-              <div key={a.id} className={`zs-row${a.visible ? '' : ' hidden'}`} role="listitem" aria-label={a.name}>
+              <div key={a.id} className={`zs-row${a.visible ? '' : ' area-hidden'}`} role="listitem" aria-label={a.name}>
                 <div className="ov-row-head">
                   <span className="ov-swatch" style={{ background: a.color }} />
                   <span className="ov-name" title={a.name}>{a.name}</span>
