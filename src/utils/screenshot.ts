@@ -6,12 +6,10 @@
  * including CSS transforms, variables, and images.
  */
 import { toPng } from 'html-to-image';
+import { saveFile } from './saveFile';
 
 function triggerDownload(dataUrl: string, filename: string) {
-  const link = document.createElement('a');
-  link.download = filename;
-  link.href = dataUrl;
-  link.click();
+  void saveFile(dataUrl, filename);
 }
 
 /** Export a Chart.js canvas as a transparent-background PNG. */
