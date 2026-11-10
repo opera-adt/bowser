@@ -84,6 +84,15 @@ describe('Stats tab', () => {
     expect(screen.getByText(/relative to the reference/)).toBeTruthy();
   });
 
+  it('takes each statistic off its own value on a chosen reference date', () => {
+    renderTab([...noRef, { type: 'SET_REF_TIME_INDEX', payload: { dataset: 'displacement', index: 1 } }, { type: 'SET_TIME_INDEX', payload: 2 }]);
+    expect(value('Dam area', 'Median')).toBe('0.0100');
+    expect(value('Dam area', 'Mean')).toBe('0.0100');
+    expect(value('Dam area', 'p90')).toBe('0.0120');
+    expect(value('Dam area', 'Std')).toBe('0.00400');
+    expect(screen.getByText(/relative to 2021-01-01/)).toBeTruthy();
+  });
+
   it('averages over the record with Whole record', () => {
     renderTab(noRef);
     fireEvent.click(screen.getByRole('radio', { name: 'Whole record' }));

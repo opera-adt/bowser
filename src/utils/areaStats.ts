@@ -3,9 +3,12 @@
  * the record, the linear trend of the median, the area's bounds, and the Stats tab's CSV.
  */
 import type { ChartArea } from '../types';
-import { AREA_PERCENTILES, type PolygonTimeSeries } from './polygonSeries';
+import type { PolygonTimeSeries } from './polygonSeries';
 import { DEFAULT_FIT, fitSeries } from '../map/fitSettings';
 import type { DisplayUnit } from './units';
+
+/** p10 and p90: the percentile band holds the middle 80 % of the pixels. */
+export const AREA_PERCENTILES = [10, 90] as const;
 
 export interface AreaRow {
   label: string;
@@ -57,6 +60,13 @@ export function areaRows(result: PolygonTimeSeries, reference: number[] | null, 
   return rows.map(r => ({
     ...r, mean: less(r.mean, at?.mean), median: less(r.median, at?.median), p10: less(r.p10, at?.p10), p90: less(r.p90, at?.p90),
   }));
+}
+
+/** Where a layer's chosen reference date (its x value) is among an answer's dates, or null. */
+export function refIndexOf(result: PolygonTimeSeries, refX: unknown): number | null {
+  if (refX === undefined || refX === null) return null;
+  const i = result.labels.findIndex(l => String(l) === String(refX));
+  return i >= 0 ? i : -1;
 }
 
 /** The statistics averaged over every date that has them (the "whole record" view). */

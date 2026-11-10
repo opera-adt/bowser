@@ -3,7 +3,7 @@ import { useAppContext } from '../../context/AppContext';
 import { useAreaReference } from '../../hooks/useAreaReference';
 import { areaStatsKey } from '../../utils/polygonSeries';
 import { chartDatasets } from '../../utils/zonalStats';
-import { areaRows, geometryBounds, medianTrend, recordAverage, statsCsv, toIsoDate, type AreaRow, type StatsTableRow } from '../../utils/areaStats';
+import { areaRows, geometryBounds, refIndexOf, medianTrend, recordAverage, statsCsv, toIsoDate, type AreaRow, type StatsTableRow } from '../../utils/areaStats';
 import { activeRefTime } from '../../utils/refDate';
 import { displayUnit } from '../../utils/units';
 import { saveFile } from '../../utils/saveFile';
@@ -42,7 +42,10 @@ export default function StatsTab() {
   const table = useMemo(() => areas.map((a, order) => {
     const entry = ds ? state.areaStats[areaStatsKey(ds, a.id)] : undefined;
     let rows: AreaRow[] | null = null;
-    if (entry?.data && ref !== undefined) rows = areaRows(entry.data, ref, refIndex);
+    if (entry?.data && ref !== undefined) {
+      const at = refIndex === null ? null : refIndexOf(entry.data, info?.x_values[refIndex]);
+      rows = at === -1 ? [] : areaRows(entry.data, ref, at);
+    }
     let stats: AreaRow | null = null;
     if (rows) {
       if (whole) stats = recordAverage(rows);
@@ -56,7 +59,7 @@ export default function StatsTab() {
       pixels: entry?.data ? (entry.data.polygon_pixels ?? Math.max(0, ...entry.data.statistics.map(s => s.count))) : null,
       stats, trend: rows ? medianTrend(rows, toIsoDate, shown) : null,
     };
-  }), [areas, ds, state.areaStats, ref, refIndex, whole, mapLabel, state.currentTimeIndex, shown]);
+  }), [areas, ds, info, state.areaStats, ref, refIndex, whole, mapLabel, state.currentTimeIndex, shown]);
 
   const sorted = [...table].sort((x, y) => {
     if (sort === 'order') return x.order - y.order;

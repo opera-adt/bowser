@@ -5,6 +5,7 @@ import { DEFAULT_FIT } from '../map/fitSettings';
 import { readUnitSystem, saveUnitSystem } from '../utils/units';
 
 import { nextSeriesColor } from '../utils/seriesColors';
+import { readAreaBand, saveAreaBand } from '../utils/polygonSeries';
 
 // Generate unique ID for points
 function generatePointId(): string {
@@ -28,6 +29,7 @@ const initialState: AppState = {
   chartAreas: [],
   areaStats: {},
   panelTab: 'main',
+  areaBand: readAreaBand(),
   areaDrawing: false,
   areaOpenedTools: false,
   refMarkerPosition: [0, 0],
@@ -148,6 +150,9 @@ function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppSt
       }
       return { ...state, chartAreas };
     }
+    case 'SET_AREA_BAND':
+      saveAreaBand(action.payload);
+      return { ...state, areaBand: action.payload };
     case 'SET_PANEL_TAB':
       return { ...state, panelTab: action.payload };
     case 'SET_AREA_STATS':
@@ -451,7 +456,8 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(appReducer, initialState);
+  // Per-viewer choices are read when the app starts, not when this module loads.
+  const [state, dispatch] = useReducer(appReducer, initialState, s => ({ ...s, areaBand: readAreaBand() }));
 
   return (
     <AppContext.Provider value={{ state, dispatch }}>

@@ -2266,6 +2266,20 @@ img.huechange { filter: hue-rotate(120deg); }
   color: var(--sb-muted);
 }
 
+.chart-area-band {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.chart-area-band .sidebar-select {
+  width: auto;
+  height: 22px;
+  padding: 1px 4px;
+  font-size: 1em;
+}
+
 .chart-area-error {
   margin-bottom: 4px;
   font-size: 0.75em;

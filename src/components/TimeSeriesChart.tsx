@@ -19,10 +19,10 @@ import { displayUnit } from '../utils/units';
 import { saveFile } from '../utils/saveFile';
 import { activeRefTime, refDateLabel, refDateMarker, relativeChartData, relativeTo } from '../utils/refDate';
 import ChartAreaButton from './ChartAreaButton';
-import { areaChartDatasets, areaStatsKey } from '../utils/polygonSeries';
+import { AREA_BAND_LABELS, areaChartDatasets, areaStatsKey, type AreaBand } from '../utils/polygonSeries';
 import { fetchAreaStats } from '../utils/zonalStats';
 import { useAreaReference } from '../hooks/useAreaReference';
-import { toIsoDate } from '../utils/areaStats';
+import { refIndexOf, toIsoDate } from '../utils/areaStats';
 
 // Chart.js plugin to wire legend-click visibility to all related datasets (raw, trend,
 // residual, samples, median) that share the same base label.
@@ -669,6 +669,15 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
               <button onClick={() => dispatch({ type: 'REMOVE_CHART_AREA', payload: a.id })} title={`Remove ${a.name}`}>✕</button>
             </span>
           ))}
+          {state.chartAreas.length > 0 && (
+            <label className="chart-area-note chart-area-band">
+              Band
+              <select className="sidebar-select" aria-label="Area band" value={state.areaBand}
+                onChange={e => dispatch({ type: 'SET_AREA_BAND', payload: e.target.value as AreaBand })}>
+                {(Object.keys(AREA_BAND_LABELS) as AreaBand[]).map(b => <option key={b} value={b}>{AREA_BAND_LABELS[b]}</option>)}
+              </select>
+            </label>
+          )}
           {state.areaDrawing && <span className="chart-area-note">Draw the area on the map: click the first point to finish.</span>}
         </div>
       )}
@@ -718,7 +727,8 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
       return areaChartDatasets({
         result, name: multiDs ? `${area.name} [${dsName}]` : area.name, color: area.color,
         factor: shown.factor, unit: shown.label, yAxisID: `y${activeChartDs.indexOf(dsName)}`,
-        reference, toX: toIsoDate, inRange,
+        reference, toX: toIsoDate, inRange, band: state.areaBand,
+        refIndex: dsName in refX ? refIndexOf(result, refX[dsName]) : null,
       });
     });
   });

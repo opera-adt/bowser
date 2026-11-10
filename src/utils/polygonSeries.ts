@@ -9,9 +9,28 @@
  */
 import type { ChartArea, Overlay } from '../types';
 
-/** p10 and p90: the band holds the middle 80 % of the pixels. */
-export const AREA_PERCENTILES = [10, 90] as const;
-export const AREA_BAND_LABEL = 'p10–p90';
+import { AREA_PERCENTILES, areaRows, type AreaRow } from './areaStats';
+
+export { AREA_PERCENTILES };
+
+/** The band drawn around an area's lines: mean ± 1 std (default) or p10–p90. */
+export type AreaBand = 'std' | 'pct';
+export const AREA_BAND_LABELS: Record<AreaBand, string> = { std: 'mean ± 1 std', pct: 'p10–p90' };
+
+const BAND_KEY = 'bowser-area-band';
+
+/** The band this viewer chose last (per browser), mean ± 1 std until then. */
+export function readAreaBand(): AreaBand {
+  try {
+    return localStorage.getItem(BAND_KEY) === 'pct' ? 'pct' : 'std';
+  } catch {
+    return 'std';
+  }
+}
+
+export function saveAreaBand(band: AreaBand): void {
+  try { localStorage.setItem(BAND_KEY, band); } catch { /* this session only */ }
+}
 
 export interface PolygonStatistics {
   count: number;
@@ -142,6 +161,14 @@ export interface AreaSeriesOptions {
   yAxisID: string;
   /** The reference value per date (state.refValues[dataset]) when the viewer's reference is on. */
   reference: number[] | null;
+  /**
+   * The chosen reference date's index in ``result.labels`` (Main › Layers › ref), or null: each
+   * line is then taken off its own value on that date, as point series are; -1 when the date
+   * is not among the answer's (nothing can be drawn, as for a point).
+   */
+  refIndex?: number | null;
+  /** The band: mean ± 1 std (default) or p10–p90. */
+  band?: AreaBand;
   /** A label → the chart's x value. */
   toX: (label: string) => string;
   /** Whether an x value is inside the chosen date range. */
@@ -151,22 +178,28 @@ export interface AreaSeriesOptions {
 /**
  * The Chart.js datasets for one area, all in its colour: the band's upper and lower edges
  * (the upper fills down to the lower; they must stay adjacent), the median and the dashed mean.
+ * The std band is the mean ± the spatial std on each date (the std itself is never shifted).
  */
 export function areaChartDatasets(o: AreaSeriesOptions): Record<string, unknown>[] {
-  const relative = o.reference !== null;
-  const series = (pick: (r: PolygonStatistics) => number | null) => {
+  const relative = o.reference !== null || (o.refIndex ?? null) !== null;
+  const band = o.band ?? 'std';
+  const rows = o.refIndex === -1 ? [] : areaRows(o.result, o.reference, o.refIndex ?? null);
+  const series = (pick: (r: AreaRow) => number | null) => {
     const out: { x: string; y: number }[] = [];
-    o.result.statistics.forEach((row, i) => {
+    for (const row of rows) {
       const v = pick(row);
-      const ref = o.reference ? o.reference[i] : 0;
-      if (v === null || v === undefined || !Number.isFinite(v) || !Number.isFinite(ref)) return;
-      const x = o.toX(o.result.labels[i]);
-      if (o.inRange(x)) out.push({ x, y: (v - ref) * o.factor });
-    });
+      if (v === null || !Number.isFinite(v)) continue;
+      const x = o.toX(row.label);
+      if (o.inRange(x)) out.push({ x, y: v * o.factor });
+    }
     return out;
   };
-  const [lo, hi] = AREA_PERCENTILES.map(String);
-  const band = `${o.name} ${AREA_BAND_LABEL}`;
+  const withStd = (sign: 1 | -1) => (r: AreaRow) => (r.mean !== null && r.std !== null ? r.mean + sign * r.std : null);
+  const [lo, hi] = AREA_PERCENTILES;
+  const edges = band === 'std'
+    ? [{ label: '+1 std', pick: withStd(1) }, { label: '−1 std', pick: withStd(-1) }]
+    : [{ label: `p${hi}`, pick: (r: AreaRow) => r.p90 }, { label: `p${lo}`, pick: (r: AreaRow) => r.p10 }];
+  const bandName = `${o.name} ${AREA_BAND_LABELS[band]}`;
   const common = {
     _area: true, _unit: o.unit, _note: relative ? 'relative to the reference' : undefined,
     yAxisID: o.yAxisID, tension: 0, borderColor: o.color, pointHoverRadius: 0,
@@ -174,13 +207,13 @@ export function areaChartDatasets(o: AreaSeriesOptions): Record<string, unknown>
   };
   return [
     {
-      ...common, label: `${o.name} p${hi}`, _baseLabel: band, _legend: band,
-      data: series(r => r.percentiles[hi]),
+      ...common, label: `${o.name} ${edges[0].label}`, _baseLabel: bandName, _legend: bandName,
+      data: series(edges[0].pick),
       fill: '+1', backgroundColor: `${o.color}33`, borderWidth: 0, pointRadius: 0,
     },
     {
-      ...common, label: `${o.name} p${lo}`, _baseLabel: band,
-      data: series(r => r.percentiles[lo]),
+      ...common, label: `${o.name} ${edges[1].label}`, _baseLabel: bandName,
+      data: series(edges[1].pick),
       fill: false, backgroundColor: 'transparent', borderWidth: 0, pointRadius: 0,
     },
     {
