@@ -156,6 +156,15 @@ describe('MapLibreMap without WebGL', () => {
 });
 
 describe('MapLibreMap', () => {
+  it('dark basemap source stops at its native zoom 16; data and map still go to 22', async () => {
+    mockState.selectedBasemap = 'esriDark';
+    const { map } = await mount();
+    expect(map.sources.get('basemap-bottom').tiles[0]).toContain('World_Dark_Gray_Base');
+    expect(map.sources.get('basemap-bottom').maxzoom).toBe(16);
+    expect(map.sources.get('data-1').maxzoom).toBe(22);
+    expect(map.opts.maxZoom ?? 22).toBeGreaterThanOrEqual(22);   // MapLibre's default maxZoom is 22
+  });
+
   it('draws the basemap, fits the data and adds the raster layer on top', async () => {
     const { map } = await mount();
     expect(map.sources.get('basemap-bottom').tiles[0]).toContain('World_Imagery');
