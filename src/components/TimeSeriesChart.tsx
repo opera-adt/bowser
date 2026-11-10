@@ -17,7 +17,7 @@ import { describeFit, fitSeries, modelCurve, modelLabel, rSquared } from '../map
 import type { FitResult } from '../map/fit';
 import { displayUnit } from '../utils/units';
 import { saveFile } from '../utils/saveFile';
-import { activeRefTime, refDateLabel, relativeChartData, relativeTo } from '../utils/refDate';
+import { activeRefTime, refDateLabel, refDateMarker, relativeChartData, relativeTo } from '../utils/refDate';
 
 // Chart.js plugin to wire legend-click visibility to all related datasets (raw, trend,
 // residual, samples, median) that share the same base label.
@@ -717,6 +717,9 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     const colorOverride = dsColorOverrides[dsName] ?? null;
     const axisIdx = activeChartDs.indexOf(dsName);
     const yAxisID = `y${axisIdx}`;
+    // The date the series is relative to (chosen, or as stored), marked on each series.
+    const refAt = refX[dsName] ?? dsInfo?.reference_date;
+    const refIso = refAt === undefined || refAt === null ? null : toIsoDate(refAt);
 
     cd.datasets.forEach(dataset => {
       const baseLabel = multiDs ? `${dataset.label} [${dsName}]` : dataset.label;
@@ -757,6 +760,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
           borderColor, backgroundColor: borderColor,
           borderWidth: 0, fill: false,
           ...look, showLine: false, pointRadius: look.pointRadius || ms,
+          ...refDateMarker(medianData, refIso, borderColor, borderColor, look.pointRadius || ms),
         });
       } else {
         const isoData = dataset.data
@@ -775,6 +779,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
           backgroundColor,
           borderWidth: 2, tension: 0.1, fill: false,
           ...look,
+          ...refDateMarker(isoData, refIso, borderColor, backgroundColor, look.pointRadius),
         });
 
         const fit = fits[`${dsName}::${dataset.pointId}`]?.fit;

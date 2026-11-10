@@ -48,3 +48,27 @@ export function relativeChartData(
   }
   return out;
 }
+
+/** The reference date's marker colour: black, or red when the series is black itself, so it still shows. */
+export function refMarkColor(seriesColor: string): string {
+  const c = seriesColor.trim().toLowerCase().replace(/\s/g, '');
+  return ['#000', '#000000', '#000000ff', 'black', 'rgb(0,0,0)'].includes(c) ? '#e53935' : '#000000';
+}
+
+/**
+ * Per-point Chart.js marker fields that draw a series' point on the reference date in
+ * ``refMarkColor`` and one size larger; nothing when the series has no point on that date.
+ */
+export function refDateMarker(
+  data: { x: string }[], refIso: string | null, color: string, background: string, radius: number,
+) {
+  const at = refIso ? data.findIndex(p => p.x === refIso) : -1;
+  if (at < 0) return {};
+  const mark = refMarkColor(color);
+  const pick = <T,>(ref: T, other: T) => data.map((_, i) => (i === at ? ref : other));
+  return {
+    pointBackgroundColor: pick(mark, background),
+    pointBorderColor: pick(mark, color),
+    pointRadius: pick(Math.max(radius, 3) + 1, radius),
+  };
+}
