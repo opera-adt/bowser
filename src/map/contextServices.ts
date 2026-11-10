@@ -168,7 +168,7 @@ export function listServices(state: AppState): Record<string, unknown>[] {
 /** Ids of highlight overlays start with this. */
 export const HIGHLIGHT_PREFIX = 'ai_hl_';
 export const HIGHLIGHT_COLOR = '#f97316';
-export const ZONES_COLOR = '#dc2626';
+export const ZONES_COLOR = '#c026d3';
 
 export const isHighlight = (o: Overlay) => o.id.startsWith(HIGHLIGHT_PREFIX);
 

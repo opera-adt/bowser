@@ -658,14 +658,13 @@ async function highlightInfrastructure(ctx: PageContext, input: Record<string, u
   if (!res.ok) throw new Error(String(found.detail ?? `The server answered HTTP ${res.status}.`));
   const name = `${(kinds as string[]).join(', ')} in ${label}`.replace(/^./, c => c.toUpperCase());
   const color = typeof input.color === 'string' && /^#[0-9a-f]{6}$/i.test(input.color) ? input.color : undefined;
+  const counts = Object.fromEntries(Object.entries(found.summary ?? {}).map(([k, v]) => [k, (v as { count: number }).count]));
+  const about = { counts, text: found.text, attribution: found.attribution };
+  if (!found.n_features) {
+    return { ok: true, name, n_features: 0, ...about, note: 'Nothing found in OpenStreetMap there, so nothing was drawn.' };
+  }
   const drawn = await drawResult(commandEnv(ctx), found.result_id, name, color);
-  return {
-    ...drawn,
-    counts: Object.fromEntries(Object.entries(found.summary ?? {}).map(([k, v]) => [k, (v as { count: number }).count])),
-    text: found.text,
-    attribution: found.attribution,
-    note: `On the map as "${name}" (Overlays › Layers); clear_highlights removes it.`,
-  };
+  return { ...drawn, ...about, note: `On the map as "${name}" (Overlays › Layers); clear_highlights removes it.` };
 }
 
 

@@ -1574,10 +1574,14 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
 
     # --- tools: what is on the ground (context and infrastructure) -------------------
 
-    async def drawn(result_id: str, name: str, color: str | None, show: bool) -> dict:
+    async def drawn(
+        result_id: str, name: str, color: str | None, show: bool, n: int = 1
+    ) -> dict:
         """Draw a kept result on the page when asked and a page is connected."""
         if not show:
             return {"on_map": False, "note": "show_on_map was false."}
+        if not n:
+            return {"on_map": False, "note": "Nothing found, so nothing drawn."}
         try:
             res = await api.page(
                 "draw_highlight",
@@ -1704,7 +1708,11 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
         }
         res = await infra_query(body, kinds is not None)
         note = await drawn(
-            res["result_id"], f"Infrastructure within {radius_m:g} m", None, show_on_map
+            res["result_id"],
+            f"Infrastructure within {radius_m:g} m",
+            None,
+            show_on_map,
+            res["n_features"],
         )
         return infra_answer(res, note)
 
@@ -1759,7 +1767,9 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
         else:
             body["geometry"] = geometry
         res = await infra_query(body, kinds is not None)
-        note = await drawn(res["result_id"], label, None, show_on_map)
+        note = await drawn(
+            res["result_id"], label, None, show_on_map, res["n_features"]
+        )
         return infra_answer(res, note)
 
     @page_tool(open_world=True)
@@ -1910,8 +1920,9 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
         note = await drawn(
             res["result_id"],
             f"Zones |rate| >= {threshold_mm_yr:g} {res['unit']}",
-            "#dc2626",
-            show_on_map and bool(zones_out),
+            None,
+            show_on_map,
+            len(zones_out),
         )
         biggest = zones_out[0] if zones_out else None
         return {

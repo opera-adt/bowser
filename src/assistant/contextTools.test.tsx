@@ -54,7 +54,10 @@ beforeEach(() => {
     if (url.startsWith('/context/results/')) return new Response(JSON.stringify({ detail: 'No result.' }), { status: 404 });
     if (url === '/infrastructure') {
       posted.push(JSON.parse(String(init?.body)));
-      return new Response(JSON.stringify({ result_id: 'infr-xyz789', summary: { roads: { count: 2 } }, text: 'roads: 6.2 km', attribution: 'OSM' }));
+      const empty = JSON.parse(String(init?.body)).zone === 'Z9';
+      return new Response(JSON.stringify({
+        result_id: 'infr-xyz789', n_features: empty ? 0 : 2, summary: { roads: { count: empty ? 0 : 2 } }, text: 'roads: 6.2 km', attribution: 'OSM',
+      }));
     }
     if (url.startsWith('/gnss/stations')) {
       return new Response(JSON.stringify({ stations: [{ id: 'P056', lon: -90, lat: 34.8, first: 2010, last: 2024, ve_mm_yr: 1, vn_mm_yr: 0, vu_mm_yr: -2, sigma_vu_mm_yr: 0.3 }] }));
@@ -141,7 +144,7 @@ describe('highlights', () => {
     expect(out).toMatchObject({ ok: true, name: 'Zones', n_features: 1, layer_id: `${HIGHLIGHT_PREFIX}zone-abc123` });
     expect(actions()).toEqual([
       { type: 'REMOVE_OVERLAY', payload: `${HIGHLIGHT_PREFIX}zone-abc123` },
-      { type: 'ADD_OVERLAY', payload: expect.objectContaining({ type: 'vector', color: '#dc2626', aboveData: true, data: ZONES.features }) },
+      { type: 'ADD_OVERLAY', payload: expect.objectContaining({ type: 'vector', color: '#c026d3', aboveData: true, data: ZONES.features }) },
     ]);
     await expect(runPageTool('draw_highlight', { result_id: 'zone-gone99' }, ctx())).rejects.toThrow('No result.');
     await expect(runPageTool('draw_highlight', { result_id: '../etc' }, ctx())).rejects.toThrow('result_id');
@@ -152,6 +155,12 @@ describe('highlights', () => {
     expect(posted).toEqual([{ kinds: ['roads'], zone: 'Z1' }]);
     expect(out).toMatchObject({ ok: true, name: 'Roads in zone Z1', n_features: 2, counts: { roads: 2 } });
     expect(actions()[1]).toMatchObject({ type: 'ADD_OVERLAY', payload: { name: 'Roads in zone Z1', color: '#00ff00', data: ROADS.features } });
+  });
+
+  it('highlight_infrastructure draws nothing when nothing is found', async () => {
+    const out = await runPageTool('highlight_infrastructure', { kinds: ['roads'], zone: 'Z9' }, ctx()) as any;
+    expect(out).toMatchObject({ ok: true, n_features: 0, counts: { roads: 0 } });
+    expect(actions()).toEqual([]);
   });
 
   it('highlight_infrastructure takes a drawn shape by name (get_areas)', async () => {

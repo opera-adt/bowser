@@ -821,7 +821,7 @@ def summarize(
             else:
                 s["by_class"] = dict(a["classes"])
             s["named"] = [
-                {"name": n, "class": c, "km": round(v / 1000, 3)}
+                {"name": n, "class": c, **({"km": round(v / 1000, 3)} if v else {})}
                 for (n, c), v in sorted(a["named"].items(), key=lambda kv: -kv[1])
             ][:list_limit]
         summary[k] = s
@@ -845,6 +845,8 @@ def summarize(
 
 def describe(kind: str, s: dict[str, Any]) -> str:
     """One line on a kind's summary."""
+    if not s["count"]:
+        return f"no {kind} in OpenStreetMap here"
     if kind == "buildings":
         return f"{s['count']:,} buildings ({s['footprint_m2']:,} m² of footprint)"
     if "length_km" in s:

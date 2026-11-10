@@ -143,6 +143,15 @@ def test_corners_do_not_join_zones_and_holes_are_kept():
     assert len(a["geometry"]["coordinates"][0]) == 5  # a square: 4 corners + closing
 
 
+def test_an_outline_touching_itself_at_a_corner_is_one_ring():
+    """A gap that meets the outside only at a corner is not a hole (4-connected
+    cells, 8-connected gaps): one ring, whose area is the cells'."""
+    cells = np.array([[1, 1, 1], [1, 0, 1], [1, 1, 0]], bool)
+    rings = zones.trace_rings(cells)
+    assert len(rings) == 1
+    assert abs(zones._signed_area(rings[0])) == 7
+
+
 def test_options_sign_area_bbox_quality_reference_and_fitted_rate():
     ds = planted()
     neg = zones.deformation_zones(ds, TO_XY, 5.0, sign="negative")
@@ -534,7 +543,7 @@ def test_overpass_answers_become_summaries_per_kind():
     assert summary["dams"] == {
         "count": 1,
         "by_class": {"dam": 1},
-        "named": [{"name": "Arkabutla Dam", "class": "dam", "km": 0.0}],
+        "named": [{"name": "Arkabutla Dam", "class": "dam"}],
     }
     assert summary["levees"]["count"] == 1 and summary["pipelines"][
         "km_by_class"
