@@ -36,7 +36,8 @@ def tiles_over(bounds: list[float], z: int) -> list[tuple[int, int, int]]:
 
 
 #: Tile parameter sets for the synthetic regression cube: what the UI sends for
-#: the common layer styles (moving reference shift, rewrap, masks, a 2-D layer).
+#: the common layer styles (moving reference shift, rewrap, masks, a 2-D layer,
+#: a step relative to another date).
 REGRESSION_TILE_PARAMS = {
     "ui_shift": {
         "variable": "displacement",
@@ -93,6 +94,18 @@ REGRESSION_TILE_PARAMS = {
         "colormap_name": "rdbu",
         "mask_variable": "recommended_mask",
         "mask_min_value": 0.5,
+    },
+    "ref_time": {
+        "variable": "displacement",
+        "time_idx": 5,
+        "ref_time_idx": 1,
+        "rescale": "-0.01,0.01",
+        "colormap_name": "rdbu_r",
+        "algorithm": "shift",
+        "algorithm_params": json.dumps({"shift": 0.001}),
+        "layer_masks": json.dumps(
+            [{"dataset": "temporal_coherence", "threshold": 0.7, "mode": "min"}]
+        ),
     },
     "gray_2d": {
         "variable": "amplitude_dispersion",
@@ -304,6 +317,15 @@ def real_cube_requests(bounds: list[float], zooms=range(10, 16)) -> list[dict]:
             "variable": "velocity",
             "rescale": "-0.02,0.02",
             "colormap_name": "rdbu",
+        },
+        "disp_ref_time": {
+            "variable": "displacement",
+            "time_idx": 200,
+            "ref_time_idx": 60,
+            "rescale": "-0.05,0.05",
+            "colormap_name": "rdbu_r",
+            "algorithm": "shift",
+            "algorithm_params": json.dumps({"shift": 0.002}),
         },
         "disp_masked": {
             "variable": "displacement",

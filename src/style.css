@@ -2203,3 +2203,82 @@ img.huechange { filter: hue-rotate(120deg); }
   font-size: 0.75em;
   color: var(--sb-red);
 }
+
+/* ── Main › Layers: ‹ › beside the time step slider; click twice to play ── */
+.time-stepper {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.time-step-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.time-step-row .sidebar-range {
+  flex: 1;
+  min-width: 0;
+}
+
+.time-step-btn.playing {
+  background: var(--sb-surface2);
+  color: var(--sb-accent);
+}
+
+.time-step-btn:focus-visible {
+  outline: 2px solid var(--sb-accent);
+  outline-offset: 1px;
+}
+
+.time-speed-pop .row-label {
+  font-size: 0.78em;
+}
+
+.time-speed-pop .hist-btn[aria-pressed="true"] {
+  background: var(--sb-accent);
+  color: var(--sb-bg);
+}
+
+/* ── Main › Layers: the reference date under the slider; click to reference to another date ── */
+/* Time step header: "Time step  ref: <date> │ <date>", kept together beside the label */
+.time-step-values {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-left: 8px;
+  margin-right: auto;
+}
+
+.time-step-divider {
+  width: 1px;
+  height: 0.9em;
+  background: var(--sb-border);
+  flex: none;
+}
+
+.ref-date {
+  position: relative;
+  display: inline-flex;
+}
+
+.ref-date-label {
+  max-width: none;
+  color: var(--sb-muted);
+}
+
+.ref-date-label.on {
+  color: var(--sb-accent);
+}
+
+.ref-date-pop {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 30;
+  width: 210px;
+  box-sizing: border-box;
+  box-shadow: var(--shadow-md, 0 4px 14px rgba(0, 0, 0, 0.18));
+}

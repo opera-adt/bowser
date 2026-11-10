@@ -206,6 +206,8 @@ export interface AppState {
   currentDataset: string;
   currentTimeIndex: number;
   refValues: { [key: string]: number[] };
+  /** Per layer: the time step it is shown relative to (Main › Layers › ref); absent = as stored. */
+  refTimeIndex: { [dataset: string]: number };
   selectedBasemap: string;
   secondaryBasemap: string | null;
   basemapOpacity: number;
@@ -287,6 +289,7 @@ export type AppAction =
   | { type: 'SET_CURRENT_DATASET'; payload: string }
   | { type: 'SET_TIME_INDEX'; payload: number }
   | { type: 'SET_REF_VALUES'; payload: { dataset: string; values: number[] } }
+  | { type: 'SET_REF_TIME_INDEX'; payload: { dataset: string; index: number | null } }
   | { type: 'SET_BASEMAP'; payload: string }
   | { type: 'SET_SECONDARY_BASEMAP'; payload: string | null }
   | { type: 'SET_BASEMAP_OPACITY'; payload: number }

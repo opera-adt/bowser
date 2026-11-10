@@ -59,6 +59,7 @@ class TileQuery:
     mask_variable: str | None = None
     mask_min_value: float = 0.1
     layer_masks: str | None = None
+    ref_time_idx: int | None = None
     rescale: list[tuple[float, float]] = field(default_factory=list)
     colormap_name: str | None = None
     algorithm: str | None = None
@@ -171,14 +172,30 @@ def _clamp(i: int, n: int) -> int:
     return max(0, min(i, n - 1))
 
 
+def minus_reference_step(
+    da: xr.DataArray, full: xr.DataArray, dim: str, ref_time_idx: int
+) -> xr.DataArray:
+    """Return ``da`` minus ``full`` at step ``ref_time_idx`` (clamped), per pixel.
+
+    As ``bowser.main._minus_reference_step``: NaN where either is NaN, with
+    ``da``'s attributes, encoding and coordinates kept.
+    """
+    ref = full.isel({dim: _clamp(ref_time_idx, full.sizes[dim])}, drop=True)
+    with xr.set_options(keep_attrs=True):
+        out = da - ref
+    out.encoding = dict(da.encoding)
+    return out
+
+
 def tile_source(
     ds: xr.Dataset, q: TileQuery
 ) -> tuple[xr.DataArray, Callable[[xr.DataArray, Any], xr.DataArray]]:
     """Return the lazy variable for a tile and a function that masks any window of it.
 
     Mirrors ``bowser.main._build_masked_md_dataarray``: select ``time_idx``
-    (clamped), keep pixels where ``mask_variable > mask_min_value``, then apply
-    the layer masks from the same pyramid level.
+    (clamped), subtract the step at ``ref_time_idx`` when given, keep pixels
+    where ``mask_variable > mask_min_value``, then apply the layer masks from the
+    same pyramid level.
     """
     if q.variable not in ds.variables:
         raise HTTPException(status_code=404, detail=f"Variable {q.variable} not found")
@@ -193,7 +210,10 @@ def tile_source(
     if q.time_idx is not None:
         dim = non_spatial_dim(da)
         if dim is not None:
+            full = da
             da = da.isel({dim: _clamp(q.time_idx, da.sizes[dim])})
+            if q.ref_time_idx is not None:
+                da = minus_reference_step(da, full, dim, q.ref_time_idx)
         if mask_da is not None and (mdim := non_spatial_dim(mask_da)) is not None:
             mask_da = mask_da.isel({mdim: _clamp(q.time_idx, mask_da.sizes[mdim])})
     layer_masks = parse_layer_masks(q.layer_masks)

@@ -2171,6 +2171,22 @@ app.include_router(
 logger.info("Configured overlay endpoints at /overlay/*")
 
 
+def _minus_reference_step(
+    da: "xr.DataArray", full: "xr.DataArray", dim: str, ref_time_idx: int
+) -> "xr.DataArray":
+    """Return ``da`` minus ``full`` at step ``ref_time_idx`` (clamped), per pixel.
+
+    Re-references a displacement step to another date: NaN where either is NaN.
+    ``da``'s attributes, encoding and coordinates are kept, so nodata handling
+    downstream is unchanged.
+    """
+    ref = full.isel({dim: max(0, min(ref_time_idx, full.sizes[dim] - 1))}, drop=True)
+    with xr.set_options(keep_attrs=True):
+        out = da - ref
+    out.encoding = dict(da.encoding)
+    return out
+
+
 # MD mode: use xarray approach
 def _build_masked_md_dataarray(
     ds: "xr.Dataset",
@@ -2182,12 +2198,18 @@ def _build_masked_md_dataarray(
     custom_mask_path: Optional[str],
     *,
     strict_masks: bool = False,
+    ref_time_idx: Optional[int] = None,
 ) -> "xr.DataArray":
     """Build the masked 2-D/3-D DataArray for ``variable`` from a GeoZarr ``ds``.
 
     Shared by the tile path (``XarrayPathDependency``) and the GeoTIFF export so
     both apply identical masking: the recommended mask (for ``displacement``),
     the threshold layer masks, and an uploaded custom mask.
+
+    With ``ref_time_idx`` (and ``time_idx``), the step is shown relative to
+    another date: ``variable`` at ``time_idx`` minus ``variable`` at
+    ``ref_time_idx``, before any mask (and so before the tile algorithm).
+    Ignored for a variable without a time axis.
     """
     if variable not in ds.variables:
         raise HTTPException(status_code=404, detail=f"Variable {variable} not found")
@@ -2212,7 +2234,10 @@ def _build_masked_md_dataarray(
         if dim is not None:
             # Clamp to the valid range so an out-of-bounds index returns the
             # nearest edge slice rather than raising IndexError (a 500).
+            full = da
             da = da.isel({dim: max(0, min(time_idx, da.sizes[dim] - 1))})
+            if ref_time_idx is not None:
+                da = _minus_reference_step(da, full, dim, ref_time_idx)
         if mask_da is not None:
             mdim = _non_spatial_dim(mask_da)
             if mdim is not None:
@@ -2346,6 +2371,13 @@ def XarrayPathDependency(
     custom_mask_path: Optional[str] = Query(
         None, description="Path to uploaded custom mask GeoTIFF"
     ),
+    ref_time_idx: Optional[int] = Query(
+        None,
+        description=(
+            "Show the time step relative to this one: the value at time_idx "
+            "minus the value at ref_time_idx, per pixel"
+        ),
+    ),
 ) -> xr.DataArray:
     """Create a DataArray from query parameters.
 
@@ -2372,6 +2404,7 @@ def XarrayPathDependency(
         mask_min_value,
         layer_masks,
         custom_mask_path,
+        ref_time_idx=ref_time_idx,
     )
 
 
