@@ -233,6 +233,7 @@ export default function MainTab() {
                 <RefDatePicker key={`ref-${state.currentDataset}`} info={currentDatasetInfo} chosen={state.refTimeIndex[state.currentDataset]}
                   currentTimeIndex={state.currentTimeIndex} dataMode={state.dataMode}
                   onChoose={index => dispatch({ type: 'SET_REF_TIME_INDEX', payload: { dataset: state.currentDataset, index } })} />
+                <span className="time-step-divider" aria-hidden="true" />
                 <button type="button" className={`slider-value date-toggle${state.dateBadge !== 'off' ? ' on' : ''}`}
                   aria-pressed={state.dateBadge !== 'off'} onClick={() => dispatch({ type: 'TOGGLE_DATE_BADGE' })}
                   title={state.dateBadge === 'off' ? 'Show this date on the map' : state.dateBadge === 'full' ? 'Show the date alone on the map' : 'Hide the date on the map'}>

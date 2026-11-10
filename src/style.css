@@ -2176,12 +2176,21 @@ img.huechange { filter: hue-rotate(120deg); }
 }
 
 /* ── Main › Layers: the reference date under the slider; click to reference to another date ── */
-/* Time step header, right side: "ref: <date>", then the date */
+/* Time step header: "Time step  ref: <date> │ <date>", kept together beside the label */
 .time-step-values {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
+  margin-left: 8px;
+  margin-right: auto;
+}
+
+.time-step-divider {
+  width: 1px;
+  height: 0.9em;
+  background: var(--sb-border);
+  flex: none;
 }
 
 .ref-date {
