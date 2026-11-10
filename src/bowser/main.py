@@ -557,6 +557,7 @@ async def get_config(request: Request, dataset: str | None = Query(None)):
         "title": entry.name if entry is not None else settings.BOWSER_TITLE,
         "opera_logo": settings.BOWSER_OPERA_LOGO,
         "geotiff_export": True,
+        "polygon_stats": True,
     }
 
 

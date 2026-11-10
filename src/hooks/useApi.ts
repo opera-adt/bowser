@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
-import { MultiPointTimeSeriesData, LayerMask } from '../types';
+import { MultiPointTimeSeriesData, LayerMask, ChartArea } from '../types';
+import { polygonErrorMessage, polygonRequestBody, type PolygonTimeSeries } from '../utils/polygonSeries';
 
 /**
  * Read `?dataset=<id>` from the current URL.
@@ -204,6 +205,27 @@ export function useApi() {
     }
   }, []);
 
+  /** Statistics of a layer inside a polygon (full server only); an error is a short message. */
+  const fetchPolygonTimeSeries = useCallback(async (
+    datasetName: string,
+    geometry: ChartArea['geometry'],
+  ): Promise<{ data: PolygonTimeSeries } | { error: string }> => {
+    try {
+      const qs = withDataset(new URLSearchParams()).toString();
+      const response = await fetch(qs ? `/polygon_timeseries?${qs}` : '/polygon_timeseries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(polygonRequestBody(datasetName, geometry)),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) return { error: polygonErrorMessage(response.status, body) };
+      return { data: body as PolygonTimeSeries };
+    } catch (error) {
+      console.error('Error fetching polygon statistics:', error);
+      return { error: 'could not reach the server' };
+    }
+  }, []);
+
   return {
     fetchDatasets,
     fetchDataMode,
@@ -214,6 +236,7 @@ export function useApi() {
     fetchTrendAnalysis,
     fetchTimeBounds,
     fetchBufferTimeSeries,
+    fetchPolygonTimeSeries,
     currentDatasetId,
   };
 }

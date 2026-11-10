@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useReducer, ReactNode } from 'react';
-import { AppState, AppAction, LegacyAppAction, TimeSeriesPoint, ChartWindow } from '../types';
+import { AppState, AppAction, LegacyAppAction, TimeSeriesPoint, ChartWindow, ChartArea } from '../types';
 import { withDrawings } from '../map/overlays';
 import { DEFAULT_FIT } from '../map/fitSettings';
 import { readUnitSystem, saveUnitSystem } from '../utils/units';
@@ -16,14 +16,23 @@ function generatePointId(): string {
 }
 
 // Get next available color
-function getNextColor(existingPoints: TimeSeriesPoint[]): string {
+function getNextColor(existingPoints: Array<Pick<TimeSeriesPoint, 'color'>>): string {
   const usedColors = new Set(existingPoints.map(p => p.color));
   return POINT_COLORS.find(color => !usedColors.has(color)) || POINT_COLORS[existingPoints.length % POINT_COLORS.length];
+}
+
+/** Done waiting for an area: the Draw tools close if "+ Area" opened them. */
+function stopAreaDrawing(state: AppState): Partial<AppState> {
+  if (!state.areaDrawing) return {};
+  return { areaDrawing: false, areaOpenedTools: false, drawingEnabled: state.areaOpenedTools ? false : state.drawingEnabled };
 }
 
 const initialState: AppState = {
   datasetInfo: {},
   timeSeriesPoints: [],
+  chartAreas: [],
+  areaDrawing: false,
+  areaOpenedTools: false,
   refMarkerPosition: [0, 0],
   currentDataset: '',
   currentTimeIndex: 0,
@@ -121,6 +130,30 @@ function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppSt
         timeSeriesPoints: state.timeSeriesPoints.filter(p => p.id !== action.payload),
         selectedPointId: state.selectedPointId === action.payload ? null : state.selectedPointId,
       };
+
+    // Areas in the chart: a colour not used by a point or another area.
+    case 'ADD_CHART_AREA': {
+      const area: ChartArea = {
+        id: `area_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+        name: action.payload.name || `Area ${state.chartAreas.length + 1}`,
+        color: getNextColor([...state.timeSeriesPoints, ...state.chartAreas]),
+        visible: true,
+        geometry: action.payload.geometry,
+      };
+      return { ...state, chartAreas: [...state.chartAreas, area], ...stopAreaDrawing(state) };
+    }
+    case 'REMOVE_CHART_AREA':
+      return { ...state, chartAreas: state.chartAreas.filter(a => a.id !== action.payload) };
+    case 'UPDATE_CHART_AREA':
+      return {
+        ...state,
+        chartAreas: state.chartAreas.map(a => (a.id === action.payload.id ? { ...a, ...action.payload.updates } : a)),
+      };
+    // Drawing an area opens the Draw tools (they start in polygon mode) and closes them after.
+    case 'SET_AREA_DRAWING':
+      return action.payload
+        ? { ...state, areaDrawing: true, drawingEnabled: true, areaOpenedTools: state.areaDrawing ? state.areaOpenedTools : !state.drawingEnabled }
+        : { ...state, ...stopAreaDrawing(state) };
 
     case 'UPDATE_TIME_SERIES_POINT':
       return {
@@ -286,7 +319,8 @@ function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppSt
     case 'SET_FIT_SETTINGS':
       return { ...state, fitSettings: { ...state.fitSettings, ...action.payload } };
     case 'SET_DRAWING_ENABLED':
-      return { ...state, drawingEnabled: action.payload };
+      // Closing the Draw tools also gives up waiting for an area.
+      return { ...state, drawingEnabled: action.payload, areaDrawing: action.payload && state.areaDrawing, areaOpenedTools: false };
     case 'SET_DRAWINGS':
       return { ...state, overlays: withDrawings(state.overlays, action.payload) };
     case 'TOGGLE_BUFFER':
