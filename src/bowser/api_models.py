@@ -501,14 +501,23 @@ class LosInfo(_Fixed):
 class DatasetInfo(_Fixed):
     """One layer of ``GET /datasets``.
 
-    ``available_mask_vars``, ``label`` and ``reference_lonlat`` are sent for
-    GeoZarr cubes only; ``guidance`` only for layers with both producer text and
+    ``available_mask_vars``, ``label``, ``reference_lonlat`` and ``n_time_steps``
+    are sent for GeoZarr cubes only, ``file_list`` and ``mask_file_list`` for
+    GeoTIFF groups only; ``guidance`` only for layers with both producer text and
     Bowser guidance; ``metadata_notes`` only for some GeoTIFF groups.
     """
 
     name: str
-    file_list: list[str]
-    mask_file_list: list[str]
+    file_list: Optional[list[str]] = Field(
+        default=None, description="GeoTIFF mode only: one file per time step."
+    )
+    mask_file_list: Optional[list[str]] = Field(
+        default=None, description="GeoTIFF mode only: the matching mask files."
+    )
+    n_time_steps: Optional[int] = Field(
+        default=None,
+        description="GeoZarr mode only: steps on the time axis (1 for 2-D).",
+    )
     mask_min_value: float
     nodata: Optional[float]
     uses_spatial_ref: bool = Field(
