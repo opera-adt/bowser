@@ -64,6 +64,7 @@ export function useRasterTileUrl(o: RasterOverrides = {}): string | null {
     state.refValues,
     state.refMarkerPosition,
     state.refEnabled,
+    state.refTimeIndex,
     effectiveColormap,
     effectiveVmin,
     effectiveVmax,

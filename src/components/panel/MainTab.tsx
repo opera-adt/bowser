@@ -5,6 +5,7 @@ import Histogram from '../Histogram';
 import ColorScalePicker, { type RangeStats } from './ColorScalePicker';
 import LayerInfo from './LayerInfo';
 import TimeStepper from './TimeStepper';
+import RefDatePicker from './RefDatePicker';
 import { displayUnit } from '../../utils/units';
 import { baseColormap } from '../../utils/colormaps';
 import { LayerOptions, SectionHeader, Switch } from './controls';
@@ -236,6 +237,9 @@ export default function MainTab() {
             </div>
             <TimeStepper key={state.currentDataset} value={state.currentTimeIndex} count={currentDatasetInfo.x_values.length}
               onChange={i => dispatch({ type: 'SET_TIME_INDEX', payload: i })} />
+            <RefDatePicker key={`ref-${state.currentDataset}`} info={currentDatasetInfo} chosen={state.refTimeIndex[state.currentDataset]}
+              currentTimeIndex={state.currentTimeIndex} dataMode={state.dataMode}
+              onChoose={index => dispatch({ type: 'SET_REF_TIME_INDEX', payload: { dataset: state.currentDataset, index } })} />
           </div>
         )}
       </div>
