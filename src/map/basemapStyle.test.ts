@@ -34,7 +34,12 @@ describe('basemap sources for MapLibre', () => {
 
   // Past these zooms Esri serves a grey "Map data not yet available" tile, so the
   // sources stop there and MapLibre / Leaflet upscale the last real tiles.
-  const NATIVE = { esriDark: 16, esriLight: 16, esriHillshade: 16, shadedRelief: 16 } as const;
+  const NATIVE = { esriDark: 16, esriLight: 16, esriHillshade: 16, shadedRelief: 13 } as const;
+
+  it('draws Relief from Esri World Shaded Relief, not a copy of Hillshade', () => {
+    expect(baseMaps.shadedRelief.url).toContain('World_Shaded_Relief');
+    expect(baseMaps.shadedRelief.url).not.toBe(baseMaps.esriHillshade.url);
+  });
 
   it('caps each basemap source at the provider\'s native zoom (MapLibre overzooms past it)', () => {
     for (const [key, z] of Object.entries(NATIVE)) {

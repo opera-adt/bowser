@@ -56,9 +56,10 @@ const baseMaps: { [key: string]: BaseMapItem } = {
     },
     shadedRelief: {
         label: 'Relief',
-        url: 'https://server.arcgisonline.com/arcgis/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}',
-        attribution: 'USGS',
-        maxNativeZoom: 16,
+        // Esri World Shaded Relief (coloured relief); its tiles stop at zoom 13.
+        url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Shaded_Relief/MapServer/tile/{z}/{y}/{x}',
+        attribution: 'Tiles © Esri — Source: Esri',
+        maxNativeZoom: 13,
     },
 };
 
