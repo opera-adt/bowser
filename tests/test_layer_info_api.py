@@ -24,8 +24,6 @@ def _exercise(work: Path) -> None:
     md = main._default_state
     groups = {}
     for name in md.dataset.data_vars:
-        if name == "spatial_ref":
-            continue
         files = [
             str(work / f"{name}_{idx}.tif")
             for idx in range(2 if name == "displacement" else 1)
