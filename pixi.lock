@@ -374,11 +374,11 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/e0/bd/400b0bd372a5666addf2540c7358bfc3841b9ce5cdbc5cc4ad2f61627ad8/simplejson-3.20.1-cp312-cp312-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/e9/44/75a9c9421471a6c4805dbf2356f7c181a29c1879239abab1ea2cc8f38b40/sniffio-1.3.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/f1/7b/ce1eafaf1a76852e2ec9b22edecf1daa58175c090266e9f6c64afcd81d91/stack_data-0.6.3-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/f7/1f/b876b1f83aef204198a42dc101613fefccb32258e5428b5f9259677864b4/starlette-0.47.2-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/88/2e/947cfe02def9371c07cd5bf5b6b61c829e9aecb9904db02a66cfafbc1eec/starlette-1.10.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/bc/d6/dc0827918b19c836afd58904c8b856b9bba18b4a0ce0b4866f8f6b4cb42b/starlette_cramjam-0.5.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/a8/45/a132b9074aa18e799b891b91ad72133c98d8042c70f6240e4c5f9dabee2f/structlog-25.5.0-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/c5/a9/a40c85ac8b40245a616eee1e0f301af782e583ef8a863b43053f1f38b5c3/titiler_core-2.0.5-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/03/a5/f6b5a09311b7d416e1c6bd770e8513cf11533169b1b989f70497469b300e/titiler_xarray-2.0.5-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/54/e3/f1de00bf6874f6c7e1dc7980e5176d5baae90db20b71991d343cfc15c3c2/titiler_core-2.4.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/bf/4c/38186a24552458ebc46640a6aacf61cdf455bd1e6eefbbaf17f7e18b0eab/titiler_xarray-2.4.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/00/c0/8f5d070730d7836adc9c9b6408dec68c6ced86b304a9b26a14df072a6e8c/traitlets-5.14.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/51/e9/3a7820be2bb0fe53b6bc9c3be26d3d1158004e4c3ab953aa6840b955b1e9/truststore-0.10.5-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/43/5e/67312e679f612218d07fcdbd14017e6d571ce240a5ba1ad734f15a8523cc/types_python_dateutil-2.9.0.20250809-py3-none-any.whl
@@ -679,11 +679,11 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/0f/05/2b5ecb33b776c34bb5cace5de5d7669f9b60e3ca13c113037b2ca86edfbd/simplejson-3.20.1-cp312-cp312-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/e9/44/75a9c9421471a6c4805dbf2356f7c181a29c1879239abab1ea2cc8f38b40/sniffio-1.3.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/f1/7b/ce1eafaf1a76852e2ec9b22edecf1daa58175c090266e9f6c64afcd81d91/stack_data-0.6.3-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/f7/1f/b876b1f83aef204198a42dc101613fefccb32258e5428b5f9259677864b4/starlette-0.47.2-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/88/2e/947cfe02def9371c07cd5bf5b6b61c829e9aecb9904db02a66cfafbc1eec/starlette-1.10.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/bc/d6/dc0827918b19c836afd58904c8b856b9bba18b4a0ce0b4866f8f6b4cb42b/starlette_cramjam-0.5.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/a8/45/a132b9074aa18e799b891b91ad72133c98d8042c70f6240e4c5f9dabee2f/structlog-25.5.0-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/c5/a9/a40c85ac8b40245a616eee1e0f301af782e583ef8a863b43053f1f38b5c3/titiler_core-2.0.5-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/03/a5/f6b5a09311b7d416e1c6bd770e8513cf11533169b1b989f70497469b300e/titiler_xarray-2.0.5-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/54/e3/f1de00bf6874f6c7e1dc7980e5176d5baae90db20b71991d343cfc15c3c2/titiler_core-2.4.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/bf/4c/38186a24552458ebc46640a6aacf61cdf455bd1e6eefbbaf17f7e18b0eab/titiler_xarray-2.4.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/00/c0/8f5d070730d7836adc9c9b6408dec68c6ced86b304a9b26a14df072a6e8c/traitlets-5.14.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/51/e9/3a7820be2bb0fe53b6bc9c3be26d3d1158004e4c3ab953aa6840b955b1e9/truststore-0.10.5-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/43/5e/67312e679f612218d07fcdbd14017e6d571ce240a5ba1ad734f15a8523cc/types_python_dateutil-2.9.0.20250809-py3-none-any.whl
@@ -1021,9 +1021,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/6f/5e/2d9fa4d310c9fa7b1db0ba9f27ea64f2975810bb18ba64f2c13e5e5728c9/cramjam-2.10.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/d6/fb/0dc0f819163bc6b7f9e6802d7d0b1ac180fbbe4e75dbd10655c6a4d77796/fastapi-0.162.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ba/e1/2926925dfc37287661f755937df99dff399d3aea2163e11cfd08ca6af3b2/geojson_pydantic-2.0.0-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/7e/f5/f66802a942d491edb555dd61e3a9961140fd64c90bce1eafd741609d334d/httpcore-1.0.9-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/c2/dd/3357218c69360d1cecc196c230c9a1d5c9afd5dba362056e23e60a5e64e5/httpcore2-2.3.0-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/2a/39/e50c7c3a983047577ee07d2a9e53faf5a69493943ec3f6a384bdc792deb2/httpx-0.28.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/87/ce/ae2911859847f9ba1d6b23027e53481cbeb50b93234f355a968d300ca2cb/httpx2-2.3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/09/6c/6ca6ed6b93c9879e6a804515169faefcd99e02114ef113598de9b71d27be/morecantile-6.2.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/70/e8/15e0e077a004db0edd530da96c60c948689c888c464ee5d14b82405ebd86/numexpr-2.11.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
@@ -1034,10 +1032,10 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/7a/38/650a0ced298bf6299b4ff90b7d60a9a9f1587bcf5b486a1f8ce99fdbe7ac/rio_tiler-9.4.13-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/e0/bd/400b0bd372a5666addf2540c7358bfc3841b9ce5cdbc5cc4ad2f61627ad8/simplejson-3.20.1-cp312-cp312-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/e9/44/75a9c9421471a6c4805dbf2356f7c181a29c1879239abab1ea2cc8f38b40/sniffio-1.3.1-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/f7/1f/b876b1f83aef204198a42dc101613fefccb32258e5428b5f9259677864b4/starlette-0.47.2-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/88/2e/947cfe02def9371c07cd5bf5b6b61c829e9aecb9904db02a66cfafbc1eec/starlette-1.10.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/bc/d6/dc0827918b19c836afd58904c8b856b9bba18b4a0ce0b4866f8f6b4cb42b/starlette_cramjam-0.5.0-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/c5/a9/a40c85ac8b40245a616eee1e0f301af782e583ef8a863b43053f1f38b5c3/titiler_core-2.0.5-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/03/a5/f6b5a09311b7d416e1c6bd770e8513cf11533169b1b989f70497469b300e/titiler_xarray-2.0.5-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/54/e3/f1de00bf6874f6c7e1dc7980e5176d5baae90db20b71991d343cfc15c3c2/titiler_core-2.4.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/bf/4c/38186a24552458ebc46640a6aacf61cdf455bd1e6eefbbaf17f7e18b0eab/titiler_xarray-2.4.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/51/e9/3a7820be2bb0fe53b6bc9c3be26d3d1158004e4c3ab953aa6840b955b1e9/truststore-0.10.5-py3-none-any.whl
       - pypi: ./
       osx-arm64:
@@ -1300,9 +1298,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/00/50/09b2cdeee0e757a902cb25559783b0d81aeea2b055034de55f57db64152f/cramjam-2.10.0-cp312-cp312-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl
       - pypi: https://files.pythonhosted.org/packages/d6/fb/0dc0f819163bc6b7f9e6802d7d0b1ac180fbbe4e75dbd10655c6a4d77796/fastapi-0.162.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ba/e1/2926925dfc37287661f755937df99dff399d3aea2163e11cfd08ca6af3b2/geojson_pydantic-2.0.0-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/7e/f5/f66802a942d491edb555dd61e3a9961140fd64c90bce1eafd741609d334d/httpcore-1.0.9-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/c2/dd/3357218c69360d1cecc196c230c9a1d5c9afd5dba362056e23e60a5e64e5/httpcore2-2.3.0-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/2a/39/e50c7c3a983047577ee07d2a9e53faf5a69493943ec3f6a384bdc792deb2/httpx-0.28.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/87/ce/ae2911859847f9ba1d6b23027e53481cbeb50b93234f355a968d300ca2cb/httpx2-2.3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/09/6c/6ca6ed6b93c9879e6a804515169faefcd99e02114ef113598de9b71d27be/morecantile-6.2.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/74/46/3a26b84e44f4739ec98de0ede4b95b4b8096f721e22d0e97517eeb02017e/numexpr-2.11.0-cp312-cp312-macosx_11_0_arm64.whl
@@ -1313,10 +1309,10 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/7a/38/650a0ced298bf6299b4ff90b7d60a9a9f1587bcf5b486a1f8ce99fdbe7ac/rio_tiler-9.4.13-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/0f/05/2b5ecb33b776c34bb5cace5de5d7669f9b60e3ca13c113037b2ca86edfbd/simplejson-3.20.1-cp312-cp312-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/e9/44/75a9c9421471a6c4805dbf2356f7c181a29c1879239abab1ea2cc8f38b40/sniffio-1.3.1-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/f7/1f/b876b1f83aef204198a42dc101613fefccb32258e5428b5f9259677864b4/starlette-0.47.2-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/88/2e/947cfe02def9371c07cd5bf5b6b61c829e9aecb9904db02a66cfafbc1eec/starlette-1.10.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/bc/d6/dc0827918b19c836afd58904c8b856b9bba18b4a0ce0b4866f8f6b4cb42b/starlette_cramjam-0.5.0-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/c5/a9/a40c85ac8b40245a616eee1e0f301af782e583ef8a863b43053f1f38b5c3/titiler_core-2.0.5-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/03/a5/f6b5a09311b7d416e1c6bd770e8513cf11533169b1b989f70497469b300e/titiler_xarray-2.0.5-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/54/e3/f1de00bf6874f6c7e1dc7980e5176d5baae90db20b71991d343cfc15c3c2/titiler_core-2.4.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/bf/4c/38186a24552458ebc46640a6aacf61cdf455bd1e6eefbbaf17f7e18b0eab/titiler_xarray-2.4.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/51/e9/3a7820be2bb0fe53b6bc9c3be26d3d1158004e4c3ab953aa6840b955b1e9/truststore-0.10.5-py3-none-any.whl
       - pypi: ./
   test:
@@ -1680,10 +1676,10 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/e0/bd/400b0bd372a5666addf2540c7358bfc3841b9ce5cdbc5cc4ad2f61627ad8/simplejson-3.20.1-cp312-cp312-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/e9/44/75a9c9421471a6c4805dbf2356f7c181a29c1879239abab1ea2cc8f38b40/sniffio-1.3.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/f1/7b/ce1eafaf1a76852e2ec9b22edecf1daa58175c090266e9f6c64afcd81d91/stack_data-0.6.3-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/f7/1f/b876b1f83aef204198a42dc101613fefccb32258e5428b5f9259677864b4/starlette-0.47.2-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/88/2e/947cfe02def9371c07cd5bf5b6b61c829e9aecb9904db02a66cfafbc1eec/starlette-1.10.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/bc/d6/dc0827918b19c836afd58904c8b856b9bba18b4a0ce0b4866f8f6b4cb42b/starlette_cramjam-0.5.0-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/c5/a9/a40c85ac8b40245a616eee1e0f301af782e583ef8a863b43053f1f38b5c3/titiler_core-2.0.5-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/03/a5/f6b5a09311b7d416e1c6bd770e8513cf11533169b1b989f70497469b300e/titiler_xarray-2.0.5-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/54/e3/f1de00bf6874f6c7e1dc7980e5176d5baae90db20b71991d343cfc15c3c2/titiler_core-2.4.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/bf/4c/38186a24552458ebc46640a6aacf61cdf455bd1e6eefbbaf17f7e18b0eab/titiler_xarray-2.4.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/00/c0/8f5d070730d7836adc9c9b6408dec68c6ced86b304a9b26a14df072a6e8c/traitlets-5.14.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/51/e9/3a7820be2bb0fe53b6bc9c3be26d3d1158004e4c3ab953aa6840b955b1e9/truststore-0.10.5-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/da/af/5d24b8d49ef358468ecfdff5c556adf37f4fd28e336b96f923661a808329/types_python_dateutil-2.9.0.20251008-py3-none-any.whl
@@ -1978,10 +1974,10 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/0f/05/2b5ecb33b776c34bb5cace5de5d7669f9b60e3ca13c113037b2ca86edfbd/simplejson-3.20.1-cp312-cp312-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/e9/44/75a9c9421471a6c4805dbf2356f7c181a29c1879239abab1ea2cc8f38b40/sniffio-1.3.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/f1/7b/ce1eafaf1a76852e2ec9b22edecf1daa58175c090266e9f6c64afcd81d91/stack_data-0.6.3-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/f7/1f/b876b1f83aef204198a42dc101613fefccb32258e5428b5f9259677864b4/starlette-0.47.2-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/88/2e/947cfe02def9371c07cd5bf5b6b61c829e9aecb9904db02a66cfafbc1eec/starlette-1.10.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/bc/d6/dc0827918b19c836afd58904c8b856b9bba18b4a0ce0b4866f8f6b4cb42b/starlette_cramjam-0.5.0-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/c5/a9/a40c85ac8b40245a616eee1e0f301af782e583ef8a863b43053f1f38b5c3/titiler_core-2.0.5-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/03/a5/f6b5a09311b7d416e1c6bd770e8513cf11533169b1b989f70497469b300e/titiler_xarray-2.0.5-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/54/e3/f1de00bf6874f6c7e1dc7980e5176d5baae90db20b71991d343cfc15c3c2/titiler_core-2.4.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/bf/4c/38186a24552458ebc46640a6aacf61cdf455bd1e6eefbbaf17f7e18b0eab/titiler_xarray-2.4.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/00/c0/8f5d070730d7836adc9c9b6408dec68c6ced86b304a9b26a14df072a6e8c/traitlets-5.14.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/51/e9/3a7820be2bb0fe53b6bc9c3be26d3d1158004e4c3ab953aa6840b955b1e9/truststore-0.10.5-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/da/af/5d24b8d49ef358468ecfdff5c556adf37f4fd28e336b96f923661a808329/types_python_dateutil-2.9.0.20251008-py3-none-any.whl
@@ -2330,21 +2326,22 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/d6/fb/0dc0f819163bc6b7f9e6802d7d0b1ac180fbbe4e75dbd10655c6a4d77796/fastapi-0.162.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/95/97/d59d999f00aec90fc7a4efb742fc11e6c160552aa1b313438d3497998644/geojson_pydantic-2.1.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/6d/2b/fb54fdbad8041ca7ffa8332b29afd3697580c8884656540b7ab6a8c56096/geozarr_toolkit-0.1.2-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/7e/f5/f66802a942d491edb555dd61e3a9961140fd64c90bce1eafd741609d334d/httpcore-1.0.9-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/2a/39/e50c7c3a983047577ee07d2a9e53faf5a69493943ec3f6a384bdc792deb2/httpx-0.28.1-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/c2/dd/3357218c69360d1cecc196c230c9a1d5c9afd5dba362056e23e60a5e64e5/httpcore2-2.3.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/87/ce/ae2911859847f9ba1d6b23027e53481cbeb50b93234f355a968d300ca2cb/httpx2-2.3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/98/1a/f9edb1c167bd8ad214dc87e9ae17fb208d08f7a05e724f74ce29e375c8de/morecantile-7.0.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d9/43/560e9ba23c02c904b5934496486d061bcb14cd3ebba2e3cf0e2dccb6c22b/numexpr-2.14.1-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/4c/cf/92593c3981e38e9f682d858aff251f6731517d682a9b389cb1e2c94ed6a4/obstore-0.9.3-cp311-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/a9/2d/610db864d7513158cebb8f36cc88e67e73bd6c7aa1905ef18d89e1281c81/opentelemetry_api-1.45.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ad/b4/a9430e72bfc3c458e1fcf8363890994e483052ab052ed93912be4e5b32c8/pystac-1.14.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/9a/22/f1925cdda983ab66fc8ec6ec8014b959262747e58bdca26a4e3d1da29d56/python_multipart-0.0.26-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/ad/59/fab64b94bdba99b738047653d34469cac634965b1cba02578413946f5fb8/rio_tiler-9.0.6-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/7a/38/650a0ced298bf6299b4ff90b7d60a9a9f1587bcf5b486a1f8ce99fdbe7ac/rio_tiler-9.4.13-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/20/05/ed9b2571bbf38f1a2425391f18e3ac11cb1e91482c22d644a1640dea9da7/simplejson-3.20.2-cp312-cp312-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl
-      - pypi: https://files.pythonhosted.org/packages/be/72/2db2f49247d0a18b4f1bb9a5a39a0162869acf235f3a96418363947b3d46/starlette-0.48.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/88/2e/947cfe02def9371c07cd5bf5b6b61c829e9aecb9904db02a66cfafbc1eec/starlette-1.10.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/48/c8/3ad3cc9e2c431234fb940f31486f7ce3ebf3fe248d6d50a1e338ed2ecccf/starlette_cramjam-0.5.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/a8/45/a132b9074aa18e799b891b91ad72133c98d8042c70f6240e4c5f9dabee2f/structlog-25.5.0-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/c5/a9/a40c85ac8b40245a616eee1e0f301af782e583ef8a863b43053f1f38b5c3/titiler_core-2.0.5-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/03/a5/f6b5a09311b7d416e1c6bd770e8513cf11533169b1b989f70497469b300e/titiler_xarray-2.0.5-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/54/e3/f1de00bf6874f6c7e1dc7980e5176d5baae90db20b71991d343cfc15c3c2/titiler_core-2.4.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/bf/4c/38186a24552458ebc46640a6aacf61cdf455bd1e6eefbbaf17f7e18b0eab/titiler_xarray-2.4.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/51/e9/3a7820be2bb0fe53b6bc9c3be26d3d1158004e4c3ab953aa6840b955b1e9/truststore-0.10.5-py3-none-any.whl
       - pypi: ./
       osx-arm64:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/_openmp_mutex-4.5-7_kmp_llvm.conda
@@ -2629,21 +2626,22 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/d6/fb/0dc0f819163bc6b7f9e6802d7d0b1ac180fbbe4e75dbd10655c6a4d77796/fastapi-0.162.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/95/97/d59d999f00aec90fc7a4efb742fc11e6c160552aa1b313438d3497998644/geojson_pydantic-2.1.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/6d/2b/fb54fdbad8041ca7ffa8332b29afd3697580c8884656540b7ab6a8c56096/geozarr_toolkit-0.1.2-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/7e/f5/f66802a942d491edb555dd61e3a9961140fd64c90bce1eafd741609d334d/httpcore-1.0.9-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/2a/39/e50c7c3a983047577ee07d2a9e53faf5a69493943ec3f6a384bdc792deb2/httpx-0.28.1-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/c2/dd/3357218c69360d1cecc196c230c9a1d5c9afd5dba362056e23e60a5e64e5/httpcore2-2.3.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/87/ce/ae2911859847f9ba1d6b23027e53481cbeb50b93234f355a968d300ca2cb/httpx2-2.3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/98/1a/f9edb1c167bd8ad214dc87e9ae17fb208d08f7a05e724f74ce29e375c8de/morecantile-7.0.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/45/93/b6760dd1904c2a498e5f43d1bb436f59383c3ddea3815f1461dfaa259373/numexpr-2.14.1-cp312-cp312-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/df/8e/fc4995a82b53cdd8e61f5ebfe5007deeeda4f0746b0e46e1dbbd293d9d3d/obstore-0.9.3-cp311-abi3-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/a9/2d/610db864d7513158cebb8f36cc88e67e73bd6c7aa1905ef18d89e1281c81/opentelemetry_api-1.45.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ad/b4/a9430e72bfc3c458e1fcf8363890994e483052ab052ed93912be4e5b32c8/pystac-1.14.3-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/9a/22/f1925cdda983ab66fc8ec6ec8014b959262747e58bdca26a4e3d1da29d56/python_multipart-0.0.26-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/ad/59/fab64b94bdba99b738047653d34469cac634965b1cba02578413946f5fb8/rio_tiler-9.0.6-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/7a/38/650a0ced298bf6299b4ff90b7d60a9a9f1587bcf5b486a1f8ce99fdbe7ac/rio_tiler-9.4.13-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ad/f1/efd09efcc1e26629e120fef59be059ce7841cc6e1f949a4db94f1ae8a918/simplejson-3.20.2-cp312-cp312-macosx_11_0_arm64.whl
-      - pypi: https://files.pythonhosted.org/packages/be/72/2db2f49247d0a18b4f1bb9a5a39a0162869acf235f3a96418363947b3d46/starlette-0.48.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/88/2e/947cfe02def9371c07cd5bf5b6b61c829e9aecb9904db02a66cfafbc1eec/starlette-1.10.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/48/c8/3ad3cc9e2c431234fb940f31486f7ce3ebf3fe248d6d50a1e338ed2ecccf/starlette_cramjam-0.5.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/a8/45/a132b9074aa18e799b891b91ad72133c98d8042c70f6240e4c5f9dabee2f/structlog-25.5.0-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/c5/a9/a40c85ac8b40245a616eee1e0f301af782e583ef8a863b43053f1f38b5c3/titiler_core-2.0.5-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/03/a5/f6b5a09311b7d416e1c6bd770e8513cf11533169b1b989f70497469b300e/titiler_xarray-2.0.5-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/54/e3/f1de00bf6874f6c7e1dc7980e5176d5baae90db20b71991d343cfc15c3c2/titiler_core-2.4.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/bf/4c/38186a24552458ebc46640a6aacf61cdf455bd1e6eefbbaf17f7e18b0eab/titiler_xarray-2.4.0-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/51/e9/3a7820be2bb0fe53b6bc9c3be26d3d1158004e4c3ab953aa6840b955b1e9/truststore-0.10.5-py3-none-any.whl
       - pypi: ./
 packages:
 - conda: https://conda.anaconda.org/conda-forge/linux-64/_libgcc_mutex-0.1-conda_forge.tar.bz2
@@ -4401,14 +4399,14 @@ packages:
   timestamp: 1773797822026
 - pypi: ./
   name: bowser-insar
-  version: 0.6.1.post1.dev32+g1da5349ea.d20261110
-  sha256: 73bbd508df3e4df3938ead013660b347264eb20f5a6b723ac7c31d9c36c6c4e6
+  version: 0.6.1.post1.dev34+g07cf931cb.d20261110
+  sha256: 2f2470eb3bdb6d9b0aa3c1a82633241fda989eb0d95db7bcb54e9626e3c996b6
   requires_dist:
-  - titiler-xarray>=2.0.5,<3
+  - titiler-xarray>=2.4,<3
   - fsspec
   - aiohttp
   - h5netcdf
-  - starlette-cramjam<0.6
+  - starlette-cramjam>=0.5
   - boto3
   - uvicorn
   - typing-extensions
@@ -4422,7 +4420,7 @@ packages:
   - s3fs>=2024.1.0
   - aiobotocore>=2.13.0
   - python-multipart
-  - starlette>=0.46.0,<0.49
+  - starlette>=1.0.1
   - pytest ; extra == 'test'
   - httpx ; extra == 'test'
   - ipython ; extra == 'test'
@@ -15703,30 +15701,6 @@ packages:
   - pkg:pypi/rich?source=hash-mapping
   size: 208577
   timestamp: 1775991661559
-- pypi: https://files.pythonhosted.org/packages/ad/59/fab64b94bdba99b738047653d34469cac634965b1cba02578413946f5fb8/rio_tiler-9.0.6-py3-none-any.whl
-  name: rio-tiler
-  version: 9.0.6
-  sha256: 6c86d6e98692d0e851bd29cc47e237aedd82450b019192f791d5a77a7b5043be
-  requires_dist:
-  - attrs
-  - cachetools
-  - color-operations
-  - httpx
-  - morecantile>=5.0,<8.0
-  - numexpr
-  - numpy
-  - pydantic~=2.0
-  - pystac>=1.9,<2.0
-  - rasterio>=1.4.0
-  - typing-extensions>=4.10.0 ; python_full_version < '3.15'
-  - async-geotiff>=0.3,<0.5 ; extra == 'async'
-  - obstore ; extra == 'async'
-  - boto3 ; extra == 's3'
-  - rioxarray ; extra == 'xarray'
-  - xarray ; extra == 'xarray'
-  - obstore ; extra == 'zarr'
-  - zarr~=3.0 ; extra == 'zarr'
-  requires_python: '>=3.11'
 - pypi: https://files.pythonhosted.org/packages/7a/38/650a0ced298bf6299b4ff90b7d60a9a9f1587bcf5b486a1f8ce99fdbe7ac/rio_tiler-9.4.13-py3-none-any.whl
   name: rio-tiler
   version: 9.4.13
@@ -16220,32 +16194,21 @@ packages:
   - pygments ; extra == 'tests'
   - littleutils ; extra == 'tests'
   - cython ; extra == 'tests'
-- pypi: https://files.pythonhosted.org/packages/f7/1f/b876b1f83aef204198a42dc101613fefccb32258e5428b5f9259677864b4/starlette-0.47.2-py3-none-any.whl
+- pypi: https://files.pythonhosted.org/packages/88/2e/947cfe02def9371c07cd5bf5b6b61c829e9aecb9904db02a66cfafbc1eec/starlette-1.10.0-py3-none-any.whl
   name: starlette
-  version: 0.47.2
-  sha256: c5847e96134e5c5371ee9fac6fdf1a67336d5815e09eb2a01fdb57a351ef915b
+  version: 1.10.0
+  sha256: 478c0ab3b4ced6e82719849c118fa406f0278a3499c1a898cd15cd31bdc38ce4
   requires_dist:
-  - anyio>=3.6.2,<5
+  - anyio>=4.0.0,<5
   - typing-extensions>=4.10.0 ; python_full_version < '3.13'
+  - httpx2>=2.0.0 ; extra == 'full'
   - httpx>=0.27.0,<0.29.0 ; extra == 'full'
   - itsdangerous ; extra == 'full'
   - jinja2 ; extra == 'full'
+  - opentelemetry-api ; extra == 'full'
   - python-multipart>=0.0.18 ; extra == 'full'
   - pyyaml ; extra == 'full'
-  requires_python: '>=3.9'
-- pypi: https://files.pythonhosted.org/packages/be/72/2db2f49247d0a18b4f1bb9a5a39a0162869acf235f3a96418363947b3d46/starlette-0.48.0-py3-none-any.whl
-  name: starlette
-  version: 0.48.0
-  sha256: 0764ca97b097582558ecb498132ed0c7d942f233f365b86ba37770e026510659
-  requires_dist:
-  - anyio>=3.6.2,<5
-  - typing-extensions>=4.10.0 ; python_full_version < '3.13'
-  - httpx>=0.27.0,<0.29.0 ; extra == 'full'
-  - itsdangerous ; extra == 'full'
-  - jinja2 ; extra == 'full'
-  - python-multipart>=0.0.18 ; extra == 'full'
-  - pyyaml ; extra == 'full'
-  requires_python: '>=3.9'
+  requires_python: '>=3.11'
 - pypi: https://files.pythonhosted.org/packages/bc/d6/dc0827918b19c836afd58904c8b856b9bba18b4a0ce0b4866f8f6b4cb42b/starlette_cramjam-0.5.0-py3-none-any.whl
   name: starlette-cramjam
   version: 0.5.0
@@ -16317,37 +16280,37 @@ packages:
   - pkg:pypi/tenacity?source=hash-mapping
   size: 22442
   timestamp: 1677600822695
-- pypi: https://files.pythonhosted.org/packages/c5/a9/a40c85ac8b40245a616eee1e0f301af782e583ef8a863b43053f1f38b5c3/titiler_core-2.0.5-py3-none-any.whl
+- pypi: https://files.pythonhosted.org/packages/54/e3/f1de00bf6874f6c7e1dc7980e5176d5baae90db20b71991d343cfc15c3c2/titiler_core-2.4.0-py3-none-any.whl
   name: titiler-core
-  version: 2.0.5
-  sha256: 420a395c4e9cec539ffa59872cfad321a154220825b194ea93643f040d498d48
+  version: 2.4.0
+  sha256: 3d2f832d9d2085709d0df7db844de526cc94220c7cb8fec4eace8e355b1073a8
   requires_dist:
-  - fastapi>=0.136.1
+  - fastapi>=0.140.7
   - geojson-pydantic>=1.1.2,<3.0
   - jinja2>=2.11.2,<4.0.0
   - morecantile
   - numpy
   - pydantic~=2.0
   - rasterio
-  - rio-tiler>=9.0,<10.0
+  - rio-tiler>=9.1,<10.0
   - simplejson
+  - starlette>=1.0.1
   - opentelemetry-api ; extra == 'telemetry'
   - opentelemetry-exporter-otlp ; extra == 'telemetry'
   - opentelemetry-instrumentation-fastapi ; extra == 'telemetry'
   - opentelemetry-instrumentation-logging ; extra == 'telemetry'
   - opentelemetry-sdk ; extra == 'telemetry'
   requires_python: '>=3.11'
-- pypi: https://files.pythonhosted.org/packages/03/a5/f6b5a09311b7d416e1c6bd770e8513cf11533169b1b989f70497469b300e/titiler_xarray-2.0.5-py3-none-any.whl
+- pypi: https://files.pythonhosted.org/packages/bf/4c/38186a24552458ebc46640a6aacf61cdf455bd1e6eefbbaf17f7e18b0eab/titiler_xarray-2.4.0-py3-none-any.whl
   name: titiler-xarray
-  version: 2.0.5
-  sha256: c39516d1d9782770c81d94c142a7c0e480958dbfd018db5140b8d03396629d04
+  version: 2.4.0
+  sha256: f97f9acf0f2fb9765f3606c3a86c9c069cd5f36c7b58e2a2f72c270612a6aaaa
   requires_dist:
-  - httpx
   - obstore
   - pydantic-settings~=2.0
   - rioxarray
   - starlette-cramjam>=0.4,<1.0
-  - titiler-core==2.0.5
+  - titiler-core==2.4.0
   - xarray
   - zarr>=3.1,<4.0
   - aiohttp ; extra == 'fs'

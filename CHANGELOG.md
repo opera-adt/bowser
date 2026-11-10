@@ -14,6 +14,11 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   query parameter (512 unless the page asks for 256, which it does). bowser-lite
   mirrors this. `fsspec`, `aiohttp` and `h5netcdf`, which TiTiler 2's dropped
   `minimal`/`http` extras used to bring, are now declared directly.
+- TiTiler 2.4 with Starlette 1.x: the `starlette<0.49` and
+  `starlette-cramjam<0.6` caps are gone. TileJSON gains TiTiler 2.4's
+  `band_descriptions`, `data_type` and `raster_layers`; bowser-lite returns
+  them too. Response compression (`BOWSER_COMPRESSION=1`) works again: the
+  truncated compressed responses that made it opt-in no longer happen.
 
 ## [0.6.1] - 2026-11-05
 
