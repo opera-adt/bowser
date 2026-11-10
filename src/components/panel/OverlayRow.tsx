@@ -12,6 +12,8 @@ import type { Overlay } from '../../types';
 import { Switch } from './controls';
 import { zonalKinds } from '../../utils/polygonSeries';
 import { AREA_NEEDS_SERVER, usePolygonStats } from '../../hooks/usePolygonStats';
+import { asDem, DEM_CMAP, DEM_STYLES, EXAGGERATION_MAX, EXAGGERATION_MIN, type DemStyle } from '../../map/dem';
+import { convertingText, tiledNote } from '../../map/addData';
 import { useZonalStats, type ZonalProgress } from '../../hooks/useZonalStats';
 
 export type DropSide = 'above' | 'below' | null;
@@ -69,6 +71,11 @@ export default function OverlayRow({ overlay: o, dropSide, onDragStart, onDragEn
         )}
         {(zonal.polygons > 0 || zonal.points > 0) && <ZonalStatsButton overlay={o} polygons={zonal.polygons} points={zonal.points}
           busy={zonalBusy} onStatus={setZonalStatus} />}
+        {o.type === 'pmtiles' && o.conversion?.status === 'ready' && (
+          <button type="button" className="ov-icon-btn" aria-label="Zonal stats" title={tiledNote(o.featureCount)} disabled>
+            <i className="fa-solid fa-chart-column"></i>
+          </button>
+        )}
         {(
           <button type="button" className="ov-icon-btn" title="Style" aria-expanded={open} onClick={() => setOpen(v => !v)}>
             <span className={`disclosure-chevron${open ? ' open' : ''}`} aria-hidden="true" />
@@ -78,6 +85,13 @@ export default function OverlayRow({ overlay: o, dropSide, onDragStart, onDragEn
           <i className="fa-solid fa-xmark"></i>
         </button>
       </div>
+      {o.conversion && o.conversion.status !== 'ready' && (
+        <div className="ov-zonal-note" role="status">
+          {o.conversion.status === 'converting'
+            ? <span><i className="fa-solid fa-spinner fa-spin" style={{ marginRight: 5 }}></i>{convertingText(o.conversion.format, o.conversion.elapsedS)}</span>
+            : <span style={{ color: 'var(--sb-red)', wordBreak: 'break-word' }}>Could not add it: {o.conversion.error ?? 'unknown error'}</span>}
+        </div>
+      )}
       {(zonalBusy || zonalStatus.notes.length > 0) && (
         <div className="ov-zonal-note" role="status">
           {zonalBusy && <span>Zonal stats: {zonalStatus.progress!.done}/{zonalStatus.progress!.total} areas</span>}
@@ -85,7 +99,7 @@ export default function OverlayRow({ overlay: o, dropSide, onDragStart, onDragEn
         </div>
       )}
       <div className="ov-opacity">
-        <span className="ov-type">{TYPE_LABEL[o.type]}</span>
+        <span className="ov-type">{o.dem ? 'DEM' : TYPE_LABEL[o.type]}</span>
         <input type="range" className="sidebar-range" min="0" max="1" step="0.05" value={o.opacity} aria-label={`Opacity of ${o.name}`}
           onChange={e => update({ opacity: parseFloat(e.target.value) })} />
         <span className="slider-value">{Math.round(o.opacity * 100)}%</span>
@@ -149,6 +163,7 @@ export default function OverlayRow({ overlay: o, dropSide, onDragStart, onDragEn
               {o.pmtilesKind === 'vector' ? `Vector: ${(o.sourceLayers ?? []).join(', ') || 'no layers listed'}` : 'Raster'} · {o.url}
             </div>
           )}
+          {o.type === 'pmtiles' && o.conversion && <div className="ov-zonal-note">{tiledNote(o.featureCount)}</div>}
           {(o.type === 'vector' || o.pmtilesKind === 'vector') && !o.classColors && (
             <>
               <div className="toggle-row">
@@ -216,7 +231,9 @@ export default function OverlayRow({ overlay: o, dropSide, onDragStart, onDragEn
               </div>
             </>
           )}
-          {o.type === 'geotiff' && ((o.bandCount ?? 1) >= 3 ? (
+          {o.type === 'geotiff' && o.bandCount === 1 && <UseAsDem overlay={o} update={update} />}
+          {o.dem && <DemControls overlay={o} update={update} />}
+          {o.type === 'geotiff' && !o.dem && ((o.bandCount ?? 1) >= 3 ? (
             <div className="row-label">RGB ({o.bandCount}-band)</div>
           ) : (
             <>
@@ -268,6 +285,46 @@ export default function OverlayRow({ overlay: o, dropSide, onDragStart, onDragEn
         </div>
       )}
     </div>
+  );
+}
+
+/** "Use as DEM": draw a single-band raster as hillshade / colour relief, or as a raster again. */
+function UseAsDem({ overlay: o, update }: { overlay: Overlay; update: (u: Partial<Overlay>) => void }) {
+  return (
+    <div className="toggle-row" title="Draw it as an elevation model: hillshade and/or colour relief">
+      <span className="row-label">Use as DEM</span>
+      <Switch checked={!!o.dem} label="Use as DEM" onChange={() => update(o.dem ? { dem: undefined } : asDem(o))} />
+    </div>
+  );
+}
+
+/** A DEM's style: hillshade, colour relief or both, the hillshade's exaggeration and the relief's colours. */
+function DemControls({ overlay: o, update }: { overlay: Overlay; update: (u: Partial<Overlay>) => void }) {
+  const d = o.dem!;
+  const setDem = (u: Partial<NonNullable<Overlay['dem']>>) => update({ dem: { ...d, ...u } });
+  return (
+    <>
+      <div className="toggle-row" style={{ gap: 6 }}>
+        <span className="row-label">Style</span>
+        <select className="sidebar-select" style={{ width: 'auto', fontSize: '0.76em' }} aria-label="DEM style" value={d.style}
+          onChange={e => setDem({ style: e.target.value as DemStyle })}>
+          {DEM_STYLES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+        </select>
+      </div>
+      {d.style !== 'relief' && (
+        <div className="slider-group">
+          <div className="slider-label"><span title="Vertical exaggeration of the hillshade">Exaggeration</span><span className="slider-value">×{d.exaggeration}</span></div>
+          <input type="range" className="sidebar-range" min={EXAGGERATION_MIN} max={EXAGGERATION_MAX} step="0.5" value={d.exaggeration}
+            aria-label="Hillshade exaggeration" onChange={e => setDem({ exaggeration: parseFloat(e.target.value) })} />
+        </div>
+      )}
+      {d.style !== 'hillshade' && (
+        <ColorScalePicker colormap={o.cmap ?? DEM_CMAP} vmin={o.vmin ?? 0} vmax={o.vmax ?? 1}
+          stats={async () => o.bands?.[0] ?? null}
+          onColormap={cmap => update({ cmap })}
+          onRange={(vmin, vmax) => update({ vmin, vmax })} />
+      )}
+    </>
   );
 }
 

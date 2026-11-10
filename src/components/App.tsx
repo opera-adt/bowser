@@ -5,6 +5,8 @@ import MapContainer from './MapContainer';
 import MapLibreMap from './MapLibreMap';
 
 import { browserHasWebGL2, chooseMap } from '../map/mapChoice';
+import { startData } from '../map/addData';
+import { useAddServerData } from '../hooks/useAddFiles';
 import { chartLayerFor } from '../utils/chartLayers';
 import { defaultMasks } from '../utils/defaultMasks';
 import { applyTheme, readThemeChoice } from '../utils/theme';
@@ -29,6 +31,7 @@ import '../style.css';
 
 function AppContent() {
   const { state, dispatch } = useAppContext();
+  const addServerData = useAddServerData();
   const { fetchDatasets, fetchDataMode, fetchConfig } = useApi();
   const [appTitle, setAppTitle] = useState('');
   // The Bowser mark unless the server asks for the OPERA emblem (bowser run --opera-logo).
@@ -49,6 +52,12 @@ function AppContent() {
         }
 
         dispatch({ type: 'SET_DATA_MODE', payload: mode });
+        // `bowser run --overlay`: the server's own files, as layers from the start.
+        for (const path of config.overlay_files ?? []) {
+          startData(path).then(addServerData).catch(err => dispatch({
+            type: 'SET_OVERLAY_MESSAGE', payload: `Could not add ${path}: ${(err as Error).message}`,
+          }));
+        }
 
         const datasets = await fetchDatasets();
         dispatch({ type: 'SET_DATASETS', payload: datasets });
@@ -71,7 +80,7 @@ function AppContent() {
     };
 
     initializeApp();
-  }, [fetchDatasets, fetchDataMode, fetchConfig, dispatch]);
+  }, [fetchDatasets, fetchDataMode, fetchConfig, dispatch, addServerData]);
 
   return (
     <div className={`app-container${sidebarHidden ? ' sidebar-hidden' : ''}`}>

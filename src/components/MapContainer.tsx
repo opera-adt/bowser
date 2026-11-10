@@ -21,7 +21,7 @@ import MeasureTool from './MeasureTool';
 import { ProfileToolMap, useProfileContext } from './ProfileTool';
 import Graticule from './Graticule';
 import SplitDivider from './SplitDivider';
-import { geotiffTileUrl, overlayVizKey } from '../map/overlays';
+import { geotiffTileUrl, overlayDrawable, overlayVizKey } from '../map/overlays';
 import { annotationCreateForm, annotationEditForm, annotationLabelHtml } from '../map/annotationForms';
 
 // Fix for default markers in React Leaflet
@@ -510,7 +510,7 @@ function OverlayLayers() {
   return (
     <>
       {state.overlays.flatMap((o, i) => {
-        if (!o.visible || o.type === 'vector' || o.type === 'context' || o.type === 'pmtiles') return [];
+        if (!overlayDrawable(o) || o.type === 'vector' || o.type === 'context' || o.type === 'pmtiles') return [];
         const zIndex = Math.min(3 + i, 9);
         // In split-screen, draw into the left/right (clipped) pane(s) per `side`.
         const side = o.side ?? 'both';

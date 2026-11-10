@@ -669,6 +669,11 @@ body {
   background: var(--sb-accent);
 }
 
+.switch:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .switch-thumb {
   position: absolute;
   top: 2px;

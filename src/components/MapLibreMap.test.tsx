@@ -499,6 +499,43 @@ describe('MapLibreMap', () => {
     expect(map.sources.has('overlay-a')).toBe(false);
   });
 
+  it('a DEM: above the basemap and below the data on both maps, once its COG is ready', async () => {
+    const { view, map } = await mount();
+    const roads = { id: 'r', name: 'roads', type: 'wms', visible: true, opacity: 1, url: 'https://w/wms', wmsLayers: 'r' };
+    const dem = { id: 'd', name: 'lidar.tif', type: 'geotiff', visible: true, opacity: 0.7, path: '/up/lidar.tif',
+      mode: 'cmap', cmap: 'schwarzwald', vmin: 60, vmax: 140, aboveData: false,
+      dem: { style: 'both', exaggeration: 2 }, conversion: { status: 'converting', format: 'cog' } };
+    const order = (m: InstanceType<typeof FakeMap>) => m.layers.map(l => l.id).filter(id => !/^(profile|measure|buffer)-/.test(id));
+    // While it converts there is nothing to draw.
+    mockState.overlays = [dem, roads];
+    view.rerender(<MapLibreMap />);
+    await act(async () => {});
+    expect(order(map)).toEqual(['basemap-bottom', 'overlay-r', 'data-1']);
+
+    const ready = { ...dem, path: '/cache/abc.tif', conversion: { status: 'ready', format: 'cog' } };
+    mockState.overlays = [ready, roads];
+    view.rerender(<MapLibreMap />);
+    await act(async () => {});
+    expect(order(map)).toEqual(['basemap-bottom', 'overlay-d', 'overlay-r', 'data-1']);
+    const url = new URL(map.sources.get('overlay-d').tiles[0].replace(/\{(\w)\}/g, '$1'));
+    expect(url.searchParams.get('url')).toBe('/cache/abc.tif');
+    expect(url.searchParams.get('algorithm')).toBe('dem');
+    expect(JSON.parse(url.searchParams.get('algorithm_params')!)).toMatchObject({ style: 'both', z_exaggeration: 2, vmin: 60, vmax: 140 });
+    expect(map.getLayer('overlay-d')!.paint['raster-opacity']).toBe(0.7);
+
+    // Split screen: the right map has it under its own data too.
+    Object.assign(mockState, { splitScreen: true, splitDataset: 'displacement', splitColormap: 'viridis',
+      splitVmin: 0, splitVmax: 1, splitOpacity: 0.6, splitTimeIndex: 0 });
+    view.rerender(<MapLibreMap />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+    const right = FakeMap.last;
+    expect(right).not.toBe(map);
+    const rightOrder = order(right);
+    expect(rightOrder[0]).toBe('basemap-bottom');
+    expect(rightOrder.indexOf('overlay-d')).toBe(1);
+    expect(rightOrder.indexOf('overlay-d')).toBeLessThan(rightOrder.findIndex(id => id.startsWith('data-')));
+  });
+
   it('charted features: drawn in their chart colour, following a colour change; the rest keep the layer colour', async () => {
     const { view, map } = await mount();
     const square = (x: number) => ({ type: 'Polygon', coordinates: [[[x, 0], [x + 1, 0], [x + 1, 1], [x, 0]]] });

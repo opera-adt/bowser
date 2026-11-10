@@ -2,9 +2,9 @@ import type { ReactNode } from 'react';
 import { groupLayers } from '../../utils/layerGroups';
 
 /** An on/off switch; the label is the row beside it. */
-export function Switch({ checked, onChange, label, title }: { checked: boolean; onChange: () => void; label?: string; title?: string }) {
+export function Switch({ checked, onChange, label, title, disabled }: { checked: boolean; onChange: () => void; label?: string; title?: string; disabled?: boolean }) {
   return (
-    <button type="button" role="switch" aria-checked={checked} aria-label={label} title={title}
+    <button type="button" role="switch" aria-checked={checked} aria-label={label} title={title} disabled={disabled}
       className={`switch${checked ? ' on' : ''}`} onClick={onChange}>
       <span className="switch-thumb" />
     </button>
