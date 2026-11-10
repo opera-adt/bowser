@@ -316,11 +316,16 @@ describe('areas in the time-series chart', () => {
     expect(new Set(areaSets.map(d => d.yAxisID))).toEqual(new Set(['y0', 'y1']));
     const fill = vectorLayerSpecs(areaLayer, chartedFeatureColors(areaLayer, stateRef.chartAreas))[0].paint['fill-color'];
     expect(fill).toEqual(['match', ['id'], 0, '#00aa00', '#5bc0be']);
-    // A layer's colour (Display options) colours its y axis, never the feature's series.
+    // A layer's colour (Display options) recolours that layer's series and y axis, so the two
+    // layers tell apart; the other layer and the map keep the feature's colour.
     fireEvent.click(screen.getByRole('button', { name: /Display options/ }));
-    fireEvent.change(screen.getAllByTitle("Colour of this layer's y axis")[1], { target: { value: '#ff00ff' } });
+    fireEvent.change(screen.getAllByTitle("Colour of this layer's series and y axis")[1], { target: { value: '#ff00ff' } });
     await waitFor(() => expect(drawn.options.scales.y1.ticks.color).toBe('#ff00ff'));
-    expect(drawn.data!.datasets.filter(d => d._area).every(d => d.borderColor === '#00aa00')).toBe(true);
+    const recoloured = drawn.data!.datasets.filter(d => d._area);
+    expect(recoloured.filter(d => d.yAxisID === 'y1').every(d => d.borderColor === '#ff00ff')).toBe(true);
+    expect(recoloured.filter(d => d.yAxisID === 'y0').every(d => d.borderColor === '#00aa00')).toBe(true);
+    expect(vectorLayerSpecs(areaLayer, chartedFeatureColors(areaLayer, stateRef.chartAreas))[0].paint['fill-color'])
+      .toEqual(['match', ['id'], 0, '#00aa00', '#5bc0be']);
   });
 
   it('fetches the reference like the map for a chart layer that is not on the map', async () => {

@@ -715,7 +715,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
       const result = areaResults[areaStatsKey(dsName, area.id)]?.data;
       if (!result) return [];
       return areaChartDatasets({
-        result, name: multiDs ? `${area.name} [${dsName}]` : area.name, color: area.color,
+        result, name: multiDs ? `${area.name} [${dsName}]` : area.name, color: dsColorOverrides[dsName] ?? area.color,
         factor: shown.factor, unit: shown.label, yAxisID: `y${activeChartDs.indexOf(dsName)}`,
         reference, toX: toIsoDate, inRange, band: state.areaBand, style: area,
         refIndex: dsName in refX ? refIndexOf(result, refX[dsName]) : null,
@@ -797,10 +797,10 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
 
     cd.datasets.forEach(dataset => {
       const baseLabel = multiDs ? `${dataset.label} [${dsName}]` : dataset.label;
-      // The point's own colour and style (Style button) on every layer: a colour belongs to the
-      // feature (as on the map); layers differ by their y axis, whose colour the layer row sets.
+      // The point's own colour and style (Style button), as on the map; a layer's colour
+      // (Display options) wins for that layer's series, so layers sharing the chart tell apart.
       const point = state.timeSeriesPoints.find(p => p.id === dataset.pointId);
-      const borderColor = point?.color ?? dataset.borderColor;
+      const borderColor = dsColorOverrides[dsName] ?? point?.color ?? dataset.borderColor;
       const backgroundColor = `${borderColor}33`;
       const look = seriesStyle(point?.marker, point?.line, ms);
 
@@ -946,10 +946,11 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
         )}
       </div>
 
-      {/* Per-dataset controls (offset + y-axis colour) — shown for ALL datasets when multiple */}
+      {/* Per-dataset controls (offset + colour of the layer's series and y axis) — shown for ALL datasets when multiple */}
       {activeChartDs.map((ds, i) => {
         const off = dsOffsets[ds] ?? 0;
-        const baseColor = '#7880a8';
+        const baseColor = chartDataMap[ds]?.datasets[0]?.borderColor
+          ?? visibleAreas.find(a => areaResults[`${ds}::${a.id}`]?.data)?.color ?? '#7880a8';
         const color = dsColorOverrides[ds] ?? baseColor;
         const info = state.datasetInfo[ds];
         const unit = displayUnit(info?.unit, state.units).label;
@@ -967,7 +968,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
               <label className="chart-slider-label" style={{ flex: '1 1 100%' }}>
                 <input type="color" value={color.length === 7 ? color : baseColor}
                   style={{ width: 20, height: 20, padding: 0, border: 'none', background: 'none', cursor: 'pointer', flexShrink: 0 }}
-                  title="Colour of this layer's y axis"
+                  title="Colour of this layer's series and y axis"
                   onChange={e => setDsColorOverrides(prev => ({ ...prev, [ds]: e.target.value }))}
                 />
                 <span style={{ color, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 80 }} title={ds}>{ds}</span>
