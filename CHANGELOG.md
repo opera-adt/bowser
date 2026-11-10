@@ -6,6 +6,28 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Add data converts on the server, in the background: a GeoTIFF that is not
+  cloud-optimized becomes a COG once, and a vector file over 20 MB (or 50 000
+  features; also GeoPackage and FlatGeobuf) becomes PMTiles vector tiles with
+  every attribute, so Identify still works. The layer's row says "Converting to
+  COG… 12 s" until it is drawn. Smaller vectors are still read in the browser.
+  A file can also be added by its server path when `BOWSER_ALLOW_OPEN` is set,
+  or at startup with `bowser run --overlay PATH` (repeatable,
+  `BOWSER_OVERLAY_FILES`). Server paths' conversions are cached in
+  `BOWSER_CONVERT_CACHE_DIR` (`~/.cache/bowser/convert`), kept under
+  `BOWSER_CONVERT_CACHE_MAX_GB` (20) and `BOWSER_CONVERT_CACHE_MAX_DAYS` (30).
+  New routes `POST /upload_data`, `POST /data`, `GET /data/{data_id}` and
+  `GET /data/{data_id}.{fmt}` (PMTiles over HTTP Range); `/config` says
+  `data_conversion` and `overlay_files` (off and empty on bowser-lite).
+- DEM layers: an elevation model, such as USGS 3DEP 1 m lidar, drawn as a
+  hillshade, colour relief or both, above the basemap and below the data
+  (also in split screen and on the Leaflet map). A single-band raster of
+  heights is recognised when added; any single-band raster has "Use as DEM".
+  "Use for 3D terrain" raises the MapLibre map on the DEM, merged into the
+  global terrain outside it.
+
 ### Changed
 
 - The server runs on TiTiler 2.0 (rio-tiler 9), as `pip install` users
