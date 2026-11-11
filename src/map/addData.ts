@@ -63,6 +63,45 @@ export async function startData(path: string, name?: string): Promise<DataJob> {
   }));
 }
 
+/** One entry of GET /files (api_models.FolderEntry). */
+export interface FolderEntry {
+  name: string;
+  path: string;
+  type: 'dir' | 'file';
+  size: number | null;
+  kind: 'raster' | 'vector' | null;
+}
+
+/** GET /files (api_models.FolderListing): a server folder's sub-folders, then the files it can add. */
+export interface FolderListing {
+  dir: string;
+  parent: string | null;
+  entries: FolderEntry[];
+  truncated: boolean;
+  skipped: number;
+}
+
+/** An error with the HTTP status the server answered. */
+export class HttpError extends Error {
+  constructor(message: string, readonly status: number) { super(message); }
+}
+
+/**
+ * List a server folder (GET /files): ``dir``, or without one the folder of the cube being
+ * viewed (``dataset``), else the server user's home.
+ */
+export async function listFolder(dir?: string, opts: { hidden?: boolean; dataset?: string | null } = {}): Promise<FolderListing> {
+  const q = new URLSearchParams();
+  if (dir) q.set('dir', dir);
+  if (opts.hidden) q.set('hidden', 'true');
+  if (opts.dataset) q.set('dataset', opts.dataset);
+  const qs = q.toString();
+  const res = await fetch(`/files${qs ? `?${qs}` : ''}`);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new HttpError(body.detail ?? `HTTP ${res.status}`, res.status);
+  return body as FolderListing;
+}
+
 /** "Converting to COG… 1 min 5 s" from the format and the seconds a conversion has run. */
 export function convertingText(format: OverlayConversion['format'], elapsed?: number): string {
   const what = format === 'cog' ? 'Converting to COG…' : format === 'pmtiles' ? 'Converting to PMTiles…' : 'Reading the features…';

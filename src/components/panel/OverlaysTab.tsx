@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
-import { ACCEPT, useAddFiles, useAddServerData, useDataConversion } from '../../hooks/useAddFiles';
-import { startData } from '../../map/addData';
+import { ACCEPT, useAddFiles, useDataConversion } from '../../hooks/useAddFiles';
 import { geologyOverlay, soilsOverlay } from '../../map/services';
 import { inspectPmtiles, pmtilesOverlay } from '../../map/pmtiles';
 import { CONTEXT_LAYERS, contextOverlay, LAND_COVER_YEARS, landCoverOverlay, type ContextKey } from '../../map/contextLayers';
 import { DATA_ROW, DRAWINGS_ID, drawingIndexOf, drawingName, overlayRows, reorderOverlays } from '../../map/overlays';
 import { downloadLayer } from '../../map/exportLayer';
 import { browserHasWebGL2, chooseMap } from '../../map/mapChoice';
+import LoadFile from './LoadFile';
 import OverlayRow from './OverlayRow';
 import { SectionHeader, Switch } from './controls';
 
@@ -79,7 +79,7 @@ function LayersView() {
             onChange={e => { if (e.target.files?.length) void addFiles(Array.from(e.target.files)); e.currentTarget.value = ''; }} />
         </label>
         <div className="row-label" style={{ textAlign: 'center', fontSize: '0.72em' }}>You can also drop files on the map.</div>
-        {conversion?.cog && <AddFromServer />}
+        {conversion?.cog && <LoadFile />}
       </div>
       <div className="sidebar-section">
         <SectionHeader label="Layers" />
@@ -113,58 +113,6 @@ function LayersView() {
         {state.overlays.length === 0
           ? <div className="row-label" style={{ textAlign: 'center', fontSize: '0.72em' }}>Files and services you add appear here.</div>
           : <div className="row-label" style={{ textAlign: 'center', fontSize: '0.72em' }}>Drag ⋮⋮ to reorder, above or below the data layer.</div>}
-      </div>
-    </>
-  );
-}
-
-/**
- * A raster or vector file by its path on the server, when the server lets the page open
- * files (BOWSER_ALLOW_OPEN, as Project › Open data). Converted like an upload.
- */
-function AddFromServer() {
-  const { dispatch } = useAppContext();
-  const addServerData = useAddServerData();
-  const [allowed, setAllowed] = useState(false);
-  const [path, setPath] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    fetch('/catalog').then(r => r.json()).then(c => setAllowed(!!c.allow_open)).catch(() => setAllowed(false));
-  }, []);
-  if (!allowed) return null;
-  const add = async () => {
-    const p = path.trim();
-    if (!p) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const o = addServerData(await startData(p));
-      if (o.bounds) {
-        const [w, s, e, n] = o.bounds;
-        dispatch({ type: 'APPLY_VIEW_BOUNDS', payload: [s, w, n, e] });
-      }
-      setPath('');
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <>
-      <div className="minmax-label">A file on the server</div>
-      <div style={{ display: 'flex', gap: 4 }}>
-        <input className="sidebar-input" style={{ flex: 1, minWidth: 0, textAlign: 'left' }} value={path} disabled={busy}
-          placeholder="/path/to/dem.tif or parcels.gpkg" aria-label="File path on the server"
-          onChange={e => setPath(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void add(); }} />
-        <button type="button" className="hist-btn" style={{ flex: 'none' }} disabled={busy || !path.trim()} onClick={() => void add()}>
-          {busy ? 'Adding…' : 'Add'}
-        </button>
-      </div>
-      {error && <div className="row-label" style={{ fontSize: '0.74em', color: 'var(--sb-red)', wordBreak: 'break-word' }}>{error}</div>}
-      <div className="row-label" style={{ fontSize: '0.72em' }}>
-        A GeoTIFF that is not cloud-optimized, or a large vector, is converted once in the background and cached.
       </div>
     </>
   );

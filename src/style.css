@@ -2107,6 +2107,26 @@ img.huechange { filter: hue-rotate(120deg); }
   font-weight: 600;
 }
 
+/* Overlays › Load file › Browse: a server folder, its sub-folders, then files to add. */
+.load-file-browser {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.load-file-entry {
+  cursor: pointer;
+  user-select: none;
+}
+
+.load-file-entry:hover {
+  background: var(--sb-border);
+}
+
+.load-file-entry.selected {
+  outline: 1px solid var(--sb-accent);
+}
+
 .sidebar-section-label.with-action {
   display: flex;
   align-items: center;

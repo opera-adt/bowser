@@ -22,12 +22,17 @@ let config: Record<string, unknown>;
 let catalog: Record<string, unknown>;
 let dataReplies: Record<string, unknown>[];
 let requests: string[];
+/** GET /files answers, by ``dir`` ('' for the server's default folder). */
+let folders: Record<string, unknown>;
+let filesStatus: number | null;
 
 beforeEach(() => {
   config = { polygon_stats: true, data_conversion: CONVERSION };
   catalog = { datasets: [], allow_open: false };
   dataReplies = [];
   requests = [];
+  folders = {};
+  filesStatus = null;
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     const body = typeof init?.body === 'string' ? ` ${init.body}` : '';
     requests.push(`${init?.method ?? 'GET'} ${url}${body}`);
@@ -37,6 +42,14 @@ beforeEach(() => {
       const name = ((init!.body as FormData).getAll('files')[0] as File).name;
       return new Response(JSON.stringify({ path: `/up/data_1_${name}`, name }));
     }
+    if (url.startsWith('/files')) {
+      if (filesStatus) return new Response(JSON.stringify({ detail: 'not here' }), { status: filesStatus });
+      const dir = (new URL(url, 'http://x').searchParams.get('dir') ?? '').replace(/(.)\/$/, '$1');  // resolved
+      const listing = folders[dir];
+      return listing
+        ? new Response(JSON.stringify(listing))
+        : new Response(JSON.stringify({ detail: `${dir} is not a folder` }), { status: 400 });
+    }
     if (url.startsWith('/data')) {
       const reply = dataReplies.shift()!;
       return new Response(JSON.stringify(reply), { status: (reply.http as number) ?? 200 });
@@ -44,7 +57,7 @@ beforeEach(() => {
     return new Response('{}', { status: 404 });
   }));
 });
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); vi.restoreAllMocks(); localStorage.clear(); });
 
 let stateRef: AppState;
 function Tab({ seed }: { seed: Overlay[] }) {
@@ -229,6 +242,174 @@ describe('Add data: a file on the server', () => {
     await renderTab();
     await act(async () => {});
     expect(screen.queryByRole('textbox', { name: 'File path on the server' })).toBeNull();
+  });
+});
+
+describe('Load file: browse a server folder', () => {
+  const dir = (name: string, path: string) => ({ name, path, type: 'dir', size: null, kind: null });
+  const tif = (name: string, path: string, size = 2_400_000) => ({ name, path, type: 'file', size, kind: 'raster' });
+  const listing = (path: string, parent: string | null, entries: unknown[], extra = {}) =>
+    ({ dir: path, parent, entries, truncated: false, skipped: 0, ...extra });
+  const DEMTEST = listing('/home/u/demtest', '/home/u', [
+    dir('lidar', '/home/u/demtest/lidar'),
+    tif('arkabutla_3dep_10m.tif', '/home/u/demtest/arkabutla_3dep_10m.tif'),
+    { name: 'wells.shp', path: '/home/u/demtest/wells.shp', type: 'file', size: 512, kind: 'vector' },
+  ]);
+  const LIDAR = listing('/home/u/demtest/lidar', '/home/u/demtest', [tif('tile_1.tif', '/home/u/demtest/lidar/tile_1.tif')]);
+  const job = (path: string) => ({ id: path.length.toString(16).padStart(24, '0'), name: path.split('/').pop(), kind: 'raster',
+    format: 'cog', status: 'converting', bounds: [-90.2, 34.7, -90.0, 34.8] });
+  const rows = () => screen.getAllByRole('option').map(o => o.textContent);
+  const browse = async () => {
+    await act(async () => { fireEvent.click(await screen.findByRole('button', { name: 'Browse…' })); });
+  };
+
+  beforeEach(() => {
+    catalog = { datasets: [], allow_open: true };
+    folders = { '': DEMTEST, '/home/u/demtest': DEMTEST, '/home/u/demtest/lidar': LIDAR, '/home/u': listing('/home/u', '/', [dir('demtest', '/home/u/demtest')]) };
+  });
+
+  it('is called "Load file"', async () => {
+    await renderTab();
+    expect(await screen.findByText('Load file')).toBeTruthy();
+    expect(screen.queryByText('A file on the server')).toBeNull();
+  });
+
+  it('Browse lists the folder: sub-folders first, then the files it can add, with their sizes', async () => {
+    await renderTab();
+    await browse();
+    expect(requests).toContain('GET /files');  // nothing remembered: the server's default (the cube's folder)
+    expect((screen.getByRole('textbox', { name: 'Folder path' }) as HTMLInputElement).value).toBe('/home/u/demtest');
+    expect(rows()).toEqual(['lidar', 'arkabutla_3dep_10m.tif2.3 MB', 'wells.shp512 B']);
+    expect(screen.getByRole('button', { name: 'Add all supported files in this folder (2)' })).toBeTruthy();
+    expect(localStorage.getItem('bowser.loadFile.dir')).toBe('/home/u/demtest');
+  });
+
+  it('opens a sub-folder on a click, and goes up', async () => {
+    await renderTab();
+    await browse();
+    await act(async () => { fireEvent.click(screen.getByRole('option', { name: /lidar/ })); });
+    expect(requests).toContain('GET /files?dir=%2Fhome%2Fu%2Fdemtest%2Flidar');
+    expect(rows()).toEqual(['tile_1.tif2.3 MB']);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Up' })); });
+    expect(rows()[0]).toBe('lidar');
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Up' })); });
+    expect((screen.getByRole('textbox', { name: 'Folder path' }) as HTMLInputElement).value).toBe('/home/u');
+  });
+
+  it('a click selects a file into the path box; Add adds it', async () => {
+    dataReplies = [job('/home/u/demtest/arkabutla_3dep_10m.tif')];
+    await renderTab();
+    await browse();
+    fireEvent.click(screen.getByRole('option', { name: /arkabutla/ }));
+    const input = screen.getByRole('textbox', { name: 'File path on the server' }) as HTMLInputElement;
+    expect(input.value).toBe('/home/u/demtest/arkabutla_3dep_10m.tif');
+    expect(screen.getByRole('option', { name: /arkabutla/ }).getAttribute('aria-selected')).toBe('true');
+    expect(requests.filter(r => r.startsWith('POST /data'))).toEqual([]);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Add' })); });
+    expect(requests).toContain('POST /data {"path":"/home/u/demtest/arkabutla_3dep_10m.tif"}');
+    expect(stateRef.overlays[0]).toMatchObject({ name: 'arkabutla_3dep_10m.tif', conversion: { status: 'converting' } });
+  });
+
+  it('a double-click adds a file at once', async () => {
+    dataReplies = [job('/home/u/demtest/arkabutla_3dep_10m.tif')];
+    await renderTab();
+    await browse();
+    await act(async () => { fireEvent.doubleClick(screen.getByRole('option', { name: /arkabutla/ })); });
+    expect(requests).toContain('POST /data {"path":"/home/u/demtest/arkabutla_3dep_10m.tif"}');
+    expect(stateRef.overlays).toHaveLength(1);
+  });
+
+  it('starts at the last folder used', async () => {
+    localStorage.setItem('bowser.loadFile.dir', '/home/u/demtest/lidar');
+    await renderTab();
+    await browse();
+    expect(requests).toContain('GET /files?dir=%2Fhome%2Fu%2Fdemtest%2Flidar');
+    expect(requests).not.toContain('GET /files');
+    expect(rows()).toEqual(['tile_1.tif2.3 MB']);
+  });
+
+  it('"Add all" adds every file, asking first above 10', async () => {
+    const many = Array.from({ length: 12 }, (_, i) => tif(`t${i}.tif`, `/many/t${i}.tif`, 10));
+    folders = { '': listing('/many', '/', many) };
+    dataReplies = many.map(f => job(f.path));
+    const ask = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
+    await renderTab();
+    await browse();
+    const all = screen.getByRole('button', { name: 'Add all supported files in this folder (12)' });
+    await act(async () => { fireEvent.click(all); });
+    expect(ask).toHaveBeenLastCalledWith('Add all 12 files in this folder as layers?');
+    expect(requests.filter(r => r.startsWith('POST /data'))).toEqual([]);  // declined
+    await act(async () => { fireEvent.click(all); });
+    expect(requests.filter(r => r.startsWith('POST /data'))).toHaveLength(12);
+    expect(stateRef.overlays).toHaveLength(12);
+    expect(screen.getByText('Added 12 layers.')).toBeTruthy();
+  });
+
+  it('"Add all" adds at most 50, and says so', async () => {
+    const many = Array.from({ length: 60 }, (_, i) => tif(`t${i}.tif`, `/many/t${i}.tif`, 10));
+    folders = { '': listing('/many', '/', many) };
+    dataReplies = many.map(f => job(f.path));
+    const ask = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    await renderTab();
+    await browse();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Add all supported files in this folder (60)' })); });
+    expect(ask).toHaveBeenCalledWith('Add the first 50 of the 60 files in this folder as layers?');
+    expect(requests.filter(r => r.startsWith('POST /data'))).toHaveLength(50);
+    expect(screen.getByText(/Added 50 layers\. Added the first 50 of 60; add the rest one by one/)).toBeTruthy();
+  });
+
+  it('a folder typed in the path box opens the browser there', async () => {
+    dataReplies = [{ http: 400, detail: 'No such file: /home/u/demtest/lidar' }];
+    await renderTab();
+    const input = await screen.findByRole('textbox', { name: 'File path on the server' });
+    fireEvent.change(input, { target: { value: '/home/u/demtest/lidar' } });
+    await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }); });
+    expect(rows()).toEqual(['tile_1.tif2.3 MB']);
+    expect(screen.queryByText(/No such file/)).toBeNull();
+    expect((input as HTMLInputElement).value).toBe('');
+    // With a trailing slash it is a folder: no POST /data first.
+    cleanup();
+    requests = [];
+    await renderTab();
+    const again = await screen.findByRole('textbox', { name: 'File path on the server' });
+    fireEvent.change(again, { target: { value: '/home/u/demtest/' } });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Add' })); });
+    expect(requests.filter(r => r.startsWith('POST /data'))).toEqual([]);
+    expect(rows()[0]).toBe('lidar');
+  });
+
+  it('a path that is neither a file nor a folder still shows why', async () => {
+    dataReplies = [{ http: 400, detail: 'No such file: /nope.tif' }];
+    await renderTab();
+    const input = await screen.findByRole('textbox', { name: 'File path on the server' });
+    fireEvent.change(input, { target: { value: '/nope.tif' } });
+    await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }); });
+    expect(requests).toContain('GET /files?dir=%2Fnope.tif');  // tried as a folder first
+    expect(screen.getByText('No such file: /nope.tif')).toBeTruthy();
+    expect(screen.queryByText(/is not a folder/)).toBeNull();  // the probe's own error stays quiet
+    expect(screen.queryByRole('listbox')).toBeNull();
+  });
+
+  it('Browse is offered only where the server can list folders', async () => {
+    await renderTab();
+    expect(await screen.findByRole('button', { name: 'Browse…' })).toBeTruthy();
+    cleanup();
+    catalog = { datasets: [], allow_open: false };
+    await renderTab();
+    expect(screen.queryByRole('button', { name: 'Browse…' })).toBeNull();
+    cleanup();
+    catalog = { datasets: [], allow_open: true };
+    config = { polygon_stats: false, data_conversion: { cog: false, pmtiles: false, pmtiles_min_mb: null } };  // bowser-lite
+    await renderTab();
+    expect(screen.queryByRole('button', { name: 'Browse…' })).toBeNull();
+    cleanup();
+    // A server without GET /files (501): Browse goes away.
+    config = { polygon_stats: true, data_conversion: CONVERSION };
+    filesStatus = 501;
+    await renderTab();
+    await browse();
+    expect(screen.queryByRole('button', { name: 'Browse…' })).toBeNull();
+    expect(screen.getByRole('textbox', { name: 'File path on the server' })).toBeTruthy();
   });
 });
 
