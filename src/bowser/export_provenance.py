@@ -28,6 +28,10 @@ _SOURCE_KEYS = {
 }
 
 
+#: What an export relative to another date (``reference_step``) did to each pixel.
+_STEP_OPERATION = "exported_value = value(selected) - value(reference), per pixel"
+
+
 def _text(value: Any) -> str | None:
     if isinstance(value, (str, int, float)) and not isinstance(value, bool):
         text = str(value).strip()
@@ -123,6 +127,7 @@ def export_provenance(
     masks: Sequence[Mapping[str, Any]] = (),
     source_nodata: Any = None,
     export_nodata: Any = None,
+    reference_step: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, str], str]:
     """Build GeoTIFF tags and a short filename from established export facts.
 
@@ -131,6 +136,11 @@ def export_provenance(
     Only explicit reference/fit dates establish those meanings. Interactive
     reference tags must describe a shift already applied by the exporter; this
     function never changes raster values. Inputs are not mutated.
+
+    ``reference_step`` (``index``, ``label``, ``coordinate``) is the step the
+    exporter already subtracted from each pixel (the viewer's chosen reference
+    date). It becomes the temporal reference; the stored one is kept as
+    ``stored_reference_date``.
 
     Returns
     -------
@@ -151,6 +161,13 @@ def export_provenance(
     time["available_record_start"] = min(dates) if dates else None
     time["available_record_end"] = max(dates) if dates else None
     time["reference_date"] = _date(merged.get("reference_date"))
+    if reference_step is not None:
+        time["stored_reference_date"] = time["reference_date"]
+        time["reference_index"] = reference_step["index"]
+        time["reference_label"] = reference_step.get("label")
+        time["reference_coordinate"] = reference_step.get("coordinate")
+        time["reference_date"] = _date(reference_step.get("label"))
+        time["reference_operation"] = _STEP_OPERATION
     time["velocity_fit_start"] = _date(merged.get("velocity_fit_start"))
     time["velocity_fit_end"] = _date(merged.get("velocity_fit_end"))
     time["selected_date"] = _date(selected_label)

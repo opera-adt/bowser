@@ -6,6 +6,7 @@ import OverlaysTab from './panel/OverlaysTab';
 import ProjectTab from './panel/ProjectTab';
 import GnssTab from './panel/GnssTab';
 import StatsTab from './panel/StatsTab';
+import AssistantTab from './panel/AssistantTab';
 import operaEmblem from '../assets/opera-emblem.png';
 import bowserMark from '../assets/bowser-mark.svg';
 
@@ -19,6 +20,7 @@ const TABS = [
   { id: 'overlays', label: 'Overlays', icon: svg(<><path d="m12 3.5 8.5 5-8.5 5-8.5-5 8.5-5Z" /><path d="m3.5 12.5 8.5 5 8.5-5" /><path d="m3.5 16 8.5 5 8.5-5" /></>) },
   { id: 'stats', label: 'Stats', icon: svg(<><path d="M4 20h16" /><path d="M7 16.5v-5M12 16.5V6M17 16.5v-8" /></>) },
   { id: 'gnss', label: 'GNSS', icon: svg(<><circle cx="12" cy="18" r="2" /><path d="M8.5 14.5a5 5 0 0 1 7 0M5.5 11.5a9.2 9.2 0 0 1 13 0M2.5 8.5a13.4 13.4 0 0 1 19 0" /></>) },
+  { id: 'assistant', label: 'Assistant', icon: svg(<><path d="M5 4.5h14A1.5 1.5 0 0 1 20.5 6v9a1.5 1.5 0 0 1-1.5 1.5h-8l-4.5 3.5v-3.5H5A1.5 1.5 0 0 1 3.5 15V6A1.5 1.5 0 0 1 5 4.5Z" /><path d="M8 9h8M8 12h5" /></>) },
   { id: 'project', label: 'Project', icon: svg(<><path d="M6 3.5h8l4.5 4.5v11a1.5 1.5 0 0 1-1.5 1.5H6A1.5 1.5 0 0 1 4.500 19V5A1.5 1.5 0 0 1 6 3.5Z" /><path d="M14 3.5V8h4.500" /><path d="M8 13h7M8 16.500h7" /></>) },
 ] as const;
 
@@ -29,6 +31,7 @@ const TAB_CONTENT: Record<TabId, () => JSX.Element> = {
   overlays: OverlaysTab,
   stats: StatsTab,
   gnss: GnssTab,
+  assistant: AssistantTab,
   project: ProjectTab,
 };
 

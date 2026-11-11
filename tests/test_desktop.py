@@ -29,6 +29,9 @@ def test_desktop_settings_allow_opening_and_remember(tmp_path):
     assert env["BOWSER_CATALOG_FILE"] == str(tmp_path / "catalog.toml")
     assert env["BOWSER_ALLOW_OPEN"] == env["BOWSER_REMEMBER_OPENED"] == "true"
     assert (tmp_path / "uploads").is_dir()
+    # The Assistant is on, its keys kept with the app's other files.
+    assert env["BOWSER_ASSISTANT"] == env["BOWSER_ASSISTANT_PAGE_KEYS"] == "true"
+    assert env["BOWSER_ASSISTANT_KEY_FILE"] == str(tmp_path / "assistant.json")
 
 
 SCRIPT = textwrap.dedent(

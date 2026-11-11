@@ -25,6 +25,20 @@ fallback for an otherwise unlabeled time axis.
   Available record bounds do **not** establish velocity-fit dates, a cumulative
   datum, or the method used to estimate velocity. Unknown fit periods remain
   unknown even when the cube has other dated layers.
+- **Reference date:** with `ref_time_idx` (the date chosen in the viewer's
+  "ref: <date>" menu; GeoZarr layers with a time axis only), each pixel is
+  `value(selected) - value(reference)`, as on the map's tiles, before masks.
+  `time.reference_index`, `reference_label`, `reference_coordinate` and
+  `reference_operation` record the (clamped) step subtracted; `reference_date`
+  becomes that date and the cube's own one moves to `stored_reference_date`.
+  They are also written as `BOWSER_TIME_REFERENCE_*` and
+  `BOWSER_TIME_STORED_REFERENCE_DATE` tags, and the filename carries both
+  dates (`displacement_20260113-20260125.tif`). A spatial reference then
+  subtracts the reference's own change between the two dates: its value (point
+  or circle median) on the selected date minus its value on the reference
+  date, recorded as `BOWSER_REFERENCE_VALUE`, with `BOWSER_REFERENCE_VALID_PIXELS`
+  the smaller of the two counts. A layer without a time axis, a direct-GeoTIFF
+  dataset, or a negative index returns 422 rather than ignoring the date.
 - **Masks:** AND combination, each applied layer/primary/custom mask, the exact
   existing comparison operator and threshold, and per-layer selected time
   index/label. Custom masks identify their basename and nearest-neighbor
@@ -58,8 +72,8 @@ records them without changing their numerical definitions:
 | Layer, max | `<= threshold` | Unsupported; export returns 422 |
 | Custom | `> 0` | `> 0.5` |
 
-Malformed/unknown layer masks, nonfinite thresholds, negative time indices,
-and unavailable/unreadable custom masks return 422. This validation applies
+Malformed/unknown layer masks, nonfinite thresholds, negative time indices
+(including `ref_time_idx`), and unavailable/unreadable custom masks return 422. This validation applies
 to export; it does not change tile rendering or scientific processing.
 
 ## Read the metadata

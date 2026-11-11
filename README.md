@@ -14,6 +14,7 @@ Map-based viewer for InSAR time-series outputs — GeoZarr cubes, dolphin workfl
 - **Understand each layer.** The layer's description, from the producer's metadata when it has one, shows under the layer selector; the (i) button hides or shows it. See [layer information](docs/layer-information.md).
 - **Export.** Download the current layer as a GeoTIFF with the masks and reference applied, with progress and Cancel. The file records its [dates, source, masks and reference](docs/geotiff-export-provenance.md).
 - **Context.** Satellite, topographic, relief and hillshade basemaps, 3D terrain, GNSS stations, geology, land cover, drawing and measuring tools.
+- **Ask an AI assistant.** `bowser mcp` gives Claude Desktop, Claude Code and other MCP clients tools for time series, trends, profiles and statistics from a running Bowser server. See [MCP server](docs/mcp.md).
 
 The full server also provides a [polygon statistics API](docs/polygon-statistics.md) for stored raster values.
 
@@ -123,6 +124,8 @@ an error rather than silently exporting a different reference.
 
 API clients can pass `ref_lon`, `ref_lat`, and optionally `ref_buffer_m` to
 `/export/geotiff`. Omitting these parameters preserves the stored reference.
+`ref_time_idx` exports the step relative to another date, as the viewer's
+"ref: <date>" menu shows it on the map (GeoZarr cubes).
 Export values are not colorized, rewrapped, or converted between units.
 
 ## CLI Usage

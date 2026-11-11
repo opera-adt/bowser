@@ -1,7 +1,7 @@
 # import secrets
 from typing import Union
 
-from pydantic import AnyHttpUrl, field_validator
+from pydantic import AnyHttpUrl, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -42,6 +42,30 @@ class Settings(BaseSettings):
     # Show the OPERA emblem at the top of the side panel instead of the Bowser mark
     # (`bowser run --opera-logo`).
     BOWSER_OPERA_LOGO: bool = False
+
+    # --- Assistant tab (src/bowser/assistant) ---
+    # A chat on the page that answers with the user's own AI provider and
+    # Bowser's tools. Off unless set: `bowser run` and `bowser lite` turn it on
+    # only for a local single-worker server, like BOWSER_ALLOW_OPEN.
+    BOWSER_ASSISTANT: bool = False
+    # Let the page save API keys on this server (system keychain or a private
+    # file), from this computer only.
+    # Only for a server on the user's own computer: on a shared server every
+    # visitor would spend and could replace the key. A hosted server leaves this
+    # off and gives its key below.
+    BOWSER_ASSISTANT_PAGE_KEYS: bool = False
+    # Where saved keys and provider settings go (empty: the user's config dir).
+    BOWSER_ASSISTANT_KEY_FILE: str = ""
+    # The server's own provider (hosted): anthropic, openai, gemini, openrouter
+    # or ollama, its key, and optionally the model.
+    BOWSER_AI_PROVIDER: str = ""
+    BOWSER_AI_KEY: SecretStr = SecretStr("")
+    BOWSER_AI_MODEL: str = ""
+    # Each provider's usual variable, used when set.
+    ANTHROPIC_API_KEY: SecretStr = SecretStr("")
+    OPENAI_API_KEY: SecretStr = SecretStr("")
+    GEMINI_API_KEY: SecretStr = SecretStr("")
+    OPENROUTER_API_KEY: SecretStr = SecretStr("")
 
     # --- runtime behaviour flags (previously read via os.getenv "YES"/"NO") ---
     BOWSER_USE_SPATIAL_REFERENCE_DISP: bool = True

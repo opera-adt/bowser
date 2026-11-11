@@ -30,6 +30,7 @@ EXPORT = "Export"
 CONFIG = "Config"
 FILES = "Files"
 CONTEXT = "Context"
+ASSISTANT = "Assistant"
 
 #: ``FastAPI.openapi_tags``: the order and description of the groups in /api.html.
 API_TAGS: list[dict[str, Any]] = [
@@ -60,6 +61,12 @@ API_TAGS: list[dict[str, Any]] = [
     {
         "name": CONTEXT,
         "description": "Proxies for outside data: UNR GNSS stations and WMS layers.",
+    },
+    {
+        "name": ASSISTANT,
+        "description": "The page's Assistant: a chat with the user's own AI "
+        "provider that answers with Bowser's data tools. Off unless "
+        "`BOWSER_ASSISTANT` is set.",
     },
 ]
 
@@ -224,7 +231,9 @@ ROUTES: dict[str, dict[str, Any]] = {
         "summary": "Server configuration",
         "description": "Page title, whether to show the OPERA logo, and whether "
         "GeoTIFF export is available (false on bowser-lite). The title is the "
-        "catalog entry's name when `dataset` is given, here or in the Referer.",
+        "catalog entry's name when `dataset` is given, here or in the Referer. "
+        "`assistant` says whether the Assistant tab is on, its providers and "
+        "those with a key.",
         "tags": [CONFIG],
     },
     "GET /mode": {
@@ -380,7 +389,9 @@ ROUTES: dict[str, dict[str, Any]] = {
         "summary": "Export a layer as GeoTIFF",
         "description": "One time step of a layer as a GeoTIFF at native "
         "resolution, with the same masks as the map (masked pixels are NaN), "
-        "optionally re-referenced to `ref_lon`/`ref_lat`. Provenance is written "
+        "optionally re-referenced to `ref_lon`/`ref_lat` and shown relative to "
+        "another date (`ref_time_idx`, GeoZarr only), as on the map. Provenance "
+        "is written "
         "to the file's tags; see docs/geotiff-export-provenance.md.",
         "tags": [EXPORT],
     },
@@ -402,6 +413,52 @@ ROUTES: dict[str, dict[str, Any]] = {
         "description": "Fetch a WMS GetCapabilities on the server (browsers are "
         "usually blocked by CORS) and return its named layers.",
         "tags": [CONTEXT],
+    },
+    "GET /assistant/status": {
+        "summary": "Assistant providers",
+        "description": "Whether the Assistant is on, whether the page may save "
+        "keys here, and each provider with its default model, whether it has a "
+        "key (and where it comes from: `saved` or `environment`) and the key's "
+        "last four characters. Never the key itself. Ollama is listed only when "
+        "it is installed on this computer (started in the background if needed "
+        "on the user's own computer), with its installed models.",
+        "tags": [ASSISTANT],
+    },
+    "GET /assistant/models": {
+        "summary": "A provider's models",
+        "description": "The provider's own list of models, asked for with the "
+        "saved or server key (never returned), for the model picker: OpenAI "
+        "chat models, OpenRouter models that take tools, Gemini models that "
+        "generate content, Anthropic's models, or Ollama's installed models. "
+        "Kept for 10 minutes per provider and key; `refresh=true` asks again. "
+        "400 without a key, 401 when the provider rejects it, 502 when it "
+        "cannot be reached; 403 when the Assistant is off.",
+        "tags": [ASSISTANT],
+    },
+    "PUT /assistant/key": {
+        "summary": "Save a provider's key",
+        "description": "Check an API key with its provider and keep it on this "
+        "computer (system keychain, or a file only this user can read). "
+        'Body: `{"provider": "anthropic", "key": "..."}`. 403 unless '
+        "`BOWSER_ASSISTANT_PAGE_KEYS` is set and the request comes from this "
+        "computer; 401 when the provider rejects the key.",
+        "tags": [ASSISTANT],
+    },
+    "DELETE /assistant/key": {
+        "summary": "Remove a provider's key",
+        "description": "Forget the key saved for `provider` (same conditions as "
+        "PUT).",
+        "tags": [ASSISTANT],
+    },
+    "POST /assistant/chat": {
+        "summary": "Chat with the Assistant",
+        "description": "Send the conversation to the chosen provider with the "
+        "saved or server key and stream the reply as server-sent events: `text` "
+        "deltas, each `message` of the conversation, `tool_call` and "
+        "`tool_result` for the data tools the server runs itself, `page_tools` "
+        "for the tools the page runs (it then sends the results back in a new "
+        "request), `error` and `done`. 403 when the Assistant is off.",
+        "tags": [ASSISTANT],
     },
 }
 
@@ -459,6 +516,16 @@ class ErrorDetail(_Fixed):
     detail: str
 
 
+class AssistantFlag(_Fixed):
+    """The Assistant's switch in ``GET /config``."""
+
+    enabled: bool = Field(description="Whether the Assistant tab is on.")
+    providers: list[str] = Field(description="Ids of the providers it offers.")
+    configured: list[str] = Field(
+        description="Ids of the providers with a key, saved or from the server."
+    )
+
+
 class ConfigInfo(_Fixed):
     """``GET /config``."""
 
@@ -470,6 +537,60 @@ class ConfigInfo(_Fixed):
     polygon_stats: bool = Field(
         description="Whether POST /polygon_timeseries works on this server."
     )
+    geotiff_upload: bool = Field(
+        description="Whether POST /upload_mask and POST /upload_raster work on "
+        "this server."
+    )
+    assistant: AssistantFlag
+
+
+class AssistantProvider(_Fixed):
+    """One provider in ``GET /assistant/status``."""
+
+    id: str
+    label: str
+    wire: Literal["anthropic", "openai", "gemini", "responses"]
+    model: str = Field(description="Default model.")
+    models: list[str] = Field(description="Models offered in the picker.")
+    needs_key: bool
+    local: bool = Field(description="A model server on this computer (no key).")
+    auth: Literal["api_key", "none", "sign_in"]
+    available: bool = Field(description="False for a provider coming later.")
+    note: str
+    key_url: str
+    configured: bool = Field(description="Has a key (or needs none).")
+    source: Optional[Literal["saved", "environment"]] = None
+    hint: Optional[str] = Field(None, description="The key's last characters.")
+    store: Optional[Literal["keyring", "file"]] = None
+
+
+class AssistantStatus(_Fixed):
+    """``GET /assistant/status``, ``PUT`` and ``DELETE /assistant/key``."""
+
+    enabled: bool
+    page_keys: bool = Field(
+        description="Whether the page may save keys on this server."
+    )
+    providers: list[AssistantProvider]
+    default_provider: Optional[str] = None
+    stored_in: Optional[str] = Field(
+        None, description="After PUT: where the key was kept."
+    )
+
+
+class AssistantModel(_Fixed):
+    """One model in ``GET /assistant/models``."""
+
+    id: str = Field(description="The model id to send.")
+    label: Optional[str] = Field(None, description="The provider's display name.")
+
+
+class AssistantModels(_Fixed):
+    """``GET /assistant/models``."""
+
+    provider: str
+    models: list[AssistantModel]
+    cached: bool = Field(description="Whether the list came from the cache.")
 
 
 class ModeInfo(_Fixed):

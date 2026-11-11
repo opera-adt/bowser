@@ -129,6 +129,8 @@ def test_cli_lite_sets_settings_and_runs_uvicorn(monkeypatch, tmp_path):
         "BOWSER_TITLE",
         "BOWSER_USE_SPATIAL_REFERENCE_DISP",
         "BOWSER_OPERA_LOGO",
+        "BOWSER_ASSISTANT",
+        "BOWSER_ASSISTANT_PAGE_KEYS",
     ):
         monkeypatch.setenv(
             key, ""
@@ -148,3 +150,6 @@ def test_cli_lite_sets_settings_and_runs_uvicorn(monkeypatch, tmp_path):
     assert (
         os.environ["BOWSER_ALLOW_OPEN"] == "true" and os.environ["BOWSER_TITLE"] == "T"
     )
+    # A local server shows the Assistant, with keys saved from the page.
+    assert os.environ["BOWSER_ASSISTANT"] == os.environ["BOWSER_ASSISTANT_PAGE_KEYS"]
+    assert os.environ["BOWSER_ASSISTANT"] == "true"
