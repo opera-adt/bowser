@@ -38,7 +38,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from mcp import Client  # noqa: E402
 from pydantic import SecretStr  # noqa: E402
 
-from bowser import geocode  # noqa: E402
+from bowser import geocode, page_token  # noqa: E402
 from bowser.assistant import page, relay  # noqa: E402
 from bowser.mcp_server import build_server  # noqa: E402
 
@@ -168,10 +168,12 @@ def fresh(monkeypatch):
     page.reset()
 
 
-def serve(app: FastAPI):
+def serve(app: FastAPI, monkeypatch):
+    """Run ``app`` on a local port, as ``bowser run`` does (the port in the env)."""
     import uvicorn
 
     port = _free_port()
+    monkeypatch.setenv(page.PORT_ENV, str(port))
     server = uvicorn.Server(
         uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
     )
@@ -188,9 +190,9 @@ def serve(app: FastAPI):
 
 
 @pytest.fixture
-def served():
+def served(monkeypatch):
     seen: list = []
-    s = serve(make_app(settings(), seen))
+    s = serve(make_app(settings(), seen), monkeypatch)
     s.seen = seen
     yield s
     s.server.should_exit = True
@@ -198,8 +200,14 @@ def served():
 
 
 def command(url: str, name: str, args: dict | None = None) -> httpx.Response:
+    """Send a page command as bowser mcp on this computer does: with the token."""
+    page.token_for(int(url.rsplit(":", 1)[1]))  # as at the server's start
+    token = page_token.for_url(url)
     return httpx.post(
-        f"{url}/page/command", json={"name": name, "input": args or {}}, timeout=30
+        f"{url}/page/command",
+        json={"name": name, "input": args or {}},
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=30,
     )
 
 
@@ -283,7 +291,9 @@ def test_only_this_computer_page_keys_and_bowsers_own_page():
     assert r.status_code == 403
     assert near.post("/page/focus", json=focus, headers=evil).status_code == 403
     # Not a command a tool may send.
-    assert near.post("/page/command", json={"name": "add_overlay"}).status_code == 400
+    bearer = {"Authorization": f"Bearer {page.token_for(80)}"}
+    r = near.post("/page/command", json={"name": "add_overlay"}, headers=bearer)
+    assert r.status_code == 400
     # Without page keys (a shared server) or with the Assistant off: nothing.
     for s in (
         settings(BOWSER_ASSISTANT_PAGE_KEYS=False),
@@ -658,3 +668,120 @@ def test_the_assistant_moves_the_reference_to_the_finders_choice(served, monkeyp
             "status": "Setting the reference point",
         }
     ]
+
+
+# --- the page token ------------------------------------------------------------------
+
+
+def test_commands_need_the_page_token(served):
+    p = FakePage(served.url, lambda _n, _x: {"ok": True}).open()
+    url = f"{served.url}/page/command"
+    body = {"name": "get_view", "input": {}}
+    r = httpx.post(url, json=body)
+    assert r.status_code == 401
+    assert "start bowser mcp on the same computer" in r.json()["detail"]
+    r = httpx.post(url, json=body, headers={"Authorization": "Bearer nope"})
+    assert r.status_code == 401
+    r = httpx.post(url, json=body, headers={"Authorization": "Basic dTpw"})
+    assert r.status_code == 401
+    token = page_token.for_url(served.url)
+    assert token and len(token) >= 40
+    assert httpx.post(
+        url, json=body, headers={"Authorization": f"Bearer {token}"}
+    ).json()["ok"]
+    # Where Authorization carries a password, the token goes in its own header.
+    r = httpx.post(url, json=body, headers={page_token.HEADER: token})
+    assert r.status_code == 200
+    assert p.commands == [("get_view", {}), ("get_view", {})]
+    p.close()
+
+
+def test_the_token_file_is_private_and_removed_at_stop(monkeypatch):
+    s = serve(make_app(settings()), monkeypatch)
+    port = int(s.url.rsplit(":", 1)[1])
+    path = page_token.path_for(port)
+    assert path.exists()
+    assert path.stat().st_mode & 0o777 == 0o600
+    assert path.parent.stat().st_mode & 0o777 == 0o700
+    s.server.should_exit = True
+    s.thread.join(10)
+    assert not path.exists()
+
+
+def test_bowser_mcp_reads_the_token_file_or_is_given_it(served, monkeypatch):
+    p = FakePage(served.url, lambda _n, _x: {"center": [1, 2]}).open()
+    ok, res = call(served.url, "get_view")
+    assert ok and res == {"center": [1, 2]}
+    # Not on this computer (no file): the page tools say how to fix it.
+    port = int(served.url.rsplit(":", 1)[1])
+    token = page_token.read(port)
+    page_token.path_for(port).unlink()
+    ok, text = call(served.url, "get_view")
+    assert not ok and "start bowser mcp on the same computer" in text
+    assert token not in text
+
+    # --token, or BOWSER_PAGE_TOKEN.
+    async def given():
+        transport = httpx.AsyncHTTPTransport()
+        try:
+            async with Client(build_server(served.url, transport, token)) as client:
+                return await client.call_tool("get_view", {})
+        finally:
+            await transport.aclose()
+
+    assert not asyncio.run(given()).is_error
+    monkeypatch.setenv(page_token.ENV, token)
+    ok, res = call(served.url, "get_view")
+    assert ok
+    p.close()
+
+
+def test_the_cli_passes_the_token_on(monkeypatch):
+    from click.testing import CliRunner  # noqa: PLC0415
+
+    from bowser import cli, mcp_server  # noqa: PLC0415
+
+    seen = {}
+
+    class Fake:
+        def run(self, *_a, **_k):
+            pass
+
+    def fake_build(url, transport=None, page_token=None):  # noqa: ARG001
+        seen.update(url=url, token=page_token)
+        return Fake()
+
+    monkeypatch.setattr(mcp_server, "build_server", fake_build)
+    r = CliRunner().invoke(
+        cli.cli_app, ["mcp", "--url", "http://127.0.0.1:9", "--token", "t-1"]
+    )
+    assert r.exit_code == 0, r.output
+    assert seen == {"url": "http://127.0.0.1:9", "token": "t-1"}
+    r = CliRunner().invoke(cli.cli_app, ["mcp"], env={"BOWSER_PAGE_TOKEN": "t-2"})
+    assert seen["token"] == "t-2"
+    r = CliRunner().invoke(cli.cli_app, ["mcp"])
+    assert seen["token"] is None
+
+
+def test_the_token_is_never_shown(served, caplog, capfd):
+    import logging  # noqa: PLC0415
+
+    caplog.set_level(logging.DEBUG)
+    p = FakePage(served.url, lambda _n, _x: {"ok": True}).open()
+    token = page_token.for_url(served.url)
+    seen = [
+        httpx.get(f"{served.url}/assistant/status").text,
+        httpx.post(f"{served.url}/page/command", json={"name": "get_view"}).text,
+        httpx.post(
+            f"{served.url}/page/command",
+            json={"name": "get_view", "input": {}},
+            headers={"Authorization": f"Bearer {token}"},
+        ).text,
+        json.dumps(call(served.url, "get_view")),
+        json.dumps(call(served.url, "point_timeseries", {"lon": -90.1, "lat": 34.8})),
+    ]
+    seen.append(json.dumps(relay.assistant_config(settings(), _NoOllama())))
+    out, err = capfd.readouterr()
+    seen += [caplog.text, out, err]
+    assert all(token not in s for s in seen)
+    p.close()

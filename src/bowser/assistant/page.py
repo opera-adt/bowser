@@ -16,9 +16,12 @@ Security, the same gate as keys from the page: nothing works unless
 request must come from this computer (loopback). The page's routes refuse a
 request from another web origin (the server allows any origin for its data
 API, so a web page elsewhere could otherwise listen in); commands are refused
-from any browser (a request with an ``Origin`` or ``Sec-Fetch-*`` header), so
-only server-side tools can send them, never a page. Commands, results, pages and
-waiting commands are all bounded in number, size and rate.
+from any browser (a request with an ``Origin`` or ``Sec-Fetch-*`` header), and
+need the server's page token (:mod:`bowser.page_token`): a random token written
+to a private file when the server starts, which ``bowser mcp`` on the same
+computer reads, so only Bowser's own tools can send them, never a page.
+Commands, results, pages and waiting commands are all bounded in number, size
+and rate.
 
 One server process holds the channel: like the Assistant's agents, it needs a
 single-worker server, which is what ``bowser run`` and ``bowser lite`` start on
@@ -28,11 +31,14 @@ the user's own computer.
 from __future__ import annotations
 
 import asyncio
+import atexit
 import json
+import os
 import secrets
 import time
 from collections import deque
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -40,6 +46,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from .. import api_models as api
+from .. import page_token
 from ..geocode import ATTRIBUTION, GEOCODER, GeocodeError
 from ..tools import PAGE_COMMANDS
 from .relay import EventStream, _from_this_computer, _require_enabled, get_settings
@@ -176,6 +183,61 @@ def _require_not_a_browser(request: Request) -> None:
         )
 
 
+# --- the page token ----------------------------------------------------------------
+
+#: This server's token and the port its file is for (None until made).
+_TOKEN: dict[str, Any] = {"token": None, "port": None}
+#: The variable ``bowser run`` and ``bowser lite`` set to the port they serve on.
+PORT_ENV = "BOWSER_SERVER_PORT"
+
+
+def token_for(port: int | None) -> str:
+    """Return the server's page token, making it (and its file) the first time."""
+    if _TOKEN["token"] is None or (port and port != _TOKEN["port"]):
+        if _TOKEN["token"] is not None and _TOKEN["port"]:
+            page_token.remove(_TOKEN["port"], _TOKEN["token"])
+        if port:
+            _TOKEN["token"], _TOKEN["port"] = page_token.create(port), port
+        else:  # no port known: a token for in-process callers only, no file
+            _TOKEN["token"], _TOKEN["port"] = secrets.token_urlsafe(32), None
+    return _TOKEN["token"]
+
+
+def request_port(request: Request) -> int | None:
+    """Return the port this server answers on (the one in its own URL)."""
+    return request.url.port or (443 if request.url.scheme == "https" else 80)
+
+
+def forget_token() -> None:
+    """Remove the token file (the server stops)."""
+    token, port = _TOKEN["token"], _TOKEN["port"]
+    if token and port:
+        page_token.remove(port, token)
+    _TOKEN["token"], _TOKEN["port"] = None, None
+
+
+atexit.register(forget_token)
+
+
+def _given_token(request: Request) -> str | None:
+    auth = request.headers.get("authorization", "")
+    if auth[:7].lower() == "bearer ":
+        return auth[7:].strip()
+    return request.headers.get(page_token.HEADER)
+
+
+def _require_token(request: Request) -> None:
+    """Refuse a command without this server's page token (401)."""
+    token = token_for(_TOKEN["port"] or request_port(request))
+    if not page_token.matches(_given_token(request), token):
+        raise HTTPException(
+            status_code=401,
+            detail="Page commands need this Bowser server's page token: start "
+            "bowser mcp on the same computer as the Bowser server (or pass "
+            "--token).",
+        )
+
+
 def _rate() -> None:
     now = time.monotonic()
     while _sent and now - _sent[0] > RATE_WINDOW:
@@ -187,7 +249,20 @@ def _rate() -> None:
 
 # --- the routes ---------------------------------------------------------------------
 
-router = APIRouter()
+
+@asynccontextmanager
+async def _lifespan(_app: Any):
+    """Make the page token (and its file) at start, remove the file at stop."""
+    port = os.environ.get(PORT_ENV, "")
+    if port.isdigit():
+        token_for(int(port))
+    try:
+        yield
+    finally:
+        forget_token()
+
+
+router = APIRouter(lifespan=_lifespan)
 
 
 class FocusBody(BaseModel):
@@ -239,6 +314,7 @@ async def page_events(
     """Stream the commands for this page (server-sent events)."""
     _channel_gate(settings, request)
     _require_same_origin(request)
+    token_for(_TOKEN["port"] or request_port(request))
     old = PAGES.pop(page, None)
     if old is not None:
         old.closed = True
@@ -354,6 +430,7 @@ async def page_command(
     """Send a command to the open page and return its answer."""
     _channel_gate(settings, request)
     _require_not_a_browser(request)
+    _require_token(request)
     if body.name not in COMMANDS:
         raise HTTPException(status_code=400, detail=f"No page command {body.name!r}.")
     if len(json.dumps(body.input)) > MAX_INPUT:

@@ -72,7 +72,10 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and reach the page through a page channel (`GET /page/events`,
   `POST /page/focus`, `POST /page/result`, `POST /page/command`): the tab
   focused most recently acts; only from this computer, with
-  `BOWSER_ASSISTANT_PAGE_KEYS`. `GET /config` says whether it is on
+  `BOWSER_ASSISTANT_PAGE_KEYS`, and with the server's page token, which the
+  server writes to a private file at start (removed at stop) and
+  `bowser mcp` on the same computer reads (`--token` or `BOWSER_PAGE_TOKEN`
+  otherwise). `GET /config` says whether it is on
   (`assistant.page_channel`).
 - Chart tools for every AI path, run in the page like the other page tools
   (see [docs/mcp.md](docs/mcp.md#the-chart)): `get_chart_data` returns the
