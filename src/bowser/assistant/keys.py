@@ -112,11 +112,17 @@ class KeyStore:
         key = rec.get("key")
         return key if isinstance(key, str) and key else None
 
-    def save(self, provider: str, key: str) -> str:
-        """Keep ``key`` for ``provider``; return where: ``keyring`` or ``file``."""
+    def save(self, provider: str, key: str, hint: str | None = None) -> str:
+        """Keep ``key`` for ``provider``; return where: ``keyring`` or ``file``.
+
+        ``hint`` replaces the default hint (the key's last four characters), e.g.
+        for a sign-in's tokens, whose tail means nothing.
+        """
         self.remove_key(provider)
         records = self._records()
-        rec: dict[str, Any] = {"hint": f"…{key[-4:]}" if len(key) >= 12 else "…"}
+        if hint is None:
+            hint = f"…{key[-4:]}" if len(key) >= 12 else "…"
+        rec: dict[str, Any] = {"hint": hint}
         stored = False
         if self._keyring is not None:
             try:
@@ -153,3 +159,32 @@ class KeyStore:
             "store": rec.get("store") if saved else None,
             "hint": rec.get("hint") if saved else None,
         }
+
+    # --- sign-in accounts: what is not secret ----------------------------------------
+
+    def account(self, name: str) -> dict[str, Any]:
+        """Return the non-secret record of sign-in ``name`` (e.g. its email)."""
+        accounts = self._read().get("accounts")
+        rec = accounts.get(name) if isinstance(accounts, dict) else None
+        return dict(rec) if isinstance(rec, dict) else {}
+
+    def set_account(self, name: str, **fields: Any) -> None:
+        """Update sign-in ``name``'s record; a None value removes that field.
+
+        Never put a token here: this file is not the keychain.
+        """
+        data = self._read()
+        accounts = data.get("accounts")
+        accounts = accounts if isinstance(accounts, dict) else {}
+        rec = dict(accounts.get(name) or {})
+        for k, v in fields.items():
+            if v is None:
+                rec.pop(k, None)
+            else:
+                rec[k] = v
+        if rec:
+            accounts[name] = rec
+        else:
+            accounts.pop(name, None)
+        data["accounts"] = accounts
+        self._write(data)

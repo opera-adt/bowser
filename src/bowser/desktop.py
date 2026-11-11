@@ -170,6 +170,16 @@ class _WindowApi:
         Path(path).write_bytes(base64.b64decode(data_base64))
         return path
 
+    def open_url(self, url: str) -> bool:
+        """Open an https page in the system browser (an AI sign-in page).
+
+        The app window cannot show it: signing in belongs in the user's own
+        browser, where the provider's page is trusted and remembered.
+        """
+        if not isinstance(url, str) or not url.startswith("https://"):
+            return False
+        return bool(webbrowser.open(url))
+
     def _dialog(self, kind: str, **kwargs: Any) -> Any:
         """Open a pywebview file dialog of ``kind`` (FOLDER, SAVE or OPEN)."""
         import webview  # noqa: PLC0415

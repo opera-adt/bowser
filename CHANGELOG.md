@@ -54,6 +54,23 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   heights is recognised when added; any single-band raster has "Use as DEM".
   "Use for 3D terrain" raises the MapLibre map on the DEM, merged into the
   global terrain outside it.
+- Signing in to the Assistant instead of pasting an API key, on your own
+  computer (`bowser run`, `bowser lite`, the desktop app):
+  - "Sign in with Claude" hands the chat to your own Claude Code through the
+    Agent Client Protocol, with Bowser's MCP server as its only tools; its
+    requests to run a tool show in the tab (Allow, Always allow, Deny; denied
+    when not answered). If Claude Code is not signed in, Bowser starts Claude
+    Code's own sign-in on Anthropic's page. Bowser never reads Claude Code's
+    credentials and never calls Anthropic itself. Needs Claude Code and
+    Node.js (`npx`).
+  - "Continue with ChatGPT" is OpenAI's "Sign in with ChatGPT" for
+    open-source apps: OAuth with PKCE in your browser, then the chat uses your
+    ChatGPT plan through the Responses API. The tokens are kept like keys,
+    renewed, and revoked on Sign out.
+  - New routes `POST`/`DELETE /assistant/signin`, `GET /auth/callback`,
+    `POST /assistant/permission` and `POST /assistant/stop`; `GET
+    /assistant/status` and `GET /config` list the sign-in methods. Signing in
+    and signed-in chats answer requests from the same computer only.
 
 ### Changed
 

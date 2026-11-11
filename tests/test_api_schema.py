@@ -42,6 +42,8 @@ LITE_ONLY_TILE_QUERY = {"scale", "format"}
 BINARY = {"GET /colorbar/{cmap_name}"}
 #: Routes that stream server-sent events rather than send JSON.
 EVENT_STREAMS = {"POST /assistant/chat"}
+#: Routes that answer a small HTML page (the browser lands on them).
+PAGES = {"GET /auth/callback"}
 
 SCRIPT = textwrap.dedent(
     r"""
@@ -376,6 +378,9 @@ def test_shared_routes_have_the_same_parameters_and_responses(apps):
         assert fr == lr, key
         if key in EVENT_STREAMS:
             assert fr.keys() == {"text/event-stream"}, key
+            continue
+        if key in PAGES:
+            assert fr.keys() == {"text/html"}, key
             continue
         # Every shared JSON route describes its body (not the empty schema).
         assert fr["application/json"]["schema"], key

@@ -1533,3 +1533,7 @@ def view_cube(source: str, output: Path, zoom: int | None):
 
     out = make_view_cube(source, output, zoom=zoom)
     click.echo(f"Wrote {out}")
+
+
+if __name__ == "__main__":
+    cli_app()
