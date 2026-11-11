@@ -431,3 +431,21 @@ def test_auto_picks_tiles_under_swiftshader(browser, server):
     assert not [m for m in requests if "/zarr/" in m or "runtime-" in m], requests
     assert any("data layer: tiles — auto: software renderer" in m for m in logs), logs
     ctx.close()
+
+
+def test_tiles_when_the_decoder_worker_cannot_load(browser, server):
+    ctx = browser.new_context(viewport={"width": 1100, "height": 800})
+    ctx.route("**/decode.worker*", lambda route: route.abort())
+    page = ctx.new_page()
+    logs: list[str] = []
+    page.on("console", lambda m: logs.append(f"{m.type}: {m.text}"))
+    page.on("request", lambda r: logs.append(f"request: {r.url}"))
+    page.goto(f"{server['base']}/?render=gpu")
+    label = page.locator("[data-testid=render-label][data-renderer=tiles]")
+    label.wait_for(timeout=60_000)
+    assert "fell back to tiles: decoder worker" in label.inner_text(), label.inner_text()
+    page.wait_for_timeout(1500)
+    requests = [m for m in logs if m.startswith("request: ")]
+    assert any("/md/tiles/" in m for m in requests), requests
+    assert any("data layer: tiles — fell back to tiles: decoder" in m for m in logs), logs
+    ctx.close()
