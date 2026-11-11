@@ -70,7 +70,7 @@ function LayersView() {
             void addFiles(e.dataTransfer.files);
           }}>
           <strong>Drop files here or click to choose</strong>
-          <small>Vector: GeoJSON, CSV, KML, GPX, Shapefile{conversion?.cog ? ', GeoPackage' : ''}</small>
+          <small>Vector: GeoJSON, CSV, KML, GPX, Shapefile{conversion?.cog ? ', GeoPackage, KMZ' : ''}</small>
           <small>Raster: GeoTIFF; an elevation model (DEM) is drawn as a hillshade</small>
           {conversion?.pmtiles && conversion.pmtiles_min_mb !== null && (
             <small>Vectors over {conversion.pmtiles_min_mb} MB are tiled on the server</small>

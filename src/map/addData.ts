@@ -41,7 +41,7 @@ export interface DataJob {
 export const POLL_MS = 1500;
 
 /** Formats the server reads and the browser does not: always sent to the server. */
-export const SERVER_ONLY = /\.(gpkg|fgb)$/i;
+export const SERVER_ONLY = /\.(gpkg|fgb|kmz)$/i;
 
 async function json<T>(res: Response): Promise<T> {
   const body = await res.json().catch(() => ({}));

@@ -171,6 +171,28 @@ describe('Add data: a vector', () => {
   });
 });
 
+describe('Add data: a KMZ', () => {
+  it('is read on the server (the browser reads only KML)', async () => {
+    dataReplies = [{ id: 'z', name: 'sites.kmz', kind: 'vector', format: 'geojson', status: 'converting',
+      layers: ['sites'], feature_count: 3, bounds: [-90.2, 34.7, -90.0, 34.8] }];
+    await renderTab();
+    expect((screen.getByLabelText('Add files') as HTMLInputElement).accept.split(',')).toContain('.kmz');
+    await choose(new File(['PK'], 'sites.kmz'));
+    expect(requests).toContain('POST /upload_data');
+    expect(requests).toContain('POST /data {"path":"/up/data_1_sites.kmz","name":"sites.kmz"}');
+    expect(stateRef.overlays[0]).toMatchObject({ name: 'sites', conversion: { status: 'converting' } });
+  });
+
+  it('on bowser-lite, says it needs the full server', async () => {
+    config = { polygon_stats: false, data_conversion: { cog: false, pmtiles: false, pmtiles_min_mb: null } };
+    await renderTab();
+    await choose(new File(['PK'], 'sites.kmz'));
+    await waitFor(() => expect(stateRef.overlayMessage).toMatch(/^Could not add/));
+    expect(stateRef.overlayMessage).toBe('Could not add sites.kmz: KMZ needs the full Bowser server (bowser run); or unzip it and add the .kml inside');
+    expect(requests.filter(r => /upload|\/data/.test(r))).toEqual([]);
+  });
+});
+
 describe('Add data: a file on the server', () => {
   it('replaces the DEM-only path box: one field for any file, when the server allows opening files', async () => {
     catalog = { datasets: [], allow_open: true };

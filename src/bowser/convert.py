@@ -110,6 +110,7 @@ VECTOR_SUFFIXES = (
     ".zip",
     ".gpkg",
     ".fgb",
+    ".kmz",
 )
 #: Coordinate column names a CSV may use, as the page's own CSV reader takes them.
 _CSV_X = "lon,longitude,lng,long,x"

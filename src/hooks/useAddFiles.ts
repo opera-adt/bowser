@@ -13,7 +13,7 @@ import { featureBounds, fileKind, parseCsv, parseGeoJson, parseGpx, parseKml } f
 import { followData, overlayFromJob, SERVER_ONLY, startData, uploadData, type DataJob } from '../map/addData';
 import type { Overlay, OverlayFeatures } from '../types';
 
-export const ACCEPT = '.geojson,.json,.csv,.tsv,.txt,.kml,.gpx,.zip,.shp,.dbf,.prj,.cpg,.shx,.gpkg,.fgb,.tif,.tiff';
+export const ACCEPT = '.geojson,.json,.csv,.tsv,.txt,.kml,.gpx,.zip,.shp,.dbf,.prj,.cpg,.shx,.gpkg,.fgb,.kmz,.tif,.tiff';
 
 /** What the server converts added files to (/config ``data_conversion``); all off on bowser-lite. */
 export interface DataConversion {
@@ -144,12 +144,15 @@ export function useAddFiles() {
       }
       try {
         if (SERVER_ONLY.test(file.name)) {
-          if (conversion && !conversion.cog) throw new Error('GeoPackage and FlatGeobuf files need the full Bowser server (bowser run)');
+          if (conversion && !conversion.cog) {
+            throw new Error(kind === 'kmz'
+              ? 'KMZ needs the full Bowser server (bowser run); or unzip it and add the .kml inside'
+              : 'GeoPackage and FlatGeobuf files need the full Bowser server (bowser run)');
+          }
           await viaServer([file], file.name);
           continue;
         }
-        if (kind === 'unknown') throw new Error('unsupported file type (GeoJSON, CSV/TSV, KML, GPX, Shapefile, GeoPackage or GeoTIFF)');
-        if (kind === 'kmz') throw new Error('KMZ is not supported; unzip it and add the .kml inside');
+        if (kind === 'unknown') throw new Error('unsupported file type (GeoJSON, CSV/TSV, KML/KMZ, GPX, Shapefile, GeoPackage or GeoTIFF)');
         if (kind === 'geotiff' || tooBig(file.size)) {
           await viaServer([file], file.name);
           continue;
