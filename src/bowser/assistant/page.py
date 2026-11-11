@@ -185,35 +185,30 @@ def _require_not_a_browser(request: Request) -> None:
 
 # --- the page token ----------------------------------------------------------------
 
-#: This server's token and the port its file is for (None until made).
-_TOKEN: dict[str, Any] = {"token": None, "port": None}
+#: The page token of each port this server answers on (one, in practice).
+_TOKENS: dict[int, str] = {}
 #: The variable ``bowser run`` and ``bowser lite`` set to the port they serve on.
 PORT_ENV = "BOWSER_SERVER_PORT"
 
 
-def token_for(port: int | None) -> str:
-    """Return the server's page token, making it (and its file) the first time."""
-    if _TOKEN["token"] is None or (port and port != _TOKEN["port"]):
-        if _TOKEN["token"] is not None and _TOKEN["port"]:
-            page_token.remove(_TOKEN["port"], _TOKEN["token"])
-        if port:
-            _TOKEN["token"], _TOKEN["port"] = page_token.create(port), port
-        else:  # no port known: a token for in-process callers only, no file
-            _TOKEN["token"], _TOKEN["port"] = secrets.token_urlsafe(32), None
-    return _TOKEN["token"]
+def token_for(port: int) -> str:
+    """Return the page token for ``port``, making it (and its file) the first time."""
+    if port not in _TOKENS:
+        _TOKENS[port] = page_token.create(port)
+    return _TOKENS[port]
 
 
-def request_port(request: Request) -> int | None:
+def request_port(request: Request) -> int:
     """Return the port this server answers on (the one in its own URL)."""
     return request.url.port or (443 if request.url.scheme == "https" else 80)
 
 
-def forget_token() -> None:
-    """Remove the token file (the server stops)."""
-    token, port = _TOKEN["token"], _TOKEN["port"]
-    if token and port:
-        page_token.remove(port, token)
-    _TOKEN["token"], _TOKEN["port"] = None, None
+def forget_token(port: int | None = None) -> None:
+    """Remove ``port``'s token and its file (all of them without a port)."""
+    for p in [port] if port is not None else list(_TOKENS):
+        token = _TOKENS.pop(p, None)
+        if token:
+            page_token.remove(p, token)
 
 
 atexit.register(forget_token)
@@ -228,7 +223,7 @@ def _given_token(request: Request) -> str | None:
 
 def _require_token(request: Request) -> None:
     """Refuse a command without this server's page token (401)."""
-    token = token_for(_TOKEN["port"] or request_port(request))
+    token = token_for(request_port(request))
     if not page_token.matches(_given_token(request), token):
         raise HTTPException(
             status_code=401,
@@ -259,7 +254,8 @@ async def _lifespan(_app: Any):
     try:
         yield
     finally:
-        forget_token()
+        if port.isdigit():
+            forget_token(int(port))
 
 
 router = APIRouter(lifespan=_lifespan)
@@ -314,7 +310,7 @@ async def page_events(
     """Stream the commands for this page (server-sent events)."""
     _channel_gate(settings, request)
     _require_same_origin(request)
-    token_for(_TOKEN["port"] or request_port(request))
+    token_for(request_port(request))
     old = PAGES.pop(page, None)
     if old is not None:
         old.closed = True
