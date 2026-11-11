@@ -601,7 +601,7 @@ def prune(now: float | None = None) -> None:
             if now - st.st_mtime > 3600:
                 p.unlink(missing_ok=True)
             continue
-        if p.suffix != ".npz":
+        if p.suffix not in (".npz", ".json"):  # .json: bowser.histograms
             continue
         if now - st.st_mtime > max_age:
             p.unlink(missing_ok=True)
@@ -798,7 +798,7 @@ _warm_lock = threading.Lock()
 _warming: set[int] = set()
 
 
-def _lower_priority() -> None:
+def lower_priority() -> None:
     """Make this thread (and the reader threads it starts) yield the CPU."""
     try:
         os.setpriority(os.PRIO_PROCESS, threading.get_native_id(), 10)
@@ -815,20 +815,33 @@ def _yield_to_requests(entry: _Entry) -> Callable[[], None]:
     """
 
     def pause() -> None:
-        if entry.urgent.is_set():
+        if not pause_for_requests(entry.urgent.is_set):
             raise _HandoverError
-        if not guard_enabled():
-            return
-        resume = warm_up_delay()[2]
-        while ACTIVITY.in_flight or ACTIVITY.idle_for() < resume:
-            if entry.urgent.is_set():
-                raise _HandoverError
-            time.sleep(0.05)
 
     return pause
 
 
-def _wait_until_idle(opened: float) -> None:
+def pause_for_requests(stop: Callable[[], bool] | None = None) -> bool:
+    """Wait while any request is in flight and until none came for a while.
+
+    The background work's pause between reads: with the guard on
+    (:func:`guard_enabled`), wait until no request is in flight and none came for
+    the resume delay (:func:`warm_up_delay`). Returns False as soon as ``stop()``
+    is true, else True.
+    """
+    if stop is not None and stop():
+        return False
+    if not guard_enabled():
+        return True
+    resume = warm_up_delay()[2]
+    while ACTIVITY.in_flight or ACTIVITY.idle_for() < resume:
+        if stop is not None and stop():
+            return False
+        time.sleep(0.05)
+    return True
+
+
+def wait_until_idle(opened: float) -> None:
     """Wait for the start delay after ``opened`` and then for an idle server."""
     delay, idle, _ = warm_up_delay()
     while time.monotonic() - opened < delay:
@@ -869,8 +882,8 @@ def start_warm_up(
         weakref.finalize(ds, _warming.discard, id(ds))
 
     def run() -> None:
-        _lower_priority()
-        _wait_until_idle(opened)
+        lower_priority()
+        wait_until_idle(opened)
         t0 = time.perf_counter()
         for name, stride in layers:
             try:

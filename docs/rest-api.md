@@ -259,6 +259,32 @@ that is poor everywhere the "top 5 %" can still be poor: check the
 `distribution` and the medians. The displacement check compares pixels inside
 the circle with each other; motion of the whole circle is not seen by it.
 
+## Histograms
+
+`GET /histogram/{name}?time_index=t` gives the colour scale's histogram and
+percentiles (2/98, 16/84, 2.275/97.725) of one date. Cubes made by `bowser`
+store every date's histogram in the layer (`bowser_histogram`), and both
+servers return it as is. For other cubes, add them once:
+
+```bash
+bowser add-histograms cube.zarr            # every numeric layer, in place
+bowser add-histograms cube.zarr -v displacement --level 1 --force
+```
+
+Without them, the servers compute the date on demand from the finest pyramid
+level holding at most `BOWSER_HISTOGRAM_MAX_PIXELS` (4 million) valid pixels
+(`level` in the answer; 0 is full resolution), one request at a time in a worker
+thread, and cache it. Pyramid levels are 2x2 averages, so the percentiles are a
+little narrower than at full resolution: on a DISP-S1 frame (level 1 of a
+7733 x 9464 grid, all 269 dates), p2/p98 within 4.7 mm and p16/p84 within
+6.4 mm (1.3 and 1.8 mm on average). The first
+request for a layer also starts computing every date in the background, in one
+pass over the stack, with the reference finder's precautions (it waits for an
+idle server, pauses while requests are in flight, one reader thread on
+bowser-lite) and its disk cache, so a restarted server has them at once.
+`BOWSER_HISTOGRAM_WARMUP=0` turns that off. While the page plays through the
+dates it does not ask for histograms; it asks for the date it stops on.
+
 ## What bowser-lite does not do
 
 bowser-lite needs no GDAL, so it leaves out what needs it:

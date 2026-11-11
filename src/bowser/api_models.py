@@ -459,7 +459,10 @@ ROUTES: dict[str, dict[str, Any]] = {
         "summary": "Histogram of one time step",
         "description": "Histogram and percentiles of the valid pixels of one time "
         "step. A histogram stored in the cube (`bowser_histogram` attribute) is "
-        "returned as is when present.",
+        "returned as is when present. Otherwise it is read from the finest pyramid "
+        "level holding at most `BOWSER_HISTOGRAM_MAX_PIXELS` (4 million) valid "
+        "pixels (`level`), cached, and every date is computed in the background "
+        "(see `bowser add-histograms` to store them in the cube).",
         "tags": [STATS],
     },
     "POST /polygon_timeseries": {
@@ -1545,6 +1548,13 @@ class Histogram(BaseModel):
     p84: float
     p23: float = Field(description="2.275th percentile (mean - 2 sigma).")
     p977: float = Field(description="97.725th percentile (mean + 2 sigma).")
+    level: int | None = Field(
+        None,
+        description="Pyramid level the values were read from: 0 is full "
+        "resolution; a coarser level (2x2 averages per step) is used when full "
+        "resolution holds more valid pixels than `BOWSER_HISTOGRAM_MAX_PIXELS`. "
+        "Absent in histograms stored by older converters.",
+    )
 
 
 class ProfileSample(_Fixed):
