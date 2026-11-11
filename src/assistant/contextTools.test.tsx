@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { dispatch, mockState } = vi.hoisted(() => ({ dispatch: vi.fn(), mockState: {} as Record<string, any> }));
 vi.mock('../context/AppContext', () => ({ useAppContext: () => ({ state: mockState, dispatch }) }));
-vi.mock('../hooks/useAddFiles', () => ({ ACCEPT: '', useAddFiles: () => vi.fn() }));
+vi.mock('../hooks/useAddFiles', () => ({ ACCEPT: '', useAddFiles: () => vi.fn(), useAddServerData: () => vi.fn(), useDataConversion: () => null }));
 vi.mock('../map/soils', async () => ({
   ...(await vi.importActual<Record<string, unknown>>('../map/soils')),
   soilsInView: vi.fn(async () => ({
