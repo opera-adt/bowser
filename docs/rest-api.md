@@ -60,6 +60,8 @@ are indexes into a layer's `x_values`.
 | | `GET /histogram/{name}` | Histogram of one step |
 | | `POST /polygon_timeseries` | Per-date statistics inside a polygon |
 | | `POST /profile` | Values along a line |
+| | `GET /reference_candidates` | Stable places to put the reference point |
+| | `GET /reference_candidates/status` | Whether the reference finder's statistics are ready |
 | Tiles | `GET /md/{tms}/tilejson.json` | TileJSON with the tile URL template |
 | | `GET /md/tiles/{tms}/{z}/{x}/{y}` | A map tile |
 | | `GET /colorbar/{cmap}` | A colormap gradient image |
@@ -133,6 +135,91 @@ library:
 curl -s "http://localhost:8000/md/WebMercatorQuad/tilejson.json?variable=displacement\
 &time_idx=10&rescale=-0.05,0.05&colormap_name=rdbu_r&tilesize=256"
 ```
+
+## Finding a stable reference point
+
+`GET /reference_candidates` ranks places to put the reference point, in one
+call (Main › Reference Point › *Find a stable reference* on the page):
+
+```bash
+curl -s "http://localhost:8000/reference_candidates?radius_m=100&n=5" \
+  | jq '.recommended | {lon, lat, radius_m, reason}'
+```
+
+How it scores, with the parameters that change each step:
+
+1. **Per pixel, over the whole stack:** the median and standard deviation
+   through time of `temporal_coherence` and of `phase_similarity`. Water
+   (`water_mask` = 0) is left out; with `use_masks=true`, so are pixels outside
+   the `recommended_mask` on most dates.
+2. **Viable pixels:** both medians at least the thresholds, by default the
+   `quantile` (0.95, the top 5 %) of the cube's own medians, so the rule adapts
+   to the cube; `coherence_min` and `similarity_min` set them instead. The
+   **pixel score** is `((med_coh - k std_coh) + (med_sim - k std_sim)) / 2`
+   with `k = k_std` (1): a pixel whose quality swings through time loses to a
+   steady one.
+3. **Neighbourhood:** around each viable pixel, the circle of `radius_m`
+   (100 m; the same pixels *Sample around ref marker* averages). Its
+   `viable_fraction` (pixels off the grid or masked count as not viable) times
+   the circle's `mean_score` is the `neighbourhood_score`, so a lone bright
+   pixel in noise loses to a coherent patch.
+4. **Spacing and displacement check:** the best centres at least
+   `min_separation_m` apart (3 x radius) are shortlisted, and for each the
+   `displacement_scatter_m` is measured: the median over the circle of each
+   pixel's standard deviation through time about the circle's median. Low
+   means the circle moves as one, which a circle-averaged reference needs. The
+   final `score` is `neighbourhood_score x 5 mm / (5 mm + scatter)`.
+
+Each candidate carries the `lon`, `lat` and `radius_m` to set as the
+reference; `recommended` is the first. The response also gives the thresholds
+used, percentiles of both medians over the cube (`distribution`) and, per
+candidate, the medians, standard deviations, velocity and a one-line `reason`.
+
+The per-pixel reductions do not depend on the reference or the parameters, so
+they are computed once per cube and layer and kept, in memory and on disk
+(`~/.cache/bowser/refstats`, or `BOWSER_REFSTATS_CACHE_DIR`; `.npz` files keyed
+by the store, pyramid level, layer, date stride and a fingerprint of the
+layer's files, so a rewritten layer is recomputed). A restarted server reuses
+them. The disk cache drops files older than `BOWSER_REFSTATS_CACHE_MAX_AGE_DAYS`
+(30) and the least recently used beyond `BOWSER_REFSTATS_CACHE_MAX_MB` (2048);
+`BOWSER_REFSTATS_CACHE=0` turns it off. `BOWSER_REFSTATS_WORKERS` (2) threads
+read the stack.
+
+Both servers start computing them in the background when they open a cube (at
+startup, on a catalog entry's first request, on *Open*), and keep out of the
+way while doing so:
+
+- they start 10 s after the cube opened (`BOWSER_REFSTATS_WARMUP_DELAY_S`), once
+  no request came for 2 s (`BOWSER_REFSTATS_WARMUP_IDLE_S`);
+- before each read they pause while any request is in flight (tiles, series,
+  histograms, ...; not the status route), and resume 0.5 s after the last one
+  (`BOWSER_REFSTATS_WARMUP_RESUME_S`);
+- they run at low CPU priority, and bowser-lite, the desktop app's server, reads
+  with one thread (`BOWSER_REFSTATS_WARMUP_WORKERS`).
+
+A search that arrives meanwhile is not held back: it takes the computation
+over, keeping the blocks already read, and finishes it at full speed.
+`GET /reference_candidates/status` says whether the statistics are `ready`,
+`running` (with `progress`) or `idle`, and the page shows *Preparing… 40%*
+while they run. `BOWSER_REFSTATS_WARMUP=0` turns the warm-up off.
+
+A cube larger than 16 million pixels per date is screened on its coarsest
+pyramid level below that size; a screening read above 4 billion values per
+layer also uses every n-th time chunk of dates (`screen_stride` sets it). In
+both cases the shortlisted candidates are recomputed at full resolution with
+every date before ranking, and the thresholds and `distribution` describe the
+screening read. On Arkabutla, screening every 2nd, 3rd or 4th chunk gave the
+same five places as every date (one moved by 30 m), so every date stays the
+default where it is affordable.
+
+**Limits.** Coherence says the phase is consistent, not that the ground is
+still: a coherent building can sit on compacting ground, and a dam or a
+quarry face can be coherent and moving. Before using a candidate, look at its
+`velocity` and its time series, and at what is on the ground there (geology,
+pumping, construction). The thresholds are relative to the cube, so in a cube
+that is poor everywhere the "top 5 %" can still be poor: check the
+`distribution` and the medians. The displacement check compares pixels inside
+the circle with each other; motion of the whole circle is not seen by it.
 
 ## What bowser-lite does not do
 

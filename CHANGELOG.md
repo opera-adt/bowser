@@ -8,6 +8,23 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Find a stable reference point: `GET /reference_candidates` (full server and
+  bowser-lite, same answers) ranks places by the whole-stack median and
+  standard deviation of temporal coherence and phase similarity, how much of
+  the surrounding circle is coherent, and how much the displacement inside the
+  circle scatters. Main › Reference Point gains *Find a stable reference*: the
+  candidates are numbered on the map and listed, and choosing one (or *Use
+  recommended*) moves the reference there with *Sample around ref marker* at
+  the same radius. See docs/rest-api.md for what the scores mean and their
+  limits.
+- The reference finder keeps its per-pixel statistics on disk
+  (`~/.cache/bowser/refstats`; `BOWSER_REFSTATS_*` settings), so a restarted
+  server answers at once; both servers prepare them in the background when they
+  open a cube (after an idle delay, pausing while any request is in flight, so
+  the map stays responsive), `GET /reference_candidates/status` reports the
+  progress and
+  the page shows *Preparing… 40%*. Very large cubes can be screened on a subset
+  of dates (`screen_stride`), with the shortlist rechecked on every date.
 - `bowser mcp`, an MCP server for AI assistants such as Claude Desktop and
   Claude Code. Its tools call a running Bowser server (full or lite) for time
   series, trends, profiles, histograms, polygon statistics and GeoTIFF export,
@@ -100,6 +117,10 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Breaking:** Bowser now requires Python 3.12 or newer (`requires-python
+  = ">=3.12"`); Python 3.11 is no longer supported. The `writer` extra's
+  geozarr-toolkit and rasterio 1.5 already needed 3.12, and the pixi
+  environments were on 3.12.
 - The server runs on TiTiler 2.0 (rio-tiler 9), as `pip install` users
   already did: the lock had kept TiTiler 0.22. Tile URLs no longer carry an
   `@1x` suffix, TileJSON reports spec 3.0.0, and the tile size is a `tilesize`

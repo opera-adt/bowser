@@ -24,6 +24,7 @@ import Graticule from './Graticule';
 import SplitDivider from './SplitDivider';
 import { geotiffTileUrl, overlayVizKey } from '../map/overlays';
 import { annotationCreateForm, annotationEditForm, annotationLabelHtml } from '../map/annotationForms';
+import { candidateMarkerHtml, candidateMarkerTitle, chooseCandidate } from '../map/referenceCandidates';
 
 // Fix for default markers in React Leaflet
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -389,6 +390,19 @@ function MarkerEventHandlers() {
           }}
         />
       )}
+
+      {/* Stable reference candidates, numbered (Main › Reference Point) */}
+      {(state.refCandidates ?? []).map(c => (
+        <Marker
+          key={`ref-cand-${c.rank}`}
+          position={[c.lat, c.lon]}
+          icon={L.divIcon({ html: candidateMarkerHtml(c), className: 'ref-cand-icon', iconSize: [22, 22] })}
+          title={candidateMarkerTitle(c)}
+          eventHandlers={{
+            click: () => void chooseCandidate(state, c, { fetchPointTimeSeries, fetchBufferTimeSeries }, dispatch),
+          }}
+        />
+      ))}
     </>
   );
 }

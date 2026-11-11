@@ -15,7 +15,6 @@ from typing import Literal, NamedTuple
 import numpy as np
 import xarray as xr
 from pyproj import CRS, Transformer
-from rasterio.transform import rowcol
 
 PointMethod = Literal["nearest", "containing"]
 
@@ -53,6 +52,9 @@ def select_point(
 
     """
     if method == "containing":
+        # Imported here: bowser-lite reuses this module and runs without rasterio.
+        from rasterio.transform import rowcol  # noqa: PLC0415
+
         row, col = rowcol(da.rio.transform(), cx, cy)
         if not (0 <= row < da.sizes["y"] and 0 <= col < da.sizes["x"]):
             raise ValueError("Reference position is outside the source raster")
@@ -150,8 +152,11 @@ def pool(values: np.ndarray, inside: np.ndarray) -> np.ndarray:
     """Return ``(N, n_window)``: the first axis of ``values``, then its pixels.
 
     Pixels not ``inside`` become NaN. The first axis is the series (time) axis
-    of a ``(N, ny, nx)`` window; a 2-D ``values`` is pooled per row.
+    of a ``(N, ny, nx)`` window; a 2-D ``(ny, nx)`` window (a layer without a
+    time axis) is one step, ``N = 1``.
     """
+    if values.ndim == inside.ndim:
+        values = values[np.newaxis]
     return np.where(inside, values, np.nan).reshape(values.shape[0], -1)
 
 
