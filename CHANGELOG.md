@@ -194,6 +194,16 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   read-only at `GET /zarr/{path}` (`BOWSER_ZARR_FILES=false` turns it off). The
   GPU code loads only when chosen (about 4 kB more in the default bundle). See
   [docs/gpu-render.md](docs/gpu-render.md).
+- GPU rendering (still experimental, `?render=gpu|auto`): chunks are fetched
+  and decompressed in one or two Web Workers, so the page's main thread only
+  uploads them (in a headless test on a 269-date frame, main-thread time while
+  stepping through the dates fell by 30–60%, depending on how many chunks each
+  step needs). Displacement is kept on the GPU as 16-bit floats where that rounds
+  within 0.1 mm (half the memory); masks stay 32-bit. Chunks on the GPU stay
+  within a memory budget (128–512 MB from the device's memory, or
+  `?gpu_mb=`), dropping chunks away from the view first; dates played past
+  are no longer fetched. The `?render=` label shows the memory in use. A
+  worker that can't start switches to tiles, as other failures do.
 
 ### Changed
 
