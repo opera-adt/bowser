@@ -4456,8 +4456,8 @@ packages:
   timestamp: 1773797822026
 - pypi: ./
   name: bowser-insar
-  version: 0.6.1.post1.dev128+g1d78464cc.d20261110
-  sha256: 9292b656b950ded694922c1a3a9fd1c22f74531a2d3abf4c3c99537acfed2142
+  version: 0.6.1.post1.dev169+g1cc2b335a.d20261111
+  sha256: 6b1abccfc64f112b5b8620e44baea1ad65f870f0de47f565f0ef9afaa8499a66
   requires_dist:
   - titiler-xarray>=2.4,<3
   - fsspec
@@ -4491,7 +4491,7 @@ packages:
   - keyring ; extra == 'assistant'
   - pyjwt[crypto]>=2.10 ; extra == 'assistant'
   - mcp==2.2.0 ; extra == 'assistant'
-  requires_python: '>=3.11'
+  requires_python: '>=3.12'
   editable: true
 - conda: https://conda.anaconda.org/conda-forge/linux-64/brotli-1.1.0-hb9d3cd8_3.conda
   sha256: c969baaa5d7a21afb5ed4b8dd830f82b78e425caaa13d717766ed07a61630bec

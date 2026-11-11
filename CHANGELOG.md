@@ -51,6 +51,10 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Breaking:** Bowser now requires Python 3.12 or newer (`requires-python
+  = ">=3.12"`); Python 3.11 is no longer supported. The `writer` extra's
+  geozarr-toolkit and rasterio 1.5 already needed 3.12, and the pixi
+  environments were on 3.12.
 - The server runs on TiTiler 2.0 (rio-tiler 9), as `pip install` users
   already did: the lock had kept TiTiler 0.22. Tile URLs no longer carry an
   `@1x` suffix, TileJSON reports spec 3.0.0, and the tile size is a `tilesize`
