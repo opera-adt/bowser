@@ -10,6 +10,12 @@ module.exports = {
   parser: '@typescript-eslint/parser',
   plugins: ['react-refresh'],
   rules: {
+    // A leading underscore marks a deliberately unused binding (forwardRef's
+    // `_ref`, `const { [key]: _old, ...rest }`), so don't report those.
+    '@typescript-eslint/no-unused-vars': [
+      'error',
+      { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
+    ],
     'react-refresh/only-export-components': [
       'warn',
       { allowConstantExport: true },
