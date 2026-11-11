@@ -672,28 +672,82 @@ async def _signed_in_chat(request: Request, body: ChatBody, settings: Any):
         )
     if not body.conversation:
         raise HTTPException(status_code=400, detail="Give the chat's id.")
+    await _require_agent(m, store)
+    slot = _warm(m, store, request, body.conversation)
+    return EventStream(run_agent(body, slot), headers=headers)
+
+
+async def _require_agent(m: signin.Method, store: KeyStore) -> None:
+    """Refuse unless the agent is installed, signed in and chosen here."""
     state = await signin.agent_state(m)
     rec = await asyncio.to_thread(store.account, m.id)
     if not (state.installed and state.signed_in and rec.get("connected")):
         raise HTTPException(status_code=400, detail=f"{m.label} first.")
-    tools = _data_tools(request, page_keys=True)
-    return EventStream(run_agent(m, store, request, body, set(tools)), headers=headers)
 
 
-def _agent_argv(m: signin.Method) -> tuple[list[str], dict[str, str]]:
-    """Return the agent's command and the variables it adds to the minimal env."""
+async def _agent_argv(
+    m: signin.Method, on_install: Any = None
+) -> tuple[list[str], dict[str, str], str | None]:
+    """Return the agent's command, its extra variables and a note.
+
+    The variables are added to the minimal environment; the note is set when the
+    slower npx stands in for the installed adapter.
+    """
     spec = m.agent
     assert spec is not None
     program = signin.find_program(spec.program)
     if program is None:
         raise acp.AgentError(f"{spec.program} is not installed.")
     if not spec.adapter:
-        return [program], {}
-    npx = signin.find_program("npx")
-    if npx is None:
-        raise acp.AgentError("Node.js (npx) is needed to talk to it.")
+        return [program], {}, None
+    try:
+        argv, note = await signin.adapter_command(spec, on_install)
+    except signin.SignInError as e:
+        raise acp.AgentError(str(e)) from e
     extra = {spec.program_env: program} if spec.program_env else {}
-    return [npx, "--yes", spec.adapter], extra
+    return argv, extra, note
+
+
+def _warm(
+    m: signin.Method, store: KeyStore, request: Request, conversation: str
+) -> acp.Slot:
+    """Start (or find) the conversation's agent session, in the background."""
+    from ..tools import INSTRUCTIONS  # noqa: PLC0415
+
+    spec = m.agent
+    assert spec is not None
+    known = set(_data_tools(request, page_keys=True))
+    command, args, mcp_env = signin.mcp_command(_self_url(request))
+    name = spec.name or f"{m.vendor}'s agent"
+    starting = f"Starting {name}…"
+
+    install_text = f"Installing {m.vendor}'s adapter (first time only)…"
+
+    def installing(slot: acp.Slot) -> None:
+        slot.phase, slot.text = "installing", install_text
+
+    async def prepare(slot: acp.Slot) -> acp.AgentSession:
+        argv, extra, note = await _agent_argv(m, lambda: installing(slot))
+        slot.note = note
+        slot.phase, slot.text = "starting", starting
+        session = acp.AgentSession(
+            argv,
+            signin.agent_env(extra),
+            str(await asyncio.to_thread(signin.workdir, store)),
+            spec.name or m.vendor,
+            known,
+        )
+        slot.session = session
+        await session.start(
+            {"command": command, "args": args, "env": mcp_env},
+            SYSTEM_AGENT + INSTRUCTIONS,
+        )
+        return session
+
+    first_time = bool(spec.adapter) and signin.installed_adapter(spec) is None
+    if first_time and signin.find_program("node"):
+        return acp.open_session(conversation, prepare, "installing", install_text)
+    return acp.open_session(conversation, prepare, "starting", starting)
 
 
 def _self_url(request: Request) -> str:
@@ -718,48 +772,31 @@ def _transcript(messages: list[dict[str, Any]]) -> str:
     return f"Earlier in this chat:\n{earlier}\n\nNow the user asks:\n{last[1]}"
 
 
-async def run_agent(
-    m: signin.Method,
-    store: KeyStore,
-    request: Request,
-    body: ChatBody,
-    known: set[str],
-) -> AsyncIterator[str]:
-    """Hand the question to the signed-in agent; yield server-sent events."""
-    from ..tools import INSTRUCTIONS  # noqa: PLC0415
+async def run_agent(body: ChatBody, slot: acp.Slot) -> AsyncIterator[str]:
+    """Hand the question to the signed-in agent; yield server-sent events.
 
+    Waits for the agent's session when it is still starting (a ``status`` event
+    each second, with the phase and the seconds so far).
+    """
     conv = body.conversation or ""
-    session = acp.SESSIONS.get(conv)
-    fresh = session is None or not session.alive
     finished = False
     try:
-        if session is not None and session.busy:
+        while slot.task is not None and not slot.task.done():
+            yield _event({"type": "status", **slot.state()})
+            await asyncio.wait({slot.task}, timeout=1.0)
+        session = acp.SESSIONS.get(conv)
+        if slot.phase != "ready" or session is None or not session.alive:
+            why = slot.error or "The agent did not start."
+            yield _event({"type": "error", "kind": "agent", "message": why})
+            finished = True
+            return
+        if session.busy:
             yield _event(
                 {"type": "error", "kind": "busy", "message": "Still answering."}
             )
             finished = True
             return
-        if fresh:
-            yield _event({"type": "status", "text": f"Starting {m.vendor}'s agent…"})
-            try:
-                argv, extra = _agent_argv(m)
-                command, args, mcp_env = signin.mcp_command(_self_url(request))
-                session = acp.AgentSession(
-                    argv,
-                    signin.agent_env(extra),
-                    str(await asyncio.to_thread(signin.workdir, store)),
-                    m.label.removeprefix("Sign in with "),
-                    known,
-                )
-                await session.start(
-                    {"command": command, "args": args, "env": mcp_env},
-                    SYSTEM_AGENT + INSTRUCTIONS,
-                )
-            except acp.AgentError as e:
-                yield _event({"type": "error", "kind": e.kind, "message": str(e)})
-                finished = True
-                return
-            await acp.keep(conv, session)
+        if session.turns == 0:
             text = _transcript(body.messages)
         else:
             last = body.messages[-1]
@@ -770,7 +807,7 @@ async def run_agent(
             )
             finished = True
             return
-        assert session is not None
+        acp.hold(conv)
         async for event in session.prompt(text):
             if event["type"] == "done":
                 answer = event.pop("text", "")
@@ -781,6 +818,7 @@ async def run_agent(
                     }
                 )
             yield _event(event)
+        acp.arm_idle(conv)
         finished = True
     finally:
         if not finished:
@@ -1136,3 +1174,53 @@ async def assistant_stop(
     if not _from_this_computer(request):
         raise HTTPException(status_code=403, detail="Only from this computer.")
     return {"stopped": await acp.stop(body.conversation)}
+
+
+class AgentBody(BaseModel):
+    """``POST /assistant/agent``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    conversation: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
+
+
+@router.post(
+    "/assistant/agent",
+    responses={200: {"model": api.AssistantAgent}},
+    **api.route_doc("POST /assistant/agent"),
+)
+async def assistant_agent_start(
+    request: Request, body: AgentBody, settings: Any = Depends(get_settings)
+):
+    """Start the signed-in agent for a chat now, before its first question."""
+    _require_sign_in(settings, request)
+    m = next((x for x in signin.METHODS if x.kind == "local_agent"), None)
+    if m is None:
+        raise HTTPException(status_code=400, detail="No agent to sign in with.")
+    store = key_store(settings)
+    await _require_agent(m, store)
+    return _warm(m, store, request, body.conversation).state()
+
+
+@router.get(
+    "/assistant/agent",
+    responses={200: {"model": api.AssistantAgent}},
+    **api.route_doc("GET /assistant/agent"),
+)
+async def assistant_agent_state(
+    request: Request,
+    conversation: str = Query(..., pattern=r"^[A-Za-z0-9_-]{1,64}$"),
+    settings: Any = Depends(get_settings),
+):
+    """Say how far the chat's agent has started (``none`` when not at all)."""
+    _require_sign_in(settings, request)
+    slot = acp.SLOTS.get(conversation)
+    if slot is None:
+        return {
+            "phase": "none",
+            "text": "",
+            "elapsed": 0.0,
+            "error": None,
+            "note": None,
+        }
+    return slot.state()

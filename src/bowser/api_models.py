@@ -483,6 +483,23 @@ ROUTES: dict[str, dict[str, Any]] = {
         "`timeout` seconds. 404 when the request is no longer open.",
         "tags": [ASSISTANT],
     },
+    "POST /assistant/agent": {
+        "summary": "Start a chat's agent",
+        "description": "Start the signed-in agent (Claude Code) for "
+        "`conversation` now, so the first question does not wait for it: the "
+        "first time, Bowser installs the agent's ACP adapter into its cache. "
+        "Answers the start's phase (see GET). From this computer only.",
+        "tags": [ASSISTANT],
+    },
+    "GET /assistant/agent": {
+        "summary": "How far a chat's agent has started",
+        "description": "`phase`: `none`, `installing` (the adapter, first "
+        "time only), `starting`, `ready` or `error`; `text` to show, "
+        "`elapsed` seconds (to ready, once ready), `error`, and a `note` when "
+        "npx stands in for the installed adapter. An idle agent is closed "
+        "after 10 minutes.",
+        "tags": [ASSISTANT],
+    },
     "POST /assistant/stop": {
         "summary": "Stop a chat's agent",
         "description": "Kill the agent process of `conversation` (all of them "
@@ -661,6 +678,16 @@ class AssistantAnswered(_Fixed):
     """``POST /assistant/permission``."""
 
     ok: bool
+
+
+class AssistantAgent(_Fixed):
+    """``POST`` and ``GET /assistant/agent``."""
+
+    phase: Literal["none", "installing", "starting", "ready", "error"]
+    text: str
+    elapsed: float = Field(description="Seconds since the start (to ready).")
+    error: Optional[str] = None
+    note: Optional[str] = None
 
 
 class AssistantStopped(_Fixed):

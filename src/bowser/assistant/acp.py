@@ -24,7 +24,9 @@ import os
 import re
 import signal
 import sys
-from collections.abc import AsyncIterator
+import time
+from collections.abc import AsyncIterator, Awaitable, Callable
+from dataclasses import dataclass, field
 from typing import Any
 
 PROTOCOL_VERSION = 1
@@ -113,6 +115,8 @@ class AgentSession:
         self._reader: asyncio.Task | None = None
         self._stderr: list[str] = []
         self.busy = False
+        #: Questions sent so far (the first one carries the chat's history).
+        self.turns = 0
 
     @property
     def alive(self) -> bool:
@@ -455,6 +459,7 @@ class AgentSession:
         if self.session_id is None:
             raise AgentError(f"{self.label} has no session.")
         self.busy = True
+        self.turns += 1
         self._events = asyncio.Queue()
         answer: list[str] = []
         task = asyncio.ensure_future(
@@ -558,6 +563,120 @@ SESSIONS: dict[str, AgentSession] = {}
 MAX_SESSIONS = 3
 
 
+#: Seconds an idle warm session stays open.
+IDLE_SECONDS = 600.0
+
+
+@dataclass
+class Slot:
+    """A conversation's agent while it starts, and after: what the tab shows.
+
+    ``phase`` is ``installing`` (the adapter, first time only), ``starting``
+    (the agent and its session), ``ready`` or ``error``.
+    """
+
+    phase: str = "starting"
+    text: str = ""
+    started: float = field(default_factory=time.monotonic)
+    ready_after: float | None = None
+    error: str | None = None
+    note: str | None = None
+    task: asyncio.Future | None = None
+    #: The session being started (closed if the start is cancelled).
+    session: AgentSession | None = None
+    idle: asyncio.TimerHandle | None = None
+
+    def state(self) -> dict[str, Any]:
+        """Return the slot as ``GET /assistant/agent`` sends it."""
+        elapsed = (
+            self.ready_after
+            if self.ready_after is not None
+            else time.monotonic() - self.started
+        )
+        return {
+            "phase": self.phase,
+            "text": self.text,
+            "elapsed": round(elapsed, 1),
+            "error": self.error,
+            "note": self.note,
+        }
+
+
+#: Slots by the page's conversation id.
+SLOTS: dict[str, Slot] = {}
+
+Prepare = Callable[[Slot], Awaitable[AgentSession]]
+
+
+def open_session(
+    conversation: str, prepare: Prepare, phase: str = "starting", text: str = ""
+) -> Slot:
+    """Return the conversation's slot, starting its agent if there is none.
+
+    ``prepare(slot)`` installs what is needed, starts the session and returns
+    it, setting ``slot.phase`` and ``slot.text`` as it goes; ``phase`` and
+    ``text`` are where a new start begins. A slot that failed,
+    or whose agent has stopped, is replaced by a new start.
+    """
+    slot = SLOTS.get(conversation)
+    if slot is not None:
+        if slot.phase in ("installing", "starting"):
+            return slot
+        session = SESSIONS.get(conversation)
+        if slot.phase == "ready" and session is not None and session.alive:
+            return slot
+    slot = Slot(phase=phase, text=text)
+    SLOTS[conversation] = slot
+    slot.task = asyncio.ensure_future(_open(conversation, slot, prepare))
+    return slot
+
+
+async def _open(conversation: str, slot: Slot, prepare: Prepare) -> None:
+    try:
+        session = await prepare(slot)
+    except asyncio.CancelledError:
+        if slot.session is not None:
+            await slot.session.close()
+        raise
+    except AgentError as e:
+        slot.phase, slot.error, slot.text = "error", str(e), str(e)
+        if slot.session is not None:
+            await slot.session.close()
+        return
+    await keep(conversation, session)
+    slot.phase, slot.text = "ready", "Ready"
+    slot.ready_after = time.monotonic() - slot.started
+    arm_idle(conversation)
+
+
+def arm_idle(conversation: str) -> None:
+    """(Re)start the idle timer that closes the conversation's agent."""
+    slot = SLOTS.get(conversation)
+    if slot is None:
+        return
+    if slot.idle is not None:
+        slot.idle.cancel()
+    slot.idle = asyncio.get_running_loop().call_later(
+        IDLE_SECONDS, lambda: asyncio.ensure_future(_idle(conversation))
+    )
+
+
+def hold(conversation: str) -> None:
+    """Stop the idle timer while the agent answers."""
+    slot = SLOTS.get(conversation)
+    if slot is not None and slot.idle is not None:
+        slot.idle.cancel()
+        slot.idle = None
+
+
+async def _idle(conversation: str) -> None:
+    session = SESSIONS.get(conversation)
+    if session is not None and session.busy:
+        arm_idle(conversation)
+        return
+    await stop(conversation)
+
+
 async def keep(conversation: str, session: AgentSession) -> None:
     """Remember ``session`` for ``conversation``.
 
@@ -566,14 +685,28 @@ async def keep(conversation: str, session: AgentSession) -> None:
     SESSIONS[conversation] = session
     while len(SESSIONS) > MAX_SESSIONS:
         oldest = next(iter(SESSIONS))
+        _drop_slot(oldest)
         await SESSIONS.pop(oldest).close()
 
 
+def _drop_slot(conversation: str) -> Slot | None:
+    slot = SLOTS.pop(conversation, None)
+    if slot is not None and slot.idle is not None:
+        slot.idle.cancel()
+    return slot
+
+
 async def stop(conversation: str | None = None) -> int:
-    """Kill one conversation's agent, or all of them; return how many."""
-    keys = [conversation] if conversation else list(SESSIONS)
+    """Kill one conversation's agent (or one starting), or all; return how many."""
+    keys = [conversation] if conversation else list({*SESSIONS, *SLOTS})
     n = 0
     for key in keys:
+        slot = _drop_slot(key)
+        if slot is not None and slot.task is not None and not slot.task.done():
+            slot.task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await slot.task
+            n += 1
         s = SESSIONS.pop(key, None)
         if s is not None:
             await s.close()
@@ -583,8 +716,10 @@ async def stop(conversation: str | None = None) -> int:
 
 def kill_all_now() -> None:
     """Kill every agent at once (at exit, when there is no event loop)."""
-    for s in list(SESSIONS.values()):
+    starting = [slot.session for slot in SLOTS.values()]
+    for s in [*SESSIONS.values(), *starting]:
         proc = getattr(s, "proc", None)
         if proc is not None and proc.returncode is None:
             _kill(proc, signal.SIGKILL)
     SESSIONS.clear()
+    SLOTS.clear()

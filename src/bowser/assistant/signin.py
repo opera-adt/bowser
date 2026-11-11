@@ -87,7 +87,10 @@ class AgentSpec:
 
     #: The agent's own program (detected on PATH; it does the signing in).
     program: str
-    #: An npm package run with ``npx`` that speaks ACP for the program.
+    #: The program's name as the user knows it (status text).
+    name: str = ""
+    #: A pinned npm package (``name@version``) that speaks ACP for the program;
+    #: installed once into Bowser's cache (:func:`adapter_command`).
     adapter: str = ""
     #: The environment variable telling the adapter which program to run.
     program_env: str = ""
@@ -129,6 +132,7 @@ CHATGPT_OAUTH = OAuthSpec(
 
 CLAUDE_AGENT = AgentSpec(
     program="claude",
+    name="Claude Code",
     adapter="@agentclientprotocol/claude-agent-acp@0.92.0",
     program_env="CLAUDE_CODE_EXECUTABLE",
     status_args=("auth", "status", "--json"),
@@ -734,8 +738,8 @@ async def agent_state(m: Method, fresh: bool = False) -> AgentState:
     program = find_program(spec.program)
     if program is None:
         state = AgentState(installed=False)
-    elif spec.adapter and find_program("npx") is None:
-        state = AgentState(installed=False, detail="Node.js (npx) is needed too.")
+    elif spec.adapter and find_program("node") is None and find_program("npx") is None:
+        state = AgentState(installed=False, detail="Node.js is needed too.")
     else:
         state = await _run_status(program, spec)
     _STATUS_CACHE[m.id] = (now, state)
@@ -840,6 +844,174 @@ def end_login(m: Method) -> None:
         with contextlib.suppress(OSError):
             login.proc.kill()
             login.proc.wait(5)
+
+
+# --- the agent's ACP adapter, installed once ----------------------------------------
+
+
+def cache_root() -> Path:
+    """Return Bowser's cache folder (``~/.cache/bowser`` or the platform's)."""
+    if sys.platform == "win32":
+        base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
+    elif sys.platform == "darwin":
+        base = Path.home() / "Library" / "Caches"
+    else:
+        base = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
+    return base / "bowser"
+
+
+def _split_package(spec: str) -> tuple[str, str]:
+    """Split ``@scope/name@1.2.3`` into its name and version."""
+    name, _, version = spec.rpartition("@")
+    return name, version
+
+
+def adapter_dir(spec: AgentSpec, root: Path | None = None) -> Path:
+    """Return the folder the pinned adapter is installed in (one per version)."""
+    name, version = _split_package(spec.adapter)
+    return (root or cache_root()) / "acp" / f"{name.rsplit('/', 1)[-1]}@{version}"
+
+
+def installed_adapter(spec: AgentSpec, root: Path | None = None) -> Path | None:
+    """Return the adapter's entry script when the pinned version is installed."""
+    name, version = _split_package(spec.adapter)
+    package = adapter_dir(spec, root) / "node_modules" / name
+    try:
+        meta = json.loads((package / "package.json").read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(meta, dict) or meta.get("version") != version:
+        return None
+    bin_ = meta.get("bin")
+    if isinstance(bin_, dict):
+        short = name.rsplit("/", 1)[-1]
+        bin_ = bin_.get(short) or next(iter(bin_.values()), None)
+    if not isinstance(bin_, str):
+        return None
+    script = (package / bin_).resolve()
+    return script if script.is_file() else None
+
+
+#: Seconds an install may take (npm downloads the adapter and its SDK).
+INSTALL_SECONDS = 600.0
+
+
+async def install_adapter(spec: AgentSpec, root: Path | None = None) -> Path:
+    """Install the pinned adapter into Bowser's cache, once; return its script.
+
+    ``npm install --prefix`` into a fresh folder next to the final one, then a
+    rename, so a half-done install is never used. A lock file keeps two
+    installs (in this process or another Bowser) from running at once. Raises
+    SignInError when it fails.
+    """
+    found = installed_adapter(spec, root)
+    if found:
+        return found
+    npm = find_program("npm")
+    if npm is None:
+        raise SignInError("npm is not installed.")
+    final = adapter_dir(spec, root)
+    final.parent.mkdir(parents=True, exist_ok=True)
+    async with _file_lock(final.with_name(final.name + ".lock")):
+        found = installed_adapter(spec, root)
+        if found:
+            return found
+        work = final.with_name(f"{final.name}.part-{os.getpid()}")
+        shutil.rmtree(work, ignore_errors=True)
+        work.mkdir()
+        proc = await asyncio.create_subprocess_exec(
+            npm,
+            "install",
+            "--prefix",
+            str(work),
+            "--no-audit",
+            "--no-fund",
+            "--no-save",
+            "--loglevel=error",
+            spec.adapter,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+            env=agent_env(),
+            cwd=str(work),
+        )
+        try:
+            _, err = await asyncio.wait_for(proc.communicate(), INSTALL_SECONDS)
+        except asyncio.TimeoutError as e:
+            with contextlib.suppress(ProcessLookupError):
+                proc.kill()
+            shutil.rmtree(work, ignore_errors=True)
+            raise SignInError("Installing the adapter took too long.") from e
+        if proc.returncode != 0:
+            shutil.rmtree(work, ignore_errors=True)
+            why = err.decode(errors="replace").strip().splitlines()[-1:] or [""]
+            raise SignInError(f"npm could not install the adapter: {why[0][:200]}")
+        shutil.rmtree(final, ignore_errors=True)
+        work.rename(final)
+    found = installed_adapter(spec, root)
+    if not found:
+        raise SignInError("The adapter was installed but its program is missing.")
+    return found
+
+
+@contextlib.asynccontextmanager
+async def _file_lock(path: Path, wait: float = INSTALL_SECONDS):
+    """Hold ``path`` as a lock between processes (created, then removed).
+
+    A lock older than ``wait`` is taken to be left over from a crash.
+    """
+    deadline = time.monotonic() + wait
+    while True:
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            os.close(fd)
+            break
+        except FileExistsError:
+            with contextlib.suppress(OSError):
+                if time.time() - path.stat().st_mtime > wait:
+                    path.unlink()
+                    continue
+            if time.monotonic() > deadline:
+                raise SignInError("Another install of the adapter did not finish.")
+            await asyncio.sleep(0.5)
+    try:
+        yield
+    finally:
+        with contextlib.suppress(OSError):
+            path.unlink()
+
+
+async def adapter_command(
+    spec: AgentSpec, on_install: Any = None, root: Path | None = None
+) -> tuple[list[str], str | None]:
+    """Return ``(argv, note)`` that start the agent's ACP adapter.
+
+    ``node <script>`` from Bowser's cache, installing it first when needed
+    (``on_install()`` is called then, for the status). When that fails,
+    ``npx --prefer-offline`` with a note saying so. Raises SignInError when
+    neither works.
+    """
+    node = find_program("node")
+    script = installed_adapter(spec, root)
+    if script is None and node is not None:
+        if on_install is not None:
+            on_install()
+        try:
+            script = await install_adapter(spec, root)
+        except SignInError as e:
+            note = f"{e} Using npx instead, which is slower to start."
+            npx = find_program("npx")
+            if npx is None:
+                raise
+            return [npx, "--yes", "--prefer-offline", spec.adapter], note
+    if node is None or script is None:
+        npx = find_program("npx")
+        if npx is None:
+            raise SignInError("Node.js is needed to talk to it.")
+        return [npx, "--yes", "--prefer-offline", spec.adapter], (
+            "Node.js was not found; using npx, which is slower to start."
+        )
+    return [node, str(script)], None
 
 
 def mcp_command(base_url: str) -> tuple[str, list[str], dict[str, str]]:
