@@ -683,7 +683,7 @@ export default function MapContainer({ toolbarsVisible, onToggleToolbars }: { to
       <MapEvents toolActive={measureActive || profileActive} />
       <MousePosition />
       <ScaleBar />
-      <MeasureTool active={measureActive} onDeactivate={() => setMeasureActive(false)} />
+      <MeasureTool active={measureActive} />
       <ProfileToolMap />
       <MapViewController />
       <MapResizeWatcher />
