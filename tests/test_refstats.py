@@ -125,39 +125,95 @@ def test_the_key_changes_when_the_data_changes(store):
     assert rs.disk_key(Source(str(store), "1"), "temporal_coherence", 1) is None
 
 
-def test_warm_up_shares_its_result_with_the_endpoint(store, monkeypatch):
-    calls: list[str] = []
-    gate = threading.Event()
-    real = rs.stack_median_std
-
-    def slow(da, *a, **kw):
-        calls.append(str(da.name))
-        gate.wait(10)
-        return real(da, *a, **kw)
-
-    monkeypatch.setattr(rs, "stack_median_std", slow)
+@pytest.fixture
+def activity(monkeypatch):
+    """A fresh request counter, and a warm-up that starts and resumes at once."""
+    fake = rs.Activity()
+    monkeypatch.setattr(rs, "ACTIVITY", fake)
     monkeypatch.setenv("BOWSER_REFSTATS_WARMUP", "1")
-    ds = _open(store)
-    src = [Source(str(store))]
-    assert warm_up([ds], sources=src) is True
-    assert warm_up([ds], sources=src) is False  # once per dataset
-    for _ in range(100):
-        if calls:
-            break
+    monkeypatch.setenv("BOWSER_REFSTATS_WARMUP_DELAY_S", "0")
+    monkeypatch.setenv("BOWSER_REFSTATS_WARMUP_IDLE_S", "0")
+    monkeypatch.setenv("BOWSER_REFSTATS_WARMUP_RESUME_S", "0.05")
+    return fake
+
+
+@pytest.fixture
+def blocks(monkeypatch):
+    """Count reduced blocks and slow each down, so a warm-up can be watched."""
+    seen: list[tuple] = []
+    real = rs._reduce_in_tiles
+
+    def slow(block, med, std):
+        time.sleep(0.03)
+        seen.append(block.shape)
+        real(block, med, std)
+
+    monkeypatch.setattr(rs, "_reduce_in_tiles", slow)
+    return seen
+
+
+def _wait(pred, timeout=30.0):
+    t0 = time.monotonic()
+    while not pred():
+        assert time.monotonic() - t0 < timeout, "timed out"
         time.sleep(0.02)
-    st = status([ds])
-    assert st["state"] == "running" and st["layers"]["temporal_coherence"]["state"] == (
-        "running"
-    )
+
+
+def _progress(ds):
+    return status([ds])["layers"]["temporal_coherence"]
+
+
+def test_warm_up_waits_for_the_delay_and_an_idle_server(store, activity, monkeypatch):
+    monkeypatch.setenv("BOWSER_REFSTATS_WARMUP_DELAY_S", "0.6")
+    monkeypatch.setenv("BOWSER_REFSTATS_WARMUP_IDLE_S", "0.3")
+    ds = _open(store)
+    activity.begin()  # a request in flight when the delay runs out
+    t0 = time.monotonic()
+    assert warm_up([ds], sources=[Source(str(store))]) is True
+    assert warm_up([ds], sources=[Source(str(store))]) is False  # once per dataset
+    time.sleep(1.0)
+    assert status([ds])["state"] == "idle"  # past the delay, but not idle
+    activity.end()
+    _wait(lambda: status([ds])["state"] != "idle")
+    assert time.monotonic() - t0 >= 1.0 + 0.3 - 0.05
+    _wait(lambda: status([ds])["state"] == "ready")
+
+
+def test_warm_up_pauses_while_a_request_is_in_flight(store, activity, blocks):
+    ds = _open(store)
+    assert warm_up([ds], sources=[Source(str(store))], workers=1) is True
+    _wait(lambda: _progress(ds)["progress"] > 0)
+    activity.begin()
+    time.sleep(0.2)  # the block being read when the request came finishes
+    paused_at = len(blocks)
+    time.sleep(0.6)
+    assert len(blocks) == paused_at  # nothing read while the request ran
+    assert status([ds])["state"] == "running"
+    activity.end()
+    _wait(lambda: status([ds])["state"] == "ready")
+    assert len(blocks) > paused_at
+
+
+def test_a_search_during_the_warm_up_takes_over_at_full_speed(store, activity, blocks):
+    ds = _open(store)
+    assert warm_up([ds], sources=[Source(str(store))], workers=1) is True
+    _wait(lambda: _progress(ds)["progress"] > 0)
+    activity.begin()  # the user's map keeps the warm-up paused...
     result: dict = {}
     t = threading.Thread(target=lambda: result.update(out=_run(ds, store)))
     t.start()
-    time.sleep(0.2)
-    gate.set()
-    t.join(30)
-    assert result["out"]["cached"] is True  # the search computed nothing itself
-    assert sorted(calls) == ["phase_similarity", "temporal_coherence", "water_mask"]
-    assert status([ds])["state"] == "ready"
+    t.join(30)  # ...yet the search answers
+    assert not t.is_alive(), "the search waited for the paused warm-up"
+    activity.end()
+    _wait(lambda: status([ds])["state"] == "ready")
+    # The work was shared: no block reduced twice, and the same answer.
+    # Three layers (coherence, similarity, water mask), each an 80 x 80 grid
+    # in 32 x 32 chunks: 9 blocks.
+    assert len(blocks) == 3 * 9
+    STATS_CACHE.clear()
+    fresh = _run(_open(store), store)
+    result["out"].pop("cached"), fresh.pop("cached")
+    assert result["out"] == fresh
 
 
 def test_warm_up_is_off_when_disabled(store, monkeypatch):

@@ -762,6 +762,7 @@ def warm_up(
     sources: Sequence[Source | None] | None = None,
     default: bool = True,
     params: CandidateParams | None = None,
+    workers: int | None = None,
 ) -> bool:
     """Start computing a cube's default reductions in the background.
 
@@ -778,7 +779,9 @@ def warm_up(
     except Exception as e:  # noqa: BLE001 - opening a cube must not fail on this
         logger.warning(f"reference candidates: no warm-up: {e}")
         return False
-    return start_warm_up(levels[li], names, sources[li] if sources else None)
+    return start_warm_up(
+        levels[li], names, sources[li] if sources else None, workers=workers
+    )
 
 
 def status(levels: Sequence[xr.Dataset], params: CandidateParams | None = None) -> dict:

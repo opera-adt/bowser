@@ -30,9 +30,15 @@ Environment (read when used, so tests and servers can change them):
 ``BOWSER_REFSTATS_WORKERS``
     Reader threads (default 2).
 ``BOWSER_REFSTATS_WARMUP``
-    ``1``/``0``: compute the reductions in the background when a cube is opened.
-    Default on for the full server, off for bowser-lite (see
-    :func:`warm_up_enabled`).
+    ``1``/``0``: compute the reductions in the background when a cube is opened
+    (default on, both servers; see :func:`start_warm_up` for how it yields).
+``BOWSER_REFSTATS_WARMUP_GUARD``
+    ``0`` lets the warm-up run without yielding to requests (for measurements).
+``BOWSER_REFSTATS_WARMUP_DELAY_S`` / ``_IDLE_S`` / ``_RESUME_S``
+    When it starts and resumes (10, 2, 0.5 s; :func:`warm_up_delay`).
+``BOWSER_REFSTATS_WARMUP_WORKERS``
+    Its reader threads (default: 1 on bowser-lite, ``BOWSER_REFSTATS_WORKERS``
+    on the full server).
 """
 
 from __future__ import annotations
@@ -106,19 +112,92 @@ def read_workers() -> int:
     return max(1, int(_env_float("BOWSER_REFSTATS_WORKERS", 2)))
 
 
-def warm_up_enabled(default: bool) -> bool:
+def warm_up_enabled(default: bool = True) -> bool:
     """Whether to warm up on cube open: ``BOWSER_REFSTATS_WARMUP``, else ``default``.
 
-    The full server defaults to on. bowser-lite defaults to off: it is the
-    desktop app's server, often on a laptop, where reading every date of two
-    layers (CPU, disk, battery, a few hundred MB of buffers) each time a cube is
-    opened, whether or not the user ever asks for a reference, costs more than
-    the one-time wait, which the disk cache then removes.
+    Both servers default to on. The warm-up stays out of the user's way (see
+    :func:`start_warm_up`): it waits until the server has been idle, pauses
+    while any request is in flight, runs at low CPU priority, and on bowser-lite
+    (the desktop app's server) reads with one thread.
     """
     v = os.environ.get("BOWSER_REFSTATS_WARMUP")
     if v is None or v == "":
         return default
     return v.lower() not in ("0", "false", "no")
+
+
+def guard_enabled() -> bool:
+    """Whether the warm-up yields to requests: ``BOWSER_REFSTATS_WARMUP_GUARD`` (1)."""
+    v = os.environ.get("BOWSER_REFSTATS_WARMUP_GUARD", "1")
+    return v.lower() not in ("0", "false", "no")
+
+
+def warm_up_delay() -> tuple[float, float, float]:
+    """Return the warm-up's (start delay, start idle, resume idle) in seconds.
+
+    ``BOWSER_REFSTATS_WARMUP_DELAY_S`` (10): from opening the cube;
+    ``BOWSER_REFSTATS_WARMUP_IDLE_S`` (2): no request for this long before
+    starting; ``BOWSER_REFSTATS_WARMUP_RESUME_S`` (0.5): no request for this long
+    before resuming after a pause (a map pan sends tiles in bursts).
+    """
+    return (
+        _env_float("BOWSER_REFSTATS_WARMUP_DELAY_S", 10.0),
+        _env_float("BOWSER_REFSTATS_WARMUP_IDLE_S", 2.0),
+        _env_float("BOWSER_REFSTATS_WARMUP_RESUME_S", 0.5),
+    )
+
+
+class Activity:
+    """Requests in flight and the time of the last one, for the warm-up to yield.
+
+    The servers' middleware calls :meth:`begin` and :meth:`end` around every
+    request except the status route.
+    """
+
+    def __init__(self) -> None:  # noqa: D107
+        self._lock = threading.Lock()
+        self._in_flight = 0
+        self._last = time.monotonic()
+
+    def begin(self) -> None:
+        """Count a request starting."""
+        with self._lock:
+            self._in_flight += 1
+            self._last = time.monotonic()
+
+    def end(self) -> None:
+        """Count a request finished."""
+        with self._lock:
+            self._in_flight = max(0, self._in_flight - 1)
+            self._last = time.monotonic()
+
+    @property
+    def in_flight(self) -> int:
+        """Requests being served now."""
+        return self._in_flight
+
+    def idle_for(self) -> float:
+        """Seconds since the last request began or ended; 0 while one is in flight."""
+        with self._lock:
+            return 0.0 if self._in_flight else time.monotonic() - self._last
+
+
+#: The process-wide request activity both servers record.
+ACTIVITY = Activity()
+
+#: Requests that do not hold the warm-up back (the panel polls this one).
+UNTRACKED_PATHS = ("/reference_candidates/status",)
+
+
+async def track_activity(request: Any, call_next: Any) -> Any:
+    """HTTP middleware: count the request in :data:`ACTIVITY` while it is served."""
+    if request.url.path in UNTRACKED_PATHS:
+        return await call_next(request)
+    ACTIVITY.begin()
+    try:
+        return await call_next(request)
+    finally:
+        ACTIVITY.end()
 
 
 # --- the reduction ----------------------------------------------------------------
@@ -264,6 +343,8 @@ def stack_median_std(
     workers: int = 1,
     progress: ProgressFn | None = None,
     source: Source | None = None,
+    partial: Partial | None = None,
+    pause: Callable[[], None] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Per-pixel median and std over time of ``da`` (or a window of it).
 
@@ -272,6 +353,10 @@ def stack_median_std(
     so memory stays bounded (about ``workers x BLOCK_BYTES``) and a full DISP-S1
     frame never has to fit in memory. ``stride`` keeps every stride-th time
     chunk (:func:`selected_dates`). The result does not depend on ``workers``.
+
+    ``partial`` holds the output and the blocks already done, so a computation
+    interrupted by ``pause`` (called before each read; it may raise) can be
+    continued by another thread from where it stopped.
     """
     raw = direct_array(da, source)
     flat = da.ndim == 2
@@ -301,14 +386,20 @@ def stack_median_std(
             calls.append((a, b, off))
             off += b - a
 
-    med = np.empty((ny, nx), np.float32)
-    std = np.empty((ny, nx), np.float32)
+    if partial is None:
+        partial = Partial()
+    if partial.med is None:
+        partial.med = np.empty((ny, nx), np.float32)
+        partial.std = np.empty((ny, nx), np.float32)
+    med, std = partial.med, partial.std
+    assert std is not None
     blocks = [(r, c) for r in range(0, ny, by) for c in range(0, nx, bx)]
+    todo = [b for b in blocks if b not in partial.done]
     local = threading.local()
-    done = [0]
-    lock = threading.Lock()
 
     def work(block: tuple[int, int]) -> None:
+        if pause is not None:
+            pause()
         r, c = block
         h, w = min(by, ny - r), min(bx, nx - c)
         buf = getattr(local, "buf", None)
@@ -319,25 +410,40 @@ def stack_median_std(
             ys = slice(r_off + r, r_off + r + h)
             xs = slice(c_off + c, c_off + c + w)
             for a, b, o in calls:
+                if pause is not None:
+                    pause()
                 out[o : o + b - a] = raw[ys, xs][None] if flat else raw[a:b, ys, xs]
         else:
             sub = da.isel(y=slice(r, r + h), x=slice(c, c + w))
             dim = sub.dims[0]
             for a, b, o in calls:
+                if pause is not None:
+                    pause()
                 out[o : o + b - a] = read_lazy(sub.isel({dim: slice(a, b)}))
         _reduce_in_tiles(out, med[r : r + h, c : c + w], std[r : r + h, c : c + w])
+        with partial.lock:
+            partial.done.add(block)
+            n_done = len(partial.done)
         if progress is not None:
-            with lock:
-                done[0] += 1
-                progress(done[0], len(blocks))
+            progress(n_done, len(blocks))
 
-    if workers <= 1 or len(blocks) == 1:
-        for blk in blocks:
+    if workers <= 1 or len(todo) <= 1:
+        for blk in todo:
             work(blk)
     else:
-        with ThreadPoolExecutor(min(workers, len(blocks))) as pool:
-            list(pool.map(work, blocks))
+        with ThreadPoolExecutor(min(workers, len(todo))) as pool:
+            list(pool.map(work, todo))
     return med, std
+
+
+@dataclass
+class Partial:
+    """A :func:`stack_median_std` in progress: its output and the blocks done."""
+
+    med: np.ndarray | None = None
+    std: np.ndarray | None = None
+    done: set = field(default_factory=set)
+    lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
 
 def _merge(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
@@ -513,6 +619,10 @@ def prune(now: float | None = None) -> None:
 # --- memory cache with shared in-flight computations -------------------------------
 
 
+class _HandoverError(Exception):
+    """The warm-up gives its computation to a search that needs it now."""
+
+
 @dataclass
 class _Entry:
     done: threading.Event = field(default_factory=threading.Event)
@@ -520,6 +630,16 @@ class _Entry:
     error: BaseException | None = None
     progress: float = 0.0
     origin: str = "computing"  # computing | computed | disk
+    background: bool = False  # computed by the warm-up (yields to requests)
+    urgent: threading.Event = field(default_factory=threading.Event)
+    released: bool = False  # the warm-up stopped; a waiting search continues it
+    cond: threading.Condition = field(default_factory=threading.Condition)
+    partial: Partial = field(default_factory=Partial)
+
+    def finish(self) -> None:
+        with self.cond:
+            self.done.set()
+            self.cond.notify_all()
 
 
 class StatsCache:
@@ -545,10 +665,15 @@ class StatsCache:
         stride: int = 1,
         source: Source | None = None,
         workers: int | None = None,
+        background: bool = False,
     ) -> tuple[tuple[np.ndarray, np.ndarray], bool]:
         """Return ``((median, std), reused)`` for layer ``name`` of ``ds``.
 
-        ``reused`` is False only when this call computed it from the data.
+        ``reused`` is False only when this call computed (some of) it from the
+        data. ``background`` marks the warm-up, whose computation yields to
+        requests; a foreground call that needs a reduction the warm-up is
+        computing takes it over, keeping the blocks already done, and finishes it
+        at full speed.
         """
         if ds[name].ndim < 3:
             stride = 1
@@ -561,14 +686,40 @@ class StatsCache:
             entry = per_ds.get(k)
             owner = entry is None
             if owner:
-                entry = per_ds[k] = _Entry()
+                entry = per_ds[k] = _Entry(background=background)
         assert entry is not None
         if not owner:
-            entry.done.wait()
-            if entry.error is not None:
-                raise entry.error
-            assert entry.result is not None
-            return entry.result, True
+            took_over = False
+            with entry.cond:
+                if not background and entry.background:
+                    entry.urgent.set()  # the warm-up hands over at its next block
+                while not entry.done.is_set():
+                    if not background and entry.released:
+                        entry.released = False
+                        entry.background = False
+                        took_over = True
+                        break
+                    entry.cond.wait(0.5)
+            if not took_over:
+                if entry.error is not None:
+                    raise entry.error
+                assert entry.result is not None
+                return entry.result, True
+            return self._compute(entry, per_ds, k, ds, name, stride, source, workers)
+        return self._compute(entry, per_ds, k, ds, name, stride, source, workers)
+
+    def _compute(
+        self,
+        entry: _Entry,
+        per_ds: dict,
+        k: tuple[str, int],
+        ds: xr.Dataset,
+        name: str,
+        stride: int,
+        source: Source | None,
+        workers: int | None,
+    ) -> Any:
+        handed_over = False
         try:
             key = disk_key(source, name, stride)
             stats = load_cached(key) if key else None
@@ -590,6 +741,8 @@ class StatsCache:
                     workers=read_workers() if workers is None else workers,
                     progress=report,
                     source=source,
+                    partial=entry.partial,
+                    pause=_yield_to_requests(entry) if entry.background else None,
                 )
                 self.computed += 1
                 entry.origin = "computed"
@@ -602,13 +755,20 @@ class StatsCache:
             entry.result = stats
             entry.progress = 1.0
             return stats, reused
+        except _HandoverError:
+            handed_over = True
+            with entry.cond:
+                entry.released = True
+                entry.cond.notify_all()
+            return None, False
         except BaseException as e:
             entry.error = e
             with self._lock:
                 per_ds.pop(k, None)
             raise
         finally:
-            entry.done.set()
+            if not handed_over:
+                entry.finish()
 
     def state(self, ds: xr.Dataset, name: str, stride: int = 1) -> tuple[str, float]:
         """``("ready"|"running"|"idle", progress)`` of one reduction."""
@@ -646,17 +806,62 @@ def _lower_priority() -> None:
         pass
 
 
+def _yield_to_requests(entry: _Entry) -> Callable[[], None]:
+    """Return the warm-up's pause between reads.
+
+    Hand over to a search that needs this reduction; otherwise, with the guard
+    on, wait while any request is in flight and until none came for the resume
+    delay.
+    """
+
+    def pause() -> None:
+        if entry.urgent.is_set():
+            raise _HandoverError
+        if not guard_enabled():
+            return
+        resume = warm_up_delay()[2]
+        while ACTIVITY.in_flight or ACTIVITY.idle_for() < resume:
+            if entry.urgent.is_set():
+                raise _HandoverError
+            time.sleep(0.05)
+
+    return pause
+
+
+def _wait_until_idle(opened: float) -> None:
+    """Wait for the start delay after ``opened`` and then for an idle server."""
+    delay, idle, _ = warm_up_delay()
+    while time.monotonic() - opened < delay:
+        time.sleep(min(0.2, max(0.0, delay - (time.monotonic() - opened))) or 0.01)
+    if not guard_enabled():
+        return
+    while ACTIVITY.idle_for() < idle:
+        time.sleep(0.1)
+
+
 def start_warm_up(
     ds: xr.Dataset,
     layers: Sequence[tuple[str, int]],
     source: Source | None,
+    *,
+    workers: int | None = None,
 ) -> bool:
     """Compute ``(layer, stride)`` reductions of ``ds`` in a background thread.
 
-    At low CPU priority, one layer after another; requests that need a layer meanwhile
-    wait for it (:class:`StatsCache`). Started once per dataset; returns whether
-    this call started it. Errors are logged, never raised.
+    It stays out of the user's way: it starts after the delay of
+    :func:`warm_up_delay` once no request came for a while, pauses before each
+    read while any request is in flight (:data:`ACTIVITY`), runs at low CPU
+    priority with ``workers`` reader threads (``BOWSER_REFSTATS_WARMUP_WORKERS``
+    overrides), one layer after another. A search that needs a layer meanwhile
+    takes its computation over at full speed (:class:`StatsCache`). Started once
+    per dataset; returns whether this call started it. Errors are logged, never
+    raised.
     """
+    opened = time.monotonic()
+    env_workers = os.environ.get("BOWSER_REFSTATS_WARMUP_WORKERS")
+    if env_workers:
+        workers = max(1, int(_env_float("BOWSER_REFSTATS_WARMUP_WORKERS", 1)))
+    n_workers = read_workers() if workers is None else workers
     with _warm_lock:
         if id(ds) in _warming:
             return False
@@ -665,10 +870,18 @@ def start_warm_up(
 
     def run() -> None:
         _lower_priority()
+        _wait_until_idle(opened)
         t0 = time.perf_counter()
         for name, stride in layers:
             try:
-                STATS_CACHE.get(ds, name, stride=stride, source=source)
+                STATS_CACHE.get(
+                    ds,
+                    name,
+                    stride=stride,
+                    source=source,
+                    workers=n_workers,
+                    background=True,
+                )
             except Exception as e:  # noqa: BLE001 - a warm-up never takes the server down
                 logger.warning(f"refstats: warm-up of {name} failed: {e}")
         logger.info(f"refstats: warm-up done in {time.perf_counter() - t0:.1f} s")

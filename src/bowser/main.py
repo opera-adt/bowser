@@ -50,7 +50,7 @@ from .reference_candidates import (
     warm_up,
 )
 from .reference_candidates import status as candidates_status
-from .refstats import Source, warm_up_enabled
+from .refstats import Source, track_activity, warm_up_enabled
 from .state import BowserState, DatasetRegistry
 from .utils import (
     _uses_spatial_reference,
@@ -241,6 +241,10 @@ async def _route_dataset(request: Request, call_next):
     finally:
         if token is not None:
             _request_state.reset(token)
+
+
+# Requests in flight, so the reference finder's warm-up can step aside.
+app.middleware("http")(track_activity)
 
 
 def _resolve_state(dataset: str | None) -> BowserState:
