@@ -628,6 +628,13 @@ async def get_catalog():
     }
 
 
+#: Why the page may not open a server path (POST /catalog/open, POST /data, GET /files).
+_OPEN_OFF = (
+    "Opening data from the page is off on this server "
+    "(set BOWSER_ALLOW_OPEN=true, or run `bowser run` locally)."
+)
+
+
 def _opened_id(name: str, uri: str) -> str:
     """Return a catalog id for a store opened at runtime: its name and a URI hash."""
     import re  # noqa: PLC0415
@@ -683,8 +690,7 @@ async def open_dataset(
     if not settings.BOWSER_ALLOW_OPEN:
         raise HTTPException(
             status_code=403,
-            detail="Opening data from the page is off on this server "
-            "(set BOWSER_ALLOW_OPEN=true, or run `bowser run` locally).",
+            detail=_OPEN_OFF,
         )
     uri = str(body.get("uri") or "").strip()
     if not uri:
@@ -2098,9 +2104,7 @@ def open_data(
     if not upload and not preset and not settings.BOWSER_ALLOW_OPEN:
         raise HTTPException(
             status_code=403,
-            detail="Opening data from the page is off on this server "
-            "(set BOWSER_ALLOW_OPEN=true, or run `bowser run` locally). "
-            "Upload the file instead.",
+            detail=f"{_OPEN_OFF} Upload the file instead.",
         )
     if not path.is_file():
         raise HTTPException(status_code=400, detail=f"No such file: {path}")
@@ -2124,6 +2128,57 @@ def _find_conversion(data_id: str) -> tuple[dict[str, Any], Path]:
         except KeyError:
             continue
     raise HTTPException(status_code=404, detail=f"No conversion {data_id}.")
+
+
+def _start_folder(dataset: str | None) -> Path:
+    """Return where Load file › Browse starts without a folder: the cube's, or home.
+
+    The cube is the catalog entry ``dataset``, else ``BOWSER_STACK_DATA_FILE``;
+    only one on this machine (not a URL) has a folder to start in.
+    """
+    entry = registry.catalog.get(dataset) if dataset else None
+    for uri in (entry.uri if entry else "", settings.BOWSER_STACK_DATA_FILE):
+        if uri and "://" not in uri:
+            folder = Path(uri).expanduser().parent
+            if folder.is_dir():
+                return folder
+    return Path.home()
+
+
+@app.get(
+    "/files",
+    responses={200: {"model": api.FolderListing}},
+    **api.route_doc("GET /files"),
+)
+def list_files(
+    dir: str | None = Query(  # noqa: A002
+        None,
+        description="Server folder to list; default: the cube's, else home.",
+        examples=["/data/lidar"],
+    ),
+    hidden: bool = Query(False, description="Also list hidden (dot) files."),
+    dataset: str | None = Query(None, **api.PARAMS["dataset"]),
+):
+    """List one server folder: its sub-folders, then the files ``POST /data`` adds.
+
+    Gated like server paths in ``POST /data``: off (403) unless
+    ``BOWSER_ALLOW_OPEN`` is set. No folder is off limits beyond what the
+    server's user can read, as with ``POST /catalog/scan``.
+    """
+    from .convert import addable_kind  # noqa: PLC0415
+    from .scan import list_folder  # noqa: PLC0415
+
+    if not settings.BOWSER_ALLOW_OPEN:
+        raise HTTPException(status_code=403, detail=_OPEN_OFF)
+    folder = Path(dir).expanduser() if dir and dir.strip() else _start_folder(dataset)
+    try:
+        return list_folder(folder, addable_kind, hidden=hidden)
+    except NotADirectoryError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=403, detail=f"Cannot read {folder}: permission denied."
+        ) from exc
 
 
 # Before GET /data/{data_id}, which would otherwise take "<id>.pmtiles" as an id.

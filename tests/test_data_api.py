@@ -256,3 +256,105 @@ def test_server_paths_with_allow_open(tmp_path):
     assert code == 200, job
     # Already a COG: used where it is, at once.
     assert job["status"] == "ready" and job["cog"] == str(cog) and not job["converted"]
+
+
+SCRIPT_FILES = textwrap.dedent(
+    r"""
+    import json, sys
+    from fastapi.testclient import TestClient
+    from bowser.main import app
+
+    folder, out = sys.argv[1:3]
+    c = TestClient(app)
+    res = {}
+    for name, params in (
+        ("listing", {"dir": folder}),
+        ("default", {}),
+        ("file", {"dir": folder + "/dem.tif"}),
+        ("missing", {"dir": folder + "/nope"}),
+    ):
+        r = c.get("/files", params=params)
+        res[name] = [r.status_code, r.json()]
+    open(out, "w").write(json.dumps(res))
+    """
+)
+
+
+def _files(tmp_path, allow_open: bool) -> dict:
+    sys.path.insert(0, str(HERE / "regression"))
+    from cube import make_cube
+
+    cube = make_cube(tmp_path / "cubes" / "cube.zarr")
+    folder = tmp_path / "data"
+    (folder / "lidar").mkdir(parents=True)
+    (folder / "dem.tif").write_bytes(b"x" * 12)
+    (folder / "readme.md").write_text("x")
+    out = tmp_path / "out.json"
+    env = {
+        **os.environ,
+        "BOWSER_STACK_DATA_FILE": str(cube),
+        "BOWSER_UPLOAD_DIR": str(tmp_path / "uploads"),
+        "BOWSER_CONVERT_CACHE_DIR": str(tmp_path / "cache"),
+        "BOWSER_ALLOW_OPEN": str(allow_open).lower(),
+    }
+    env.pop("BOWSER_CATALOG_FILE", None)
+    env.pop("BOWSER_OVERLAY_FILES", None)
+    proc = subprocess.run(
+        [sys.executable, "-c", SCRIPT_FILES, str(folder), str(out)],
+        env=env,
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+    assert proc.returncode == 0, proc.stderr[-4000:]
+    return json.loads(out.read_text())
+
+
+def test_browsing_server_folders(tmp_path):
+    """GET /files: one folder, its sub-folders and the files the page adds."""
+    res = _files(tmp_path, allow_open=True)
+    code, body = res["listing"]
+    assert code == 200, body
+    data = tmp_path.resolve() / "data"
+    assert body == {
+        "dir": str(data),
+        "parent": str(tmp_path.resolve()),
+        "entries": [
+            {
+                "name": "lidar",
+                "path": str(data / "lidar"),
+                "type": "dir",
+                "size": None,
+                "kind": None,
+            },
+            {
+                "name": "dem.tif",
+                "path": str(data / "dem.tif"),
+                "type": "file",
+                "size": 12,
+                "kind": "raster",
+            },
+        ],
+        "truncated": False,
+        "skipped": 0,
+    }
+    # Without a folder: the one the cube is in.
+    code, body = res["default"]
+    assert code == 200 and body["dir"] == str(tmp_path.resolve() / "cubes"), body
+    # A file, or nothing there: 400.
+    code, body = res["file"]
+    assert code == 400 and body["detail"].endswith("dem.tif is not a folder"), body
+    assert res["missing"][0] == 400
+
+
+def test_browsing_is_gated_like_server_paths(tmp_path):
+    """Off unless BOWSER_ALLOW_OPEN, with POST /data's wording."""
+    res = _files(tmp_path, allow_open=False)
+    for name in ("listing", "default", "file"):
+        code, body = res[name]
+        assert code == 403, (name, body)
+        assert body["detail"] == (
+            "Opening data from the page is off on this server "
+            "(set BOWSER_ALLOW_OPEN=true, or run `bowser run` locally)."
+        )

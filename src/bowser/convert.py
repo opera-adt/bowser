@@ -112,6 +112,24 @@ VECTOR_SUFFIXES = (
     ".fgb",
     ".kmz",
 )
+#: Raster files the page adds (the upload's ``accept``, ``useAddFiles.ts`` ACCEPT).
+RASTER_SUFFIXES = (".tif", ".tiff")
+
+
+def addable_kind(name: str) -> Kind | None:
+    """Return ``"raster"`` or ``"vector"`` for a file the page can add, by its suffix.
+
+    None for anything else, a Shapefile's sidecars (``.dbf``, ``.prj``...) among
+    them: adding the ``.shp`` reads them. Cheap: the file is not opened.
+    """
+    suffix = Path(name).suffix.lower()
+    if suffix in RASTER_SUFFIXES:
+        return "raster"
+    if suffix in VECTOR_SUFFIXES:
+        return "vector"
+    return None
+
+
 #: Coordinate column names a CSV may use, as the page's own CSV reader takes them.
 _CSV_X = "lon,longitude,lng,long,x"
 _CSV_Y = "lat,latitude,y"

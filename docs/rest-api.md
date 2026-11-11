@@ -69,6 +69,7 @@ are indexes into a layer's `x_values`.
 | | `POST /data` | Add a raster or vector file; converts it once in the background |
 | | `GET /data/{id}` | Its conversion status: converting, ready or failed |
 | | `GET /data/{id}.{fmt}` | A converted vector: PMTiles (HTTP Range) or GeoJSON |
+| | `GET /files` | A server folder's sub-folders and addable files (`BOWSER_ALLOW_OPEN`) |
 | | `/overlay/*` (full only) | TiTiler routes for uploaded overlays |
 | Context | `GET /gnss/stations` | UNR GNSS stations in a box, with velocities |
 | | `GET /gnss/series/{station}` | A station's daily positions |
@@ -91,6 +92,13 @@ with `BOWSER_ALLOW_OPEN`, any server path are allowed; other paths get 403.
 - Conversions run in a background thread; poll `GET /data/{id}` while `status`
   is `converting`. `/config` says what the server converts:
   `data_conversion: {cog, pmtiles, pmtiles_min_mb}`.
+- `GET /files?dir=<folder>` lists one server folder for Overlays › Load file ›
+  Browse: its sub-folders, then the files `POST /data` adds, with sizes
+  (`{dir, parent, entries, truncated, skipped}`). Without `dir` it starts in the
+  folder of the cube being viewed, else the server user's home. It is gated
+  like server paths in `POST /data` (403 without `BOWSER_ALLOW_OPEN`) and, like
+  `POST /catalog/scan`, has no root folder of its own: it lists any folder the
+  server's user can read. bowser-lite answers 501.
 
 Conversions of server paths are cached in `BOWSER_CONVERT_CACHE_DIR` (default
 `~/.cache/bowser/convert`), keyed by path, size and mtime, and kept within

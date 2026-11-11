@@ -397,6 +397,22 @@ ROUTES: dict[str, dict[str, Any]] = {
         "and for any path when `BOWSER_ALLOW_OPEN` is set (403 otherwise).",
         "tags": [FILES],
     },
+    "GET /files": {
+        "summary": "List a server folder",
+        "description": "One server folder, for picking files to add with "
+        "`POST /data` (Overlays › Load file › Browse): its sub-folders first, then "
+        "the files the page can add (GeoTIFF, GeoJSON/JSON, Shapefile `.shp`, "
+        "GeoPackage, FlatGeobuf, KML/KMZ, GPX, CSV/TSV/TXT, zipped Shapefile) with "
+        "their sizes, sorted by name; not its sub-folders' contents. `dir` "
+        "defaults to the folder of the cube being viewed, else the server user's "
+        "home. Symlinks are resolved; hidden files are left out unless "
+        "`hidden=true`; entries the server's user cannot read are skipped and "
+        "counted (`skipped`); at most 1000 entries (`truncated`). 403 unless "
+        "`BOWSER_ALLOW_OPEN` is set, as for server paths in `POST /data`; no "
+        "folder is off limits beyond what the server's user can read. 400 for a "
+        "path that is not a folder.",
+        "tags": [FILES],
+    },
     "GET /data/{data_id}": {
         "summary": "Added file status",
         "description": "Whether a file added with `POST /data` is still being "
@@ -449,6 +465,7 @@ LITE_501 = (
     "POST /data",
     "GET /data/{data_id}",
     "GET /data/{data_id}.{fmt}",
+    "GET /files",
     "GET /export/geotiff",
     "POST /polygon_timeseries",
 )
@@ -914,6 +931,30 @@ class DataStatus(_Fixed):
     )
     layers: Optional[list[str]] = Field(None, description="Its non-empty layers.")
     feature_count: Optional[int] = None
+
+
+class FolderEntry(_Fixed):
+    """A sub-folder, or a file ``POST /data`` adds, in ``GET /files``."""
+
+    name: str
+    path: str = Field(description="Server path; pass a file's to POST /data.")
+    type: Literal["dir", "file"]
+    size: Optional[int] = Field(None, description="A file's size in bytes.")
+    kind: Optional[Literal["raster", "vector"]] = Field(
+        None, description="What a file is added as."
+    )
+
+
+class FolderListing(_Fixed):
+    """``GET /files``: one server folder."""
+
+    dir: str = Field(description="The folder, with its symlinks resolved.")
+    parent: Optional[str] = Field(description="Its parent; null at the root.")
+    entries: list[FolderEntry] = Field(
+        description="Sub-folders first, then files, each sorted by name."
+    )
+    truncated: bool = Field(description="More than 1000 entries: only those sent.")
+    skipped: int = Field(description="Entries left out that could not be read.")
 
 
 class GnssStation(_Fixed):

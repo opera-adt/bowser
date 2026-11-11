@@ -195,6 +195,8 @@ for path, method in (
     ("/upload_raster", "post"),
     ("/upload_mask", "post"),
     ("/export/geotiff", "get"),
+    ("/files", "get"),
+    ("/data", "post"),
     ("/cog/WebMercatorQuad/tilejson.json", "get"),
     ("/overlay/WebMercatorQuad/tilejson.json", "get"),
 ):

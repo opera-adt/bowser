@@ -224,6 +224,7 @@ SCRIPT = textwrap.dedent(
             job = c.get(f"/data/{job['id']}").json()
         check("data", "POST", "/data", json={"path": str(dem_tif)})
         check("data_status", "GET", "/data/{data_id}", f"/data/{job['id']}")
+        check("files", "GET", "/files", params={"dir": str(work)})
     Path(out).write_text(json.dumps(result))
     """
 )

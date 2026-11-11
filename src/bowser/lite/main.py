@@ -7,9 +7,8 @@ cube) and/or ``BOWSER_CATALOG_FILE`` (``?dataset=<id>`` routing),
 ``BOWSER_ALLOW_OPEN``, ``BOWSER_REMEMBER_OPENED``.
 
 Not in lite (HTTP 501): GeoTIFF uploads (``/upload_raster``, ``/upload_mask``),
-added-file conversion (``/upload_data``, ``/data``), ``/export/geotiff``, COG mode
-and the ``/cog`` and
-``/overlay`` tilers.
+added-file conversion (``/upload_data``, ``/data``, ``/files``),
+``/export/geotiff``, COG mode and the ``/cog`` and ``/overlay`` tilers.
 """
 
 from __future__ import annotations
@@ -1069,6 +1068,16 @@ def data_file(data_id: str, fmt: str):  # noqa: ARG001
 def data_status(data_id: str):  # noqa: ARG001
     """501: added files are converted with GDAL."""
     return _not_in_lite("Adding a file on the server")
+
+
+@app.get(
+    "/files",
+    responses=api.NOT_IN_LITE,
+    **api.route_doc("GET /files", lite_stub=True),
+)
+def list_files():
+    """501: lite cannot add server files, so it does not list them."""
+    return _not_in_lite("Browsing server folders for files to add")
 
 
 @app.get(
