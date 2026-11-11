@@ -275,6 +275,8 @@ export interface AppState {
   refMarkerPosition: [number, number];
   currentDataset: string;
   currentTimeIndex: number;
+  /** True while the time stepper plays through the dates (the histogram waits until it stops). */
+  playing: boolean;
   refValues: { [key: string]: number[] };
   /** Per layer: the time step it is shown relative to (Main › Layers › ref); absent = as stored. */
   refTimeIndex: { [dataset: string]: number };
@@ -364,6 +366,7 @@ export type AppAction =
   | { type: 'SET_REF_MARKER_POSITION'; payload: [number, number] }
   | { type: 'SET_CURRENT_DATASET'; payload: string }
   | { type: 'SET_TIME_INDEX'; payload: number }
+  | { type: 'SET_PLAYING'; payload: boolean }
   | { type: 'SET_REF_VALUES'; payload: { dataset: string; values: number[] } }
   | { type: 'SET_REF_TIME_INDEX'; payload: { dataset: string; index: number | null } }
   | { type: 'SET_BASEMAP'; payload: string }

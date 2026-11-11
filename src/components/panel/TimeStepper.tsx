@@ -10,6 +10,8 @@ interface TimeStepperProps {
   value: number;
   count: number;
   onChange: (index: number) => void;
+  /** Told when playing starts and stops (and stopped on unmount). */
+  onPlayingChange?: (playing: boolean) => void;
 }
 
 /**
@@ -17,7 +19,7 @@ interface TimeStepperProps {
  * arrow straight after plays in that direction until the last (or first) date. While playing,
  * that arrow stops and the other one turns round. Right-click either arrow for the speed.
  */
-export default function TimeStepper({ value, count, onChange }: TimeStepperProps) {
+export default function TimeStepper({ value, count, onChange, onPlayingChange }: TimeStepperProps) {
   const [playing, setPlaying] = useState<Direction>(0);
   const [speed, setSpeed] = useState(readPlaySpeed);
   const [menu, setMenu] = useState(false);
@@ -42,6 +44,13 @@ export default function TimeStepper({ value, count, onChange }: TimeStepperProps
     }, 1000 / speed);
     return () => clearInterval(id);
   }, [playing, speed, count]);
+
+  const onPlaying = useRef(onPlayingChange);
+  onPlaying.current = onPlayingChange;
+  useEffect(() => {
+    onPlaying.current?.(playing !== 0);
+  }, [playing]);
+  useEffect(() => () => onPlaying.current?.(false), []);
 
   useEffect(() => {
     if (!menu) return;

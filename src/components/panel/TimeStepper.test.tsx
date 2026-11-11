@@ -3,11 +3,13 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import TimeStepper, { DOUBLE_CLICK_MS } from './TimeStepper';
 
-function Harness({ start = 2, count = 6, onChange }: { start?: number; count?: number; onChange?: (i: number) => void }) {
+function Harness({ start = 2, count = 6, onChange, onPlayingChange }: {
+  start?: number; count?: number; onChange?: (i: number) => void; onPlayingChange?: (playing: boolean) => void;
+}) {
   const [i, setI] = useState(start);
   return (
     <>
-      <TimeStepper value={i} count={count} onChange={n => { setI(n); onChange?.(n); }} />
+      <TimeStepper value={i} count={count} onChange={n => { setI(n); onChange?.(n); }} onPlayingChange={onPlayingChange} />
       <output data-testid="index">{i}</output>
     </>
   );
@@ -108,6 +110,29 @@ describe('TimeStepper', () => {
     unmount();
     tick(3000);
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('says when playing starts and stops: on a click, at the last date and on unmount', () => {
+    const playing = vi.fn();
+    const { unmount } = render(<Harness start={0} count={6} onPlayingChange={playing} />);
+    const last = () => playing.mock.calls[playing.mock.calls.length - 1]?.[0];
+    fireEvent.click(next());
+    fireEvent.click(next());
+    expect(last()).toBe(true);
+    fireEvent.click(next());
+    expect(last()).toBe(false);
+    tick(DOUBLE_CLICK_MS + 1);
+    fireEvent.click(next());
+    fireEvent.click(next());
+    expect(last()).toBe(true);
+    tick(3000);
+    expect(index()).toBe(5);
+    expect(last()).toBe(false);  // stopped at the end
+    fireEvent.click(prev());
+    fireEvent.click(prev());
+    expect(last()).toBe(true);
+    unmount();
+    expect(last()).toBe(false);
   });
 
   it('offers the speed on right-click and remembers it', () => {

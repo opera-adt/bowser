@@ -245,7 +245,8 @@ export default function MainTab() {
               </span>
             </div>
             <TimeStepper key={state.currentDataset} value={state.currentTimeIndex} count={currentDatasetInfo.x_values.length}
-              onChange={i => dispatch({ type: 'SET_TIME_INDEX', payload: i })} />
+              onChange={i => dispatch({ type: 'SET_TIME_INDEX', payload: i })}
+              onPlayingChange={p => dispatch({ type: 'SET_PLAYING', payload: p })} />
           </div>
         )}
       </div>

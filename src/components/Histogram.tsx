@@ -25,6 +25,12 @@ interface HistogramData {
 // has already seen when scrubbing the time slider back and forth.
 const histogramCache = new Map<string, HistogramData>();
 
+/** Wait this long after the last date change before asking for its histogram. */
+export const HISTOGRAM_DEBOUNCE_MS = 250;
+
+/** Forget the cached histograms (for tests). */
+export function clearHistogramCache() { histogramCache.clear(); }
+
 interface HistogramProps {
   // When provided, overrides the defaults drawn from state.
   dataset?: string;
@@ -52,9 +58,17 @@ export default function Histogram({ dataset, vmin, vmax, onSetVmin, onSetVmax }:
     const cacheKey = `${effectiveDataset}:${state.currentTimeIndex}`;
 
     const cached = histogramCache.get(cacheKey);
+    // An aborted request leaves `loading` set; clear it on every early return.
     if (cached) {
       setHistData(cached);
       setHistDataset(effectiveDataset);
+      setLoading(false);
+      return;
+    }
+    // While playing through the dates, keep the last histogram (its range buttons
+    // still work) and ask for the date playback stops on.
+    if (state.playing) {
+      setLoading(false);
       return;
     }
 
@@ -78,9 +92,9 @@ export default function Histogram({ dataset, vmin, vmax, onSetVmin, onSetVmax }:
       } finally {
         if (!controller.signal.aborted) setLoading(false);
       }
-    }, 250);
+    }, HISTOGRAM_DEBOUNCE_MS);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [effectiveDataset, state.currentTimeIndex]);
+  }, [effectiveDataset, state.currentTimeIndex, state.playing]);
 
   const handleAutoScale = () => {
     if (!histData) return;
