@@ -33,6 +33,7 @@ import pytest
 import xarray as xr
 
 from bowser import histograms as H
+from bowser import refstats
 from bowser.refstats import Source
 
 N = 96
@@ -373,3 +374,83 @@ def test_config_is_answered_while_statistics_are_computed(cube, tmp_path, which,
     finally:
         proc.terminate()
         proc.wait(timeout=30)
+
+
+# --- every date in the background ----------------------------------------------------
+
+
+WARM = textwrap.dedent(
+    r"""
+    import json, sys, time
+    import xarray as xr
+    from bowser import histograms as H
+    from bowser.refstats import Source
+    path = sys.argv[1]
+    levels = [xr.open_zarr(path, group=str(i), consolidated=False, chunks=None)
+              for i in range(3)]
+    sources = [Source(path, str(i)) for i in range(3)]
+    assert H.start_warm_up(levels, "displacement", 1, sources=sources, workers=1)
+    k = (id(levels[0]), "displacement")
+    for _ in range(600):
+        if k in H.WARM_DONE:
+            break
+        time.sleep(0.05)
+    hits = [H.SERVICE.cached(levels[0], ("displacement", t, H.NBINS)) for t in range(9)]
+    print("RESULT" + json.dumps({"how": H.WARM_DONE.get(k), "hits": hits}))
+    """
+)
+
+
+def test_background_dates_are_kept_on_disk_across_a_restart(cube, tmp_path):
+    env = _env(
+        BOWSER_REFSTATS_CACHE_DIR=str(tmp_path / "cache"),
+        BOWSER_REFSTATS_WARMUP_DELAY_S="0",
+        BOWSER_REFSTATS_WARMUP_IDLE_S="0",
+    )
+
+    def run() -> dict:
+        r = subprocess.run(
+            [sys.executable, "-c", WARM, str(cube)],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        assert r.returncode == 0, r.stderr[-3000:]
+        line = next(x for x in r.stdout.splitlines() if x.startswith("RESULT"))
+        return json.loads(line[len("RESULT") :])
+
+    first = run()
+    assert first["how"] == "computed"
+    assert list((tmp_path / "cache").glob("*.json"))
+    second = run()  # a new process: a restarted server
+    assert second["how"] == "disk"
+    want = H.compute_histograms(_levels(cube)[1]["displacement"], level=1)
+    assert first["hits"] == second["hits"] == want
+
+
+def test_background_waits_while_requests_are_in_flight(cube, monkeypatch):
+    monkeypatch.setenv("BOWSER_REFSTATS_CACHE", "0")
+    monkeypatch.setenv("BOWSER_HISTOGRAM_WARMUP", "1")
+    monkeypatch.setenv("BOWSER_REFSTATS_WARMUP_DELAY_S", "0")
+    monkeypatch.setenv("BOWSER_REFSTATS_WARMUP_IDLE_S", "0")
+    monkeypatch.setenv("BOWSER_REFSTATS_WARMUP_RESUME_S", "0.05")
+    levels = _levels(cube)
+    k = (id(levels[0]), "displacement")
+    refstats.ACTIVITY.begin()  # a request is being served
+    try:
+        assert H.start_warm_up(levels, "displacement", 1, workers=1)
+        assert not H.start_warm_up(levels, "displacement", 1)  # once per layer
+        time.sleep(0.8)
+        assert k not in H.WARM_DONE
+        assert H.SERVICE.cached(levels[0], ("displacement", 0, H.NBINS)) is None
+    finally:
+        refstats.ACTIVITY.end()
+    for _ in range(200):
+        if k in H.WARM_DONE:
+            break
+        time.sleep(0.05)
+    assert H.WARM_DONE[k] == "computed"
+    assert H.SERVICE.cached(levels[0], ("displacement", 8, H.NBINS)) == H.compute_one(
+        levels[1]["displacement"], 8, level=1
+    )

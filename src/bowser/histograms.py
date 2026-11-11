@@ -20,22 +20,34 @@ the 8 dates of every chunk and the percentiles sort ~11 M values. Now:
 - **One computation at a time**, in a worker thread. Identical requests share
   one computation; a queued one whose every client has gone (the page aborts the
   request of a date it has moved past) is dropped before it starts.
+- **Every date in the background** (:func:`start_warm_up`): the first request
+  for a layer without the attribute starts a one-pass computation of all dates at
+  the same level, kept on disk next to the reference finder's statistics
+  (``bowser.refstats``: same folder, fingerprint and limits), so a restarted
+  server has them at once. It waits until the server is idle and pauses while
+  any request is in flight, like the reference finder's warm-up.
 
 Environment: ``BOWSER_HISTOGRAM_MAX_PIXELS`` (4 000 000) the valid pixels to aim
-for, ``0`` for full resolution.
+for, ``0`` for full resolution; ``BOWSER_HISTOGRAM_WARMUP`` (``1``) ``0`` turns
+the background computation off. The warm-up's delays, guard and disk cache
+follow the ``BOWSER_REFSTATS_*`` settings.
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 import os
 import threading
+import time
 import weakref
 from collections import OrderedDict
 from collections.abc import Callable, Hashable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import anyio.to_thread
@@ -74,6 +86,12 @@ def max_pixels() -> int:
         return int(float(os.environ.get("BOWSER_HISTOGRAM_MAX_PIXELS", 4e6)))
     except ValueError:
         return 4_000_000
+
+
+def warm_up_enabled() -> bool:
+    """Whether to compute every date in the background: ``BOWSER_HISTOGRAM_WARMUP``."""
+    v = os.environ.get("BOWSER_HISTOGRAM_WARMUP", "1")
+    return v.lower() not in ("0", "false", "no")
 
 
 # --- one date ----------------------------------------------------------------------
@@ -290,6 +308,59 @@ def compute_histograms(
     return out
 
 
+# --- disk cache ---------------------------------------------------------------------
+
+
+def disk_key(source: Source | None, name: str, level: int, nbins: int) -> str | None:
+    """Return the disk cache key of a layer's histograms (None: cache off)."""
+    key = refstats.disk_key(source, name, stride=1)
+    if key is None:
+        return None
+    d = json.loads(key)
+    d.update({"v": 1, "kind": "histogram", "level": int(level), "nbins": int(nbins)})
+    d.pop("stride", None)
+    return json.dumps(d, sort_keys=True)
+
+
+def _path_for(key: str) -> Path | None:
+    root = refstats.cache_dir()
+    if root is None:
+        return None
+    return root / f"{hashlib.sha256(key.encode()).hexdigest()[:40]}.json"
+
+
+def load_cached(key: str | None) -> list[dict] | None:
+    """Return the histograms stored under ``key``, or None."""
+    path = _path_for(key) if key else None
+    if path is None or not path.exists():
+        return None
+    try:
+        doc = json.loads(path.read_text())
+        if doc.get("key") != key or not isinstance(doc.get("histograms"), list):
+            return None
+        os.utime(path)  # used: the size limit removes the least recently used
+        return doc["histograms"]
+    except Exception as e:  # noqa: BLE001 - a bad file is a cache miss
+        logger.warning(f"histogram: ignoring unreadable cache file {path}: {e}")
+        return None
+
+
+def save_cached(key: str | None, histograms: list[dict]) -> None:
+    """Store histograms under ``key`` atomically, then apply the cache limits."""
+    path = _path_for(key) if key else None
+    if path is None:
+        return
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f".{path.stem}.{os.getpid()}.{threading.get_ident()}.tmp")
+        tmp.write_text(json.dumps({"key": key, "histograms": histograms}))
+        tmp.replace(path)
+    except OSError as e:
+        logger.warning(f"histogram: could not write the cache file {path}: {e}")
+        return
+    refstats.prune()
+
+
 # --- serving ---------------------------------------------------------------------
 
 
@@ -439,11 +510,12 @@ async def histogram(
     nbins: int = NBINS,
     *,
     sources: Sequence[Source | None] | None = None,
+    workers: int | None = None,
 ) -> dict:
     """Return the histogram of step ``t`` of layer ``name`` of a cube's levels.
 
     The stored attribute when present; otherwise cached or computed on demand at
-    :func:`level_for`.
+    :func:`level_for`, and every date is started in the background.
     """
     da = levels[0][name]
     hit = stored(da, t if da.ndim > 2 else 0)
@@ -453,7 +525,87 @@ async def histogram(
 
     def compute() -> dict:
         level = level_for(levels, name, sources)
+        if nbins == NBINS:
+            start_warm_up(levels, name, level, sources=sources, workers=workers)
         source = sources[level] if sources and level < len(sources) else None
         return compute_one(layers(levels, name)[level], t, nbins, level, source)
 
     return await SERVICE.get(owner, (name, t, nbins), compute)
+
+
+# --- every date in the background -------------------------------------------------
+
+_warm_lock = threading.Lock()
+_warming: dict[tuple[int, str], weakref.ref] = {}
+#: Background computations finished (for tests).
+WARM_DONE: dict[tuple[int, str], str] = {}
+
+
+def start_warm_up(
+    levels: Sequence[xr.Dataset],
+    name: str,
+    level: int,
+    *,
+    sources: Sequence[Source | None] | None = None,
+    workers: int | None = None,
+) -> bool:
+    """Compute every date of a layer at ``level`` in a background thread, once.
+
+    Loads them from the disk cache when there; otherwise waits for the start
+    delay and an idle server, then reads with ``workers`` threads (default
+    ``refstats.read_workers()``; bowser-lite passes 1) at low CPU priority,
+    pausing before each read while a request is in flight (the reference
+    finder's guard, ``bowser.refstats``). Each finished time chunk goes into
+    :data:`SERVICE`, then all of them to disk. Returns whether it started.
+    """
+    if not warm_up_enabled():
+        return False
+    owner = levels[0]
+    k = (id(owner), name)
+    with _warm_lock:
+        ref = _warming.get(k)
+        if ref is not None and ref() is owner:
+            return False
+        _warming[k] = weakref.ref(owner)
+    da = layers(levels, name)[level]
+    source = sources[level] if sources and level < len(sources) else None
+    n_workers = refstats.read_workers() if workers is None else workers
+    opened = time.monotonic()
+
+    def publish(t0: int, block: list[dict]) -> None:
+        for i, h in enumerate(block):
+            SERVICE.store(owner, (name, t0 + i, NBINS), h)
+
+    def run() -> None:
+        try:
+            key = disk_key(source, name, level, NBINS)
+            done = load_cached(key)
+            how = "disk"
+            if done is None:
+                refstats.lower_priority()
+                refstats.wait_until_idle(opened)
+                t0 = time.perf_counter()
+                done = compute_histograms(
+                    da,
+                    NBINS,
+                    level=level,
+                    source=source,
+                    workers=n_workers,
+                    pause=refstats.pause_for_requests,
+                    on_block=publish,
+                )
+                how = "computed"
+                logger.info(
+                    f"histogram: every date of {name} (level {level}) "
+                    f"in {time.perf_counter() - t0:.1f} s"
+                )
+                save_cached(key, done)
+            else:
+                publish(0, done)
+            WARM_DONE[k] = how
+        except Exception as e:  # noqa: BLE001 - never takes the server down
+            logger.warning(f"histogram: background computation of {name} failed: {e}")
+            WARM_DONE[k] = "failed"
+
+    threading.Thread(target=run, name="bowser-histogram-warmup", daemon=True).start()
+    return True

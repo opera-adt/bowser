@@ -602,7 +602,8 @@ async def get_histogram(
 
     The stored ``bowser_histogram`` when present; otherwise from a coarse pyramid
     level, cached, one at a time in a worker thread, never on the event loop
-    (``bowser.histograms``).
+    (``bowser.histograms``). Every date is then computed in the background with
+    one reader thread, pausing for requests.
     """
     cube = resolve(dataset)
     da = sampling.require_var(cube.dataset, dataset_name)
@@ -612,7 +613,7 @@ async def get_histogram(
     datasets, sources = _cube_levels(cube)
     return NanJSONResponse(
         await histograms.histogram(
-            datasets, dataset_name, time_index, nbins, sources=sources
+            datasets, dataset_name, time_index, nbins, sources=sources, workers=1
         )
     )
 
