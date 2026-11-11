@@ -13,13 +13,17 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   features; also GeoPackage and FlatGeobuf) becomes PMTiles vector tiles with
   every attribute, so Identify still works. The layer's row says "Converting to
   COG… 12 s" until it is drawn. Smaller vectors are still read in the browser.
-  A file can also be added by its server path when `BOWSER_ALLOW_OPEN` is set,
-  or at startup with `bowser run --overlay PATH` (repeatable,
-  `BOWSER_OVERLAY_FILES`). Server paths' conversions are cached in
+  With `BOWSER_ALLOW_OPEN` set, Overlays › Layers › Load file adds a file on
+  the server: type or paste its path (a folder's path opens it), or Browse a
+  server folder and click a file, double-click to add it at once, or add all
+  the folder's files (up to 50). Files can also be added at startup with
+  `bowser run --overlay PATH` (repeatable, `BOWSER_OVERLAY_FILES`). KMZ files
+  are read on the server. Server paths' conversions are cached in
   `BOWSER_CONVERT_CACHE_DIR` (`~/.cache/bowser/convert`), kept under
   `BOWSER_CONVERT_CACHE_MAX_GB` (20) and `BOWSER_CONVERT_CACHE_MAX_DAYS` (30).
-  New routes `POST /upload_data`, `POST /data`, `GET /data/{data_id}` and
-  `GET /data/{data_id}.{fmt}` (PMTiles over HTTP Range); `/config` says
+  New routes `POST /upload_data`, `POST /data`, `GET /data/{data_id}`,
+  `GET /data/{data_id}.{fmt}` (PMTiles over HTTP Range) and `GET /files` (a
+  server folder's files to add); `/config` says
   `data_conversion` and `overlay_files` (off and empty on bowser-lite).
 - DEM layers: an elevation model, such as USGS 3DEP 1 m lidar, drawn as a
   hillshade, colour relief or both, above the basemap and below the data
