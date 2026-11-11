@@ -41,6 +41,7 @@ from ..catalog import CatalogEntry, load_catalog, save_catalog
 from ..config import settings
 from ..context import router as context_router
 from ..context import zones_answer
+from ..gnss_custom import router as gnss_custom_router
 from ..reference_candidates import (
     CandidateParams,
     candidate_query,
@@ -238,6 +239,7 @@ app.include_router(assistant_router, tags=[api.ASSISTANT])
 app.include_router(page_router, tags=[api.ASSISTANT])
 # What is on the ground: OpenStreetMap infrastructure and site context (the AI tools).
 app.include_router(context_router)
+app.include_router(gnss_custom_router)
 
 
 @app.get(
