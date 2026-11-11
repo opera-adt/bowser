@@ -1,6 +1,6 @@
 /** Features in the time-series chart take their chart colour on the map. */
 import { describe, expect, it } from 'vitest';
-import { chartedFeatureColors, DRAWINGS_ID, linkedColor, vectorLayerSpecs } from './overlays';
+import { chartedFeatureColors, drawingIndexOf, drawingName, DRAWINGS_ID, linkedColor, vectorLayerSpecs, withDrawings } from './overlays';
 import type { Overlay } from '../types';
 
 const square = (x: number) => ({ type: 'Polygon' as const, coordinates: [[[x, 0], [x + 1, 0], [x + 1, 1], [x, 0]]] });
@@ -23,6 +23,28 @@ describe('charted feature colours', () => {
     const o = layer(DRAWINGS_ID, [{ geometry: square(0) }, { geometry: square(5) }]);
     const colors = chartedFeatureColors(o, [{ color: '#abcdef', geometry: square(5) }, { color: '#000000', geometry: square(9) }]);
     expect([...colors]).toEqual([[1, '#abcdef']]);
+  });
+
+  it('still find a drawn area after the editor rewrites its ring (reversed, as a MultiPolygon)', () => {
+    // The Draw tools hand back a shape with its ring reversed when they are switched on and
+    // off: the area must keep its link (chart colour on the map, renames both ways).
+    const ring = [[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]];
+    const area = { color: '#abcdef', geometry: { type: 'MultiPolygon', coordinates: [[ring]] } };
+    const reversed = { type: 'MultiPolygon', coordinates: [[[...ring].reverse()]] };
+    const shifted = { type: 'Polygon', coordinates: [[[1, 1], [0, 1], [0, 0], [1, 0], [1, 1]]] };
+    const o = layer(DRAWINGS_ID, [{ geometry: square(5) }, { geometry: reversed }]);
+    expect([...chartedFeatureColors(o, [area])]).toEqual([[1, '#abcdef']]);
+    expect(drawingIndexOf(area, { type: 'FeatureCollection', features: [{ geometry: shifted }] } as never)).toBe(0);
+    // A different shape with the same vertices in another order is not the same shape.
+    const bowtie = { type: 'Polygon', coordinates: [[[0, 0], [1, 1], [1, 0], [0, 1], [0, 0]]] };
+    expect(drawingIndexOf(area, { type: 'FeatureCollection', features: [{ geometry: bowtie }] } as never)).toBe(-1);
+  });
+
+  it('carry a drawn shape name over when the editor rewrites its ring', () => {
+    const ring = [[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]];
+    const named = layer(DRAWINGS_ID, [{ geometry: { type: 'Polygon', coordinates: [ring] }, properties: { name: 'Bowl' } }]);
+    const next = withDrawings([named], { type: 'FeatureCollection', features: [{ geometry: { type: 'Polygon', coordinates: [[...ring].reverse()] }, properties: {} }] } as never);
+    expect(drawingName(next[0].data!.features[0])).toBe('Bowl');
   });
 
   it('wrap the layer colour in a match on the feature id, or leave it alone', () => {

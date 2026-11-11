@@ -389,7 +389,9 @@ ROUTES: dict[str, dict[str, Any]] = {
         "summary": "Export a layer as GeoTIFF",
         "description": "One time step of a layer as a GeoTIFF at native "
         "resolution, with the same masks as the map (masked pixels are NaN), "
-        "optionally re-referenced to `ref_lon`/`ref_lat`. Provenance is written "
+        "optionally re-referenced to `ref_lon`/`ref_lat` and shown relative to "
+        "another date (`ref_time_idx`, GeoZarr only), as on the map. Provenance "
+        "is written "
         "to the file's tags; see docs/geotiff-export-provenance.md.",
         "tags": [EXPORT],
     },
@@ -598,6 +600,10 @@ class ConfigInfo(_Fixed):
     )
     polygon_stats: bool = Field(
         description="Whether POST /polygon_timeseries works on this server."
+    )
+    geotiff_upload: bool = Field(
+        description="Whether POST /upload_mask and POST /upload_raster work on "
+        "this server."
     )
     assistant: AssistantFlag
 
