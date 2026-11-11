@@ -903,7 +903,11 @@ def test_claude_chat_through_acp_with_mcp_tools_and_a_permission(served):
         "reject_once",
     ]
     call = next(e for e in ev if e["type"] == "tool_call")
-    assert (call["name"], call["runs"]) == ("list_layers", "agent")
+    assert (call["name"], call["runs"], call["status"]) == (
+        "list_layers",
+        "agent",
+        "Listing the layers",
+    )
     result = next(e for e in ev if e["type"] == "tool_result")
     assert result["ok"] is True
     # The agent read the layers through Bowser's MCP server, from this server.

@@ -32,9 +32,15 @@ const obj = (properties: Record<string, unknown>, required: string[] = []) =>
 const LON = num('WGS84 longitude.', { minimum: -180, maximum: 180 });
 const LAT = num('WGS84 latitude.', { minimum: -90, maximum: 90 });
 
+/** What a tool is doing, for the status line: its spec's `status`, else its name in words. */
+export function toolStatus(name: string, status?: string): string {
+  return status || PAGE_TOOLS.find(t => t.name === name)?.status || (name.charAt(0).toUpperCase() + name.slice(1)).replace(/_/g, ' ');
+}
+
 export const PAGE_TOOLS: PageToolSpec[] = [
   {
     name: 'fly_to',
+    status: 'Moving the map',
     description: 'Move the map to a point (lon, lat, optional zoom 1-18; default about 2 km across) or to a box (west, south, east, north).',
     input_schema: obj({
       lon: LON, lat: LAT, zoom: num('Map zoom level, 1-18.', { minimum: 1, maximum: 18 }),
@@ -43,31 +49,37 @@ export const PAGE_TOOLS: PageToolSpec[] = [
   },
   {
     name: 'add_point',
+    status: 'Adding the point',
     description: "Add a time-series point to the map and the chart (the chart opens), so the user sees the point's series. Points read with the data tools are added already.",
     input_schema: obj({ lon: LON, lat: LAT, name: str('Short label, e.g. "Dam crest".') }, ['lon', 'lat']),
   },
   {
     name: 'set_reference_point',
+    status: 'Setting the reference point',
     description: 'Move the reference point: every displacement on the map and chart becomes relative to it. Choose stable ground (bedrock, an old building, a GNSS station), not the feature being studied.',
     input_schema: obj({ lon: LON, lat: LAT }, ['lon', 'lat']),
   },
   {
     name: 'set_reference_date',
+    status: 'Setting the reference date',
     description: 'Make displacement relative to a date of the current layer (values on that date become 0). Give the date (YYYY-MM-DD; the nearest date is used), or reset=true for the producer\'s reference date.',
     input_schema: obj({ date: str('Date, YYYY-MM-DD.'), reset: { type: 'boolean', description: "Go back to the producer's reference date." } }),
   },
   {
     name: 'switch_layer',
+    status: 'Switching the layer',
     description: 'Show another layer of the cube on the map (a name from list_layers, e.g. velocity, temporal_coherence).',
     input_schema: obj({ layer: str('Layer name.') }, ['layer']),
   },
   {
     name: 'open_chart',
+    status: 'Opening the chart',
     description: "Open the time-series chart with the page's points and areas.",
     input_schema: obj({}),
   },
   {
     name: 'add_overlay',
+    status: 'Adding the overlay',
     description: "Add a GeoTIFF on the server's disk to the map as an overlay (full server only, and only where the page may open files on the server).",
     input_schema: obj({ path: str('Path of the GeoTIFF on the server.'), name: str('Name in the layer list.') }, ['path']),
   },

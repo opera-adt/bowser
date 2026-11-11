@@ -5,7 +5,7 @@ import {
   answerPermission, fetchAgentState, fetchModels, startAgent, fetchStatus, removeKey, saveKey, signIn, signOut, stopAgent, streamChat, RelayError,
   type AgentState, type AssistantStatus, type ChatEvent, type ConvMessage, type ModelInfo, type ProviderInfo, type SignInMethod, type ToolResult,
 } from '../../assistant/client';
-import { newDone, PAGE_TOOL_NAMES, PAGE_TOOLS, pageState, runPageTool, showResult, type PageContext } from '../../assistant/pageTools';
+import { newDone, PAGE_TOOL_NAMES, PAGE_TOOLS, pageState, runPageTool, showResult, toolStatus, type PageContext } from '../../assistant/pageTools';
 import { SectionHeader } from './controls';
 
 const PREFS_KEY = 'bowser-assistant';
@@ -40,9 +40,15 @@ type PermissionState = 'open' | 'allow' | 'allow_always' | 'reject' | 'timeout' 
 
 type Entry =
   | { kind: 'user' | 'assistant' | 'note'; text: string }
-  | { kind: 'tool'; id: string; name: string; input: Record<string, unknown>; state: 'running' | 'ok' | 'error'; where: 'server' | 'page' | 'agent' }
+  | { kind: 'tool'; id: string; name: string; input: Record<string, unknown>; state: 'running' | 'ok' | 'error'; where: 'server' | 'page' | 'agent'; started: number; ms?: number }
   | { kind: 'error'; text: string; link?: { href: string; text: string } }
   | { kind: 'permission'; id: string; name: string; title: string; detail: string; always: boolean; state: PermissionState };
+
+/** Seconds for a status line or a tool's duration: "0.4 s", "12 s". */
+function seconds(ms: number): string {
+  const s = Math.max(0, ms) / 1000;
+  return `${s < 10 ? s.toFixed(1) : Math.round(s)} s`;
+}
 
 /** Escape-free inline markdown: **bold**, `code`, [links](https://…). */
 function inline(text: string): ReactNode[] {
@@ -122,7 +128,15 @@ export default function AssistantTab() {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [question, setQuestion] = useState('');
   const [busy, setBusy] = useState(false);
-  const [working, setWorking] = useState<string | null>(null);
+  /** What the chat is waiting for, and since when (the status line ticks). */
+  const [working, setWorkingState] = useState<{ text: string; since: number } | null>(null);
+  const setWorking = (text: string | null, since = Date.now()) => setWorkingState(text === null ? null : { text, since });
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!working) return;
+    const t = setInterval(() => setTick(x => x + 1), 1000);
+    return () => clearInterval(t);
+  }, [working]);
   const history = useRef<ConvMessage[]>([]);
   const abort = useRef<AbortController | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
@@ -325,7 +339,7 @@ export default function AssistantTab() {
     return [...list, { kind: 'assistant', text }];
   });
   const setTool = (id: string, s: 'ok' | 'error') =>
-    setEntries(list => list.map(e => (e.kind === 'tool' && e.id === id ? { ...e, state: s } : e)));
+    setEntries(list => list.map(e => (e.kind === 'tool' && e.id === id ? { ...e, state: s, ms: Date.now() - e.started } : e)));
   const setPermission = (id: string, s: PermissionState, onlyOpen = false) =>
     setEntries(list => list.map(e => (e.kind === 'permission' && e.id === id && (!onlyOpen || e.state === 'open') ? { ...e, state: s } : e)));
   const answer = async (id: string, choice: 'allow' | 'allow_always' | 'reject') => {
@@ -354,7 +368,8 @@ export default function AssistantTab() {
     setQuestion('');
     add({ kind: 'user', text });
     setBusy(true);
-    setWorking('Thinking…');
+    const thinking = agent && account ? `${serviceName(account)} is thinking…` : 'Thinking…';
+    setWorking(thinking);
     const controller = new AbortController();
     abort.current = controller;
     let failed = false;
@@ -376,11 +391,11 @@ export default function AssistantTab() {
                 if (ev.message.role === 'assistant') setEntries(l => [...l, { kind: 'note', text: '' }]);
                 break;
               case 'tool_call':
-                setWorking('Reading the data…');
-                add({ kind: 'tool', id: ev.id, name: ev.name, input: ev.input, state: 'running', where: ev.runs === 'agent' ? 'agent' : 'server' });
+                setWorking(`${toolStatus(ev.name, ev.status)}…`);
+                add({ kind: 'tool', id: ev.id, name: ev.name, input: ev.input, state: 'running', where: ev.runs === 'agent' ? 'agent' : 'server', started: Date.now() });
                 break;
               case 'status':
-                setWorking(`${ev.text}${ev.elapsed !== undefined ? ` ${Math.round(ev.elapsed)} s` : ''}`);
+                setWorking(ev.text, Date.now() - (ev.elapsed ?? 0) * 1000);
                 if (ev.phase) setAgentState(a => ({ phase: ev.phase!, text: ev.text, elapsed: ev.elapsed ?? 0, error: null, note: a?.note ?? null }));
                 break;
               case 'permission':
@@ -392,10 +407,11 @@ export default function AssistantTab() {
                 break;
               case 'permission_closed':
                 setPermission(ev.id, ev.outcome === 'timeout' ? 'timeout' : 'closed', true);
-                setWorking('Thinking…');
+                setWorking(thinking);
                 break;
               case 'tool_result':
                 setTool(ev.id, ev.ok ? 'ok' : 'error');
+                setWorking(thinking);
                 if (ev.ok) showResult(ev.name, ev.input, ctx);
                 break;
               case 'page_tools': waiting = { calls: ev.calls, results: ev.results }; break;
@@ -419,11 +435,11 @@ export default function AssistantTab() {
         if (stop === 'max_steps') add({ kind: 'note', text: 'Stopped after many tool calls; ask again to continue.' });
         if (stop !== 'page_tools' || !waiting) break;
         // The page's turn: run its tools, then send every result back in one message.
-        setWorking('Working on the map…');
         const { calls, results } = waiting as { calls: { id: string; name: string; input: Record<string, unknown> }[]; results: ToolResult[] };
         const done: ToolResult[] = [...results];
         for (const call of calls) {
-          add({ kind: 'tool', id: call.id, name: call.name, input: call.input, state: 'running', where: 'page' });
+          setWorking(`${toolStatus(call.name)}…`);
+          add({ kind: 'tool', id: call.id, name: call.name, input: call.input, state: 'running', where: 'page', started: Date.now() });
           let content: string;
           let ok = PAGE_TOOL_NAMES.has(call.name);
           try {
@@ -439,7 +455,7 @@ export default function AssistantTab() {
         const order = last?.role === 'assistant' ? (last.tool_calls ?? []).map(c => c.id) : [];
         done.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
         history.current.push({ role: 'tool', results: done });
-        setWorking('Thinking…');
+        setWorking(thinking);
       }
     } catch (e) {
       failed = true;
@@ -647,6 +663,7 @@ export default function AssistantTab() {
                 <div key={i} className={`ai-tool ${e.state}`} title={e.where === 'page' ? 'On the page' : e.where === 'agent' ? 'Run by the agent' : 'Read on the server'}>
                   <i className={`fa-solid ${e.state === 'running' ? 'fa-circle-notch fa-spin' : e.state === 'ok' ? (e.where === 'page' ? 'fa-map-location-dot' : 'fa-check') : 'fa-triangle-exclamation'}`} aria-hidden="true"></i>
                   <span>{callText(e.name, e.input)}</span>
+                  {e.ms !== undefined && <span className="ai-tool-time" title="How long it took">{seconds(e.ms)}</span>}
                 </div>
               );
             }
@@ -660,7 +677,11 @@ export default function AssistantTab() {
             }
             return <div key={i} className={`ai-msg ai-${e.kind}`}><Markdown text={e.text} /></div>;
           })}
-          {working && <div className="ai-working row-label" role="status"><span className="ai-spinner" aria-hidden="true" />{working}</div>}
+          {working && (
+            <div className="ai-working row-label" role="status" aria-label="Working">
+              <span className="ai-spinner" aria-hidden="true" />{working.text} {Math.floor(Math.max(0, Date.now() - working.since) / 1000)} s
+            </div>
+          )}
         </div>
         <textarea aria-label="Question" className="sidebar-input ai-text ai-input" rows={3} value={question}
           placeholder={ready ? 'Ask about the data on the map…' : 'Sign in or add a key above'}

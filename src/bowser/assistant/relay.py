@@ -716,7 +716,8 @@ def _warm(
 
     spec = m.agent
     assert spec is not None
-    known = set(_data_tools(request, page_keys=True))
+    tools = _data_tools(request, page_keys=True)
+    known = set(tools)
     command, args, mcp_env = signin.mcp_command(_self_url(request))
     name = spec.name or f"{m.vendor}'s agent"
     starting = f"Starting {name}…"
@@ -744,10 +745,14 @@ def _warm(
         )
         return session
 
+    labels = {name: t.status_text for name, t in tools.items()}
     first_time = bool(spec.adapter) and signin.installed_adapter(spec) is None
     if first_time and signin.find_program("node"):
-        return acp.open_session(conversation, prepare, "installing", install_text)
-    return acp.open_session(conversation, prepare, "starting", starting)
+        slot = acp.open_session(conversation, prepare, "installing", install_text)
+    else:
+        slot = acp.open_session(conversation, prepare, "starting", starting)
+    slot.labels = labels
+    return slot
 
 
 def _self_url(request: Request) -> str:
@@ -809,6 +814,8 @@ async def run_agent(body: ChatBody, slot: acp.Slot) -> AsyncIterator[str]:
             return
         acp.hold(conv)
         async for event in session.prompt(text):
+            if event["type"] == "tool_call":
+                event["status"] = slot.labels.get(event["name"], event["name"])
             if event["type"] == "done":
                 answer = event.pop("text", "")
                 yield _event(
@@ -951,6 +958,7 @@ async def run_chat(
                     "name": call.name,
                     "input": call.input,
                     "runs": "server",
+                    "status": spec.status_text if spec else call.name,
                 }
             )
             if spec is None:

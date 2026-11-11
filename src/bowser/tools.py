@@ -316,6 +316,14 @@ class ToolSpec:
     description: str
     fn: Callable[..., Awaitable[dict[str, Any]]]
     read_only: bool = True
+    #: What the tool is doing, for a status line ("Reading the time series");
+    #: empty: made from the name (:attr:`status_text`).
+    status: str = ""
+
+    @property
+    def status_text(self) -> str:
+        """Return the status line: :attr:`status`, or the name in words."""
+        return self.status or self.name.replace("_", " ").capitalize()
 
     @functools.cached_property
     def arg_model(self) -> type[BaseModel]:
@@ -377,11 +385,11 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
     """
     specs: list[ToolSpec] = []
 
-    def tool(fn=None, *, read_only: bool = True):
+    def tool(fn=None, *, read_only: bool = True, status: str = ""):
         """Register ``fn`` with its docstring as the description."""
 
         def register(fn):
-            specs.append(ToolSpec(fn.__name__, _describe(fn), fn, read_only))
+            specs.append(ToolSpec(fn.__name__, _describe(fn), fn, read_only, status))
             return fn
 
         return register(fn) if fn is not None else register
@@ -456,7 +464,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
 
     # --- tools: what is there ----------------------------------------------------
 
-    @tool
+    @tool(status="Asking the server what it serves")
     async def server_info(dataset: Dataset = None) -> dict[str, Any]:
         """Return what the Bowser server serves and can do.
 
@@ -494,7 +502,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
             else "Pass a catalog id as `dataset` to the other tools.",
         }
 
-    @tool
+    @tool(status="Listing the layers")
     async def list_layers(dataset: Dataset = None) -> dict[str, Any]:
         """List the cube's layers, with dates, units and reference information.
 
@@ -548,7 +556,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
 
     # --- tools: time series --------------------------------------------------------
 
-    @tool
+    @tool(status="Reading the time series")
     async def point_timeseries(
         lon: Lon,
         lat: Lat,
@@ -622,7 +630,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
             out["summary"] = "No valid data at this point (masked or nodata)."
         return out
 
-    @tool
+    @tool(status="Reading the time series")
     async def multi_point_timeseries(
         points: Annotated[
             list[PointIn],
@@ -708,7 +716,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
             "points": rows,
         }
 
-    @tool
+    @tool(status="Fitting the trend")
     async def trend_at_point(
         lon: Lon,
         lat: Lat,
@@ -778,7 +786,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
             "small R^2 means the line explains little of the series.",
         }
 
-    @tool
+    @tool(status="Reading the value")
     async def value_at_point(
         lon: Lon,
         lat: Lat,
@@ -847,7 +855,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
 
     # --- tools: areas, lines and value ranges -------------------------------------
 
-    @tool
+    @tool(status="Computing the area's statistics")
     async def polygon_statistics(
         geometry: Annotated[
             dict[str, Any],
@@ -924,7 +932,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
             "calculation": res.get("calculation"),
         }
 
-    @tool
+    @tool(status="Reading the profile")
     async def profile(
         coords: Annotated[
             list[list[float]],
@@ -1004,7 +1012,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
                 out["bin_width_m"] = res.get("bin_width")
         return out
 
-    @tool
+    @tool(status="Computing the layer's statistics")
     async def layer_statistics(
         layer: Layer = "displacement",
         time_index: TimeIndex = 0,
@@ -1047,7 +1055,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
 
     # --- tools: export -----------------------------------------------------------
 
-    @tool(read_only=False)
+    @tool(read_only=False, status="Exporting the GeoTIFF")
     async def export_geotiff(
         layer: Layer = "displacement",
         time_index: Annotated[

@@ -374,6 +374,9 @@ def test_data_tool_runs_on_the_server_and_its_result_goes_back(tmp_path, monkeyp
     result = ev[3]
     assert result["ok"] and result["name"] == "list_layers"
     assert result["result"]["layers"]["displacement"]["unit_reported"] == "mm"
+    # The call says what it is doing, from the tool's spec (shared with bowser mcp
+    # and the signed-in agent).
+    assert ev[2]["status"] == "Listing the layers"
     assert ev[-1] == {"type": "done", "stop": "end"}
     # The second request carries the tool's result for the model.
     tool_msg = fake.sent[1]["messages"][-1]
@@ -1467,3 +1470,18 @@ def test_config_flag_and_chat_on_the_real_apps(which, cube, tmp_path):
         d["x"] for d in res["api"]["datasets"][0]["data"]
     ]
     assert ev[-1] == {"type": "done", "stop": "end"}
+
+
+def test_every_tool_says_what_it_is_doing():
+    """Each data tool has a short status line, shown while it runs."""
+    from bowser.tools import BowserAPI, ToolSpec, build_tools
+
+    specs = {t.name: t.status_text for t in build_tools(BowserAPI("http://x"))}
+    assert specs["point_timeseries"] == "Reading the time series"
+    assert specs["trend_at_point"] == "Fitting the trend"
+    assert all(text and not text.endswith(("…", ".")) for text in specs.values())
+
+    async def some_tool():
+        return {}
+
+    assert ToolSpec("some_tool", "", some_tool).status_text == "Some tool"

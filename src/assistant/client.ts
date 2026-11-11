@@ -81,7 +81,7 @@ export type ConvMessage =
 export type ChatEvent =
   | { type: 'text'; text: string }
   | { type: 'message'; message: ConvMessage }
-  | { type: 'tool_call'; id: string; name: string; input: Record<string, unknown>; runs: 'server' | 'agent' }
+  | { type: 'tool_call'; id: string; name: string; input: Record<string, unknown>; runs: 'server' | 'agent'; status?: string }
   | { type: 'tool_result'; id: string; name: string; input: Record<string, unknown>; ok: boolean; result: unknown }
   | { type: 'page_tools'; calls: ToolCall[]; results: ToolResult[] }
   | { type: 'error'; kind: string; message: string; code?: string }
@@ -91,7 +91,8 @@ export type ChatEvent =
   | { type: 'permission'; id: string; name: string; title: string; detail: string; options: { kind: string; name: string }[]; timeout: number }
   | { type: 'permission_closed'; id: string; outcome: string };
 
-export interface PageToolSpec { name: string; description: string; input_schema: Record<string, unknown> }
+/** A page tool; `status` says what it is doing while it runs ("Moving the map"). */
+export interface PageToolSpec { name: string; description: string; input_schema: Record<string, unknown>; status?: string }
 
 export interface ChatRequest {
   provider: string;

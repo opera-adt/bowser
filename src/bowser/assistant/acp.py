@@ -585,6 +585,8 @@ class Slot:
     #: The session being started (closed if the start is cancelled).
     session: AgentSession | None = None
     idle: asyncio.TimerHandle | None = None
+    #: Status lines of Bowser's tools by name, for the agent's tool calls.
+    labels: dict[str, str] = field(default_factory=dict)
 
     def state(self) -> dict[str, Any]:
         """Return the slot as ``GET /assistant/agent`` sends it."""

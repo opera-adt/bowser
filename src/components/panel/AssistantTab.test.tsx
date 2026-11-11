@@ -1,7 +1,7 @@
 /** The Assistant tab: providers and keys, a streamed conversation whose tools act on the page, errors, and the off state. */
 import { useEffect } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppProvider, useAppContext } from '../../context/AppContext';
 import type { AppAction, AppState, RasterGroup } from '../../types';
 import AssistantTab from './AssistantTab';
@@ -475,6 +475,84 @@ describe('AssistantTab sign-in', () => {
     expect(screen.queryByRole('button', { name: /Use an API key/ })).toBeNull();
     expect(screen.getByText('This server provides the key.')).toBeTruthy();
     expect(screen.getByRole('link', { name: 'how to connect' })).toBeTruthy();
+  });
+});
+
+/** A server-sent event stream the test feeds one event at a time. */
+function liveSse() {
+  let ctl!: ReadableStreamDefaultController<Uint8Array>;
+  const body = new ReadableStream<Uint8Array>({ start(c) { ctl = c; } });
+  const enc = new TextEncoder();
+  return {
+    response: new Response(body, { headers: { 'content-type': 'text/event-stream' } }),
+    send: (e: object) => ctl.enqueue(enc.encode(`data: ${JSON.stringify(e)}\n\n`)),
+    end: () => ctl.close(),
+  };
+}
+
+describe('AssistantTab status line', () => {
+  let now = 0;
+  beforeEach(() => { now = 1_000_000; vi.spyOn(Date, 'now').mockImplementation(() => now); });
+  afterEach(() => { vi.restoreAllMocks(); });
+  const line = () => screen.getByRole('status', { name: 'Working' }).textContent;
+
+  it('says which tool runs and for how long, then that the model is thinking, and times each tool', async () => {
+    const first = liveSse();
+    const second = liveSse();
+    server(STATUS, [first.response, second.response]);
+    renderTab();
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Question' }), { target: { value: 'Is it moving?' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(line()).toBe('Thinking… 0 s'));
+
+    // A data tool: its own label, with the seconds ticking.
+    now += 1000;
+    first.send({ type: 'tool_call', id: 'c1', name: 'point_timeseries', input: { lon: -90.1, lat: 34.75 }, runs: 'server', status: 'Reading the time series' });
+    await waitFor(() => expect(line()).toBe('Reading the time series… 0 s'));
+    now += 3400;
+    await waitFor(() => expect(line()).toBe('Reading the time series… 3 s'), { timeout: 2500 });
+
+    // Its result: back to thinking, and the tool's row shows how long it took.
+    first.send({ type: 'tool_result', id: 'c1', name: 'point_timeseries', input: { lon: -90.1, lat: 34.75 }, ok: true, result: null });
+    await waitFor(() => expect(line()).toBe('Thinking… 0 s'));
+    expect(screen.getByTitle('How long it took').textContent).toBe('3.4 s');
+
+    // A page tool: its label while it runs, then thinking while the next request waits.
+    const turn = { role: 'assistant', content: '', tool_calls: [{ id: 'f1', name: 'fly_to', input: { lon: -90.1, lat: 34.75 } }] };
+    first.send({ type: 'message', message: turn });
+    first.send({ type: 'page_tools', calls: turn.tool_calls, results: [] });
+    first.send({ type: 'done', stop: 'page_tools' });
+    first.end();
+    await waitFor(() => expect(screen.getAllByTitle('How long it took')).toHaveLength(2));
+    await waitFor(() => expect(line()).toBe('Thinking… 0 s'));
+
+    // Text: the status line goes.
+    second.send({ type: 'text', text: 'It is stable.' });
+    await waitFor(() => expect(screen.queryByRole('status', { name: 'Working' })).toBeNull());
+    second.send({ type: 'done', stop: 'end' });
+    second.end();
+    expect(await screen.findByText('It is stable.')).toBeTruthy();
+  });
+
+  it("an agent's tool and its thinking say so too", async () => {
+    const chat = liveSse();
+    const claudeOn = {
+      ...STATUS,
+      sign_in: { ...SIGN_IN, methods: [{ ...CLAUDE_IN, state: 'signed_in', account: 'me@example.com', plan: 'Max' }, CHATGPT_IN] },
+    };
+    server(claudeOn, [chat.response], c => (c.url.startsWith('/assistant/agent') ? json({ phase: 'ready', text: 'Ready', elapsed: 2, error: null, note: null }) : null));
+    renderTab();
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Question' }), { target: { value: 'layers?' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(line()).toBe('Claude is thinking… 0 s'));
+    chat.send({ type: 'tool_call', id: 't1', name: 'list_layers', input: {}, runs: 'agent', status: 'Listing the layers' });
+    await waitFor(() => expect(line()).toBe('Listing the layers… 0 s'));
+    now += 400;
+    chat.send({ type: 'tool_result', id: 't1', name: 'list_layers', input: {}, ok: true, result: null });
+    await waitFor(() => expect(line()).toBe('Claude is thinking… 0 s'));
+    expect(screen.getByTitle('How long it took').textContent).toBe('0.4 s');
+    chat.send({ type: 'done', stop: 'end' });
+    chat.end();
   });
 });
 
