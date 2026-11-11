@@ -114,7 +114,15 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     return out;
   }, [state.refTimeIndex, state.datasetInfo, state.dataMode]);
   // Each series minus its own value at that date, as the map's tiles.
-  const chartDataMap = useMemo(() => relativeChartData(fetchedDataMap, refX), [fetchedDataMap, refX]);
+  // Each series under its point's name as it is now: renaming a point in the Points panel
+  // relabels the chart and the CSV without fetching the series again.
+  const pointNames = JSON.stringify(state.timeSeriesPoints.map(p => [p.id, p.name]));
+  const chartDataMap = useMemo(() => {
+    const names = new Map<string, string>(JSON.parse(pointNames));
+    return Object.fromEntries(Object.entries(relativeChartData(fetchedDataMap, refX)).map(([ds, cd]) => [ds, {
+      ...cd, datasets: cd.datasets.map(d => ({ ...d, label: names.get(d.pointId) ?? d.label })),
+    }]));
+  }, [fetchedDataMap, refX, pointNames]);
   const bufferData = useMemo(() => Object.fromEntries(Object.entries(fetchedBuffer).map(([key, b]) => {
     const ds = key.split('::')[0];
     return [key, ds in refX
@@ -234,6 +242,8 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     JSON.stringify(state.timeSeriesPoints.map(p => ({ id: p.id, position: p.position, visible: p.visible }))),
     state.refMarkerPosition,
     state.refEnabled,
+    state.refBufferEnabled,
+    state.refBufferRadius,
     state.datasetInfo,
     state.layerMasks,
     fetchMultiPointTimeSeries,
@@ -714,7 +724,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
       {(state.chartAreas.length > 0 || state.areaDrawing) && (
         <div className="chart-sliders chart-areas">
           {state.chartAreas.map(a => (
-            <span key={a.id} className={`chart-area-chip${a.visible ? '' : ' hidden'}`} title={a.name}>
+            <span key={a.id} className={`chart-area-chip${a.visible ? '' : ' area-hidden'}`} title={a.name}>
               <span className="chart-area-swatch" style={{ background: a.color }} />
               {a.name}
               <button onClick={() => dispatch({ type: 'REMOVE_CHART_AREA', payload: a.id })} title={`Remove ${a.name}`}>✕</button>
