@@ -407,7 +407,7 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
       )}
       <div ref={containerRef} data-testid="maplibre-map" style={{ height: '100%', width: '100%' }} />
       <MapLibreProfile map={mapRef.current} ready={ready} />
-      <MapLibreMeasure map={mapRef.current} ready={ready} active={measureActive} onDeactivate={() => setMeasureActive(false)} />
+      <MapLibreMeasure map={mapRef.current} ready={ready} active={measureActive} />
       {state.splitScreen && <MapLibreSplit main={mapRef.current} mainReady={ready} terrain={terrain} />}
       <MapLibreGraticule map={mapRef.current} ready={ready} mode={state.graticuleMode} />
       <MapLibreAnnotations map={mapRef.current} ready={ready} />

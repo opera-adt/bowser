@@ -334,7 +334,7 @@ describe('MapLibreMap', () => {
     expect(dispatch).toHaveBeenCalledWith({ type: 'SET_VIEW_BOUNDS', payload: [33.951235, -117.69, 33.97, -117.65] });
   });
 
-  it('measure: clicks add points with a running total instead of picking, double-click ends it', async () => {
+  it('measure: clicks add points with a running total instead of picking, double-click ends it and keeps it', async () => {
     const { view, map } = await mount();
     await act(async () => { fireEvent.click(view.getByTitle(/Measure distance/)); });
     dispatch.mockReset();
@@ -344,6 +344,11 @@ describe('MapLibreMap', () => {
     expect(map.sources.get('measure-tool').data.features).toHaveLength(3);   // 2 points + the path
     expect(FakePopup.html[FakePopup.html.length - 1]).toMatch(/^<b>1\.\d\d km<\/b>$/);
     await act(async () => { map.fire('dblclick', { preventDefault() {}, lngLat: { lat: 0, lng: 0 } }); });
+    expect(map.sources.get('measure-tool').data.features).toHaveLength(3);   // the result stays
+    act(() => map.fire('click', { lngLat: { lat: 33.958, lng: -117.674 }, point: { x: 1, y: 1 } }));
+    expect(map.sources.get('measure-tool').data.features).toHaveLength(1);   // a new measurement
+    expect(dispatch).not.toHaveBeenCalled();
+    await act(async () => { fireEvent.click(view.getByTitle(/Measure distance/)); });   // tool off
     expect(map.sources.get('measure-tool').data.features).toHaveLength(0);
     act(() => map.fire('click', { lngLat: { lat: 33.958, lng: -117.674 }, point: { x: 1, y: 1 } }));
     expect(dispatch.mock.calls.map(c => c[0].type)).toContain('ADD_TIME_SERIES_POINT');   // picking is back

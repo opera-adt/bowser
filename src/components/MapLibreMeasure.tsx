@@ -1,9 +1,10 @@
 /**
  * Measure tool on the MapLibre map (behaviour as the Leaflet MeasureTool): click to
  * add points along a dashed path with a running total at the last point; double-click
- * ends the measurement. Maths shared via map/measure.
+ * ends the measurement and keeps it shown until the next click starts a new one or the
+ * tool is turned off. Maths shared via map/measure.
  */
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import { formatDistance, pathLength } from '../map/measure';
 import type { LatLng } from '../map/profileGeometry';
@@ -24,15 +25,11 @@ export function measureFeatures(pts: LatLng[]): GeoJSON.FeatureCollection {
   };
 }
 
-export default function MapLibreMeasure({ map, ready, active, onDeactivate }: {
+export default function MapLibreMeasure({ map, ready, active }: {
   map: maplibregl.Map | null;
   ready: boolean;
   active: boolean;
-  onDeactivate: () => void;
 }) {
-  const onDeactivateRef = useRef(onDeactivate);
-  onDeactivateRef.current = onDeactivate;
-
   useEffect(() => {
     if (!ready || !map || map.getSource(MEASURE_SOURCE)) return;
     map.addSource(MEASURE_SOURCE, { type: 'geojson', data: measureFeatures([]) });
@@ -47,9 +44,16 @@ export default function MapLibreMeasure({ map, ready, active, onDeactivate }: {
     if (!ready || !map || !src || !active) return;
     const pts: LatLng[] = [];
     let label: maplibregl.Popup | null = null;
+    let finished = false;
     const canvas = map.getCanvas();
     canvas.style.cursor = 'crosshair';
     const onClick = (e: maplibregl.MapMouseEvent) => {
+      if (finished) {  // a click after a finished measurement starts a new one
+        finished = false;
+        pts.length = 0;
+        label?.remove();
+        label = null;
+      }
       pts.push([e.lngLat.lat, e.lngLat.lng]);
       src.setData(measureFeatures(pts));
       if (pts.length > 1) {
@@ -58,7 +62,7 @@ export default function MapLibreMeasure({ map, ready, active, onDeactivate }: {
           .setLngLat(e.lngLat).setHTML(`<b>${formatDistance(pathLength(pts))}</b>`).addTo(map);
       }
     };
-    const onDbl = (e: maplibregl.MapMouseEvent) => { e.preventDefault(); onDeactivateRef.current(); };
+    const onDbl = (e: maplibregl.MapMouseEvent) => { e.preventDefault(); finished = true; };
     map.on('click', onClick);
     map.on('dblclick', onDbl);
     return () => {
