@@ -1588,7 +1588,7 @@ img.huechange { filter: hue-rotate(120deg); }
   border-radius: var(--radius-sm);
 }
 
-.zs-row.hidden {
+.zs-row.area-hidden {
   opacity: 0.55;
 }
 
@@ -2295,7 +2295,7 @@ img.huechange { filter: hue-rotate(120deg); }
   flex-shrink: 0;
 }
 
-.chart-area-chip.hidden {
+.chart-area-chip.area-hidden {
   opacity: 0.45;
 }
 
