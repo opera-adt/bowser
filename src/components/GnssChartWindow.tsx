@@ -5,7 +5,7 @@ import 'chartjs-adapter-date-fns';
 import { useAppContext } from '../context/AppContext';
 import { useDraggableResizable } from '../hooks/useDraggableResizable';
 import { chartLayerFor } from '../utils/chartLayers';
-import { losVector, stepMarkers, toLos, type GnssSeries } from '../map/gnss';
+import { gnssSeriesUrl, losVector, rateSource, stepMarkers, toLos, type GnssSeries } from '../map/gnss';
 import { describeFit, fitSeries, modelCurve, modelLabel } from '../map/fitSettings';
 import ModelCard, { type PickKind } from './ModelCard';
 import { displayUnit } from '../utils/units';
@@ -32,12 +32,12 @@ export default function GnssChartWindow() {
     let cancelled = false;
     setSeries(null);
     setError(null);
-    fetch(`/gnss/series/${station.id}`)
+    fetch(gnssSeriesUrl(station))
       .then(async r => { const b = await r.json(); if (!r.ok) throw new Error(b.detail ?? `HTTP ${r.status}`); return b; })
       .then(b => { if (!cancelled) setSeries(b); })
       .catch(err => { if (!cancelled) setError((err as Error).message); });
     return () => { cancelled = true; };
-  }, [station?.id]);  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [station?.id, station?.custom]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   const ds = chartLayerFor(state.currentDataset, state.datasetInfo);
   const los = losVector(ds ? state.datasetInfo[ds]?.los_metadata : null);
@@ -73,14 +73,16 @@ export default function GnssChartWindow() {
             title={showModel ? `Model: ${modelLabel(state.fitSettings)}` : 'Fit a model to each component (shared with the InSAR chart)'}>
             <i className={`fa-solid ${showModel ? 'fa-chart-line' : 'fa-chart-simple'}`}></i>
           </button>
-          {series && <a className="chart-btn" href={series.station_page} target="_blank" rel="noopener noreferrer">UNR page</a>}
+          {series?.station_page && <a className="chart-btn" href={series.station_page} target="_blank" rel="noopener noreferrer">UNR page</a>}
           <button className="chart-btn" style={{ color: 'var(--sb-red)' }} title="Close" onClick={() => dispatch({ type: 'OPEN_GNSS_CHART', payload: null })}>
             <i className="fa-solid fa-xmark"></i>
           </button>
         </div>
       </div>
       <div className="row-label" style={{ fontSize: '0.72em', padding: '2px 0 4px' }}>
-        Daily positions, {u.label} from the first day, North America fixed (UNR IGS20). Rates are MIDAS, {u.label}/yr.
+        {station.custom
+          ? <>Positions from your file, {u.label} from its first date{series?.frame ? ` (${series.frame})` : ''}. Rates are a straight-line fit, {u.label}/yr.</>
+          : <>Daily positions, {u.label} from the first day, North America fixed (UNR IGS20). Rates are MIDAS, {u.label}/yr.</>}
         {los ? ' LOS is towards the satellite of this cube.' : ''}
       </div>
       {series?.monument && (
@@ -122,7 +124,7 @@ export default function GnssChartWindow() {
             <div key={name} className="gnss-chart-panel">
               <Line
                 data={{ datasets: [{
-                  label: `${name} (MIDAS ${rate >= 0 ? '+' : ''}${(rate * u.factor).toFixed(dp)} ${u.label}/yr)`,
+                  label: `${name} (${rateSource(station)} ${rate >= 0 ? '+' : ''}${(rate * u.factor).toFixed(dp)} ${u.label}/yr)`,
                   data: series.dates.map((d, i) => ({ x: Date.parse(d), y: at(i) * u.factor })),
                   borderColor: color, backgroundColor: color, pointRadius: 0, borderWidth: 1, order: 2,
                 }, ...(series.steps?.length ? (() => {

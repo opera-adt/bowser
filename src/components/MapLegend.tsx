@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAppContext } from '../context/AppContext';
-import { GNSS_LAYER_ID } from '../map/gnss';
+import { GNSS_CUSTOM_LAYER_ID, GNSS_LAYER_ID } from '../map/gnss';
 import type { PointMarker } from '../map/markers';
 
 const MARKER_GLYPH: Record<PointMarker, string> = { circle: '●', square: '■', triangle: '▲', diamond: '◆', star: '★', pin: '⚲' };
@@ -12,7 +12,7 @@ const MARKER_GLYPH: Record<PointMarker, string> = { circle: '●', square: '■'
 export default function MapLegend() {
   const { state } = useAppContext();
   const [collapsed, setCollapsed] = useState(false);
-  const shown = state.overlays.filter(o => o.visible && (o.legend || o.serviceKey === 'geology' || o.id === GNSS_LAYER_ID)).reverse();
+  const shown = state.overlays.filter(o => o.visible && (o.legend || o.serviceKey === 'geology' || o.id === GNSS_LAYER_ID || o.id === GNSS_CUSTOM_LAYER_ID)).reverse();
   if (!shown.length) return null;
   const unit = state.identify?.items.find(i => i.title.startsWith('Geology'));
   return (
@@ -29,8 +29,8 @@ export default function MapLegend() {
               {o.legend.map(([label, color]) => <span key={label}><i style={{ background: color }} />{label}</span>)}
             </div>
           )}
-          {o.id === GNSS_LAYER_ID && (
-            <div className="ov-legend"><span><b className="map-legend-glyph" style={{ color: o.color }}>{MARKER_GLYPH[o.marker ?? 'circle']}</b>GNSS station</span></div>
+          {(o.id === GNSS_LAYER_ID || o.id === GNSS_CUSTOM_LAYER_ID) && (
+            <div className="ov-legend"><span><b className="map-legend-glyph" style={{ color: o.color }}>{MARKER_GLYPH[o.marker ?? 'circle']}</b>{o.id === GNSS_CUSTOM_LAYER_ID ? 'GNSS station (your file)' : 'GNSS station'}</span></div>
           )}
           {o.serviceKey === 'geology' && (
             unit
