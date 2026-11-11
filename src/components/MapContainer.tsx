@@ -5,6 +5,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useApi } from '../hooks/useApi';
 import { useRasterTileUrl } from '../map/useRasterTileUrl';
+import { layerLeafletBounds } from '../map/leafletBounds';
 import { MapLeftToolbar, MapTopRightToolbar, type MapFeature } from './MapToolbars';
 
 /** Identify reads MapLibre's rendered features, so the Leaflet fallback has no identify tool. */
@@ -166,7 +167,7 @@ function ScaleBar() {
   return null;
 }
 
-function RasterTileLayer({
+export function RasterTileLayer({
   onTileStart, onTileEnd, pane, overrideDataset, overrideColormap, overrideVmin, overrideVmax, overrideOpacity, overrideTimeIndex,
 }: {
   onTileStart?: () => void;
@@ -189,6 +190,8 @@ function RasterTileLayer({
   const nextIdRef = useRef(0);
 
   const effectiveOpacity = overrideOpacity ?? state.opacity;
+  // Leaflet asks only for tiles inside the data (outside ones 404).
+  const bounds = layerLeafletBounds(overrideDataset ?? state.currentDataset, state.datasetInfo);
 
 
   useEffect(() => {
@@ -206,7 +209,7 @@ function RasterTileLayer({
       {active && (
         <TileLayer
           key={`${active.id}:${pane ?? ''}`} url={active.url} opacity={effectiveOpacity} maxZoom={22} zIndex={10}
-          {...(pane ? { pane } : {})}
+          {...(pane ? { pane } : {})} {...(bounds ? { bounds } : {})}
           eventHandlers={{
             tileloadstart: () => onTileStart?.(),
             tileload: () => onTileEnd?.(),
@@ -217,7 +220,7 @@ function RasterTileLayer({
       {pending && (
         <TileLayer
           key={`${pending.id}:${pane ?? ''}`} url={pending.url} opacity={effectiveOpacity} maxZoom={22} zIndex={11}
-          {...(pane ? { pane } : {})}
+          {...(pane ? { pane } : {})} {...(bounds ? { bounds } : {})}
           eventHandlers={{
             tileloadstart: () => onTileStart?.(),
             tileload: () => onTileEnd?.(),
@@ -569,27 +572,6 @@ function OverlayLayers() {
 export default function MapContainer({ toolbarsVisible, onToggleToolbars }: { toolbarsVisible: boolean; onToggleToolbars: () => void }) {
   const { state } = useAppContext();
 
-  // Calculate initial center from first dataset bounds
-  const getInitialCenter = (): [number, number] => {
-    if (state.currentDataset && state.datasetInfo[state.currentDataset]) {
-      const bounds = state.datasetInfo[state.currentDataset].latlon_bounds;
-      const centerLat = (bounds[1] + bounds[3]) / 2;
-      const centerLng = (bounds[0] + bounds[2]) / 2;
-      return [centerLat, centerLng];
-    }
-
-    // If no current dataset, try to get bounds from any available dataset
-    const datasets = Object.values(state.datasetInfo);
-    if (datasets.length > 0) {
-      const bounds = datasets[0].latlon_bounds;
-      const centerLat = (bounds[1] + bounds[3]) / 2;
-      const centerLng = (bounds[0] + bounds[2]) / 2;
-      return [centerLat, centerLng];
-    }
-
-    return [0, 0];
-  };
-
   const primaryBm   = baseMaps[state.selectedBasemap] || baseMaps.esriSatellite;
   const secondaryBm = state.secondaryBasemap ? baseMaps[state.secondaryBasemap] : null;
   // Swapped: secondary renders first (bottom), primary on top; default: primary bottom, secondary top
@@ -598,7 +580,7 @@ export default function MapContainer({ toolbarsVisible, onToggleToolbars }: { to
   const bottomOp  = state.basemapSwapped ? state.secondaryBasemapOpacity : state.basemapOpacity;
   const topOp     = state.basemapSwapped ? state.basemapOpacity : state.secondaryBasemapOpacity;
 
-  const center = getInitialCenter();
+  const dataBounds = layerLeafletBounds(state.currentDataset, state.datasetInfo);
   const hasDatasets = Object.keys(state.datasetInfo).length > 0;
   const [measureActive, setMeasureActive] = useState(false);
   const [tileLoading, setTileLoading] = useState(false);
@@ -651,8 +633,8 @@ export default function MapContainer({ toolbarsVisible, onToggleToolbars }: { to
     {state.splitScreen && <SplitDivider />}
     <LeafletMapContainer
       key={hasDatasets ? 'with-data' : 'no-data'} // Force re-render when data loads
-      center={center}
-      zoom={9}
+      // Open on the data, as the MapLibre map does; no data yet: a fixed view.
+      {...(dataBounds ? { bounds: dataBounds, boundsOptions: { padding: [40, 40] } } : { center: [0, 0] as [number, number], zoom: 9 })}
       style={{ height: '100%', width: '100%' }}
       doubleClickZoom={false}
       zoomControl={false}
