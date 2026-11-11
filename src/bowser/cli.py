@@ -194,6 +194,8 @@ def run(
     protocol = "https" if ssl_certfile else "http"
     display_host = "localhost" if host in ("127.0.0.1", "0.0.0.0") else host
     print(f"Setting up on {protocol}://{display_host}:{port}")
+    # The page token's file is named after the port (bowser.page_token).
+    os.environ["BOWSER_SERVER_PORT"] = str(port)
     uvicorn.run(
         "bowser.main:app",
         host=host,
@@ -352,6 +354,7 @@ def lite(
     os.environ.update(env)
     display_host = "localhost" if host in ("127.0.0.1", "0.0.0.0") else host
     print(f"Setting up bowser-lite on http://{display_host}:{port}")
+    os.environ["BOWSER_SERVER_PORT"] = str(port)  # names the page token's file
     uvicorn.run("bowser.lite.main:app", host=host, port=port, log_level=log_level)
 
 
@@ -382,7 +385,15 @@ def lite(
 @click.option(
     "--port", "-p", default=8765, show_default=True, type=int, help="Port for --http."
 )
-def mcp(url, stack_file, use_http, host, port):
+@click.option(
+    "--token",
+    envvar="BOWSER_PAGE_TOKEN",
+    default=None,
+    help="The Bowser server's page token, for the tools that act on the open "
+    "page. Read from the server's token file when it runs on this computer; "
+    "give it only for unusual setups (env BOWSER_PAGE_TOKEN).",
+)
+def mcp(url, stack_file, use_http, host, port, token):
     """Run an MCP server whose tools read a Bowser server's data.
 
     For AI assistants such as Claude Desktop or Claude Code: the tools give time
@@ -401,7 +412,7 @@ def mcp(url, stack_file, use_http, host, port):
     if stack_file:
         server = build_server("http://bowser-lite", lite_transport(stack_file))
     else:
-        server = build_server(url)
+        server = build_server(url, page_token=token or None)
     if use_http:
         click.echo(f"Bowser MCP server on http://{host}:{port}/mcp", err=True)
         server.run("streamable-http", host=host, port=port)

@@ -794,7 +794,13 @@ def _warm(
     spec = m.agent
     assert spec is not None
     known = set(tools)
+    from ..page_token import ENV as TOKEN_ENV  # noqa: PLC0415
+    from . import page  # noqa: PLC0415
+
     command, args, mcp_env = signin.mcp_command(_self_url(request))
+    # The agent's bowser mcp acts on the page with this server's page token,
+    # given in its environment (never in a log or a message).
+    mcp_env = {**mcp_env, TOKEN_ENV: page.token_for(page.request_port(request))}
     name = spec.name or f"{m.vendor}'s agent"
     starting = f"Starting {name}…"
 
@@ -949,10 +955,13 @@ def _data_tools(
     headers = {}
     if auth := request.headers.get("authorization"):
         headers["Authorization"] = auth
+    from . import page  # noqa: PLC0415
+
     bowser = BowserAPI(
         str(request.base_url),
         httpx.ASGITransport(app=request.app),
         headers=headers,
+        page_token=page.token_for(page.request_port(request)) if page_keys else None,
     )
     bowser.page_masks = page_masks
     return {

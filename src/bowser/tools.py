@@ -18,6 +18,7 @@ import functools
 import inspect
 import json
 import math
+import os
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -234,13 +235,18 @@ class BowserAPI:
         transport: httpx.AsyncBaseTransport | None = None,
         timeout: float = 300.0,
         headers: dict[str, str] | None = None,
+        page_token: str | None = None,
     ) -> None:
         """Set up a client for the server at ``base_url`` (or ``transport``).
 
         ``headers`` go with every request (the Assistant passes on the page's
         Authorization header, so a server behind Basic Auth answers its tools).
+        ``page_token`` lets the page tools act on the open page (see
+        :mod:`bowser.page_token`); without it, ``BOWSER_PAGE_TOKEN`` or the
+        server's token file (when the server runs on this computer) is used.
         """
         self.base_url = base_url.rstrip("/")
+        self._page_token = page_token
         #: The page's layer masks, when the caller knows them (the Assistant).
         self.page_masks: list[dict[str, Any]] | None = None
         self._client = httpx.AsyncClient(
@@ -294,9 +300,23 @@ class BowserAPI:
         BowserError with the server's or the page's message: no page open, not
         allowed on this server, the page did not answer, or the page refused.
         """
+        from . import page_token  # noqa: PLC0415
+
+        token = (
+            self._page_token
+            or os.environ.get(page_token.ENV)
+            or page_token.for_url(self.base_url)
+        )
+        headers = {}
+        if token:
+            # Keep an Authorization header the server needs (Basic Auth).
+            if "authorization" in self._client.headers:
+                headers[page_token.HEADER] = token
+            else:
+                headers["Authorization"] = f"Bearer {token}"
         try:
             r = await self._client.post(
-                "/page/command", json={"name": name, "input": args}
+                "/page/command", json={"name": name, "input": args}, headers=headers
             )
         except httpx.TransportError as e:
             raise BowserError(

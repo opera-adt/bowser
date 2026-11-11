@@ -33,6 +33,7 @@ __all__ = ["DEFAULT_URL", "INSTRUCTIONS", "build_server", "lite_transport"]
 def build_server(
     base_url: str = DEFAULT_URL,
     transport: httpx.AsyncBaseTransport | None = None,
+    page_token: str | None = None,
 ) -> MCPServer:
     """Build the MCP server whose tools call the Bowser server at ``base_url``.
 
@@ -43,6 +44,10 @@ def build_server(
     transport : httpx.AsyncBaseTransport, optional
         HTTP transport to use instead of the network, e.g.
         ``httpx.ASGITransport(app=app)`` to call an app in this process.
+    page_token : str, optional
+        The server's page token, for the page tools. Without it, the token file
+        of the server at ``base_url`` is read when that server runs on this
+        computer (see :mod:`bowser.page_token`).
 
     Returns
     -------
@@ -51,7 +56,8 @@ def build_server(
 
     """
     server = MCPServer("bowser", instructions=INSTRUCTIONS, log_level="WARNING")
-    for spec in build_tools(BowserAPI(base_url, transport)):
+    api = BowserAPI(base_url, transport, page_token=page_token)
+    for spec in build_tools(api):
         if not spec.mcp:
             continue
         server.add_tool(
