@@ -91,6 +91,7 @@ expected = {
     "geotiff_export": False,
     "polygon_stats": False,
     "assistant": {"enabled": False, "providers": [], "configured": []},
+    "geotiff_upload": False,
 }
 assert cfg.json() == expected, cfg.json()
 assert c.get("/config").json()["title"] != "Cube B"
