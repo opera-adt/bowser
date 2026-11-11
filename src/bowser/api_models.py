@@ -297,7 +297,7 @@ PARAMS: dict[str, dict[str, Any]] = {
         "displacement.",
         "examples": ["velocity"],
     },
-    "coherence_min": {
+    "zones_coherence_min": {
         "description": "Keep only cells whose coherence (median_temporal_coherence, "
         "average_temporal_coherence, or the median of temporal_coherence) is at "
         "least this.",

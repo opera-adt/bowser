@@ -657,7 +657,7 @@ def deformation_zones(
     bbox: Annotated[Optional[str], Query(**api.PARAMS["zone_bbox"])] = None,
     layer: Annotated[Optional[str], Query(**api.PARAMS["rate_layer"])] = None,
     coherence_min: Annotated[
-        Optional[float], Query(ge=0, le=1, **api.PARAMS["coherence_min"])
+        Optional[float], Query(ge=0, le=1, **api.PARAMS["zones_coherence_min"])
     ] = None,
     max_zones: Annotated[int, Query(ge=1, le=500, **api.PARAMS["max_zones"])] = 50,
     ref_lon: Annotated[
