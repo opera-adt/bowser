@@ -129,7 +129,7 @@ beforeEach(() => {
     secondaryBasemap: null, basemapSwapped: false, basemapOpacity: 1, secondaryBasemapOpacity: 0.5,
     timeSeriesPoints: [], selectedPointId: null, refMarkerVisible: true, annotationMode: false, annotations: [], overlays: [], bufferEnabled: false, bufferRadius: 0,
     pointPickingEnabled: true, showChart: false, pixelInspectEnabled: false, splitScreen: false,
-    splitDataset: null, splitPosition: 0.5, splitTimeIndex: 0, refBufferEnabled: false, refBufferRadius: 0,
+    splitDataset: null, splitPosition: 0.5, splitTimeIndex: 0, refBufferEnabled: false, refBufferRadius: 0, refCandidates: [],
     viewBounds: null, viewBoundsApplySeq: 0, showColorbar: false, showLosIndicator: false, graticuleMode: 'off',
   });
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
@@ -260,6 +260,29 @@ describe('MapLibreMap', () => {
       { type: 'SET_REF_MARKER_POSITION', payload: [33.955, -117.675] },
       { type: 'SET_REF_VALUES', payload: { dataset: 'displacement', values: [0, 0.001] } },
     ]);
+  });
+
+  it('reference candidates: numbered markers; clicking one sets the reference and its buffer', async () => {
+    const cand = (rank: number) => ({
+      rank, lon: -117.67 + rank * 0.001, lat: 33.958, radius_m: 100, temporal_coherence_median: 0.9,
+      phase_similarity_median: 0.8, viable_fraction: 1, displacement_scatter_m: 0.002, velocity: 0, score: 0.5,
+      reason: `reason ${rank}`,
+    });
+    mockState.refCandidates = [cand(1), cand(2)];
+    await mount();
+    const markers = FakeMarker.all.filter(m => !m.removed && m.opts.element.querySelector('.ref-cand-marker'));
+    expect(markers.map(m => m.opts.element.textContent)).toEqual(['1', '2']);
+    expect(markers.map(m => m.lngLat)).toEqual([[-117.669, 33.958], [-117.668, 33.958]]);
+    expect(markers[0].opts.element.querySelector('.recommended')).not.toBeNull();
+    expect(markers[0].opts.element.title).toContain('Recommended reference');
+    await act(async () => { markers[1].opts.element.dispatchEvent(new MouseEvent('click')); await vi.advanceTimersByTimeAsync(10); });
+    expect(dispatch.mock.calls.map(c => c[0]).slice(0, 3)).toEqual([
+      { type: 'SET_REF_MARKER_POSITION', payload: [33.958, -117.668] },
+      { type: 'SET_REF_BUFFER_ENABLED', payload: true },
+      { type: 'SET_REF_BUFFER_RADIUS', payload: 100 },
+    ]);
+    const buffer = vi.mocked(fetch).mock.calls.find(c => String(c[0]).startsWith('/buffer_timeseries'));
+    expect(JSON.parse(String((buffer![1] as RequestInit).body)).buffer_m).toBe(100);
   });
 
   it('shows the shared toolbars with the not-yet-ported tools disabled', async () => {
@@ -505,6 +528,64 @@ describe('MapLibreMap', () => {
     view.rerender(<MapLibreMap />);
     await act(async () => {});
     expect(map.sources.has('overlay-a')).toBe(false);
+  });
+
+  it('a DEM: above the basemap and below the data on both maps, once its COG is ready', async () => {
+    const { view, map } = await mount();
+    const roads = { id: 'r', name: 'roads', type: 'wms', visible: true, opacity: 1, url: 'https://w/wms', wmsLayers: 'r' };
+    const dem = { id: 'd', name: 'lidar.tif', type: 'geotiff', visible: true, opacity: 0.7, path: '/up/lidar.tif',
+      mode: 'cmap', cmap: 'schwarzwald', vmin: 60, vmax: 140, aboveData: false,
+      dem: { style: 'both', exaggeration: 2 }, conversion: { status: 'converting', format: 'cog' } };
+    const order = (m: InstanceType<typeof FakeMap>) => m.layers.map(l => l.id).filter(id => !/^(profile|measure|buffer)-/.test(id));
+    // While it converts there is nothing to draw.
+    mockState.overlays = [dem, roads];
+    view.rerender(<MapLibreMap />);
+    await act(async () => {});
+    expect(order(map)).toEqual(['basemap-bottom', 'overlay-r', 'data-1']);
+
+    const ready = { ...dem, path: '/cache/abc.tif', conversion: { status: 'ready', format: 'cog' } };
+    mockState.overlays = [ready, roads];
+    view.rerender(<MapLibreMap />);
+    await act(async () => {});
+    expect(order(map)).toEqual(['basemap-bottom', 'overlay-d', 'overlay-r', 'data-1']);
+    const url = new URL(map.sources.get('overlay-d').tiles[0].replace(/\{(\w)\}/g, '$1'));
+    expect(url.searchParams.get('url')).toBe('/cache/abc.tif');
+    expect(url.searchParams.get('algorithm')).toBe('dem');
+    expect(JSON.parse(url.searchParams.get('algorithm_params')!)).toMatchObject({ style: 'both', z_exaggeration: 2, vmin: 60, vmax: 140 });
+    expect(map.getLayer('overlay-d')!.paint['raster-opacity']).toBe(0.7);
+
+    // Split screen: the right map has it under its own data too.
+    Object.assign(mockState, { splitScreen: true, splitDataset: 'displacement', splitColormap: 'viridis',
+      splitVmin: 0, splitVmax: 1, splitOpacity: 0.6, splitTimeIndex: 0 });
+    view.rerender(<MapLibreMap />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+    const right = FakeMap.last;
+    expect(right).not.toBe(map);
+    const rightOrder = order(right);
+    expect(rightOrder[0]).toBe('basemap-bottom');
+    expect(rightOrder.indexOf('overlay-d')).toBe(1);
+    expect(rightOrder.indexOf('overlay-d')).toBeLessThan(rightOrder.findIndex(id => id.startsWith('data-')));
+  });
+
+  it('a DEM used for 3D terrain: merged into the global terrain, which comes back when it is switched off', async () => {
+    expect((globalThis as any).__maplibreProtocols).toContain('bowserdem');
+    const { view, map } = await mount();
+    const dem = { id: 'd', name: 'lidar.tif', type: 'geotiff', visible: true, opacity: 1, path: '/cache/abc.tif',
+      mode: 'cmap', cmap: 'schwarzwald', vmin: 60, vmax: 140, aboveData: false, bounds: [-117.69, 33.95, -117.65, 33.97],
+      dem: { style: 'both', exaggeration: 2, terrain: true, base: 61 }, conversion: { status: 'ready', format: 'cog' } };
+    mockState.overlays = [dem];
+    view.rerender(<MapLibreMap />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+    // switching a DEM to terrain turns 3D terrain on
+    expect(map.terrain).toEqual({ source: 'terrain-dem', exaggeration: 2 });
+    expect(map.sources.get('terrain-dem').tiles[0]).toMatch(/^bowserdem:\/\/\{z\}\/\{x\}\/\{y\}\?dem=/);
+    expect(map.sources.get('terrain-dem').maxzoom).toBe(17);
+
+    mockState.overlays = [{ ...dem, dem: { ...dem.dem, terrain: false } }];
+    view.rerender(<MapLibreMap />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+    expect(map.sources.get('terrain-dem').tiles[0]).toMatch(/^https:\/\/s3\.amazonaws\.com\/elevation-tiles-prod/);
+    expect(map.terrain).toEqual({ source: 'terrain-dem', exaggeration: 2 });
   });
 
   it('charted features: drawn in their chart colour, following a colour change; the rest keep the layer colour', async () => {

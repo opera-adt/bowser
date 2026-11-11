@@ -1,10 +1,15 @@
-"""Find GeoZarr cubes under a folder (Project › Open data › Search a folder)."""
+"""Folders on the server: find cubes under one, or list one.
+
+Project › Open data › Search a folder finds GeoZarr cubes; Overlays › Load file ›
+Browse lists a folder's files to add.
+"""
 
 from __future__ import annotations
 
 import json
 import os
 from pathlib import Path
+from typing import Callable
 
 #: How deep to look, and how many cubes to list at most.
 MAX_DEPTH = 4
@@ -79,3 +84,79 @@ def find_cubes(
             break
     cubes.sort(key=lambda c: c["path"])
     return {"cubes": cubes, "truncated": truncated}
+
+
+#: How many entries a folder listing returns at most.
+MAX_ENTRIES = 1000
+
+
+def list_folder(
+    folder: str | Path,
+    kind_of: Callable[[str], str | None],
+    *,
+    hidden: bool = False,
+    limit: int = MAX_ENTRIES,
+) -> dict:
+    """List one folder for Overlays › Load file › Browse (no recursion).
+
+    Returns ``{dir, parent, entries, truncated, skipped}``: ``dir`` with its
+    symlinks resolved, its sub-folders first, then the files ``kind_of`` gives a
+    kind (``"raster"``, ``"vector"``), each sorted by name, case-insensitively, at
+    most ``limit`` of them. Hidden ones (``.name``) are left out unless ``hidden``.
+    An entry that cannot be read (no permission, a broken link) is skipped and
+    counted in ``skipped``. Raises ``NotADirectoryError`` for a path that is not a
+    folder and ``PermissionError`` for one that cannot be listed.
+    """
+    base = Path(folder).expanduser().resolve()
+    if not base.is_dir():
+        raise NotADirectoryError(f"{base} is not a folder")
+    dirs: list[tuple[str, os.DirEntry]] = []
+    files: list[tuple[str, os.DirEntry, str]] = []
+    skipped = 0
+    with os.scandir(base) as it:
+        for entry in it:
+            if entry.name.startswith(".") and not hidden:
+                continue
+            try:
+                is_dir = entry.is_dir()  # follows symlinks
+            except OSError:
+                skipped += 1
+                continue
+            if is_dir:
+                dirs.append((entry.name.lower(), entry))
+            elif (kind := kind_of(entry.name)) is not None:
+                files.append((entry.name.lower(), entry, kind))
+    dirs.sort(key=lambda d: d[0])
+    files.sort(key=lambda f: f[0])
+    truncated = len(dirs) + len(files) > limit
+    entries: list[dict] = []
+    listed = [(e, None) for _, e in dirs] + [(e, k) for _, e, k in files]
+    for entry, kind in listed[:limit]:
+        # What this user cannot read is left out: a folder it cannot open, a file
+        # it cannot read, a broken link. A link's size is its target's.
+        need = os.R_OK | os.X_OK if kind is None else os.R_OK
+        try:
+            size = None if kind is None else entry.stat().st_size
+            readable = os.access(entry.path, need)
+        except OSError:
+            readable = False
+        if not readable:
+            skipped += 1
+            continue
+        entries.append(
+            {
+                "name": entry.name,
+                "path": str(base / entry.name),
+                "type": "dir" if kind is None else "file",
+                "size": size,
+                "kind": kind,
+            }
+        )
+    parent = base.parent
+    return {
+        "dir": str(base),
+        "parent": None if parent == base else str(parent),
+        "entries": entries,
+        "truncated": truncated,
+        "skipped": skipped,
+    }

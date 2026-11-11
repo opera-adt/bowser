@@ -3,6 +3,7 @@ import { Bar } from 'react-chartjs-2';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Tooltip } from 'chart.js';
 import { useAppContext } from '../context/AppContext';
 import { cachedHistogram, fetchHistogram, presetRange, type HistogramData, type RangePreset } from '../utils/colorPresets';
+import { hasStoredRange } from '../utils/colorRange';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip);
 
@@ -18,6 +19,8 @@ interface HistogramProps {
 export default function Histogram({ dataset, vmin, vmax, onSetVmin, onSetVmax }: HistogramProps = {}) {
   const { state, dispatch } = useAppContext();
   const [histData, setHistData] = useState<HistogramData | null>(null);
+  // The layer the histogram is of (the shown one may still be the previous layer's).
+  const [histDataset, setHistDataset] = useState('');
   const [loading, setLoading] = useState(false);
 
   const effectiveDataset = dataset ?? state.currentDataset;
@@ -31,6 +34,7 @@ export default function Histogram({ dataset, vmin, vmax, onSetVmin, onSetVmax }:
     const cached = cachedHistogram(effectiveDataset, state.currentTimeIndex);
     if (cached) {
       setHistData(cached);
+      setHistDataset(effectiveDataset);
       return;
     }
 
@@ -39,7 +43,10 @@ export default function Histogram({ dataset, vmin, vmax, onSetVmin, onSetVmax }:
       setLoading(true);
       try {
         const data = await fetchHistogram(effectiveDataset, state.currentTimeIndex, controller.signal);
-        if (data) setHistData(data);
+        if (data) {
+          setHistData(data);
+          setHistDataset(effectiveDataset);
+        }
       } catch (e) {
         if ((e as any).name !== 'AbortError') console.error('Error fetching histogram:', e);
       } finally {
@@ -56,6 +63,18 @@ export default function Histogram({ dataset, vmin, vmax, onSetVmin, onSetVmax }:
     setVmin(r[0]);
     setVmax(r[1]);
   };
+
+  // A layer opens on its 2–98 % range, not the 0–1 default, unless a range is kept for it
+  // (chosen earlier, or from a project). Phase layers and rewrap set their own ±π range.
+  useEffect(() => {
+    if (dataset !== undefined || !histData || histDataset !== state.currentDataset) return;
+    const algorithm = state.datasetInfo[histDataset]?.algorithm;
+    if (state.wrapEnabled || algorithm === 'phase' || algorithm === 'rewrap' || algorithm === 'amplitude') return;
+    if (hasStoredRange(histDataset)) return;
+    apply('2-98%');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [histData, histDataset]);
+
   const handleAutoScale = () => apply('2-98%');
   const handleFullScale = () => apply('full');
   const handleSigmaScale = () => apply('1sigma');

@@ -27,3 +27,13 @@ export function chartLayerFor(current: string, layers: Layers): string | null {
     ?? names[0]
     ?? null;
 }
+
+/**
+ * The window's layer list after picking `added` from "+ layer…". A window that
+ * follows the map (empty list) keeps the layer it shows and adds the new one,
+ * so the chart gets both layers instead of swapping one for the other.
+ */
+export function addChartLayer(chosen: string[], followed: string | null, added: string): string[] {
+  const shown = chosen.length > 0 ? chosen : (followed ? [followed] : []);
+  return shown.includes(added) ? shown : [...shown, added];
+}

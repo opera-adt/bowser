@@ -90,6 +90,10 @@ body = {
 }
 assert c.post("/profile", json=body).status_code == 200
 assert c.get("/colorbar/viridis").status_code == 200
+# The reference finder reuses bowser.reference, which must not need rasterio.
+q = {"coherence_layer": "displacement", "similarity_layer": "displacement"}
+r = c.get("/reference_candidates", params={**q, "radius_m": 30})
+assert r.status_code == 200 and r.json()["recommended"], r.text
 """
 
 HIDE = """

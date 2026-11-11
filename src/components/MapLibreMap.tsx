@@ -28,6 +28,7 @@ import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&ur
 maplibregl.setWorkerUrl(maplibreWorkerUrl);
 import { useAppContext } from '../context/AppContext';
 import { useApi } from '../hooks/useApi';
+import { candidateMarkerHtml, candidateMarkerTitle, chooseCandidate } from '../map/referenceCandidates';
 import { useRasterTileUrl } from '../map/useRasterTileUrl';
 import {
   mapClickActions, markerPopupText, pixelInspectRequest, pixelInspectText,
@@ -40,9 +41,12 @@ import { useDrawTools } from './drawTools';
 import { useIdentify } from './identifyTool';
 import { registerPmtiles } from '../map/pmtiles';
 import { registerNavigator, whenMoved } from '../map/navigator';
+import { registerDemTerrain, terrainDem, terrainSourceFor } from '../map/demTerrain';
 
 // Custom PMTiles archives (Overlays › Services) are read through pmtiles://.
 registerPmtiles(maplibregl.addProtocol as never);
+// A DEM used for 3D terrain is merged into the global terrain through bowserdem://.
+registerDemTerrain(maplibregl.addProtocol as never);
 import { MapLeftToolbar, MapTopRightToolbar, type MapFeature } from './MapToolbars';
 import MapLibreProfile from './MapLibreProfile';
 import MapLibreMeasure from './MapLibreMeasure';
@@ -259,18 +263,25 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
     map.on('pitchend', onPitchEnd);
     return () => { map.off('pitchend', onPitchEnd); };
   }, [ready]);  // eslint-disable-line react-hooks/exhaustive-deps
+  // A DEM overlay switched to "Use for 3D terrain" replaces the global terrain where it has
+  // data, and turns 3D terrain on.
+  const terrainSource = terrainSourceFor(state.overlays, window.location.origin);
+  const terrainDemId = terrainDem(state.overlays)?.id ?? null;
+  useEffect(() => {
+    if (terrainDemId && !terrainRef.current.enabled) setTerrainState(true, terrainRef.current.exaggeration);
+  }, [terrainDemId]);  // eslint-disable-line react-hooks/exhaustive-deps
   const terrainWasOn = useRef(false);
   useEffect(() => {
     const map = mapRef.current;
     // Not before the fit: the map starts at 0,0 until /datasets answers, and terrain added
     // there fetches DEM tiles of the Gulf of Guinea that the jump to the data then cancels.
     if (!ready || !map || !fitted) return;
-    applyTerrain(map, terrain.enabled, terrain.exaggeration);
+    applyTerrain(map, terrain.enabled, terrain.exaggeration, terrainSource);
     // Tilt in when terrain comes on (unless already tilted), back to flat when it goes off.
     if (terrain.enabled && !terrainWasOn.current && map.getPitch() < 10) map.easeTo({ pitch: TERRAIN_PITCH });
     if (!terrain.enabled && terrainWasOn.current) map.easeTo({ pitch: 0, bearing: 0 });
     terrainWasOn.current = terrain.enabled;
-  }, [ready, fitted, terrain]);
+  }, [ready, fitted, terrain, terrainSource.tiles[0]]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── the Assistant's map tools (src/map/navigator.ts) ───────────────────────
   useEffect(() => {
@@ -389,6 +400,24 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
     return () => { marker.remove(); };
   }, [ready, state.refMarkerVisible, state.refMarkerPosition, dispatch, fetchPointTimeSeries, fetchBufferTimeSeries]);
 
+  // ── reference candidates (Main › Reference Point › Find a stable reference) ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map) return;
+    const markers = (state.refCandidates ?? []).map(c => {
+      const el = document.createElement('div');
+      el.innerHTML = candidateMarkerHtml(c);
+      el.title = candidateMarkerTitle(c);
+      el.style.cursor = 'pointer';
+      el.addEventListener('click', ev => {
+        ev.stopPropagation();
+        void chooseCandidate(stateRef.current, c, { fetchPointTimeSeries, fetchBufferTimeSeries }, dispatch);
+      });
+      return new maplibregl.Marker({ element: el }).setLngLat([c.lon, c.lat]).addTo(map);
+    });
+    return () => { markers.forEach(m => m.remove()); };
+  }, [ready, state.refCandidates, dispatch, fetchPointTimeSeries, fetchBufferTimeSeries]);
+
   // ── cursor position + pixel inspect ────────────────────────────────────────
   const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string } | null>(null);
   useEffect(() => {
@@ -447,7 +476,7 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
       <div ref={containerRef} data-testid="maplibre-map" style={{ height: '100%', width: '100%' }} />
       <MapLibreProfile map={mapRef.current} ready={ready} />
       <MapLibreMeasure map={mapRef.current} ready={ready} active={measureActive} onDeactivate={() => setMeasureActive(false)} />
-      {state.splitScreen && <MapLibreSplit main={mapRef.current} mainReady={ready} terrain={terrain} />}
+      {state.splitScreen && <MapLibreSplit main={mapRef.current} mainReady={ready} terrain={{ ...terrain, source: terrainSource }} />}
       <MapLibreGraticule map={mapRef.current} ready={ready} mode={state.graticuleMode} />
       <MapLibreAnnotations map={mapRef.current} ready={ready} />
       {mapError && (

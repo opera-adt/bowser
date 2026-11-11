@@ -155,6 +155,30 @@ export interface OverlayFeatures {
   features: unknown[];
 }
 
+/**
+ * A GeoTIFF overlay used as an elevation model: drawn as hillshade and/or colour relief
+ * (the relief's colormap and range are the overlay's cmap/vmin/vmax). See map/dem.ts.
+ */
+export interface OverlayDem {
+  style: 'hillshade' | 'relief' | 'both';
+  exaggeration: number;  // vertical exaggeration of the hillshade
+  terrain?: boolean;     // also the 3D terrain (MapLibre)
+  base?: number;         // a low height of the DEM (2nd percentile), for ground with no other terrain
+}
+
+/**
+ * A file added through the server (POST /data) while the server makes it ready to draw:
+ * a raster as a COG, a large vector as PMTiles, a small one as GeoJSON. Not drawn until
+ * ``status`` is ready. See map/addData.ts.
+ */
+export interface OverlayConversion {
+  status: 'converting' | 'ready' | 'failed';
+  format: 'cog' | 'pmtiles' | 'geojson';
+  id?: string;           // conversion id, for GET /data/{id}
+  elapsedS?: number;     // seconds the conversion has run
+  error?: string;
+}
+
 // A user overlay: an uploaded GeoTIFF (tiled by our /overlay titiler), an external
 // WMS/WMTS service, vector features read in the browser, or an OpenFreeMap context layer. Stacking order is the
 // index in AppState.overlays (first = bottom); aboveData is which side of the data
@@ -170,7 +194,7 @@ export interface Overlay {
   bounds?: [number, number, number, number] | null;  // WGS84 [west, south, east, north]
 
   // --- geotiff ---
-  path?: string;         // server path returned by /upload_raster
+  path?: string;         // server path of the GeoTIFF (a COG once added through POST /data)
   bandCount?: number;
   bands?: OverlayBand[];
   mode?: 'rgb' | 'cmap'; // rgb for multi-band, cmap for single-band
@@ -182,6 +206,9 @@ export interface Overlay {
   discrete?: boolean;
   nbins?: number;
   binColors?: string[];  // hex per bin, length === nbins
+  dem?: OverlayDem;      // drawn as an elevation model (hillshade / colour relief)
+  conversion?: OverlayConversion;  // added through the server: converting, ready or failed
+  featureCount?: number; // a vector converted on the server: how many features it has
 
   // --- external (wms / wmts / xyz) ---
   url?: string;          // WMS base URL, or WMTS/XYZ tile template with {z}/{x}/{y}
@@ -213,6 +240,23 @@ export interface Overlay {
   classColors?: { property: string; classes: [string, string][]; breaks?: number[]; other?: string };
   soilField?: string;  // soils: the attribute it is coloured by
   maxClasses?: number;
+}
+
+/** One stable reference-point candidate from GET /reference_candidates. */
+export interface RefCandidate {
+  rank: number;
+  lon: number;
+  lat: number;
+  /** The circle the candidate was judged on: the reference buffer to use with it. */
+  radius_m: number;
+  temporal_coherence_median: number | null;
+  phase_similarity_median: number | null;
+  viable_fraction: number | null;
+  /** Spread through time of the circle's pixels about their median, in metres. */
+  displacement_scatter_m: number | null;
+  velocity: number | null;
+  score: number | null;
+  reason: string;
 }
 
 export interface AppState {
@@ -269,6 +313,8 @@ export interface AppState {
   refMarkerVisible: boolean;
   refBufferEnabled: boolean;
   refBufferRadius: number;
+  /** Stable reference candidates shown on the map and in Main › Reference Point. */
+  refCandidates: RefCandidate[];
   showRefChart: boolean;
   markerSize: number;
   dateRangeStart: string | null;
@@ -340,6 +386,7 @@ export type AppAction =
   | { type: 'REMOVE_OVERLAY'; payload: string }
   | { type: 'UPDATE_OVERLAY'; payload: { id: string; updates: Partial<Overlay> } }
   | { type: 'SET_OVERLAYS'; payload: Overlay[] }
+  | { type: 'MOVE_OVERLAY_TO_BOTTOM'; payload: string }
   | { type: 'SET_OVERLAY_MESSAGE'; payload: string | null }
   | { type: 'SET_DRAWING_ENABLED'; payload: boolean }
   | { type: 'SET_FIT_SETTINGS'; payload: Partial<FitSettings> }
@@ -360,6 +407,8 @@ export type AppAction =
   | { type: 'TOGGLE_REF_ENABLED' }
   | { type: 'TOGGLE_REF_MARKER_VISIBLE' }
   | { type: 'TOGGLE_REF_BUFFER' }
+  | { type: 'SET_REF_BUFFER_ENABLED'; payload: boolean }
+  | { type: 'SET_REF_CANDIDATES'; payload: RefCandidate[] }
   | { type: 'SET_REF_BUFFER_RADIUS'; payload: number }
   | { type: 'TOGGLE_REF_CHART' }
   | { type: 'SET_MARKER_SIZE'; payload: number }

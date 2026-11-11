@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RasterGroup } from '../types';
-import { chartLayerFor, hasTimeAxis, timeSeriesLayers } from './chartLayers';
+import { addChartLayer, chartLayerFor, hasTimeAxis, timeSeriesLayers } from './chartLayers';
 
 const layer = (x_values: Array<number | string>) => ({ x_values }) as RasterGroup;
 const DATES = ['2024-01-01', '2024-01-13'];
@@ -50,5 +50,20 @@ describe('chartLayerFor', () => {
   it('gives nothing when no layer has a time axis', () => {
     expect(chartLayerFor('velocity', { velocity: layer([]) })).toBeNull();
     expect(chartLayerFor('', {})).toBeNull();
+  });
+});
+
+describe('addChartLayer', () => {
+  it('keeps the followed layer when the chart follows the map', () => {
+    expect(addChartLayer([], 'displacement', 'temporal_coherence')).toEqual(['displacement', 'temporal_coherence']);
+  });
+
+  it('appends to a chosen list, once', () => {
+    expect(addChartLayer(['a'], 'displacement', 'b')).toEqual(['a', 'b']);
+    expect(addChartLayer(['a', 'b'], 'displacement', 'b')).toEqual(['a', 'b']);
+  });
+
+  it('gives just the new layer when nothing is followed', () => {
+    expect(addChartLayer([], null, 'b')).toEqual(['b']);
   });
 });
