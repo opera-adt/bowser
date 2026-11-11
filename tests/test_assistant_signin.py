@@ -1709,3 +1709,31 @@ def test_warm_session_closes_on_sign_out_and_stop(served, how):
             break
         time.sleep(0.05)
     assert not _alive(pid)
+
+
+def test_the_agents_bowser_mcp_gets_the_page_token_in_its_env(served, open_page):
+    from bowser import page_token  # noqa: PLC0415
+
+    served.claude.state.write_text("signed in")
+    with httpx.Client(base_url=served.url, timeout=120) as c:
+        c.post("/assistant/signin", json={"method": "claude"})
+        ev = _stream(
+            c,
+            {
+                "provider": "claude",
+                "conversation": "tok-1",
+                "messages": [{"role": "user", "content": "CALL get_view {}"}],
+            },
+        )
+    token = page_token.for_url(served.url)
+    assert token
+    new = json.loads((served.claude.out / "new.json").read_text())
+    env = {e["name"]: e["value"] for e in new["mcpServers"][0]["env"]}
+    assert env[page_token.ENV] == token
+    # The page tool worked through it, and the token is in no event.
+    results = json.loads("".join(e["text"] for e in ev if e["type"] == "text"))
+    assert results[0]["ok"]
+    assert open_page.page.commands == [("get_view", {})]
+    assert token not in json.dumps(ev)
+    # The agent's own environment does not carry it.
+    assert token not in (served.claude.out / "env.json").read_text()

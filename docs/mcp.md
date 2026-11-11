@@ -55,6 +55,7 @@ server: run `bowser run` and use `--url`.
 | `--http` | off (stdio) | Serve streamable HTTP at `/mcp` |
 | `--host` | `127.0.0.1` | Interface for `--http` |
 | `--port`, `-p` | `8765` | Port for `--http` |
+| `--token` | read from the server's token file | The server's page token for the page tools (env `BOWSER_PAGE_TOKEN`); see [Acting on the page](#acting-on-the-page) |
 
 ## Add it to an assistant
 
@@ -174,6 +175,17 @@ from the computer that runs Bowser and only with
 `BOWSER_ASSISTANT_PAGE_KEYS`; only Bowser's own page may listen, and commands
 are refused from any browser, so a web page cannot drive the map. Commands,
 answers and their rate are bounded.
+
+Commands also need the server's page token. When it starts, the Bowser server
+makes a random token and writes it to a file only you can read (mode 0600, in
+`$XDG_RUNTIME_DIR/bowser/` or `~/.cache/bowser/`, named `page-token-<port>`),
+and removes it when it stops. `bowser mcp --url http://127.0.0.1:PORT` reads
+that file when it runs on the same computer as the server, so nothing needs
+setting up; the Assistant and "Sign in with Claude" get the token from the
+server itself. For an unusual setup (another user, a container) pass it with
+`--token` or `BOWSER_PAGE_TOKEN`. Without it the data tools still work, and
+the page tools say to start `bowser mcp` on the same computer as the server.
+The token is never sent to the page, logged, or put in an answer.
 
 ## Places
 

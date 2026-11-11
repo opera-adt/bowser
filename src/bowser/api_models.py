@@ -580,8 +580,13 @@ ROUTES: dict[str, dict[str, Any]] = {
         "description": "Send a page tool (e.g. `fly_to`, `get_view`, "
         "`set_reference_point`) to the page focused most recently and return its "
         "answer, waiting up to 10 s (504 after that). 409 when no page is open. "
-        "Used by `bowser mcp`'s page tools; refused from a browser, from another "
-        "computer and without BOWSER_ASSISTANT_PAGE_KEYS. Rate-limited (429).",
+        "Used by `bowser mcp`'s page tools: needs the server's page token "
+        "(`Authorization: Bearer <token>` or `X-Bowser-Page-Token`; 401 without "
+        "it), which the server writes to a private file when it starts "
+        "(`page-token-<port>` in `$XDG_RUNTIME_DIR/bowser` or "
+        "`~/.cache/bowser`) and removes when it stops. Refused from a browser, "
+        "from another computer and without BOWSER_ASSISTANT_PAGE_KEYS. "
+        "Rate-limited (429).",
         "tags": [ASSISTANT],
     },
     "GET /geocode": {
