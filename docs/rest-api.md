@@ -45,7 +45,7 @@ are indexes into a layer's `x_values`.
 | --- | --- | --- |
 | Config | `GET /config` | Page title, logo flag, whether GeoTIFF export works, what added files are converted to |
 | | `GET /mode` | `md` (GeoZarr) or `cog` (GeoTIFF stack) |
-| Data | `GET /datasets` | Every layer: dates, bounds, reference point, units, description |
+| Data | `GET /datasets` | Every layer: dates, bounds, reference point, units, description, what it measures |
 | | `GET /variables` | Dimensions, shape, dtype and attributes of each variable |
 | | `GET /datasets/{name}/time_bounds` | First and last date, number of steps |
 | | `GET /catalog` | Catalog entries; whether opening is allowed |
@@ -284,6 +284,32 @@ idle server, pauses while requests are in flight, one reader thread on
 bowser-lite) and its disk cache, so a restarted server has them at once.
 `BOWSER_HISTOGRAM_WARMUP=0` turns that off. While the page plays through the
 dates it does not ask for histograms; it asks for the date it stops on.
+
+## What a layer measures
+
+Each layer of `GET /datasets` has a `measurement` (null for layers that measure
+no motion: coherence, masks, uncertainties). Bowser serves stacks from many
+producers, so it is built from the cube's own metadata and nothing is assumed
+for a cube that does not say:
+
+| Field | Meaning |
+| --- | --- |
+| `kind` | `line_of_sight`, `vertical`, `east_west`, `north_south` or `unknown` |
+| `positive_direction` | What a positive value means (`towards the satellite`, `up`, ...), or null |
+| `kind_source`, `sign_source` | The attribute each came from, or `known product ...` |
+| `sensitivity` | How much of 1 mm of east, north or up motion shows in a value: the absolute east, north and up parts of the look vector (`los_enu_ground_to_satellite`) for line-of-sight values; null when unknown |
+| `sensitivity_note` | The same in words, e.g. "Sensitive mainly to vertical (0.78) and east-west (0.62) motion; north-south sensitivity 0.11." |
+| `radar_wavelength_m`, `half_wavelength_mm` | The radar wavelength and half of it, the size of a line-of-sight unwrapping jump; null when not recorded |
+| `product`, `summary` | The recognised product, and all of the above in a sentence |
+
+Direction and sign come from the layer's attributes (`measurement_direction`,
+`sign_convention`, `positive_direction`, or its `long_name` / `description`
+when they name one direction, or say "positive ... towards the satellite"), then
+the cube's (`displacement_convention`, `ceos_product_measurement_projection`,
+...), then a short table of facts producers document (`KNOWN_PRODUCTS` in
+`src/bowser/measurement.py`, matched on the cube's `title`, `product` or
+`source`; today only OPERA DISP-S1). The file always wins over the table. The
+look geometry and the wavelength are the cube's, the same for every layer.
 
 ## What bowser-lite does not do
 

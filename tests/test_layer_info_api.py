@@ -57,6 +57,12 @@ def _exercise(work: Path) -> None:
         assert "guidance" not in data["unfamiliar"]
         assert data["water_mask"]["description_source"] == "bowser"
         assert displacement["los_metadata"] is None
+        # What it measures: the sign from the producer's text, nothing assumed.
+        measurement = displacement["measurement"]
+        assert measurement["positive_direction"] == "away from the satellite"
+        assert measurement["kind"] == "unknown"
+        assert measurement["sensitivity"] is None
+        assert data["water_mask"]["measurement"] is None
         assert data["water_mask"]["source_flags"] == [
             {"value": "0", "label": "land"},
             {"value": "1", "label": "water"},
@@ -90,6 +96,11 @@ def _exercise(work: Path) -> None:
                 "unit",
                 "unit_status",
             )
+        }
+        # GeoTIFF stacks carry no radar wavelength, so compare the rest.
+        snapshots[mode]["measurement"] = {
+            k: displacement["measurement"][k]
+            for k in ("kind", "positive_direction", "sign_source", "sensitivity")
         }
     assert snapshots["md"] == snapshots["lite"] == snapshots["cog"]
     print(json.dumps({"status": "PASS", "modes": list(snapshots)}))

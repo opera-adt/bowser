@@ -88,6 +88,7 @@ from .layer_info import (  # noqa: E402
     describe_raster_group,
     radar_wavelength,
 )
+from .measurement import describe_measurement  # noqa: E402
 from .readers import CustomReader  # noqa: E402
 from .titiler import (  # noqa: E402
     Amplitude,
@@ -524,6 +525,9 @@ def create_xarray_dataset_info(ds: xr.Dataset) -> dict:
             "reference_lonlat": reference_lonlat,
             **({"radar_wavelength_m": wavelength} if wavelength else {}),
             **describe_layer(str(var_name), attrs),
+            "measurement": describe_measurement(
+                str(var_name), attrs, dict(ds.attrs), los_metadata, wavelength
+            ),
         }
 
     return dataset_info
@@ -549,6 +553,11 @@ def create_rastergroup_dataset_info(raster_groups: dict) -> dict:
                 rg.los_metadata.model_dump() if rg.los_metadata is not None else None
             ),
             **describe_raster_group(name, [r.layer_attrs for r in rg._reader.readers]),
+            "measurement": describe_measurement(
+                name,
+                rg._reader.readers[0].layer_attrs if rg._reader.readers else {},
+                los=rg.los_metadata.model_dump() if rg.los_metadata else None,
+            ),
         }
     return dataset_info
 

@@ -1190,6 +1190,47 @@ class LosInfo(_Fixed):
     los_enu_ground_to_sat_far: Optional[EnuVector] = None
 
 
+class Sensitivity(_Fixed):
+    """How much of 1 unit of motion east, north or up shows in a value (0-1)."""
+
+    east: float
+    north: float
+    up: float
+
+
+class Measurement(_Fixed):
+    """What a layer's values measure, from the cube's metadata (unknown is null).
+
+    Built by ``bowser.measurement.describe_measurement``: the layer's attributes
+    win over the cube's, and both over Bowser's small table of producer-documented
+    products. Nothing is assumed for an unrecognised cube.
+    """
+
+    kind: Literal["line_of_sight", "vertical", "east_west", "north_south", "unknown"]
+    kind_source: Optional[str] = Field(
+        description="Where `kind` came from (an attribute, or a known product)."
+    )
+    positive_direction: Optional[str] = Field(
+        description="What a positive value means, e.g. 'towards the satellite', "
+        "'up'; null when the cube does not say."
+    )
+    sign_source: Optional[str]
+    sensitivity: Optional[Sensitivity] = Field(
+        description="|east|, |north|, |up| of the look vector for line-of-sight "
+        "values (1 for the measured axis of a vertical or horizontal component); "
+        "null when unknown."
+    )
+    sensitivity_note: str
+    radar_wavelength_m: Optional[float]
+    half_wavelength_mm: Optional[float] = Field(
+        description="Half the radar wavelength in mm: the size of a "
+        "line-of-sight unwrapping jump."
+    )
+    wavelength_source: Optional[str]
+    product: Optional[str] = Field(description="The recognised product, if any.")
+    summary: str = Field(description="The above in plain words.")
+
+
 class DatasetInfo(_Fixed):
     """One layer of ``GET /datasets``.
 
@@ -1243,6 +1284,12 @@ class DatasetInfo(_Fixed):
         "description is shown as `description`.",
     )
     metadata_notes: Optional[list[str]] = None
+    measurement: Optional[Measurement] = Field(
+        None,
+        description="What the values measure (direction, sign, sensitivity, "
+        "radar wavelength); null for a layer that measures no motion (coherence, "
+        "masks, uncertainties).",
+    )
 
 
 class DatasetsInfo(RootModel[dict[str, DatasetInfo]]):
