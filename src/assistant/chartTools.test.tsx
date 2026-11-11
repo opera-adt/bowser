@@ -309,7 +309,8 @@ describe("the chart's view", () => {
     const byUi = live.state!.chartWindows[0].dsNames;
     await tool('set_chart_layers', { layers: [] });
     expect(live.state!.chartWindows[0].dsNames).toEqual([]);
-    await tool('set_chart_layers', { layers: ['short_wavelength_displacement'] });
+    // "＋ layer…" adds to the layer the chart follows (#144), so the chips show both.
+    await tool('set_chart_layers', { layers: ['displacement', 'short_wavelength_displacement'] });
     expect(live.state!.chartWindows[0].dsNames).toEqual(byUi);
     await expect(tool('set_chart_layers', { layers: ['shortwavelength_displacement'] })).rejects.toThrow('did you mean short_wavelength_displacement');
   });
