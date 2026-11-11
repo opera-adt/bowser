@@ -837,8 +837,7 @@ async def _get_ref_median(
     circle = select_circle(da, cx, cy, buffer_m, margin_window=True, sqrt_distance=True)
     if circle is None:
         return await _get_point_values(dataset_name, lon, lat, layer_masks)
-    # (time,) for a (time, y, x) variable. A 2-D variable is pooled per window
-    # row, as before; its series has no time axis to plot either way.
+    # (time,) for a (time, y, x) variable, (1,) for a 2-D one.
     return reference_median(pool(*circle))
 
 
@@ -1445,7 +1444,8 @@ async def buffer_timeseries(
         )
         if circle is None:
             raise HTTPException(status_code=404, detail="Buffer outside dataset extent")
-        flat = pool(*circle)  # (time, n_pixels), NaN outside the circle
+        # (time, n_pixels), NaN outside the circle; (1, n_pixels) for a 2-D layer.
+        flat = pool(*circle)
 
         # Reference subtraction (use buffer median when ref_buffer_m > 0)
         if ref_lon is not None and ref_lat is not None:

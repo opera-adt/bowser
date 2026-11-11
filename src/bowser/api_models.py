@@ -319,7 +319,9 @@ ROUTES: dict[str, dict[str, Any]] = {
         "summary": "Series within a circle",
         "description": "Median series of all pixels within `buffer_m` of a point, "
         "plus up to `n_samples` randomly chosen pixel series (fixed seed), "
-        "re-referenced and masked like `/multi_point`.",
+        "re-referenced and masked like `/multi_point`. A 2-D layer (no time axis) "
+        "is a one-step series without a label, as in `/chart_point`: `labels` and "
+        "the series are empty and `n_pixels` counts the circle's valid pixels.",
         "tags": [SERIES],
         **_DATASET_EXTRA,
     },

@@ -163,10 +163,15 @@ def buffer_window(
 
 
 def buffer_pixels(window: xr.DataArray, in_circle: np.ndarray) -> np.ndarray:
-    """``(time, n_pixels)`` values of a buffer window, NaN outside the disc."""
+    """``(time, n_pixels)`` values of a buffer window, NaN outside the disc.
+
+    A 2-D window (a layer without a time axis) is one step: ``(1, n_pixels)``.
+    Mirrors :func:`bowser.reference.pool`, which lite does not import (rasterio).
+    """
     arr = window.values
-    arr_masked = np.where(in_circle[np.newaxis, :, :], arr, np.nan)
-    return arr_masked.reshape(arr.shape[0], -1)
+    if arr.ndim == in_circle.ndim:
+        arr = arr[np.newaxis]
+    return np.where(in_circle, arr, np.nan).reshape(arr.shape[0], -1)
 
 
 def ref_values(
