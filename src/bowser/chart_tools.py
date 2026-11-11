@@ -137,14 +137,15 @@ def register_chart_tools(page_tool: PageTool, on_page: OnPage) -> None:
     Parameters
     ----------
     page_tool : callable
-        ``build_tools``' decorator for a page tool (``read_only`` makes it quiet).
+        ``build_tools``' decorator for a page tool (``read_only`` makes it quiet;
+        ``status`` is what the tab shows while it runs).
     on_page : callable
         Runs a page tool on the open page: ``await on_page(name, **args)``.
 
     """
     # --- reading the chart --------------------------------------------------------
 
-    @page_tool(read_only=True)
+    @page_tool(read_only=True, status="Reading the chart")
     async def get_chart_data(
         include_model: Annotated[
             bool,
@@ -164,7 +165,7 @@ def register_chart_tools(page_tool: PageTool, on_page: OnPage) -> None:
         """
         return await on_page("get_chart_data", include_model=include_model)
 
-    @page_tool(read_only=True)
+    @page_tool(read_only=True, status="Reading the fit")
     async def get_fit_results() -> dict[str, Any]:
         """Return the chart's fitted model for each point series, with errors.
 
@@ -179,7 +180,7 @@ def register_chart_tools(page_tool: PageTool, on_page: OnPage) -> None:
 
     # --- the model ----------------------------------------------------------------
 
-    @page_tool
+    @page_tool(status="Fitting the model")
     async def set_fit(
         polynomial_order: Annotated[
             Literal[0, 1, 2, 3] | None,
@@ -222,7 +223,7 @@ def register_chart_tools(page_tool: PageTool, on_page: OnPage) -> None:
             reject_outliers=reject_outliers,
         )
 
-    @page_tool
+    @page_tool(status="Adding the step")
     async def add_step(date: IsoDate) -> dict[str, Any]:
         """Add a step (offset) to the chart's model at a date and refit.
 
@@ -232,12 +233,12 @@ def register_chart_tools(page_tool: PageTool, on_page: OnPage) -> None:
         """
         return await on_page("add_step", date=date)
 
-    @page_tool
+    @page_tool(status="Removing the step")
     async def remove_step(date: IsoDate) -> dict[str, Any]:
         """Remove the model's step at a date and refit; returns the fit results."""
         return await on_page("remove_step", date=date)
 
-    @page_tool
+    @page_tool(status="Showing the residuals")
     async def set_residuals(
         on: Annotated[bool, Field(description="Show the model's residuals.")],
     ) -> dict[str, Any]:
@@ -246,22 +247,22 @@ def register_chart_tools(page_tool: PageTool, on_page: OnPage) -> None:
 
     # --- points and areas ---------------------------------------------------------
 
-    @page_tool(read_only=True)
+    @page_tool(read_only=True, status="Listing the points")
     async def list_points() -> dict[str, Any]:
         """List the chart's points: id, name, lon, lat, colour, marker, line, shown."""
         return await on_page("list_points")
 
-    @page_tool
+    @page_tool(status="Renaming the point")
     async def rename_point(point: PointRef, name: NewName) -> dict[str, Any]:
         """Rename a point (by id or name), as the Points panel does."""
         return await on_page("rename_point", point=point, name=name)
 
-    @page_tool
+    @page_tool(status="Removing the point")
     async def remove_point(point: PointRef) -> dict[str, Any]:
         """Remove a point from the map and chart. Destructive: ask the user first."""
         return await on_page("remove_point", point=point)
 
-    @page_tool
+    @page_tool(status="Styling the point")
     async def set_point_style(
         point: PointRef,
         color: Color = None,
@@ -293,17 +294,17 @@ def register_chart_tools(page_tool: PageTool, on_page: OnPage) -> None:
             size=size,
         )
 
-    @page_tool(read_only=True)
+    @page_tool(read_only=True, status="Listing the areas")
     async def list_areas() -> dict[str, Any]:
         """List the chart's areas with their style, and the band drawn around them."""
         return await on_page("list_areas")
 
-    @page_tool
+    @page_tool(status="Renaming the area")
     async def rename_area(area: AreaRef, name: NewName) -> dict[str, Any]:
         """Rename a chart area (by id or name), as the Points panel's area rows do."""
         return await on_page("rename_area", area=area, name=name)
 
-    @page_tool
+    @page_tool(status="Styling the area")
     async def set_area_style(
         area: AreaRef,
         color: Color = None,
@@ -333,7 +334,7 @@ def register_chart_tools(page_tool: PageTool, on_page: OnPage) -> None:
             band_opacity=band_opacity,
         )
 
-    @page_tool
+    @page_tool(status="Setting the area's band")
     async def set_area_band(
         band: Annotated[
             Literal["std", "p10p90"],
@@ -345,7 +346,7 @@ def register_chart_tools(page_tool: PageTool, on_page: OnPage) -> None:
 
     # --- the chart's view ---------------------------------------------------------
 
-    @page_tool
+    @page_tool(status="Setting the chart's layers")
     async def set_chart_layers(
         layers: Annotated[
             list[ChartLayer],
@@ -358,7 +359,7 @@ def register_chart_tools(page_tool: PageTool, on_page: OnPage) -> None:
         """Choose the chart's layers; each gets its own y axis."""
         return await on_page("set_chart_layers", layers=layers)
 
-    @page_tool
+    @page_tool(status="Setting the layer's display")
     async def set_layer_display(
         layer: ChartLayer,
         offset: Annotated[
@@ -383,7 +384,7 @@ def register_chart_tools(page_tool: PageTool, on_page: OnPage) -> None:
             reset=reset or None,
         )
 
-    @page_tool
+    @page_tool(status="Setting the date range")
     async def set_date_range(
         start: Annotated[IsoDate | None, Field(description="First date shown.")] = None,
         end: Annotated[IsoDate | None, Field(description="Last date shown.")] = None,
@@ -399,7 +400,7 @@ def register_chart_tools(page_tool: PageTool, on_page: OnPage) -> None:
             "set_date_range", start=start, end=end, reset=reset or None
         )
 
-    @page_tool
+    @page_tool(status="Exporting the chart")
     async def export_chart(
         format: Annotated[  # noqa: A002  (the argument's name, as the model sees it)
             Literal["csv", "png"], Field(description="csv: the values; png: the image.")
@@ -413,7 +414,7 @@ def register_chart_tools(page_tool: PageTool, on_page: OnPage) -> None:
 
     # --- checks -------------------------------------------------------------------
 
-    @page_tool(read_only=True)
+    @page_tool(read_only=True, status="Checking the series")
     async def check_series(
         point: Annotated[
             str | None,
