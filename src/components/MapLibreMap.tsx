@@ -28,6 +28,7 @@ import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&ur
 maplibregl.setWorkerUrl(maplibreWorkerUrl);
 import { useAppContext } from '../context/AppContext';
 import { useApi } from '../hooks/useApi';
+import { candidateMarkerHtml, candidateMarkerTitle, chooseCandidate } from '../map/referenceCandidates';
 import { useRasterTileUrl } from '../map/useRasterTileUrl';
 import {
   mapClickActions, markerPopupText, pixelInspectRequest, pixelInspectText,
@@ -350,6 +351,24 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
     });
     return () => { marker.remove(); };
   }, [ready, state.refMarkerVisible, state.refMarkerPosition, dispatch, fetchPointTimeSeries, fetchBufferTimeSeries]);
+
+  // ── reference candidates (Main › Reference Point › Find a stable reference) ──
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map) return;
+    const markers = (state.refCandidates ?? []).map(c => {
+      const el = document.createElement('div');
+      el.innerHTML = candidateMarkerHtml(c);
+      el.title = candidateMarkerTitle(c);
+      el.style.cursor = 'pointer';
+      el.addEventListener('click', ev => {
+        ev.stopPropagation();
+        void chooseCandidate(stateRef.current, c, { fetchPointTimeSeries, fetchBufferTimeSeries }, dispatch);
+      });
+      return new maplibregl.Marker({ element: el }).setLngLat([c.lon, c.lat]).addTo(map);
+    });
+    return () => { markers.forEach(m => m.remove()); };
+  }, [ready, state.refCandidates, dispatch, fetchPointTimeSeries, fetchBufferTimeSeries]);
 
   // ── cursor position + pixel inspect ────────────────────────────────────────
   const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string } | null>(null);

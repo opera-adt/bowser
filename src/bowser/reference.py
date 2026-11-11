@@ -15,7 +15,6 @@ from typing import Literal, NamedTuple
 import numpy as np
 import xarray as xr
 from pyproj import CRS, Transformer
-from rasterio.transform import rowcol
 
 PointMethod = Literal["nearest", "containing"]
 
@@ -53,6 +52,9 @@ def select_point(
 
     """
     if method == "containing":
+        # Imported here: bowser-lite reuses this module and runs without rasterio.
+        from rasterio.transform import rowcol  # noqa: PLC0415
+
         row, col = rowcol(da.rio.transform(), cx, cy)
         if not (0 <= row < da.sizes["y"] and 0 <= col < da.sizes["x"]):
             raise ValueError("Reference position is outside the source raster")

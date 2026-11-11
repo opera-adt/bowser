@@ -213,6 +213,23 @@ export interface Overlay {
   maxClasses?: number;
 }
 
+/** One stable reference-point candidate from GET /reference_candidates. */
+export interface RefCandidate {
+  rank: number;
+  lon: number;
+  lat: number;
+  /** The circle the candidate was judged on: the reference buffer to use with it. */
+  radius_m: number;
+  temporal_coherence_median: number | null;
+  phase_similarity_median: number | null;
+  viable_fraction: number | null;
+  /** Spread through time of the circle's pixels about their median, in metres. */
+  displacement_scatter_m: number | null;
+  velocity: number | null;
+  score: number | null;
+  reason: string;
+}
+
 export interface AppState {
   datasetInfo: { [key: string]: RasterGroup };
   timeSeriesPoints: TimeSeriesPoint[];
@@ -267,6 +284,8 @@ export interface AppState {
   refMarkerVisible: boolean;
   refBufferEnabled: boolean;
   refBufferRadius: number;
+  /** Stable reference candidates shown on the map and in Main › Reference Point. */
+  refCandidates: RefCandidate[];
   showRefChart: boolean;
   markerSize: number;
   dateRangeStart: string | null;
@@ -358,6 +377,8 @@ export type AppAction =
   | { type: 'TOGGLE_REF_ENABLED' }
   | { type: 'TOGGLE_REF_MARKER_VISIBLE' }
   | { type: 'TOGGLE_REF_BUFFER' }
+  | { type: 'SET_REF_BUFFER_ENABLED'; payload: boolean }
+  | { type: 'SET_REF_CANDIDATES'; payload: RefCandidate[] }
   | { type: 'SET_REF_BUFFER_RADIUS'; payload: number }
   | { type: 'TOGGLE_REF_CHART' }
   | { type: 'SET_MARKER_SIZE'; payload: number }

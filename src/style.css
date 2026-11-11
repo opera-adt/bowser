@@ -2443,6 +2443,67 @@ img.huechange { filter: hue-rotate(120deg); }
   box-shadow: var(--shadow-md, 0 4px 14px rgba(0, 0, 0, 0.18));
 }
 
+/* ── Stable reference candidates (Main › Reference Point) ───── */
+.ref-cand-list {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ref-cand-row {
+  width: 100%;
+  border: 1px solid transparent;
+  color: var(--sb-text);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ref-cand-row:hover {
+  border-color: var(--sb-border);
+}
+
+.ref-cand-row.current {
+  border-color: var(--sb-accent);
+}
+
+.ref-cand-row .ov-row-head {
+  gap: 6px;
+}
+
+.ref-cand-stats {
+  max-width: none;
+}
+
+.ref-cand-marker {
+  box-sizing: border-box;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--sb-accent);
+  border-radius: 50%;
+  background: #fff;
+  color: #111;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.ref-cand-marker.recommended {
+  background: var(--sb-accent);
+  color: #fff;
+  border-color: #fff;
+}
+
+.ref-cand-icon {
+  background: none;
+  border: none;
+}
+
 /* ── Assistant tab ───────────────────────────────────────────── */
 .ai-field {
   display: flex;
