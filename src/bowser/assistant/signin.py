@@ -480,6 +480,10 @@ async def _complete(
         if not returned or returned == spec.register_client_id:
             raise SignInError("The app was not registered; sign in again.")
         client_id = returned
+        # Keep the issued id before the exchange: when the exchange fails, the next
+        # attempt must start with it, not register again (OpenAI: "start a fresh
+        # authorization with the issued client ID retained").
+        store.set_account(m.id, client_id=client_id)
     elif returned and returned != client_id:
         raise SignInError("The sign-in came back for another app registration.")
     body = await _post_form(
