@@ -36,7 +36,9 @@ import {
 } from '../map/interactions';
 import {
   EXAGGERATION_DEFAULT, EXAGGERATION_MAX, EXAGGERATION_MIN, TERRAIN_PITCH, clampExaggeration, TILT_ON, terrainOnTilt } from '../map/terrain';
-import { applyTerrain, useBasemapLayers, useBufferCircles, useDataRaster, useOverlayLayers } from './maplibreLayers';
+import { applyTerrain, firstAboveDataId, useBasemapLayers, useBufferCircles, useDataRaster, useOverlayLayers } from './maplibreLayers';
+import { useGpuRender } from '../map/gpu/useGpuRender';
+import { RenderLabel } from '../map/gpu/RenderLabel';
 import { useDrawTools } from './drawTools';
 import { useIdentify } from './identifyTool';
 import { registerPmtiles } from '../map/pmtiles';
@@ -326,7 +328,12 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
   useBufferCircles(mapRef.current, ready);
   useDrawTools(mapRef.current, ready);
   useIdentify(mapRef.current, ready);
-  useDataRaster(mapRef.current, ready, useRasterTileUrl(), state.opacity, datasetBounds(state));
+  // The experimental GPU renderer (?render=gpu|auto): when it draws the data, the tile
+  // layer stays empty. Its layer is flat, so 3D terrain keeps tiles.
+  const gpuRender = useGpuRender(mapRef.current, ready,
+    () => (mapRef.current ? firstAboveDataId(mapRef.current) : undefined), terrain.enabled ? '3D terrain' : null);
+  const tileUrl = useRasterTileUrl({ disabled: gpuRender.active });
+  useDataRaster(mapRef.current, ready, gpuRender.active ? null : tileUrl, state.opacity, datasetBounds(state));
 
   // Loading indicator: any source still loading.
   const [loading, setLoading] = useState(false);
@@ -479,6 +486,7 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
       {state.splitScreen && <MapLibreSplit main={mapRef.current} mainReady={ready} terrain={{ ...terrain, source: terrainSource }} />}
       <MapLibreGraticule map={mapRef.current} ready={ready} mode={state.graticuleMode} />
       <MapLibreAnnotations map={mapRef.current} ready={ready} />
+      <RenderLabel status={gpuRender} />
       {mapError && (
         <div role="alert" style={{
           position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',

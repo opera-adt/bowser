@@ -13,6 +13,8 @@ const API_ROUTES = [
 	// tile endpoints, overlays, and the newer routes
 	'md', 'cog', 'overlay', 'export', 'upload_raster', 'wms_capabilities',
 	'static', 'data', 'upload_data', 'files', 'assistant',
+	// the cube's zarr files, for the GPU renderer (?render=gpu|auto)
+	'zarr',
 ]
 
 // A route is followed by a path, a query string or nothing.

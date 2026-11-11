@@ -1,0 +1,16 @@
+import type { GpuRenderStatus } from './useGpuRender';
+
+/** The small debug label (with ``?render=``): which renderer draws the data, and why. */
+export function RenderLabel({ status }: { status: GpuRenderStatus }) {
+  if (!status.showLabel) return null;
+  return (
+    <div data-testid="render-label" data-renderer={status.renderer} title={status.reason} style={{
+      position: 'absolute', bottom: 28, left: '50%', transform: 'translateX(-50%)', zIndex: 3000,
+      background: 'rgba(0,0,0,0.55)', color: '#fff', borderRadius: 4, padding: '2px 8px',
+      fontSize: '0.68em', pointerEvents: 'none', whiteSpace: 'nowrap', maxWidth: '60%', overflow: 'hidden',
+      textOverflow: 'ellipsis',
+    }}>
+      {status.renderer === 'gpu' ? 'GPU render' : 'Server tiles'} · {status.reason}
+    </div>
+  );
+}

@@ -8,6 +8,8 @@ export interface RasterOverrides {
   vmin?: number;
   vmax?: number;
   timeIndex?: number;
+  /** Ask for nothing (another renderer, the GPU layer, draws the data). */
+  disabled?: boolean;
 }
 
 /**
@@ -26,6 +28,7 @@ export function useRasterTileUrl(o: RasterOverrides = {}): string | null {
   const effectiveTimeIndex = o.timeIndex ?? state.currentTimeIndex;
 
   useEffect(() => {
+    if (o.disabled) return;
     if (!effectiveDataset || !state.datasetInfo[effectiveDataset] || !state.dataMode) return;
     if (state.dataMode !== 'md' && state.dataMode !== 'cog') return;
 
@@ -74,6 +77,7 @@ export function useRasterTileUrl(o: RasterOverrides = {}): string | null {
     state.wrapWavelength,
     state.wrapPeriod,
     state.complexMode,
+    o.disabled,
   ]);
 
   return tileUrl;
