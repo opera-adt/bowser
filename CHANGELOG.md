@@ -19,8 +19,10 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   limits.
 - The reference finder keeps its per-pixel statistics on disk
   (`~/.cache/bowser/refstats`; `BOWSER_REFSTATS_*` settings), so a restarted
-  server answers at once; the full server prepares them in the background when
-  it opens a cube, `GET /reference_candidates/status` reports the progress and
+  server answers at once; both servers prepare them in the background when they
+  open a cube (after an idle delay, pausing while any request is in flight, so
+  the map stays responsive), `GET /reference_candidates/status` reports the
+  progress and
   the page shows *Preparing… 40%*. Very large cubes can be screened on a subset
   of dates (`screen_stride`), with the shortlist rechecked on every date.
 

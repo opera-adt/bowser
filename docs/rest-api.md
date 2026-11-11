@@ -182,15 +182,23 @@ them. The disk cache drops files older than `BOWSER_REFSTATS_CACHE_MAX_AGE_DAYS`
 `BOWSER_REFSTATS_CACHE=0` turns it off. `BOWSER_REFSTATS_WORKERS` (2) threads
 read the stack.
 
-The full server starts computing them in the background, at low priority, when
-it opens a cube (at startup, on a catalog entry's first request, on
-*Open*); a search that arrives meanwhile waits for that work instead of
-repeating it. `GET /reference_candidates/status` says whether they are
-`ready`, `running` (with `progress`) or `idle`, and the page shows
-*Preparing… 40%* while they run. bowser-lite, the desktop app's server, does
-not warm up unless `BOWSER_REFSTATS_WARMUP=1` (the full server's can be turned
-off with `0`): on a laptop, reading every date of two layers each time a cube
-is opened costs more than the one-time wait the disk cache then removes.
+Both servers start computing them in the background when they open a cube (at
+startup, on a catalog entry's first request, on *Open*), and keep out of the
+way while doing so:
+
+- they start 10 s after the cube opened (`BOWSER_REFSTATS_WARMUP_DELAY_S`), once
+  no request came for 2 s (`BOWSER_REFSTATS_WARMUP_IDLE_S`);
+- before each read they pause while any request is in flight (tiles, series,
+  histograms, ...; not the status route), and resume 0.5 s after the last one
+  (`BOWSER_REFSTATS_WARMUP_RESUME_S`);
+- they run at low CPU priority, and bowser-lite, the desktop app's server, reads
+  with one thread (`BOWSER_REFSTATS_WARMUP_WORKERS`).
+
+A search that arrives meanwhile is not held back: it takes the computation
+over, keeping the blocks already read, and finishes it at full speed.
+`GET /reference_candidates/status` says whether the statistics are `ready`,
+`running` (with `progress`) or `idle`, and the page shows *Preparing… 40%*
+while they run. `BOWSER_REFSTATS_WARMUP=0` turns the warm-up off.
 
 A cube larger than 16 million pixels per date is screened on its coarsest
 pyramid level below that size; a screening read above 4 billion values per

@@ -41,7 +41,7 @@ from ..reference_candidates import (
     warm_up,
 )
 from ..reference_candidates import status as candidates_status
-from ..refstats import Source, warm_up_enabled
+from ..refstats import Source, track_activity, warm_up_enabled
 from ..utils import calculate_trend
 from . import colormaps, geo, meta, sampling, tiles
 from .auth import BasicAuthMiddleware
@@ -139,6 +139,10 @@ async def _route_dataset(request: Request, call_next):
     finally:
         if token is not None:
             _request_cube.reset(token)
+
+
+# Requests in flight, so the reference finder's warm-up can step aside.
+app.middleware("http")(track_activity)
 
 
 def resolve(dataset: str | None = None) -> Cube:
@@ -681,14 +685,16 @@ def _cube_levels(cube: Cube) -> tuple[list, list]:
 
 
 def _warm(cube: Cube | None) -> None:
-    """Start the reference finder's warm-up; off on lite unless asked for.
+    """Start the reference finder's warm-up for an opened cube.
 
-    See ``bowser.refstats.warm_up_enabled`` for why lite defaults to off.
+    Lite is the desktop app's server and must stay responsive: the warm-up
+    reads with one thread, at low priority, only once the server has been idle,
+    and pauses whenever a request is in flight (``bowser.refstats``).
     """
     if cube is None:
         return
     datasets, sources = _cube_levels(cube)
-    warm_up(datasets, sources=sources, default=False)
+    warm_up(datasets, sources=sources, default=True, workers=1)
 
 
 @app.get(
@@ -703,7 +709,7 @@ def reference_candidates_status(
     """Readiness of the per-pixel statistics behind ``/reference_candidates``."""
     datasets, _ = _cube_levels(resolve(dataset))
     return NanJSONResponse(
-        {**candidates_status(datasets), "warm_up": warm_up_enabled(False)}
+        {**candidates_status(datasets), "warm_up": warm_up_enabled(True)}
     )
 
 
@@ -1229,5 +1235,5 @@ if dist_path.exists():
     app.mount("/", StaticFiles(directory=dist_path, html=True))
 else:
     logger.warning(f"Frontend bundle not found at {dist_path} — serving API only.")
-_warm(_default_cube)  # in the background; off on lite unless BOWSER_REFSTATS_WARMUP=1
+_warm(_default_cube)  # in the background, once the server is idle
 print(f"Setup complete: time to load datasets: {time.time() - t0:.1f} sec.")

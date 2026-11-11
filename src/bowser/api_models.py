@@ -393,8 +393,9 @@ ROUTES: dict[str, dict[str, Any]] = {
         "`GET /reference_candidates` needs (median and std through time of "
         "temporal coherence, phase similarity and the water mask) are ready, being "
         "computed (with progress) or not started. They are computed once per cube "
-        "and kept in memory and on disk; the full server starts computing them in "
-        "the background when it opens a cube (`BOWSER_REFSTATS_WARMUP`).",
+        "and kept in memory and on disk. Both servers start computing them in the "
+        "background once a newly opened cube's server has been idle for a while, "
+        "and pause whenever a request is in flight (`BOWSER_REFSTATS_WARMUP`).",
         "tags": [STATS],
     },
     "GET /dataset_range/{dataset_name}": {

@@ -70,3 +70,44 @@ def test_full_and_lite_give_identical_candidates(cube_store, tmp_path):
     assert (
         full["default"]["body"]["candidates"] == lite["default"]["body"]["candidates"]
     )
+
+
+WARM = """
+import time
+from fastapi.testclient import TestClient
+import bowser.lite.main as m
+from bowser.refstats import STATS_CACHE
+
+c = TestClient(m.app)
+for _ in range(600):
+    st = c.get("/reference_candidates/status").json()
+    if st["state"] == "ready":
+        break
+    time.sleep(0.05)
+print(st["warm_up"], st["state"], STATS_CACHE.computed)
+"""
+
+
+def test_lite_warms_up_by_default(cube_store, tmp_path):
+    import os
+    import subprocess
+
+    env = {k: v for k, v in os.environ.items() if not k.startswith("BOWSER_REFSTATS")}
+    env.update(
+        BOWSER_STACK_DATA_FILE=str(cube_store),
+        BOWSER_REFSTATS_CACHE_DIR=str(tmp_path / "refstats"),
+        BOWSER_REFSTATS_WARMUP_DELAY_S="0",
+        BOWSER_REFSTATS_WARMUP_IDLE_S="0",
+    )
+    env.pop("BOWSER_CATALOG_FILE", None)
+    r = subprocess.run(
+        [sys.executable, "-c", WARM],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=300,
+        cwd=tmp_path,
+    )
+    assert r.returncode == 0, r.stderr[-3000:]
+    # On, and the statistics were computed without anyone asking for a search.
+    assert r.stdout.split()[-3:] == ["True", "ready", "3"]
