@@ -4,6 +4,8 @@ Bowser                      the app: start screen in its own window
 Bowser --browser            the same in the default browser
 Bowser --smoke-test CUBE    start headless, open CUBE, fetch one tile and one point,
                             exit 0 on success
+Bowser --mcp-url URL        Bowser's MCP server on stdio for the Bowser at URL (what
+                            a signed-in Claude Code starts; see bowser.assistant)
 """
 
 from __future__ import annotations
@@ -67,6 +69,11 @@ def main() -> int:
     """Run the app, or the smoke test with ``--smoke-test CUBE``."""
     if "--smoke-test" in sys.argv:
         return smoke_test(sys.argv[sys.argv.index("--smoke-test") + 1])
+    if "--mcp-url" in sys.argv:
+        from bowser.mcp_server import build_server  # noqa: PLC0415
+
+        build_server(sys.argv[sys.argv.index("--mcp-url") + 1]).run("stdio")
+        return 0
     from bowser.desktop import run  # noqa: PLC0415
 
     run(browser="--browser" in sys.argv)

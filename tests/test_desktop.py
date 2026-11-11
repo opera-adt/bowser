@@ -158,3 +158,15 @@ def test_std_streams_are_left_alone_with_a_console(tmp_path):
     desktop.ensure_std_streams(tmp_path)
     assert (sys.stdout, sys.stderr) == (out, err)
     assert not (tmp_path / "bowser.log").exists()
+
+
+def test_open_url_opens_only_https_pages_in_the_system_browser(monkeypatch):
+    opened = []
+    monkeypatch.setattr(
+        desktop.webbrowser, "open", lambda url: opened.append(url) or True
+    )
+    api = desktop._WindowApi()
+    assert api.open_url("https://auth.openai.com/api/accounts/authorize?x=1") is True
+    assert api.open_url("file:///etc/passwd") is False
+    assert api.open_url("javascript:alert(1)") is False
+    assert opened == ["https://auth.openai.com/api/accounts/authorize?x=1"]

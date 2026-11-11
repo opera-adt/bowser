@@ -90,7 +90,12 @@ expected = {
     "opera_logo": False,
     "geotiff_export": False,
     "polygon_stats": False,
-    "assistant": {"enabled": False, "providers": [], "configured": []},
+    "assistant": {
+        "enabled": False,
+        "providers": [],
+        "configured": [],
+        "sign_in": [],
+    },
     "geotiff_upload": False,
 }
 assert cfg.json() == expected, cfg.json()
