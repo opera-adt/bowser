@@ -178,6 +178,17 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     `remove_context_layer` (the Overlays › Services toggles),
     `highlight_infrastructure`, `clear_highlights` and `get_areas`; the tools
     above draw what they find as highlight layers when a page is connected.
+- **Experimental:** GPU rendering of the data layer, off unless asked for in
+  the page's address. `?render=gpu` draws the layer in the browser's GPU from
+  the cube's own chunks, so dates, colormaps, ranges and reference dates change
+  in a frame; `?render=auto` does so only on a capable hardware GPU;
+  `?render=tiles` and no parameter keep server tiles. Views the GPU path does
+  not draw yet (rewrap, phase/amplitude, several or uploaded masks, 3D terrain,
+  COG stacks, remote or non-UTM cubes) use tiles, and any failure switches to
+  tiles without a reload. Both servers serve the open cube's zarr files
+  read-only at `GET /zarr/{path}` (`BOWSER_ZARR_FILES=false` turns it off). The
+  GPU code loads only when chosen (about 4 kB more in the default bundle). See
+  [docs/gpu-render.md](docs/gpu-render.md).
 
 ### Changed
 

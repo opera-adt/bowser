@@ -65,6 +65,7 @@ are indexes into a layer's `x_values`.
 | Tiles | `GET /md/{tms}/tilejson.json` | TileJSON with the tile URL template |
 | | `GET /md/tiles/{tms}/{z}/{x}/{y}` | A map tile |
 | | `GET /colorbar/{cmap}` | A colormap gradient image |
+| | `GET /zarr/{path}` | A file of the cube's zarr store, for the GPU renderer (experimental; [gpu-render.md](gpu-render.md)) |
 | | `/md/*` (full only) | TiTiler's other routes: info, statistics, preview, ... |
 | COG tiles | `/cog/*` (full only) | TiTiler routes for GeoTIFF stacks |
 | Export | `GET /export/geotiff` | One step of a layer as a GeoTIFF |
