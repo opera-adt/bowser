@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import dataclasses
 import hashlib
 import json
 import os
@@ -50,6 +51,8 @@ from bowser.assistant import acp, page, relay, signin  # noqa: E402
 from bowser.assistant.keys import KeyStore  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
+#: The real way to start the agent (some tests put it back after the fixture).
+AGENT_ARGV = relay._agent_argv
 ISSUED = "oaiapp_test123"
 EMAIL = "someone@example.com"
 
@@ -207,15 +210,17 @@ def test_registry_lists_claude_and_chatgpt():
     assert signin.method("github") is None
 
 
-def test_agent_command_runs_the_adapter_with_the_users_claude(monkeypatch):
-    paths = {"claude": "/opt/bin/claude", "npx": "/usr/bin/npx"}
+def test_agent_command_runs_the_installed_adapter_with_the_users_claude(
+    monkeypatch, tmp_path
+):
+    paths = {"claude": "/opt/bin/claude", "node": "/usr/bin/node"}
     monkeypatch.setattr(signin, "find_program", paths.get)
-    argv, extra = relay._agent_argv(signin.method("claude"))
-    assert argv == [
-        "/usr/bin/npx",
-        "--yes",
-        "@agentclientprotocol/claude-agent-acp@0.92.0",
-    ]
+    monkeypatch.setattr(signin, "cache_root", lambda: tmp_path)
+    script = fake_install(signin.method("claude").agent, tmp_path)
+    argv, extra, note = asyncio.run(relay._agent_argv(signin.method("claude")))
+    # node runs the adapter from Bowser's cache: no npx, no registry check.
+    assert argv == ["/usr/bin/node", str(script)]
+    assert note is None
     assert extra == {"CLAUDE_CODE_EXECUTABLE": "/opt/bin/claude"}
     command, args, env = signin.mcp_command("http://127.0.0.1:5184")
     assert command == sys.executable
@@ -783,11 +788,12 @@ def claude(tmp_path, monkeypatch, store):  # noqa: ARG001  (one key store per te
     found = {"claude": str(exe), "npx": "/usr/bin/npx"}
     monkeypatch.setattr(signin, "find_program", found.get)
     out = tmp_path / "agent"
-    monkeypatch.setattr(
-        relay,
-        "_agent_argv",
-        lambda _m: ([sys.executable, str(HERE / "fake_acp_agent.py"), str(out)], {}),
-    )
+
+    async def fake_argv(_m, on_install=None):  # noqa: ARG001
+        return [sys.executable, str(HERE / "fake_acp_agent.py"), str(out)], {}, None
+
+    monkeypatch.setattr(relay, "_agent_argv", fake_argv)
+    monkeypatch.setattr(signin, "cache_root", lambda: tmp_path / "cache")
     for name in (
         "ANTHROPIC_API_KEY",
         "OPENAI_API_KEY",
@@ -918,7 +924,11 @@ def test_claude_chat_through_acp_with_mcp_tools_and_a_permission(served):
     # a round trip to the page.
     assert answered == []
     call = next(e for e in ev if e["type"] == "tool_call")
-    assert (call["name"], call["runs"]) == ("list_layers", "agent")
+    assert (call["name"], call["runs"], call["status"]) == (
+        "list_layers",
+        "agent",
+        "Listing the layers",
+    )
     result = next(e for e in ev if e["type"] == "tool_result")
     assert result["ok"] is True
     # The agent read the layers through Bowser's MCP server, from this server.
@@ -1402,3 +1412,300 @@ def test_quiet_tools_are_those_that_read_or_move_the_map():
         specs[n].read_only
         for n in quiet - {"fly_to", "go_to", "pan", "zoom", "fit_bounds"}
     )
+
+
+# --- the adapter, installed once; the agent started before the first question ---
+
+FAKE_NPM = textwrap.dedent(
+    """\
+    #!{python}
+    # A stand-in npm: `install --prefix DIR ... name@version` writes the package
+    # (no network). Its mode file says: ok, fail or slow.
+    import json, sys, time
+    from pathlib import Path
+    here = Path(__file__)
+    mode = (here.parent / "npm-mode").read_text().strip()
+    with (here.parent / "npm-calls.txt").open("a") as f:
+        f.write(" ".join(sys.argv[1:]) + "\\n")
+    if mode == "slow":
+        time.sleep(1.0)
+    if mode == "fail":
+        print("npm ERR! network unreachable", file=sys.stderr)
+        sys.exit(1)
+    prefix = Path(sys.argv[sys.argv.index("--prefix") + 1])
+    name, _, version = sys.argv[-1].rpartition("@")
+    pkg = prefix / "node_modules" / name
+    (pkg / "dist").mkdir(parents=True)
+    (pkg / "dist" / "index.js").write_text("// the adapter")
+    short = name.rsplit("/", 1)[-1]
+    (pkg / "package.json").write_text(json.dumps(
+        {{"name": name, "version": version, "bin": {{short: "dist/index.js"}}}}))
+    """
+)
+
+FAKE_NODE = textwrap.dedent(
+    """\
+    #!{python}
+    # A stand-in node: runs the fake ACP agent whatever script it is given.
+    import os, sys
+    os.execv({python!r}, [{python!r}, {agent!r}, {out!r}])
+    """
+)
+
+
+def fake_install(spec, root: Path, version: str | None = None) -> Path:
+    """Put an installed adapter in the cache (as npm would); return its script."""
+    name, pinned = signin._split_package(spec.adapter)
+    pkg = signin.adapter_dir(spec, root) / "node_modules" / name
+    (pkg / "dist").mkdir(parents=True, exist_ok=True)
+    (pkg / "dist" / "index.js").write_text("// the adapter")
+    meta = {"version": version or pinned, "bin": {"claude-agent-acp": "dist/index.js"}}
+    (pkg / "package.json").write_text(json.dumps(meta))
+    return (pkg / "dist" / "index.js").resolve()
+
+
+@pytest.fixture
+def npm(tmp_path, monkeypatch):
+    """A fake npm, node and npx on PATH and an empty cache."""
+    bin_dir = tmp_path / "npm-bin"
+    bin_dir.mkdir()
+    exe = bin_dir / "npm"
+    exe.write_text(FAKE_NPM.format(python=sys.executable))
+    exe.chmod(0o755)
+    node = bin_dir / "node"
+    node.write_text(
+        FAKE_NODE.format(
+            python=sys.executable,
+            agent=str(HERE / "fake_acp_agent.py"),
+            out=str(tmp_path / "agent"),
+        )
+    )
+    node.chmod(0o755)
+    (bin_dir / "npm-mode").write_text("ok")
+    paths = {
+        "npm": str(exe),
+        "node": str(node),
+        "npx": "/usr/bin/npx",
+        "claude": signin.find_program("claude") or "/opt/bin/claude",
+    }
+    monkeypatch.setattr(signin, "find_program", paths.get)
+    root = tmp_path / "cache"
+    monkeypatch.setattr(signin, "cache_root", lambda: root)
+
+    def calls() -> list[str]:
+        f = bin_dir / "npm-calls.txt"
+        return f.read_text().splitlines() if f.exists() else []
+
+    return SimpleNamespace(
+        root=root,
+        node=str(node),
+        calls=calls,
+        mode=lambda m: (bin_dir / "npm-mode").write_text(m),
+        spec=signin.method("claude").agent,
+    )
+
+
+def test_adapter_is_installed_once_then_run_with_node(npm):
+    installs = []
+    argv, note = asyncio.run(
+        signin.adapter_command(npm.spec, lambda: installs.append(1))
+    )
+    script = signin.installed_adapter(npm.spec)
+    assert argv == [npm.node, str(script)] and note is None
+    assert script.parent.parent.parent.parent.name == "node_modules"
+    assert signin.adapter_dir(npm.spec).name == "claude-agent-acp@0.92.0"
+    call = npm.calls()[0].split()
+    assert call[:2] == ["install", "--prefix"]
+    assert "--no-audit" in call and "--no-fund" in call
+    # Not the SDK's own copy of the agent: the user's runs.
+    assert "--omit=optional" in call
+    assert call[-1] == "@agentclientprotocol/claude-agent-acp@0.92.0"
+    assert installs == [1]
+    # The next start reuses it: no npm, no install status.
+    again, _ = asyncio.run(signin.adapter_command(npm.spec, lambda: installs.append(1)))
+    assert again == argv
+    assert len(npm.calls()) == 1 and installs == [1]
+    # No half-done folders or lock left behind.
+    assert sorted(p.name for p in (npm.root / "acp").iterdir()) == [
+        "claude-agent-acp@0.92.0"
+    ]
+
+
+def test_adapter_is_reinstalled_when_the_pin_changes(npm):
+    asyncio.run(signin.adapter_command(npm.spec))
+    newer = dataclasses.replace(
+        npm.spec, adapter="@agentclientprotocol/claude-agent-acp@0.93.0"
+    )
+    argv, _ = asyncio.run(signin.adapter_command(newer))
+    assert "claude-agent-acp@0.93.0" in argv[1]
+    assert len(npm.calls()) == 2
+    # A folder with the pinned name but another version inside is not trusted.
+    fake_install(npm.spec, npm.root, version="0.91.0")
+    assert signin.installed_adapter(npm.spec) is None
+    asyncio.run(signin.adapter_command(npm.spec))
+    assert len(npm.calls()) == 3
+    assert signin.installed_adapter(npm.spec) is not None
+
+
+def test_two_starts_install_once(npm):
+    npm.mode("slow")
+
+    async def both():
+        return await asyncio.gather(
+            signin.adapter_command(npm.spec), signin.adapter_command(npm.spec)
+        )
+
+    first, second = asyncio.run(both())
+    assert first == second
+    assert len(npm.calls()) == 1
+
+
+def test_another_process_installing_holds_the_lock(npm):
+    lock = signin.adapter_dir(npm.spec).with_name("claude-agent-acp@0.92.0.lock")
+    lock.parent.mkdir(parents=True)
+    lock.write_text("")  # another Bowser is installing
+
+    async def run():
+        task = asyncio.ensure_future(signin.adapter_command(npm.spec))
+        await asyncio.sleep(0.8)
+        waited = not task.done() and npm.calls() == []
+        lock.unlink()  # it finished
+        return waited, await task
+
+    waited, (argv, _) = asyncio.run(run())
+    assert waited
+    assert argv[0] == npm.node and len(npm.calls()) == 1
+
+
+def test_failed_install_falls_back_to_npx_and_says_so(npm):
+    npm.mode("fail")
+    argv, note = asyncio.run(signin.adapter_command(npm.spec))
+    assert argv == [
+        "/usr/bin/npx",
+        "--yes",
+        "--prefer-offline",
+        "@agentclientprotocol/claude-agent-acp@0.92.0",
+    ]
+    assert "npm could not install the adapter" in note and "npx" in note
+    assert not (npm.root / "acp").exists() or not any(
+        p.name.startswith("claude-agent-acp@0.92.0")
+        for p in (npm.root / "acp").iterdir()
+        if not p.name.endswith(".lock")
+    )
+
+
+def _phases(c, conversation: str, until=("ready", "error"), timeout=120) -> list:
+    seen: list = []
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        state = c.get("/assistant/agent", params={"conversation": conversation}).json()
+        if not seen or seen[-1]["phase"] != state["phase"]:
+            seen.append(state)
+        if state["phase"] in until:
+            break
+        time.sleep(0.05)
+    return seen
+
+
+def test_first_start_installs_the_adapter_and_reports_each_phase(
+    served, npm, monkeypatch
+):
+    served.claude.state.write_text("signed in")
+    monkeypatch.setattr(relay, "_agent_argv", AGENT_ARGV)
+    npm.mode("slow")
+    with httpx.Client(base_url=served.url, timeout=120) as c:
+        c.post("/assistant/signin", json={"method": "claude"})
+        first = c.post("/assistant/agent", json={"conversation": "w1"}).json()
+        seen = _phases(c, "w1")
+    phases = [first["phase"]] + [s["phase"] for s in seen]
+    # One phase after the other, from the first answer on.
+    assert [p for i, p in enumerate(phases) if i == 0 or p != phases[i - 1]] == [
+        "installing",
+        "starting",
+        "ready",
+    ], seen
+    texts = {s["phase"]: s["text"] for s in seen}
+    assert texts["installing"] == "Installing Anthropic's adapter (first time only)…"
+    assert texts["starting"] == "Starting Claude Code…"
+    assert texts["ready"] == "Ready"
+    assert seen[-1]["elapsed"] > 0 and seen[-1]["note"] is None
+    assert len(npm.calls()) == 1
+
+
+def test_warm_session_is_reused_by_the_first_question(served):
+    served.claude.state.write_text("signed in")
+    starts = served.claude.out / "starts.txt"
+    with httpx.Client(base_url=served.url, timeout=120) as c:
+        c.post("/assistant/signin", json={"method": "claude"})
+        c.post("/assistant/agent", json={"conversation": "w2"})
+        assert _phases(c, "w2")[-1]["phase"] == "ready"
+        # Asking again for the same chat does not start another agent.
+        assert (
+            c.post("/assistant/agent", json={"conversation": "w2"}).json()["phase"]
+            == "ready"
+        )
+        assert len(starts.read_text().split()) == 1
+
+        def allow(e):
+            if e["type"] == "permission":
+                c.post(
+                    "/assistant/permission",
+                    json={"conversation": "w2", "id": e["id"], "choice": "allow"},
+                )
+
+        ev = _stream(
+            c,
+            {
+                "provider": "claude",
+                "conversation": "w2",
+                "messages": [{"role": "user", "content": "Which layers?"}],
+            },
+            allow,
+        )
+    # Already started: no waiting, the same process answers.
+    assert not [e for e in ev if e["type"] == "status"]
+    assert ev[-1]["type"] == "done"
+    assert len(starts.read_text().split()) == 1
+
+
+def _pid_of(served) -> int:
+    return int((served.claude.out / "starts.txt").read_text().split()[-1])
+
+
+def test_warm_session_closes_when_idle(served, monkeypatch):
+    served.claude.state.write_text("signed in")
+    monkeypatch.setattr(acp, "IDLE_SECONDS", 0.5)
+    with httpx.Client(base_url=served.url, timeout=120) as c:
+        c.post("/assistant/signin", json={"method": "claude"})
+        c.post("/assistant/agent", json={"conversation": "w3"})
+        assert _phases(c, "w3")[-1]["phase"] == "ready"
+        pid = _pid_of(served)
+        assert _phases(c, "w3", until=("none",), timeout=10)[-1]["phase"] == "none"
+    for _ in range(100):
+        if not _alive(pid):
+            break
+        time.sleep(0.05)
+    assert not _alive(pid)
+
+
+@pytest.mark.parametrize("how", ["sign_out", "stop"])
+def test_warm_session_closes_on_sign_out_and_stop(served, how):
+    served.claude.state.write_text("signed in")
+    with httpx.Client(base_url=served.url, timeout=120) as c:
+        c.post("/assistant/signin", json={"method": "claude"})
+        c.post("/assistant/agent", json={"conversation": "w4"})
+        assert _phases(c, "w4")[-1]["phase"] == "ready"
+        pid = _pid_of(served)
+        if how == "sign_out":
+            c.delete("/assistant/signin", params={"method": "claude"})
+        else:
+            assert c.post("/assistant/stop", json={"conversation": "w4"}).json() == {
+                "stopped": 1
+            }
+        state = c.get("/assistant/agent", params={"conversation": "w4"}).json()
+        assert state["phase"] == "none"
+    for _ in range(100):
+        if not _alive(pid):
+            break
+        time.sleep(0.05)
+    assert not _alive(pid)
