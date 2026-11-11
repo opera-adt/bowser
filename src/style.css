@@ -2582,6 +2582,12 @@ img.huechange { filter: hue-rotate(120deg); }
   text-overflow: ellipsis;
 }
 
+.ai-tool .ai-tool-time {
+  flex: none;
+  margin-left: auto;
+  overflow: visible;
+}
+
 .ai-tool.ok i {
   color: var(--sb-green);
 }

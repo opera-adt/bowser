@@ -47,6 +47,14 @@ export const PAGE_TOOL_NAMES = new Set([
   'list_commands', 'run_command',
 ]);
 
+/**
+ * What a tool is doing, for the status line: the label the server sends with the call (each
+ * tool's `status` in src/bowser/tools.py), else the tool's name in words.
+ */
+export function toolStatus(name: string, status?: string): string {
+  return status || (name.charAt(0).toUpperCase() + name.slice(1)).replace(/_/g, ' ');
+}
+
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
 function lonLat(input: Record<string, unknown>): [number, number] {

@@ -39,7 +39,13 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     when not answered). If Claude Code is not signed in, Bowser starts Claude
     Code's own sign-in on Anthropic's page. Bowser never reads Claude Code's
     credentials and never calls Anthropic itself. Needs Claude Code and
-    Node.js (`npx`).
+    Node.js. Its ACP adapter is installed once into Bowser's cache
+    (`~/.cache/bowser/acp`, without the SDK's own copy of the agent) and run
+    with `node`; npx stands in, and the tab says so, when that fails. The
+    agent starts when the tab opens, not at the first question, and the tab
+    shows how far it got (installing, starting, ready, with the seconds;
+    `POST`/`GET /assistant/agent`); one session per chat, closed after 10 idle
+    minutes.
   - "Continue with ChatGPT" is OpenAI's "Sign in with ChatGPT" for
     open-source apps: OAuth with PKCE in your browser, then the chat uses your
     ChatGPT plan through the Responses API. The tokens are kept like keys,
@@ -48,6 +54,11 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     `POST /assistant/permission` and `POST /assistant/stop`; `GET
     /assistant/status` and `GET /config` list the sign-in methods. Signing in
     and signed-in chats answer requests from the same computer only.
+- The Assistant's status line says what is running and for how long: each
+  tool's own label ("Reading the time series… 3 s", "Moving the map… 0 s"),
+  sent by the server with each call on every path (API key, ChatGPT, Claude),
+  then "Thinking…" or "Claude is thinking…"; each tool's row shows how long it
+  took. The labels are part of each tool's spec (`ToolSpec.status`).
 - Bowser's tools act on the page you have open, from every AI path: the
   Assistant's chat, "Sign in with Claude" (which could not act on the page
   before) and `bowser mcp` in Claude Code or Claude Desktop. New tools move the

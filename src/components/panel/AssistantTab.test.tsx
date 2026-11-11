@@ -1,7 +1,7 @@
 /** The Assistant tab: providers and keys, a streamed conversation whose tools act on the page, errors, and the off state. */
 import { useEffect } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppProvider, useAppContext } from '../../context/AppContext';
 import type { AppAction, AppState, RasterGroup } from '../../types';
 import AssistantTab from './AssistantTab';
@@ -285,6 +285,49 @@ describe('AssistantTab sign-in', () => {
   });
   const CHATGPT_ON = signedIn('chatgpt', { account: 'me@example.com', plan: 'ChatGPT plan', models: ['gpt-6.1-sol'], model: 'gpt-6.1-sol' });
   const CLAUDE_ON = signedIn('claude', { account: 'me@example.com', plan: 'Max' });
+  const agentState = (phase: string, text: string, elapsed: number, note: string | null = null) => ({ phase, text, elapsed, error: null, note });
+  const READY = agentState('ready', 'Ready', 4.2);
+
+  it('starts Claude Code before the first question and shows each phase with its seconds', async () => {
+    const states = [
+      agentState('starting', 'Starting Claude Code…', 5),
+      agentState('ready', 'Ready', 7.4),
+    ];
+    const calls = server(CLAUDE_ON, [], c => {
+      if (c.url === '/assistant/agent' && c.method === 'POST') return json(agentState('installing', "Installing Anthropic's adapter (first time only)…", 3));
+      if (c.url.startsWith('/assistant/agent?')) return json(states.shift() ?? READY);
+      if (c.url === '/assistant/stop') return json({ stopped: 1 });
+      return null;
+    });
+    renderTab();
+    // Started at once (no question asked), and followed until ready.
+    expect(await screen.findByText("Installing Anthropic's adapter (first time only)… 3 s")).toBeTruthy();
+    const start = calls.find(c => c.url === '/assistant/agent' && c.method === 'POST')!;
+    expect(start.body.conversation).toMatch(/^[A-Za-z0-9_-]+$/);
+    expect(await screen.findByText('Starting Claude Code… 5 s', {}, { timeout: 3000 })).toBeTruthy();
+    expect(await screen.findByText(/^Ready \(7 s\)/, {}, { timeout: 3000 })).toBeTruthy();
+    expect(calls.filter(c => c.url === '/assistant/chat')).toHaveLength(0);
+  });
+
+  it('a new chat starts its own agent, and npx standing in says so', async () => {
+    const calls = server(CLAUDE_ON, [], c => {
+      if (c.url === '/assistant/agent' && c.method === 'POST') return json(agentState('ready', 'Ready', 9, 'npm could not install the adapter. Using npx instead, which is slower to start.'));
+      if (c.url === '/assistant/stop') return json({ stopped: 1 });
+      return null;
+    });
+    renderTab();
+    expect(await screen.findByText(/Using npx instead/)).toBeTruthy();
+    const first = calls.find(c => c.url === '/assistant/agent')!.body.conversation;
+    // New chat needs an entry first; simulate one with a question that errors.
+    fireEvent.change(screen.getByRole('textbox', { name: 'Question' }), { target: { value: 'hi' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await screen.findByRole('alert');
+    fireEvent.click(screen.getAllByRole('button', { name: 'New chat' })[1]);
+    await waitFor(() => expect(calls.filter(c => c.url === '/assistant/agent')).toHaveLength(2));
+    const starts = calls.filter(c => c.url === '/assistant/agent').map(c => c.body.conversation);
+    expect(starts[1]).not.toBe(first);
+    expect(calls.find(c => c.url === '/assistant/stop')!.body).toEqual({ conversation: first });
+  });
 
   it('auto-allow: an icon in the chat header, remembered in this browser and sent with the chat', async () => {
     localStorage.removeItem('bowser-assistant');
@@ -411,10 +454,11 @@ describe('AssistantTab sign-in', () => {
         { type: 'message', message: { role: 'assistant', content: 'It is stable.' } },
         { type: 'done', stop: 'end' },
       ),
-    ], c => (c.url === '/assistant/permission' ? json({ ok: true }) : c.url === '/assistant/stop' ? json({ stopped: 1 }) : null));
+    ], c => (c.url === '/assistant/permission' ? json({ ok: true }) : c.url === '/assistant/stop' ? json({ stopped: 1 })
+      : c.url.startsWith('/assistant/agent') ? json(READY) : null));
     renderTab();
     expect(await screen.findByText(/Claude · Signed in as me@example.com · Max/)).toBeTruthy();
-    expect(screen.getByText(/Answered by Claude Code on this computer/)).toBeTruthy();
+    expect(await screen.findByText(/Ready \(4 s\) · Claude Code on this computer, with your Max plan/)).toBeTruthy();
     fireEvent.change(screen.getByRole('textbox', { name: 'Question' }), { target: { value: 'Is it moving?' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
 
@@ -518,6 +562,84 @@ describe('AssistantTab sign-in', () => {
     expect(screen.queryByRole('button', { name: /Use an API key/ })).toBeNull();
     expect(screen.getByText('This server provides the key.')).toBeTruthy();
     expect(screen.getByRole('link', { name: 'how to connect' })).toBeTruthy();
+  });
+});
+
+/** A server-sent event stream the test feeds one event at a time. */
+function liveSse() {
+  let ctl!: ReadableStreamDefaultController<Uint8Array>;
+  const body = new ReadableStream<Uint8Array>({ start(c) { ctl = c; } });
+  const enc = new TextEncoder();
+  return {
+    response: new Response(body, { headers: { 'content-type': 'text/event-stream' } }),
+    send: (e: object) => ctl.enqueue(enc.encode(`data: ${JSON.stringify(e)}\n\n`)),
+    end: () => ctl.close(),
+  };
+}
+
+describe('AssistantTab status line', () => {
+  let now = 0;
+  beforeEach(() => { now = 1_000_000; vi.spyOn(Date, 'now').mockImplementation(() => now); });
+  afterEach(() => { vi.restoreAllMocks(); });
+  const line = () => screen.getByRole('status', { name: 'Working' }).textContent;
+
+  it('says which tool runs and for how long, then that the model is thinking, and times each tool', async () => {
+    const first = liveSse();
+    const second = liveSse();
+    server(STATUS, [first.response, second.response]);
+    renderTab();
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Question' }), { target: { value: 'Is it moving?' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(line()).toBe('Thinking… 0 s'));
+
+    // A data tool: its own label, with the seconds ticking.
+    now += 1000;
+    first.send({ type: 'tool_call', id: 'c1', name: 'point_timeseries', input: { lon: -90.1, lat: 34.75 }, runs: 'server', status: 'Reading the time series' });
+    await waitFor(() => expect(line()).toBe('Reading the time series… 0 s'));
+    now += 3400;
+    await waitFor(() => expect(line()).toBe('Reading the time series… 3 s'), { timeout: 2500 });
+
+    // Its result: back to thinking, and the tool's row shows how long it took.
+    first.send({ type: 'tool_result', id: 'c1', name: 'point_timeseries', input: { lon: -90.1, lat: 34.75 }, ok: true, result: null });
+    await waitFor(() => expect(line()).toBe('Thinking… 0 s'));
+    expect(screen.getByTitle('How long it took').textContent).toBe('3.4 s');
+
+    // A page tool: its label while it runs, then thinking while the next request waits.
+    const turn = { role: 'assistant', content: '', tool_calls: [{ id: 'f1', name: 'fly_to', input: { lon: -90.1, lat: 34.75 } }] };
+    first.send({ type: 'message', message: turn });
+    first.send({ type: 'page_tools', calls: turn.tool_calls, results: [] });
+    first.send({ type: 'done', stop: 'page_tools' });
+    first.end();
+    await waitFor(() => expect(screen.getAllByTitle('How long it took')).toHaveLength(2));
+    await waitFor(() => expect(line()).toBe('Thinking… 0 s'));
+
+    // Text: the status line goes.
+    second.send({ type: 'text', text: 'It is stable.' });
+    await waitFor(() => expect(screen.queryByRole('status', { name: 'Working' })).toBeNull());
+    second.send({ type: 'done', stop: 'end' });
+    second.end();
+    expect(await screen.findByText('It is stable.')).toBeTruthy();
+  });
+
+  it("an agent's tool and its thinking say so too", async () => {
+    const chat = liveSse();
+    const claudeOn = {
+      ...STATUS,
+      sign_in: { ...SIGN_IN, methods: [{ ...CLAUDE_IN, state: 'signed_in', account: 'me@example.com', plan: 'Max' }, CHATGPT_IN] },
+    };
+    server(claudeOn, [chat.response], c => (c.url.startsWith('/assistant/agent') ? json({ phase: 'ready', text: 'Ready', elapsed: 2, error: null, note: null }) : null));
+    renderTab();
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Question' }), { target: { value: 'layers?' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(line()).toBe('Claude is thinking… 0 s'));
+    chat.send({ type: 'tool_call', id: 't1', name: 'list_layers', input: {}, runs: 'agent', status: 'Listing the layers' });
+    await waitFor(() => expect(line()).toBe('Listing the layers… 0 s'));
+    now += 400;
+    chat.send({ type: 'tool_result', id: 't1', name: 'list_layers', input: {}, ok: true, result: null });
+    await waitFor(() => expect(line()).toBe('Claude is thinking… 0 s'));
+    expect(screen.getByTitle('How long it took').textContent).toBe('0.4 s');
+    chat.send({ type: 'done', stop: 'end' });
+    chat.end();
   });
 });
 
