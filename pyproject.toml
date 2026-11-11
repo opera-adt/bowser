@@ -66,6 +66,13 @@ test = ["pytest", "httpx", "ipython", "types-python-dateutil"]
 # much longer. Scoped to this extra on purpose: rasterio 1.5 needs Python 3.12+,
 # and the bowser runtime itself still supports 3.11.
 writer = ["geozarr-toolkit>=0.1.1", "rasterio>=1.5.0"]
+# MCP server (`bowser mcp`, src/bowser/mcp_server.py): tools for AI assistants
+# that call a running Bowser server over HTTP. Imported only by that command.
+mcp = ["mcp==2.2.0", "httpx"]
+# The page's Assistant tab (src/bowser/assistant): the official Anthropic SDK for
+# Claude, httpx for the other providers (OpenAI, Gemini, OpenRouter, Ollama) and
+# keyring for the system keychain. Imported only when the tab is used.
+assistant = ["anthropic>=2.8,<3", "httpx", "keyring"]
 
 # [project.urls]
 # Homepage = "https://github.com/opera-adt/bowser"
@@ -131,11 +138,19 @@ rasterio = ">=1.5.0"
 # and numexpr only come as source builds (cramjam needs Rust).
 python = "3.12.*"
 
+[tool.pixi.feature.mcp.dependencies]
+# mcp (the PyPI extra above, auto-mapped to this feature) needs httpx2>=2.5,
+# which needs idna>=3.18; without this the conda solve pins an older idna and
+# the PyPI solve fails.
+idna = ">=3.18"
+
 [tool.pixi.environments]
 default = { solve-group = "default" }
 test = { features = ["test"], solve-group = "test" }
 writer = { features = ["writer"], solve-group = "writer" }
-all = { features = ["writer", "test"], solve-group = "all" }
+# CI tests in `all`, so it carries the MCP and Assistant extras too
+# (tests/test_mcp_server.py, tests/test_assistant.py).
+all = { features = ["writer", "test", "mcp", "assistant"], solve-group = "all" }
 
 [tool.pixi.tasks]
 

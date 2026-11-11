@@ -12,7 +12,7 @@ const API_ROUTES = [
 	'variables',
 	// tile endpoints, overlays, and the newer routes
 	'md', 'cog', 'overlay', 'export', 'upload_raster', 'wms_capabilities',
-	'static', 'data', 'upload_data', 'files',
+	'static', 'data', 'upload_data', 'files', 'assistant',
 ]
 
 // A route is followed by a path, a query string or nothing.

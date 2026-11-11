@@ -4,6 +4,7 @@ import { downloadLayer, type ExportFormat } from '../../map/exportLayer';
 import { SectionHeader } from './controls';
 import { exportFilename } from '../../utils/exportFilename';
 import { saveFile } from '../../utils/saveFile';
+import { activeRefTime } from '../../utils/refDate';
 
 const FORMATS: { value: ExportFormat; label: string }[] = [
   { value: 'geojson', label: 'GeoJSON' }, { value: 'csv', label: 'CSV' }, { value: 'kml', label: 'KML' }, { value: 'shapefile', label: 'Shapefile (.zip)' },
@@ -90,6 +91,9 @@ export default function ExportSection() {
       }
       if (state.customMaskPath) params.set('custom_mask_path', state.customMaskPath);
       const info = state.datasetInfo[state.currentDataset];
+      // Relative to the date chosen in "ref: <date>", as the map's tiles.
+      const refTimeIdx = activeRefTime(info, state.refTimeIndex?.[state.currentDataset], state.dataMode);
+      if (refTimeIdx !== null) params.set('ref_time_idx', String(refTimeIdx));
       if (state.refEnabled && info?.uses_spatial_ref && info.algorithm === 'shift') {
         params.set('ref_lat', String(state.refMarkerPosition[0]));
         params.set('ref_lon', String(state.refMarkerPosition[1]));
@@ -122,7 +126,7 @@ export default function ExportSection() {
     }
   }, [state.currentDataset, state.currentTimeIndex, state.layerMasks, state.customMaskPath,
     state.datasetInfo, state.refEnabled, state.refMarkerPosition,
-    state.refBufferEnabled, state.refBufferRadius]);
+    state.refBufferEnabled, state.refBufferRadius, state.refTimeIndex, state.dataMode]);
 
   const cancelExport = useCallback(() => {
     const run = abortRef.current;

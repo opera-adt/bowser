@@ -58,6 +58,8 @@ SCRIPT = textwrap.dedent(
         "opera_logo": False,
         "geotiff_export": True,
         "polygon_stats": True,
+        "assistant": {"enabled": False, "providers": [], "configured": []},
+        "geotiff_upload": True,
         "data_conversion": {
             "cog": True, "pmtiles": pm, "pmtiles_min_mb": pm and 20 or None
         },

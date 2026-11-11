@@ -70,6 +70,21 @@ describe('reference-aware GeoTIFF download', () => {
     expect((await exportParams()).get('ref_buffer_m')).toBe('50');
   });
 
+  it('sends the reference date chosen in "ref: <date>", as the map tiles do', async () => {
+    Object.assign(state, { dataMode: 'md', refTimeIndex: { displacement: 0 } });
+    render(<ExportSection />);
+    expect((await exportParams()).get('ref_time_idx')).toBe('0');
+  });
+
+  it.each([
+    ['no date is chosen', { dataMode: 'md', refTimeIndex: {} }],
+    ['in COG mode, whose tiles have no reference date', { dataMode: 'cog', refTimeIndex: { displacement: 0 } }],
+  ])('sends no reference date when %s', async (_why, over) => {
+    Object.assign(state, over);
+    render(<ExportSection />);
+    expect((await exportParams()).has('ref_time_idx')).toBe(false);
+  });
+
   it.each(['disabled', 'quality'])('exports stored values for %s referencing', async (kind) => {
     if (kind === 'disabled') state.refEnabled = false;
     else state.datasetInfo.displacement.uses_spatial_ref = false;

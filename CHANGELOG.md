@@ -8,6 +8,29 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `bowser mcp`, an MCP server for AI assistants such as Claude Desktop and
+  Claude Code. Its tools call a running Bowser server (full or lite) for time
+  series, trends, profiles, histograms, polygon statistics and GeoTIFF export,
+  and say what each value is relative to. Over stdio by default, `--http` for
+  streamable HTTP; `--stack-file` opens one cube with bowser-lite in-process.
+  Needs the new `mcp` extra (`pip install 'bowser-insar[mcp]'`). See
+  [docs/mcp.md](docs/mcp.md).
+- An Assistant tab in the side panel: a chat with your own AI provider
+  (Anthropic, OpenAI, Google Gemini or OpenRouter with an API key, or Ollama
+  when it is installed on the computer that runs Bowser, which starts it in
+  the background when needed) that answers with the same data tools as
+  `bowser mcp` and acts on the page: it flies the map, adds time-series
+  points, sets the reference point and date, switches layers, opens the chart
+  and adds overlays. API keys are checked with the provider and kept on the
+  server (system keychain or a private file), never in the browser; the chat
+  goes through the server (`POST /assistant/chat`). The model picker offers
+  the provider's own model list (`GET /assistant/models`, asked for with the
+  saved key and kept for ten minutes) and any model id can be typed. On for
+  `bowser run`, `bowser lite` and the desktop app on your own computer
+  (`--assistant/--no-assistant`); off on a shared server unless
+  `BOWSER_ASSISTANT` is set, with the server's own key (`BOWSER_AI_PROVIDER`,
+  `BOWSER_AI_KEY`). `GET /config` says whether it is on. Needs the new
+  `assistant` extra (`pip install 'bowser-insar[assistant]'`).
 - Add data converts on the server, in the background: a GeoTIFF that is not
   cloud-optimized becomes a COG once, and a vector file over 20 MB (or 50 000
   features; also GeoPackage and FlatGeobuf) becomes PMTiles vector tiles with

@@ -120,6 +120,20 @@ describe('Stats tab', () => {
     expect(Object.keys(stateRef.areaStats)).toEqual(['displacement::a1']);
   });
 
+  it('keeps a hidden area in the list, dimmed, under Pure CSS (whose .hidden is display: none)', () => {
+    const pure = document.createElement('style');
+    pure.textContent = '.hidden,[hidden]{display:none!important}';
+    document.head.appendChild(pure);
+    try {
+      renderTab(noRef);
+      fireEvent.click(within(row('Dam area')).getByTitle('Hide in the chart'));
+      expect(row('Dam area').classList.contains('area-hidden')).toBe(true);
+      expect(getComputedStyle(row('Dam area')).display).not.toBe('none');
+    } finally {
+      pure.remove();
+    }
+  });
+
   it('downloads the table as CSV in the shown units', async () => {
     renderTab([...noRef, { type: 'SET_TIME_INDEX', payload: 2 }]);
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Download CSV/ })); });
