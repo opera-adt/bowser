@@ -15,6 +15,16 @@ here imports ``bowser.main``, ``bowser.state`` or ``bowser.config``.
 
 from __future__ import annotations
 
+import asyncio
+import json
+import os
+import socket
+import subprocess
+import sys
+import textwrap
+import threading
+import time
+import urllib.request
 import warnings
 from pathlib import Path
 
@@ -171,3 +181,195 @@ def test_big_cubes_use_a_coarse_level_close_to_full_resolution(cube):
         span = full["p98"] - full["p2"]
         for k in ("p2", "p16", "p84", "p98"):
             assert abs(coarse[k] - full[k]) < 0.03 * span, (t, k)
+
+
+# --- the service ----------------------------------------------------------------
+
+
+class _Owner:
+    """Stands in for an opened dataset (held weakly)."""
+
+
+def test_service_caches_coalesces_caps_and_drops_abandoned_work():
+    svc = H.Service()
+    owner = _Owner()
+    running, peak, calls = [0], [0], []
+    lock = threading.Lock()
+
+    def slow(key):
+        def run():
+            with lock:
+                running[0] += 1
+                peak[0] = max(peak[0], running[0])
+                calls.append(key)
+            time.sleep(0.15)
+            with lock:
+                running[0] -= 1
+            return {"key": key}
+
+        return run
+
+    async def main():
+        # Identical requests share one computation; a repeat is a cache hit.
+        same = await asyncio.gather(*(svc.get(owner, "a", slow("a")) for _ in range(5)))
+        assert same == [{"key": "a"}] * 5 and calls == ["a"]
+        assert await svc.get(owner, "a", slow("a")) == {"key": "a"}
+        assert calls == ["a"]
+        # Different requests run one at a time.
+        got = await asyncio.gather(*(svc.get(owner, k, slow(k)) for k in "bcd"))
+        assert got == [{"key": k} for k in "bcd"] and peak[0] == 1
+        # A queued request whose client went away is never computed.
+        first = asyncio.ensure_future(svc.get(owner, "e", slow("e")))
+        await asyncio.sleep(0.02)
+        gone = asyncio.ensure_future(svc.get(owner, "f", slow("f")))
+        await asyncio.sleep(0.02)
+        gone.cancel()
+        assert await first == {"key": "e"}
+        await asyncio.sleep(0.05)
+        assert "f" not in calls and svc.skipped == 1
+        # ...and asked again, it is.
+        assert await svc.get(owner, "f", slow("f")) == {"key": "f"}
+
+    asyncio.run(main())
+    assert svc.computed == len(calls) == 6
+
+
+# --- the servers ------------------------------------------------------------------
+
+
+def _env(**extra: str) -> dict:
+    env = {k: v for k, v in os.environ.items() if not k.startswith("BOWSER_")}
+    env.update(extra)
+    return env
+
+
+SERVE = textwrap.dedent(
+    r"""
+    import json, sys
+    from fastapi.testclient import TestClient
+    which = sys.argv[1]
+    mod = __import__(which, fromlist=["app"])
+    from bowser import histograms as H
+    c = TestClient(mod.app)
+    out = {}
+    for t in (2, 7, 2):
+        r = c.get("/histogram/displacement", params={"time_index": t})
+        assert r.status_code == 200, r.text
+        out[f"t{t}"] = r.json()
+    out["velocity"] = c.get("/histogram/velocity").json()
+    out["computed"] = H.SERVICE.computed
+    print("RESULT" + json.dumps(out))
+    """
+)
+
+
+def _serve(which: str, cube: Path, cwd: Path, **env: str) -> dict:
+    r = subprocess.run(
+        [sys.executable, "-c", SERVE, which],
+        env=_env(BOWSER_STACK_DATA_FILE=str(cube), BOWSER_HISTOGRAM_WARMUP="0", **env),
+        capture_output=True,
+        text=True,
+        cwd=cwd,
+        timeout=300,
+    )
+    assert r.returncode == 0, r.stdout[-2000:] + r.stderr[-4000:]
+    line = next(x for x in r.stdout.splitlines() if x.startswith("RESULT"))
+    return json.loads(line[len("RESULT") :])
+
+
+@pytest.mark.parametrize("which", ["bowser.main", "bowser.lite.main"])
+def test_servers_use_the_coarse_level_and_cache(cube, tmp_path, which):
+    pytest.importorskip("rioxarray")
+    out = _serve(which, cube, tmp_path, BOWSER_HISTOGRAM_MAX_PIXELS=str(LIMIT))
+    levels = _levels(cube)
+    assert out["t2"]["level"] == 1
+    assert out["t2"] == H.compute_one(levels[1]["displacement"], 2, level=1)
+    assert out["t7"] == H.compute_one(levels[1]["displacement"], 7, level=1)
+    assert out["computed"] == 3  # t=2 twice: the second is a cache hit
+    full = _serve(which, cube, tmp_path, BOWSER_HISTOGRAM_MAX_PIXELS="0")
+    assert full["t2"] == H.compute_one(levels[0]["displacement"], 2)
+
+
+def test_full_and_lite_agree_on_a_pyramid(cube, tmp_path):
+    pytest.importorskip("rioxarray")
+    a = _serve("bowser.main", cube, tmp_path, BOWSER_HISTOGRAM_MAX_PIXELS=str(LIMIT))
+    b = _serve(
+        "bowser.lite.main", cube, tmp_path, BOWSER_HISTOGRAM_MAX_PIXELS=str(LIMIT)
+    )
+    assert a == b
+
+
+UVICORN = textwrap.dedent(
+    r"""
+    import sys, time
+    import numpy as np
+    import uvicorn
+    which, port = sys.argv[1], int(sys.argv[2])
+    real = np.histogram
+    def slow(*a, **k):  # a slow histogram, wherever it is computed
+        time.sleep(3)
+        return real(*a, **k)
+    np.histogram = slow
+    mod = __import__(which, fromlist=["app"])
+    uvicorn.run(mod.app, host="127.0.0.1", port=port, log_level="warning")
+    """
+)
+
+
+def _free_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+@pytest.mark.parametrize("which", ["bowser.main", "bowser.lite.main"])
+def test_config_is_answered_while_a_histogram_is_computed(cube, tmp_path, which):
+    pytest.importorskip("rioxarray")
+    port = _free_port()
+    base = f"http://127.0.0.1:{port}"
+    log = tmp_path / f"{which}.log"
+    with open(log, "wb") as out:
+        proc = subprocess.Popen(
+            [sys.executable, "-c", UVICORN, which, str(port)],
+            env=_env(
+                BOWSER_STACK_DATA_FILE=str(cube),
+                BOWSER_HISTOGRAM_WARMUP="0",
+                BOWSER_REFSTATS_WARMUP="0",
+                NO_PROXY="*",
+            ),
+            cwd=tmp_path,
+            stdout=out,
+            stderr=subprocess.STDOUT,
+        )
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+    def get(path: str, timeout: float) -> bytes:
+        with opener.open(base + path, timeout=timeout) as r:
+            return r.read()
+
+    try:
+        for _ in range(600):
+            try:
+                get("/config", 5)
+                break
+            except OSError:
+                if proc.poll() is not None:
+                    pytest.fail(log.read_text()[-3000:])
+                time.sleep(0.1)
+        done = {}
+        th = threading.Thread(
+            target=lambda: done.setdefault(
+                "h", get("/histogram/displacement?time_index=3", 60)
+            )
+        )
+        th.start()
+        time.sleep(0.5)  # the histogram is now sleeping inside np.histogram
+        t0 = time.perf_counter()
+        get("/config", 60)
+        waited = time.perf_counter() - t0
+        th.join()
+        assert "h" in done
+        assert waited < 1.5, f"/config waited {waited:.1f} s behind the histogram"
+    finally:
+        proc.terminate()
+        proc.wait(timeout=30)

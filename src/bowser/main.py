@@ -34,6 +34,7 @@ from starlette.templating import Jinja2Templates
 from starlette_cramjam.middleware import CompressionMiddleware
 
 from . import api_models as api
+from . import histograms
 from .assistant.relay import assistant_config
 from .assistant.relay import router as assistant_router
 from .config import settings
@@ -1375,7 +1376,11 @@ async def get_histogram(
     nbins: Annotated[int, Query(ge=4, le=256, **api.PARAMS["nbins"])] = 100,
     target: BowserState = Depends(TargetState),
 ):
-    """Compute a histogram of valid pixel values for one time step of a dataset."""
+    """Compute a histogram of valid pixel values for one time step of a dataset.
+
+    The stored histogram when the cube has one; otherwise from a coarse pyramid
+    level, cached, one at a time in a worker thread (``bowser.histograms``).
+    """
     if target.mode == "md":
         if dataset_name not in target.dataset.data_vars:
             raise HTTPException(
@@ -1385,62 +1390,28 @@ async def get_histogram(
         dim = _non_spatial_dim(da)
         if dim is not None:
             time_index = min(time_index, da.sizes[dim] - 1)
-
-        # Fast path: return pre-computed stats embedded at conversion time.
-        hist_cache = da.attrs.get("bowser_histogram")
-        if isinstance(hist_cache, list) and hist_cache:
-            idx = time_index if dim is not None else 0
-            if 0 <= idx < len(hist_cache):
-                entry = hist_cache[idx]
-                if isinstance(entry, dict) and "bins" in entry and "counts" in entry:
-                    return JSONResponse(entry)
-
-        # Slow path: compute on the fly (old zarr stores without the attr).
-        if dim is not None:
-            arr = da.isel({dim: time_index}).values.ravel().astype(float)
-        else:
-            arr = da.values.ravel().astype(float)
-    else:
-        if dataset_name not in target.raster_groups:
-            raise HTTPException(
-                status_code=404, detail=f"Dataset {dataset_name} not found"
+        datasets, sources = _cube_levels(target)
+        return JSONResponse(
+            await histograms.histogram(
+                datasets, dataset_name, time_index, nbins, sources=sources
             )
-        rg = target.raster_groups[dataset_name]
-        time_index = min(time_index, len(rg.file_list) - 1)
+        )
+
+    if dataset_name not in target.raster_groups:
+        raise HTTPException(status_code=404, detail=f"Dataset {dataset_name} not found")
+    rg = target.raster_groups[dataset_name]
+    time_index = min(time_index, len(rg.file_list) - 1)
+
+    def from_file() -> dict:
         with rasterio.open(rg.file_list[time_index]) as src:
             arr = src.read(1).ravel().astype(float)
             nodata = src.nodata
         if nodata is not None:
             arr = arr[arr != nodata]
+        return histograms.summarize(arr, nbins)
 
-    # Previously this also filtered `arr != 0`, but 0 is meaningful for
-    # categorical / mask layers (ps_mask, recommended_mask) — excluding it
-    # could empty the histogram on a tile with no PS pixels in view. NaN is
-    # the correct missing-value sentinel; `isfinite` handles it.
-    valid = arr[np.isfinite(arr)]
-    if valid.size == 0:
-        # An empty view returns an empty histogram at 200 rather than 204 —
-        # HTTP 204 must have an empty body (RFC 7230), which makes clients
-        # that call .json() blow up with "unexpected end of data".
-        return JSONResponse(
-            {k: 0.0 for k in ("min", "max", "p2", "p98", "p16", "p84", "p23", "p977")}
-            | {"bins": [], "counts": []}
-        )
-
-    counts, bin_edges = np.histogram(valid, bins=nbins)
     return JSONResponse(
-        {
-            "bins": bin_edges.tolist(),
-            "counts": counts.tolist(),
-            "min": float(valid.min()),
-            "max": float(valid.max()),
-            "p2": float(np.percentile(valid, 2)),
-            "p98": float(np.percentile(valid, 98)),
-            "p16": float(np.percentile(valid, 16)),
-            "p84": float(np.percentile(valid, 84)),
-            "p23": float(np.percentile(valid, 2.275)),
-            "p977": float(np.percentile(valid, 97.725)),
-        }
+        await histograms.SERVICE.get(rg, (dataset_name, time_index, nbins), from_file)
     )
 
 

@@ -1,4 +1,4 @@
-"""Per-date histograms for the colour scale, one date or every date in one pass.
+"""Per-date histograms for the colour scale: cheap, cached, never on the event loop.
 
 ``GET /histogram/{layer}?time_index=t`` is asked on every date change. Cubes made
 by ``bowser`` carry every date's histogram in the layer's ``bowser_histogram``
@@ -16,6 +16,10 @@ the 8 dates of every chunk and the percentiles sort ~11 M values. Now:
   resolution, over six dates, p2/p98 moved by at most 2.5 mm (1.3 % of their
   range) and p16/p84 by at most 6.2 mm. A strided sample of level 0 is exact
   but costs as much as the full read, since every chunk must still be decoded.
+- **Cached** per opened dataset, layer, date and bin count (:class:`Service`).
+- **One computation at a time**, in a worker thread. Identical requests share
+  one computation; a queued one whose every client has gone (the page aborts the
+  request of a date it has moved past) is dropped before it starts.
 
 Environment: ``BOWSER_HISTOGRAM_MAX_PIXELS`` (4 000 000) the valid pixels to aim
 for, ``0`` for full resolution.
@@ -23,12 +27,18 @@ for, ``0`` for full resolution.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
-from collections.abc import Callable, Sequence
+import threading
+import weakref
+from collections import OrderedDict
+from collections.abc import Callable, Hashable, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
 from typing import Any
 
+import anyio.to_thread
 import numpy as np
 import xarray as xr
 
@@ -73,7 +83,8 @@ def summarize(values: np.ndarray, nbins: int = NBINS, level: int = 0) -> dict[st
     """Return the histogram, min, max and percentiles of the finite ``values``.
 
     The order of ``values`` does not matter, so a date read in pieces gives the
-    same result as read whole.
+    same result as read whole. Only NaN and infinities are dropped: 0 is a value
+    of categorical and mask layers (``ps_mask``, ``recommended_mask``).
     """
     v = np.asarray(values).ravel()
     v = v[np.isfinite(v)].astype(np.float64, copy=False)
@@ -277,3 +288,172 @@ def compute_histograms(
             if on_block:
                 on_block(t0, block)
     return out
+
+
+# --- serving ---------------------------------------------------------------------
+
+
+@dataclass
+class _Loop:
+    """What one event loop's requests share: the slot and the computations."""
+
+    slot: asyncio.Semaphore = field(default_factory=lambda: asyncio.Semaphore(1))
+    flights: dict[Hashable, asyncio.Future] = field(default_factory=dict)
+    waiters: dict[Hashable, int] = field(default_factory=dict)
+
+
+class Service:
+    """Cached histograms, computed one at a time off the event loop.
+
+    Entries are kept per ``owner`` (the opened dataset, held weakly, so a closed
+    cube's entries never match a new one at the same address) and ``key``
+    (anything hashable naming the layer, date and parameters).
+    """
+
+    def __init__(self, size: int = CACHE_SIZE) -> None:  # noqa: D107
+        self._size = size
+        self._lock = threading.Lock()
+        self._cache: OrderedDict[Hashable, tuple[weakref.ref, dict]] = OrderedDict()
+        self._loops: weakref.WeakKeyDictionary[
+            asyncio.AbstractEventLoop, _Loop
+        ] = weakref.WeakKeyDictionary()
+        #: Computations run and dropped (for tests and logs).
+        self.computed = 0
+        self.skipped = 0
+
+    def cached(self, owner: object, key: Hashable) -> dict | None:
+        """Return the cached histogram, or None."""
+        with self._lock:
+            hit = self._cache.get((id(owner), key))
+            if hit is None or hit[0]() is not owner:
+                return None
+            self._cache.move_to_end((id(owner), key))
+            return hit[1]
+
+    def store(self, owner: object, key: Hashable, value: dict) -> None:
+        """Keep ``value``, dropping the least recently used beyond the size."""
+        with self._lock:
+            self._cache[(id(owner), key)] = (weakref.ref(owner), value)
+            self._cache.move_to_end((id(owner), key))
+            while len(self._cache) > self._size:
+                self._cache.popitem(last=False)
+
+    def clear(self) -> None:
+        """Forget every cached histogram."""
+        with self._lock:
+            self._cache.clear()
+
+    def _loop(self) -> _Loop:
+        loop = asyncio.get_running_loop()
+        state = self._loops.get(loop)
+        if state is None:
+            state = self._loops[loop] = _Loop()
+        return state
+
+    async def get(
+        self, owner: object, key: Hashable, compute: Callable[[], dict]
+    ) -> dict:
+        """Return the histogram for ``key``: cached, shared or computed.
+
+        ``compute`` runs in a worker thread, one at a time per event loop. A
+        request for a computation already queued or running waits for it. When
+        every request waiting for a queued computation has gone (cancelled, as
+        on a client disconnect), it is dropped before it starts.
+        """
+        state = self._loop()
+        k = (id(owner), key)
+        while True:
+            hit = self.cached(owner, key)
+            if hit is not None:
+                return hit
+            task = state.flights.get(k)
+            if task is None or task.done():
+                task = asyncio.ensure_future(self._run(state, owner, key, compute))
+                state.flights[k] = task
+                task.add_done_callback(lambda t: _finish(state, k, t))
+            state.waiters[k] = state.waiters.get(k, 0) + 1
+            try:
+                value = await asyncio.shield(task)
+            finally:
+                state.waiters[k] -= 1
+                if not state.waiters[k]:
+                    del state.waiters[k]
+            if value is not None:
+                return value
+
+    async def _run(
+        self, state: _Loop, owner: object, key: Hashable, compute: Callable[[], dict]
+    ) -> dict | None:
+        async with state.slot:
+            hit = self.cached(owner, key)
+            if hit is not None:
+                return hit
+            if not state.waiters.get((id(owner), key)):
+                self.skipped += 1
+                return None  # nobody waits for it any more
+            self.computed += 1
+            value = await anyio.to_thread.run_sync(compute)
+            self.store(owner, key, value)
+            return value
+
+
+def _finish(state: _Loop, k: Hashable, task: asyncio.Future) -> None:
+    if state.flights.get(k) is task:
+        del state.flights[k]
+    if not task.cancelled():
+        task.exception()  # retrieved, so an error nobody awaited is not logged
+
+
+#: The process-wide service both servers use.
+SERVICE = Service()
+
+
+# --- what the endpoints call ------------------------------------------------------
+
+_levels_lock = threading.Lock()
+_levels: dict[tuple[int, str], tuple[weakref.ref, int]] = {}
+
+
+def level_for(
+    levels: Sequence[xr.Dataset],
+    name: str,
+    sources: Sequence[Source | None] | None = None,
+) -> int:
+    """:func:`pick_level`, remembered per opened dataset and layer."""
+    owner = levels[0]
+    k = (id(owner), name)
+    with _levels_lock:
+        hit = _levels.get(k)
+        if hit is not None and hit[0]() is owner:
+            return hit[1]
+    level = pick_level(levels, name, sources=sources)
+    with _levels_lock:
+        _levels[k] = (weakref.ref(owner), level)
+    return level
+
+
+async def histogram(
+    levels: Sequence[xr.Dataset],
+    name: str,
+    t: int,
+    nbins: int = NBINS,
+    *,
+    sources: Sequence[Source | None] | None = None,
+) -> dict:
+    """Return the histogram of step ``t`` of layer ``name`` of a cube's levels.
+
+    The stored attribute when present; otherwise cached or computed on demand at
+    :func:`level_for`.
+    """
+    da = levels[0][name]
+    hit = stored(da, t if da.ndim > 2 else 0)
+    if hit is not None:
+        return hit
+    owner = levels[0]
+
+    def compute() -> dict:
+        level = level_for(levels, name, sources)
+        source = sources[level] if sources and level < len(sources) else None
+        return compute_one(layers(levels, name)[level], t, nbins, level, source)
+
+    return await SERVICE.get(owner, (name, t, nbins), compute)
