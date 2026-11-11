@@ -13,9 +13,10 @@ the 8 dates of every chunk and the percentiles sort ~11 M values. Now:
   pixels (level 0 when the cube is small or has no pyramid, so small cubes are
   unchanged). On that frame it is level 1 (3.5 M valid pixels, 0.6 s of CPU).
   Levels are 2x2 averages, which narrows the distribution a little: against full
-  resolution, over six dates, p2/p98 moved by at most 2.5 mm (1.3 % of their
-  range) and p16/p84 by at most 6.2 mm. A strided sample of level 0 is exact
-  but costs as much as the full read, since every chunk must still be decoded.
+  resolution, over all 269 dates, p2/p98 moved by at most 4.7 mm (2.5 % of
+  their range; mean 1.3 mm) and p16/p84 by at most 6.4 mm (mean 1.8 mm). A
+  strided sample of level 0 is exact but costs as much as the full read, since
+  every chunk must still be decoded.
 - **Cached** per opened dataset, layer, date and bin count (:class:`Service`).
 - **One computation at a time**, in a worker thread. Identical requests share
   one computation; a queued one whose every client has gone (the page aborts the
