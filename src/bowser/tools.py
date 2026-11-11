@@ -1657,7 +1657,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
             "note": res["note"] + " " + EXPOSURE_NOTE,
         }
 
-    @page_tool(read_only=True)
+    @page_tool(read_only=True, status="Listing the context layers")
     async def list_context_layers() -> dict[str, Any]:
         """List the context layers of Overlays › Services, and which are on.
 
@@ -1668,7 +1668,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
         """
         return await on_page("list_context_layers")
 
-    @page_tool
+    @page_tool(status="Adding the context layer")
     async def add_context_layer(
         id: ContextLayerId,  # noqa: A002  (the layer's id, as the model sees it)
         opacity: Annotated[
@@ -1693,14 +1693,14 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
         """
         return await on_page("add_context_layer", id=id, opacity=opacity, year=year)
 
-    @page_tool
+    @page_tool(status="Removing the context layer")
     async def remove_context_layer(
         id: ContextLayerId,  # noqa: A002  (the layer's id, as the model sees it)
     ) -> dict[str, Any]:
         """Turn off a context layer of Overlays › Services, as its toggle does."""
         return await on_page("remove_context_layer", id=id)
 
-    @tool(open_world=True)
+    @tool(open_world=True, status="Looking up OpenStreetMap")
     async def infrastructure_at(
         lon: Lon,
         lat: Lat,
@@ -1734,7 +1734,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
         )
         return infra_answer(res, note)
 
-    @tool(open_world=True)
+    @tool(open_world=True, status="Looking up OpenStreetMap")
     async def infrastructure_in_area(
         geometry: AreaGeometry = None,
         bbox: AreaBbox = None,
@@ -1790,7 +1790,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
         )
         return infra_answer(res, note)
 
-    @page_tool(open_world=True)
+    @page_tool(open_world=True, status="Drawing the infrastructure")
     async def highlight_infrastructure(
         kinds: Annotated[
             list[InfraKind],
@@ -1828,7 +1828,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
             color=color,
         )
 
-    @page_tool
+    @page_tool(status="Clearing the highlights")
     async def clear_highlights(
         name: Annotated[
             str | None,
@@ -1841,7 +1841,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
         """Remove the highlight layers the tools drew (all, or one by name)."""
         return await on_page("clear_highlights", name=name)
 
-    @page_tool(read_only=True)
+    @page_tool(read_only=True, status="Reading the drawn areas")
     async def get_areas(
         name: Annotated[
             str | None,
@@ -1858,7 +1858,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
         """
         return await on_page("get_areas", name=name)
 
-    @tool
+    @tool(status="Finding moving zones")
     async def deformation_zones(
         threshold_mm_yr: Annotated[
             float,
@@ -2027,7 +2027,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
             **found,
         }
 
-    @tool(open_world=True)
+    @tool(open_world=True, status="Reading the ground at the point")
     async def site_context(
         lon: Lon,
         lat: Lat,
