@@ -128,6 +128,15 @@ API clients can pass `ref_lon`, `ref_lat`, and optionally `ref_buffer_m` to
 "ref: <date>" menu shows it on the map (GeoZarr cubes).
 Export values are not colorized, rewrapped, or converted between units.
 
+## GPU rendering (experimental)
+
+Add `?render=gpu` (or `?render=auto`, which uses the GPU only on a capable
+hardware GPU) to the page's address to draw the data layer in the browser's GPU
+from the cube's own chunks instead of server tiles: dates, colormaps, ranges
+and reference dates then change in a frame. Without it nothing changes. See
+[docs/gpu-render.md](docs/gpu-render.md) for what it draws, what stays on tiles
+and how to tell which renderer is active.
+
 ## CLI Usage
 
 ```bash

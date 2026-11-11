@@ -44,6 +44,7 @@
     "react-chartjs-2": "^5.2.0",
     "react-dom": "^18.2.0",
     "react-leaflet": "^4.2.1",
-    "shpjs": "^6.2.0"
+    "shpjs": "^6.2.0",
+    "zarrita": "^0.7.5"
   }
 }

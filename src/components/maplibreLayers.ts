@@ -25,7 +25,7 @@ export function firstOverlayId(map: maplibregl.Map): string | undefined {
 }
 
 /** Data layers go below tool overlays and below user overlays drawn above the data. */
-function firstAboveDataId(map: maplibregl.Map): string | undefined {
+export function firstAboveDataId(map: maplibregl.Map): string | undefined {
   return map.getStyle().layers.find((l: { id: string; metadata?: unknown }) =>
     OVERLAY_PREFIX.test(l.id) || (l.metadata as { aboveData?: boolean } | undefined)?.aboveData)?.id;
 }

@@ -141,6 +141,30 @@ SCRIPT = textwrap.dedent(
     check("scan", "POST", "/catalog/scan", json={"dir": str(Path(cube).parent)})
     check("open", "POST", "/catalog/open", json={"uri": cube})
     check("catalog_opened", "GET", "/catalog")
+    # The cube's zarr files (GPU renderer): the default cube, and a second cube
+    # opened in the catalog, reached by its ?dataset= id.
+    import shutil
+    second = work / "second.zarr"
+    shutil.copytree(cube, second)
+    meta = json.loads((second / "zarr.json").read_text())
+    meta["attributes"]["title"] = "Second cube"
+    (second / "zarr.json").write_text(json.dumps(meta))
+    second_id = c.post("/catalog/open", json={"uri": str(second)}).json()["id"]
+    zarr = result["zarr"] = {}
+    cross = {"headers": {"Sec-Fetch-Site": "cross-site"}}
+    for name, url, kw in [
+        ("root", "/zarr/zarr.json", {}),
+        ("array", "/zarr/displacement/zarr.json", {}),
+        ("by_id", "/zarr/zarr.json", {"params": {"dataset": second_id}}),
+        ("unknown_id", "/zarr/zarr.json", {"params": {"dataset": "no-such-id"}}),
+        ("outside", "/zarr/%2e%2e/zarr.json", {}),
+        ("not_zarr", "/zarr/displacement/.zattrs", {}),
+        ("cross_site", "/zarr/zarr.json", cross),
+    ]:
+        r = c.get(url, **kw)
+        zarr[name] = [r.status_code, r.json() if r.status_code == 200 else None]
+    zarr["head"] = c.head("/zarr/zarr.json").status_code
+    zarr["post"] = c.post("/zarr/zarr.json").status_code
     check("datasets", "GET", "/datasets")
     check("variables", "GET", "/variables")
     tb = "/datasets/{dataset_name}/time_bounds"
@@ -406,6 +430,26 @@ def test_response_models_match_real_responses(apps, which):
     checked = set(apps[which]["checked"].values())
     modelled = {r["key"] for r in apps[which]["own_routes"] if r["model"]}
     assert checked == modelled, sorted(checked ^ modelled)
+
+
+def test_zarr_files_route_on_both_servers(apps):
+    """GET /zarr/{path} serves the routed cube's zarr files alike on both servers."""
+    full, lite = apps["full"]["zarr"], apps["lite"]["zarr"]
+    assert full == lite
+    assert full["root"][0] == 200 and full["root"][1]["zarr_format"] == 3
+    assert full["array"][0] == 200 and full["array"][1]["node_type"] == "array"
+    assert full["root"][1]["attributes"]["title"] != "Second cube"
+    assert full["by_id"][0] == 200
+    assert full["by_id"][1]["attributes"]["title"] == "Second cube"
+    assert full["head"] == 200
+    for name, status in [
+        ("unknown_id", 404),
+        ("outside", 404),
+        ("not_zarr", 404),
+        ("cross_site", 403),
+    ]:
+        assert full[name][0] == status, name
+    assert full["post"] == 405
 
 
 def test_deformation_zones_are_the_same_on_both_servers(apps):
