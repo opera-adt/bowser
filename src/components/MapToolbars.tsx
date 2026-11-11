@@ -29,7 +29,7 @@ export function MapLeftToolbar({ measureActive, onToggleMeasure, onMeasureOff, u
   return (
     <div className="map-toolbar">
     <button
-      className={`map-tool-btn${measureActive ? ' active' : ''}`}
+      className={`map-tool-btn${measureActive ? ' active' : ''}`} data-command="map.measure"
       title="Measure distance (click points, double-click to finish)"
         {...gate(unsupported, 'measure')}
       onClick={() => { onToggleMeasure(); setProfileActive(false); }}
@@ -37,7 +37,7 @@ export function MapLeftToolbar({ measureActive, onToggleMeasure, onMeasureOff, u
       <i className="fa-solid fa-ruler"></i>
     </button>
     <button
-      className={`map-tool-btn${profileActive ? ' active' : ''}`}
+      className={`map-tool-btn${profileActive ? ' active' : ''}`} data-command="map.profile"
       title="Draw profile line (click start, click end, double-click to extract)"
         {...gate(unsupported, 'profile')}
       onClick={() => { setProfileActive(!profileActive); onMeasureOff(); }}
@@ -45,7 +45,7 @@ export function MapLeftToolbar({ measureActive, onToggleMeasure, onMeasureOff, u
       <i className="fa-solid fa-chart-area"></i>
     </button>
     <button
-      className={`map-tool-btn${state.identifyEnabled ? ' active' : ''}`}
+      className={`map-tool-btn${state.identifyEnabled ? ' active' : ''}`} data-command="map.identify"
       title={state.identifyEnabled
         ? 'Identify ON: click a GNSS station for its time series, or anywhere for geology, soil, land cover and layer attributes'
         : 'Identify: what is under a click (GNSS stations, geology, soil, land cover, layers)'}
@@ -58,12 +58,12 @@ export function MapLeftToolbar({ measureActive, onToggleMeasure, onMeasureOff, u
       }}
     ><i className="fa-solid fa-arrow-pointer"></i></button>
     <button
-      className={`map-tool-btn${state.refEnabled ? ' active' : ''}`}
+      className={`map-tool-btn${state.refEnabled ? ' active' : ''}`} data-command="map.rereference"
       onClick={() => dispatch({ type: 'TOGGLE_REF_ENABLED' })}
       title="Toggle spatial re-referencing"
     ><i className="fa-solid fa-crosshairs"></i></button>
     <button
-      className={`map-tool-btn${!state.pointPickingEnabled ? ' active' : ''}`}
+      className={`map-tool-btn${!state.pointPickingEnabled ? ' active' : ''}`} data-command="map.point_picking"
       onClick={() => dispatch({ type: 'TOGGLE_POINT_PICKING' })}
       title={state.drawingEnabled || state.identifyEnabled
         ? `Point picking is paused while ${state.drawingEnabled ? 'the drawing tools are' : 'identify is'} on`
@@ -104,11 +104,11 @@ export function MapTopRightToolbar({ onToggleToolbars, unsupported = NONE, child
 
   return (
     <div className="map-toolbar-right">
-      <button className="map-tool-btn" onClick={fitDataset} title="Fit view to dataset" disabled={!info}>
+      <button className="map-tool-btn" data-command="map.fit_view" onClick={fitDataset} title="Fit view to dataset" disabled={!info}>
         <i className="fa-solid fa-arrows-to-circle"></i>
       </button>
       <div style={{ position: 'relative' }}>
-        <button className="map-tool-btn basemap-trigger" onClick={() => setBasemapOpen(v => !v)} title="Basemap">
+        <button className="map-tool-btn basemap-trigger" data-command="map.basemap" onClick={() => setBasemapOpen(v => !v)} title="Basemap">
           <i className="fa-solid fa-map"></i>
         </button>
         {basemapOpen && (
@@ -186,41 +186,42 @@ export function MapTopRightToolbar({ onToggleToolbars, unsupported = NONE, child
         )}
       </div>
       <button
-        className={`map-tool-btn${state.splitScreen ? ' active' : ''}`}
+        className={`map-tool-btn${state.splitScreen ? ' active' : ''}`} data-command="map.split_screen"
         onClick={() => dispatch({ type: 'TOGGLE_SPLIT_SCREEN' })}
         title="Split screen — compare two layers"
         {...gate(unsupported, 'split')}
       ><i className="fa-solid fa-table-columns"></i></button>
       <button
-        className={`map-tool-btn${state.showColorbar ? ' active' : ''}`}
+        className={`map-tool-btn${state.showColorbar ? ' active' : ''}`} data-command="map.colorbar"
         onClick={() => dispatch({ type: 'TOGGLE_COLORBAR' })}
         title="Toggle colorbar on map"
       ><i className="fa-solid fa-palette"></i></button>
       <button
-        className={`map-tool-btn${state.showLosIndicator ? ' active' : ''}`}
+        className={`map-tool-btn${state.showLosIndicator ? ' active' : ''}`} data-command="map.los"
         onClick={() => dispatch({ type: 'TOGGLE_LOS_INDICATOR' })}
         title="Toggle LOS geometry indicator"
       ><i className="fa-solid fa-satellite"></i></button>
       <button
-        className={`map-tool-btn${state.graticuleMode !== 'off' ? ' active' : ''}`}
+        className={`map-tool-btn${state.graticuleMode !== 'off' ? ' active' : ''}`} data-command="map.grid"
         onClick={() => dispatch({ type: 'CYCLE_GRATICULE' })}
         title={`Lat/lon grid: ${state.graticuleMode} (click to cycle)`}
         {...gate(unsupported, 'graticule')}
       ><i className="fa-solid fa-border-all"></i></button>
       <button
-        className={`map-tool-btn${state.annotationMode ? ' active' : ''}`}
+        className={`map-tool-btn${state.annotationMode ? ' active' : ''}`} data-command="map.annotations"
         onClick={() => dispatch({ type: 'TOGGLE_ANNOTATION_MODE' })}
         title={state.annotationMode ? 'Annotation mode ON — click map to place label (double-click label to delete)' : 'Toggle annotation mode'}
         {...gate(unsupported, 'annotation')}
       ><i className="fa-solid fa-pen-to-square"></i></button>
       <button
-        className={`map-tool-btn${state.pixelInspectEnabled ? ' active' : ''}`}
+        className={`map-tool-btn${state.pixelInspectEnabled ? ' active' : ''}`} data-command="map.inspect"
         onClick={() => dispatch({ type: 'TOGGLE_PIXEL_INSPECT' })}
         title="Inspect pixel value on hover"
       ><i className="fa-solid fa-eye-dropper"></i></button>
       {children}
       <button
         className="map-tool-btn"
+        data-command="map.toolbar"
         onClick={onToggleToolbars}
         title="Hide toolbar"
         style={{ marginTop: 4, opacity: 0.6 }}

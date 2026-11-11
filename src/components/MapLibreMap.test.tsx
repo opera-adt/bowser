@@ -50,7 +50,12 @@ const { FakeMap, FakeMarker, FakePopup, dispatch, mockState } = vi.hoisted(() =>
     getBearing() { return 0; }
     setPaintProperty(id: string, k: string, v: unknown) { const l = this.getLayer(id); if (l) l.paint = { ...l.paint, [k]: v }; }
     isSourceLoaded() { return true; }
-    fitBounds(b: unknown) { this.fitted = b; }
+    fitBounds(b: unknown, o?: any) { this.fitted = b; this.fitOptions = o; this.fire('moveend', {}); }
+    fitOptions: any = null;
+    moves: [string, ...any[]][] = [];
+    flyTo(o: any) { this.moves.push(['flyTo', o]); this.fire('moveend', {}); }
+    panBy(d: any, o: any) { this.moves.push(['panBy', d, o]); this.fire('moveend', {}); }
+    zoomTo(z: number, o: any) { this.moves.push(['zoomTo', z, o]); this.fire('moveend', {}); }
     getContainer() { return { clientWidth: 800 }; }
       terrain: unknown = null;
       pitch = 0;
@@ -100,6 +105,9 @@ vi.mock('maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url', () => ({ default: 
 vi.mock('../context/AppContext', () => ({ useAppContext: () => ({ state: mockState, dispatch }) }));
 
 import MapLibreMap from './MapLibreMap';
+import { newDone, runPageTool, type PageContext } from '../assistant/pageTools';
+import { runCommand } from '../assistant/commands';
+import { getNavigator } from '../map/navigator';
 
 const info = {
   name: 'displacement', file_list: [], mask_file_list: [], mask_min_value: 0, nodata: null,
@@ -628,5 +636,102 @@ describe('MapLibreMap', () => {
     view.rerender(<MapLibreMap />);
     await act(async () => {});
     expect(feats()).toHaveLength(0);
+  });
+});
+
+const last = <T,>(a: T[]): T => a[a.length - 1];
+describe("the Assistant's map tools on MapLibre (src/map/navigator.ts)", () => {
+  const ctx = (): PageContext => ({
+    getState: () => mockState as never, dispatch, api: { fetchPointTimeSeries: vi.fn(), fetchBufferTimeSeries: vi.fn() } as never, done: newDone(),
+  });
+  const run = (name: string, input: Record<string, unknown>) => act(async () => { await runPageTool(name, input, ctx()); });
+
+  it('registers the map; fly_to, fit_bounds, pan and zoom move it as asked', async () => {
+    const { map } = await mount();
+    Object.assign(map.canvas, { clientWidth: 800, clientHeight: 600 });
+    expect(getNavigator()?.kind).toBe('maplibre');
+    await run('fly_to', { lon: -117.7, lat: 33.9, zoom: 13 });
+    expect(last(map.moves)).toEqual(['flyTo', { center: [-117.7, 33.9], zoom: 13, duration: 1200 }]);
+    await run('fly_to', { lon: -117.7, lat: 33.9 });   // the zoom is kept
+    expect(last(map.moves)).toEqual(['flyTo', { center: [-117.7, 33.9], duration: 1200 }]);
+    await run('fit_bounds', { west: -118, south: 33, east: -117, north: 34, padding: 10 });
+    expect(map.fitted).toEqual([[-118, 33], [-117, 34]]);
+    expect(map.fitOptions).toEqual({ padding: 10, duration: 1200 });
+    await run('pan', { direction: 'east', fraction: 0.5 });
+    expect(last(map.moves)).toEqual(['panBy', [400, -0], { duration: 600 }]);
+    await run('pan', { direction: 'north' });
+    expect(last(map.moves)).toEqual(['panBy', [0, -300], { duration: 600 }]);
+    await run('pan', { direction: 'north', distance_m: 11132 });
+    const [, fly] = last(map.moves)!;
+    expect(fly.center[0]).toBeCloseTo(-117.67, 6);
+    expect(fly.center[1]).toBeCloseTo(33.96 + 0.1, 6);
+    await run('zoom', { delta: -2 });
+    expect(last(map.moves)).toEqual(['zoomTo', 10, { duration: 600 }]);
+    await run('zoom', { level: 15 });
+    expect(last(map.moves)).toEqual(['zoomTo', 15, { duration: 600 }]);
+    await expect(runPageTool('zoom', { level: 30 }, ctx())).rejects.toThrow('outside 0-22');
+    await expect(runPageTool('fly_to', { lon: 200, lat: 0 }, ctx())).rejects.toThrow('lon and lat');
+  });
+
+  it('go_to geocodes on the server and fits the best place', async () => {
+    const { map } = await mount();
+    const asked: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      asked.push(url);
+      return new Response(JSON.stringify({
+        results: [{ name: 'Arkabutla Dam', lon: -90.125, lat: 34.756, bbox: [-90.13, 34.75, -90.12, 34.76], kind: 'dam' }],
+        attribution: 'OSM',
+      }));
+    }));
+    let out: any;
+    await act(async () => { out = await runPageTool('go_to', { query: 'Arkabutla Dam' }, ctx()); });
+    expect(asked).toEqual(['/geocode?q=Arkabutla+Dam&limit=1']);
+    expect(map.fitted).toEqual([[-90.13, 34.75], [-90.12, 34.76]]);
+    expect(map.fitOptions).toEqual({ padding: 40, duration: 1200, maxZoom: 15 });   // a dam is a small box
+    expect(out.place).toBe('Arkabutla Dam');
+    await act(async () => { await runPageTool('go_to', { query: 'Arkabutla Dam', zoom: 14 }, ctx()); });
+    expect(last(map.moves)).toEqual(['flyTo', { center: [-90.125, 34.756], zoom: 14, duration: 1200 }]);
+  });
+
+  it('get_view reports the camera, split screen and terrain', async () => {
+    await mount();
+    const v = await runPageTool('get_view', {}, ctx()) as any;
+    expect(v.center).toEqual([-117.67, 33.96]);
+    expect(v.zoom).toBe(12);
+    expect(v.bounds).toEqual([-117.69, 33.95123, -117.65, 33.97]);
+    expect(v.map).toBe('maplibre');
+    expect(v.terrain).toEqual({ enabled: false, exaggeration: 2 });
+    expect(v.split_screen).toEqual({ on: false, left_layer: 'displacement', right_layer: null });
+  });
+
+  it('set_terrain does what the popover does: same terrain, tilt and saved setting; clamped', async () => {
+    const popover = await mount();
+    fireEvent.click(popover.view.getByTitle('3D terrain'));
+    await act(async () => { fireEvent.click(popover.view.getByRole('checkbox')); });
+    const byPopover = { terrain: popover.map.terrain, eased: last(popover.map.eased), saved: localStorage.getItem('bowser.maplibre.terrain') };
+    cleanup();
+    localStorage.clear();
+    const { map } = await mount();
+    let out: any;
+    await act(async () => { out = await runPageTool('set_terrain', { on: true, exaggeration: 2 }, ctx()); });
+    expect({ terrain: map.terrain, eased: last(map.eased), saved: localStorage.getItem('bowser.maplibre.terrain') }).toEqual(byPopover);
+    expect(out.terrain).toEqual({ enabled: true, exaggeration: 2 });
+    const pending = runPageTool('set_terrain', { on: true, exaggeration: 25, pitch: 45 }, ctx());
+    await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+    out = await pending;
+    expect(out.terrain.exaggeration).toBe(10);   // EXAGGERATION_MAX
+    expect(out.note).toContain('25 became 10');
+    expect(map.terrain).toEqual({ source: 'terrain-dem', exaggeration: 10 });
+    expect(last(map.eased)).toEqual({ pitch: 45, duration: 600 });
+    // run_command map.terrain: the same switch, idempotent.
+    await act(async () => { await runCommand({ getState: () => mockState as never, dispatch }, 'map.terrain', { on: false }); });
+    expect(map.terrain).toBeNull();
+    await act(async () => { await runCommand({ getState: () => mockState as never, dispatch }, 'map.terrain', { on: false }); });
+    expect(map.terrain).toBeNull();
+  });
+
+  it('the terrain button has a command', async () => {
+    const { view } = await mount();
+    view.container.querySelectorAll('.map-tool-btn').forEach(b => expect(b.getAttribute('data-command')).toBeTruthy());
   });
 });

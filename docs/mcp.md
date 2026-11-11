@@ -55,6 +55,7 @@ server: run `bowser run` and use `--url`.
 | `--http` | off (stdio) | Serve streamable HTTP at `/mcp` |
 | `--host` | `127.0.0.1` | Interface for `--http` |
 | `--port`, `-p` | `8765` | Port for `--http` |
+| `--token` | read from the server's token file | The server's page token for the page tools (env `BOWSER_PAGE_TOKEN`); see [Acting on the page](#acting-on-the-page) |
 
 ## Add it to an assistant
 
@@ -106,12 +107,84 @@ a point outside the cube is refused rather than read at the nearest edge pixel.
 | `profile` | Values along a line at one date by distance, with an optional strip median | `POST /profile` |
 | `layer_statistics` | Min, max, percentiles and a histogram of a layer at one date | `GET /histogram/{layer}` |
 | `export_geotiff` | A GeoTIFF of one date: its download URL, or the file saved where you say (full server) | `GET /export/geotiff` |
+| `find_reference_candidates` | Stable places for the reference point: the recommended one and up to `n` spaced candidates with coherence, phase similarity, scatter, velocity and a reason | `GET /reference_candidates` |
+| `geocode` | Candidates for a place name or address, with lon/lat and a bounding box (OpenStreetMap Nominatim; no page needed) | `GET /geocode` |
 
 On bowser-lite, `polygon_statistics` and `export_geotiff` return a tool error
 that says the full server is needed; `server_info` lists them under
 `unsupported_tools`.
 
+`point_timeseries`, `multi_point_timeseries` and `trend_at_point` apply the
+open page's layer masks by default (`use_page_masks`), so their answers match
+the map and the chart; each result's `masks` says what was applied. Without a
+connected page the values are unmasked.
+
 Values follow the API: `point_timeseries`, `multi_point_timeseries`,
 `trend_at_point`, `value_at_point` and `export_geotiff` can subtract a
 reference point, while `polygon_statistics`, `profile` and `layer_statistics`
 report the stored values. Each result's `reference.note` says which.
+
+## Acting on the page
+
+The page tools act on the Bowser page the user has open: they move the map,
+set the reference, masks and colours, and use any toolbar or panel control.
+They work when Bowser runs on your own computer (`bowser run`, `bowser lite`
+or the desktop app, which set `BOWSER_ASSISTANT=1` and
+`BOWSER_ASSISTANT_PAGE_KEYS=1`), from `bowser mcp` in Claude Code or Claude
+Desktop, from "Sign in with Claude" in the Assistant tab and from the
+Assistant's own chat. With no page open they say so: "No Bowser page is open
+— open http://127.0.0.1:8000/".
+
+| Tool | What it does |
+| --- | --- |
+| `get_view` | Center, zoom, bearing, pitch and bounds of the map; split screen and 3D terrain |
+| `fly_to` | Move to `lon`, `lat`, keeping the zoom unless `zoom` (0–22) is given |
+| `fit_bounds` | Fit `west`, `south`, `east`, `north` (with `padding` in pixels) |
+| `pan` | Move `north`, `south`, `east` or `west` by a `fraction` of the view or `distance_m` |
+| `zoom` | Zoom to a `level`, or in or out by a `delta` |
+| `go_to` | Geocode a place name or address and fit its extent (or fly to it at `zoom`) |
+| `set_terrain` | 3D terrain on or off, its exaggeration (1–10) and the camera pitch (MapLibre map) |
+| `set_split_screen` | Split screen on or off, with the left (main) and right layers |
+| `add_point` | A time-series point on the map and in the chart |
+| `get_reference`, `set_reference_point`, `reset_reference`, `set_reference_date` | The reference point (with an optional sampling circle `radius_m`) and date |
+| `switch_layer`, `open_chart` | The layer shown, the chart |
+| `get_masks`, `set_masks`, `clear_masks`, `set_recommended_mask` | Layer masks: `min` keeps pixels ≥ the threshold, `max` keeps pixels ≤ it |
+| `get_display`, `set_colormap`, `set_color_range`, `set_opacity` | Colormap, range (or a preset: `2-98%`, `1sigma`, `2sigma`, `full`, `symmetric`) and opacity, per side in split screen |
+| `list_commands`, `run_command` | Every other toolbar and panel control (draw tools, identify, measure, basemap, grid, chart options, time playback, theme, panel tabs...); toggles take `{"on": true}` |
+
+Layer and colormap names are checked, with close matches suggested
+("temporal coherence" → `temporal_coherence`). Commands that delete work are
+marked destructive, and the assistant is told to ask first.
+
+How it works: the page listens on `GET /page/events` (server-sent events) and
+answers each command with `POST /page/result`; a tool sends a command with
+`POST /page/command` and waits up to 10 s. With several tabs open, the tab
+focused most recently gets the commands. The channel answers only requests
+from the computer that runs Bowser and only with
+`BOWSER_ASSISTANT_PAGE_KEYS`; only Bowser's own page may listen, and commands
+are refused from any browser, so a web page cannot drive the map. Commands,
+answers and their rate are bounded.
+
+Commands also need the server's page token. When it starts, the Bowser server
+makes a random token and writes it to a file only you can read (mode 0600, in
+`$XDG_RUNTIME_DIR/bowser/` or `~/.cache/bowser/`, named `page-token-<port>`),
+and removes it when it stops. `bowser mcp --url http://127.0.0.1:PORT` reads
+that file when it runs on the same computer as the server, so nothing needs
+setting up; the Assistant and "Sign in with Claude" get the token from the
+server itself. For an unusual setup (another user, a container) pass it with
+`--token` or `BOWSER_PAGE_TOKEN`. Without it the data tools still work, and
+the page tools say to start `bowser mcp` on the same computer as the server.
+The token is never sent to the page, logged, or put in an answer.
+
+## Places
+
+`geocode` and `go_to` use OpenStreetMap's
+[Nominatim](https://nominatim.org) through the Bowser server, following its
+[usage policy](https://operations.osmfoundation.org/policies/nominatim/): at
+most one request per second from the server, results cached, and a
+User-Agent naming Bowser (`bowser-insar/<version>
+(+https://github.com/opera-adt/bowser)`), never a person. Results carry
+OpenStreetMap's attribution. An administrator can use another
+Nominatim-compatible service (their own, for heavy use) with
+`BOWSER_GEOCODER_URL=https://.../search`, or turn geocoding off with
+`BOWSER_GEOCODER_URL=off`.

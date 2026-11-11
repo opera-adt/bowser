@@ -653,9 +653,58 @@ ROUTES: dict[str, dict[str, Any]] = {
         "deltas, each `message` of the conversation, `tool_call` and "
         "`tool_result` for the data tools the server runs itself, `page_tools` "
         "for the tools the page runs (it then sends the results back in a new "
-        "request), `error` and `done`. With a signed-in agent (`provider` "
+        "request), `budget` when the question's tool calls are used up, `error` "
+        "and `done`. The page sends what it shows (`page_context`), told to the "
+        "model with the question. With a signed-in agent (`provider` "
         "`claude` and a `conversation` id) also `status`, `permission` and "
         "`permission_closed`. 403 when the Assistant is off.",
+        "tags": [ASSISTANT],
+    },
+    "GET /page/events": {
+        "summary": "Receive commands for the page",
+        "description": "The page channel: the open page listens here, with a "
+        "random `page` id, for `command` events (`id`, `name`, `input`) sent by "
+        "Bowser's tools, and answers each with `POST /page/result`. From this "
+        "computer and Bowser's own page only, and only with "
+        "BOWSER_ASSISTANT_PAGE_KEYS; 403 otherwise.",
+        "tags": [ASSISTANT],
+    },
+    "POST /page/focus": {
+        "summary": "Say the page has the focus",
+        "description": "Commands go to the page focused most recently, so with "
+        "several tabs open only the one the user last looked at acts. The page "
+        "sends this when it gains the focus and every few seconds while it has "
+        "it. 404 when the page is not connected.",
+        "tags": [ASSISTANT],
+    },
+    "POST /page/result": {
+        "summary": "Answer a command",
+        "description": "The page's answer to a command from `GET /page/events`: "
+        "`ok` and `result`, or `error`. 404 when no such command is waiting for "
+        "this page.",
+        "tags": [ASSISTANT],
+    },
+    "POST /page/command": {
+        "summary": "Act on the open page",
+        "description": "Send a page tool (e.g. `fly_to`, `get_view`, "
+        "`set_reference_point`) to the page focused most recently and return its "
+        "answer, waiting up to 10 s (504 after that). 409 when no page is open. "
+        "Used by `bowser mcp`'s page tools: needs the server's page token "
+        "(`Authorization: Bearer <token>` or `X-Bowser-Page-Token`; 401 without "
+        "it), which the server writes to a private file when it starts "
+        "(`page-token-<port>` in `$XDG_RUNTIME_DIR/bowser` or "
+        "`~/.cache/bowser`) and removes when it stops. Refused from a browser, "
+        "from another computer and without BOWSER_ASSISTANT_PAGE_KEYS. "
+        "Rate-limited (429).",
+        "tags": [ASSISTANT],
+    },
+    "GET /geocode": {
+        "summary": "Find a place or address",
+        "description": "Candidates for a place name or address, best first, "
+        "each with `lon`, `lat`, a `bbox` [west, south, east, north] and a "
+        "`name`, from OpenStreetMap's Nominatim (or `BOWSER_GEOCODER_URL`). At "
+        "most one request per second leaves the server; answers are cached. 403 "
+        "when the Assistant is off, 503 when geocoding is off.",
         "tags": [ASSISTANT],
     },
 }
@@ -743,6 +792,11 @@ class AssistantFlag(_Fixed):
     sign_in: list[str] = Field(
         description="Ids of the sign-in methods this server offers (to this "
         "computer only)."
+    )
+    page_channel: bool = Field(
+        False,
+        description="Whether Bowser's tools may act on the page from this "
+        "computer (GET /page/events).",
     )
 
 
@@ -877,6 +931,42 @@ class AssistantModels(_Fixed):
     provider: str
     models: list[AssistantModel]
     cached: bool = Field(description="Whether the list came from the cache.")
+
+
+class PageAck(_Fixed):
+    """``POST /page/focus`` and ``POST /page/result``."""
+
+    ok: bool
+
+
+class PageCommandAnswer(_Fixed):
+    """``POST /page/command``: what the page answered."""
+
+    ok: bool = Field(description="Whether the page did it.")
+    result: Any = Field(None, description="What the page did or read.")
+    error: Optional[str] = Field(None, description="Why not, when not ok.")
+
+
+class GeocodeResult(_Fixed):
+    """One candidate of ``GET /geocode``."""
+
+    name: str = Field(description="The place's full name.")
+    lon: float
+    lat: float
+    bbox: Optional[list[float]] = Field(
+        None, description="[west, south, east, north], when the place has one."
+    )
+    kind: Optional[str] = Field(None, description="e.g. dam, city, house.")
+    category: Optional[str] = Field(None, description="e.g. waterway, place.")
+
+
+class GeocodeAnswer(_Fixed):
+    """``GET /geocode``."""
+
+    query: str
+    results: list[GeocodeResult]
+    cached: bool = Field(description="Whether the answer came from the cache.")
+    attribution: str = Field(description="Credit to show with the results.")
 
 
 class ModeInfo(_Fixed):

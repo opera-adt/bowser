@@ -60,3 +60,25 @@ describe('useRasterTileUrl', () => {
     expect(urls).toEqual([]);
   });
 });
+
+describe('masks set by the Assistant (set_masks)', () => {
+  it('reach the tile request as the panel’s masks do', async () => {
+    const { runPageTool, newDone } = await import('../assistant/pageTools');
+    const actions: any[] = [];
+    Object.assign(mockState, {
+      datasetInfo: { ...(mockState.datasetInfo as object), temporal_coherence: info, timeseries_inversion_residuals: info },
+    });
+    await runPageTool('set_masks', { masks: [
+      { dataset: 'temporal_coherence', threshold: 0.7, mode: 'min' },
+      { dataset: 'timeseries_inversion_residuals', threshold: 0, mode: 'max' },
+    ] }, { getState: () => mockState as never, dispatch: (a: any) => actions.push(a), api: {} as never, done: newDone() });
+    mockState.layerMasks = actions.filter(a => a.type === 'ADD_LAYER_MASK').map(a => a.payload);
+    renderHook(() => useRasterTileUrl());
+    await settle();
+    const q = new URLSearchParams(urls[0].split('?')[1]);
+    expect(JSON.parse(q.get('layer_masks')!)).toEqual([
+      { dataset: 'temporal_coherence', threshold: 0.7, mode: 'min' },
+      { dataset: 'timeseries_inversion_residuals', threshold: 0, mode: 'max' },
+    ]);
+  });
+});

@@ -61,6 +61,13 @@ class Settings(BaseSettings):
     BOWSER_ASSISTANT_PAGE_KEYS: bool = False
     # Where saved keys and provider settings go (empty: the user's config dir).
     BOWSER_ASSISTANT_KEY_FILE: str = ""
+    # Tool calls the Assistant may make for one question (data and page tools).
+    BOWSER_ASSISTANT_TOOL_BUDGET: int = 8
+    # Seconds a signed-in agent's request to run a tool waits for an answer.
+    BOWSER_ASSISTANT_PERMISSION_SECONDS: float = 600.0
+    # Geocoder (place names to coordinates): a Nominatim-compatible search URL,
+    # or "off". Empty: OpenStreetMap's Nominatim (one request per second).
+    BOWSER_GEOCODER_URL: str = ""
     # The server's own provider (hosted): anthropic, openai, gemini, openrouter
     # or ollama, its key, and optionally the model.
     BOWSER_AI_PROVIDER: str = ""
