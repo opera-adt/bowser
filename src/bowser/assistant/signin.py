@@ -205,7 +205,9 @@ _PENDING: dict[str, Pending] = {}
 
 def _forget_old() -> None:
     now = time.monotonic()
-    for state in [s for s, p in _PENDING.items() if now - p.started > PENDING_SECONDS]:
+    for state in [
+        s for s, p in list(_PENDING.items()) if now - p.started > PENDING_SECONDS
+    ]:
         _PENDING.pop(state, None)
 
 
@@ -217,13 +219,13 @@ def pending_for(method_id: str) -> bool:
     """Whether a sign-in with this method is waiting for the browser or finishing."""
     _forget_old()
     return method_id in _COMPLETING or any(
-        p.method == method_id for p in _PENDING.values()
+        p.method == method_id for p in list(_PENDING.values())
     )
 
 
 def cancel_pending(method_id: str) -> None:
     """Forget the sign-ins of this method still waiting for the browser."""
-    for s in [s for s, p in _PENDING.items() if p.method == method_id]:
+    for s in [s for s, p in list(_PENDING.items()) if p.method == method_id]:
         _PENDING.pop(s, None)
 
 
