@@ -8,6 +8,23 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Find a stable reference point: `GET /reference_candidates` (full server and
+  bowser-lite, same answers) ranks places by the whole-stack median and
+  standard deviation of temporal coherence and phase similarity, how much of
+  the surrounding circle is coherent, and how much the displacement inside the
+  circle scatters. Main › Reference Point gains *Find a stable reference*: the
+  candidates are numbered on the map and listed, and choosing one (or *Use
+  recommended*) moves the reference there with *Sample around ref marker* at
+  the same radius. See docs/rest-api.md for what the scores mean and their
+  limits.
+- The reference finder keeps its per-pixel statistics on disk
+  (`~/.cache/bowser/refstats`; `BOWSER_REFSTATS_*` settings), so a restarted
+  server answers at once; both servers prepare them in the background when they
+  open a cube (after an idle delay, pausing while any request is in flight, so
+  the map stays responsive), `GET /reference_candidates/status` reports the
+  progress and
+  the page shows *Preparing… 40%*. Very large cubes can be screened on a subset
+  of dates (`screen_stride`), with the shortlist rechecked on every date.
 - `bowser mcp`, an MCP server for AI assistants such as Claude Desktop and
   Claude Code. Its tools call a running Bowser server (full or lite) for time
   series, trends, profiles, histograms, polygon statistics and GeoTIFF export,
@@ -31,6 +48,29 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `BOWSER_ASSISTANT` is set, with the server's own key (`BOWSER_AI_PROVIDER`,
   `BOWSER_AI_KEY`). `GET /config` says whether it is on. Needs the new
   `assistant` extra (`pip install 'bowser-insar[assistant]'`).
+- Add data converts on the server, in the background: a GeoTIFF that is not
+  cloud-optimized becomes a COG once, and a vector file over 20 MB (or 50 000
+  features; also GeoPackage and FlatGeobuf) becomes PMTiles vector tiles with
+  every attribute, so Identify still works. The layer's row says "Converting to
+  COG… 12 s" until it is drawn. Smaller vectors are still read in the browser.
+  With `BOWSER_ALLOW_OPEN` set, Overlays › Layers › Load file adds a file on
+  the server: type or paste its path (a folder's path opens it), or Browse a
+  server folder and click a file, double-click to add it at once, or add all
+  the folder's files (up to 50). Files can also be added at startup with
+  `bowser run --overlay PATH` (repeatable, `BOWSER_OVERLAY_FILES`). KMZ files
+  are read on the server. Server paths' conversions are cached in
+  `BOWSER_CONVERT_CACHE_DIR` (`~/.cache/bowser/convert`), kept under
+  `BOWSER_CONVERT_CACHE_MAX_GB` (20) and `BOWSER_CONVERT_CACHE_MAX_DAYS` (30).
+  New routes `POST /upload_data`, `POST /data`, `GET /data/{data_id}`,
+  `GET /data/{data_id}.{fmt}` (PMTiles over HTTP Range) and `GET /files` (a
+  server folder's files to add); `/config` says
+  `data_conversion` and `overlay_files` (off and empty on bowser-lite).
+- DEM layers: an elevation model, such as USGS 3DEP 1 m lidar, drawn as a
+  hillshade, colour relief or both, above the basemap and below the data
+  (also in split screen and on the Leaflet map). A single-band raster of
+  heights is recognised when added; any single-band raster has "Use as DEM".
+  "Use for 3D terrain" raises the MapLibre map on the DEM, merged into the
+  global terrain outside it.
 - Signing in to the Assistant instead of pasting an API key, on your own
   computer (`bowser run`, `bowser lite`, the desktop app):
   - "Sign in with Claude" hands the chat to your own Claude Code through the
@@ -51,6 +91,10 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Breaking:** Bowser now requires Python 3.12 or newer (`requires-python
+  = ">=3.12"`); Python 3.11 is no longer supported. The `writer` extra's
+  geozarr-toolkit and rasterio 1.5 already needed 3.12, and the pixi
+  environments were on 3.12.
 - The server runs on TiTiler 2.0 (rio-tiler 9), as `pip install` users
   already did: the lock had kept TiTiler 0.22. Tile URLs no longer carry an
   `@1x` suffix, TileJSON reports spec 3.0.0, and the tile size is a `tilesize`

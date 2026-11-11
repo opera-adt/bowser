@@ -131,6 +131,8 @@ def make_app(s: SimpleNamespace) -> FastAPI:
             "polygon_stats": False,
             "assistant": relay.assistant_config(s, NoOllama()),
             "geotiff_upload": False,
+            "data_conversion": {"cog": False, "pmtiles": False, "pmtiles_min_mb": None},
+            "overlay_files": [],
         }
 
     @app.get("/mode")

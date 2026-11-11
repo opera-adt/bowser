@@ -106,6 +106,61 @@ PARAMS: dict[str, dict[str, Any]] = {
         "description": "WGS84 latitude of the reference point.",
         "examples": [33.96289],
     },
+    "radius_m": {
+        "description": "Radius in metres of the circle around each candidate "
+        "(the reference circle to use with it); 0 judges single pixels.",
+        "examples": [100.0],
+    },
+    "n_candidates": {"description": "Number of candidates.", "examples": [5]},
+    "min_separation_m": {
+        "description": "Minimum distance in metres between candidates "
+        "(default 3 x radius_m).",
+        "examples": [300.0],
+    },
+    "use_masks": {
+        "description": "Also exclude pixels outside the recommended mask on most "
+        "dates (water is always excluded).",
+        "examples": [False],
+    },
+    "coherence_min": {
+        "description": "Minimum median temporal coherence of a viable pixel "
+        "(default: the `quantile` of the cube's medians).",
+        "examples": [0.8],
+    },
+    "similarity_min": {
+        "description": "Minimum median phase similarity of a viable pixel "
+        "(default: the `quantile` of the cube's medians).",
+        "examples": [0.7],
+    },
+    "quantile": {
+        "description": "Quantile of the cube's medians used as the default "
+        "thresholds (0.95: the top 5%).",
+        "examples": [0.95],
+    },
+    "k_std": {
+        "description": "Weight of the standard deviations in the pixel score "
+        "(median - k_std x std).",
+        "examples": [1.0],
+    },
+    "coherence_layer": {
+        "description": "Temporal coherence layer.",
+        "examples": ["temporal_coherence"],
+    },
+    "similarity_layer": {
+        "description": "Phase similarity layer.",
+        "examples": ["phase_similarity"],
+    },
+    "screen_stride": {
+        "description": "Screen with every n-th time chunk of dates, then recheck "
+        "the shortlist with every date (default: 1, or more only when the "
+        "screening read would exceed 4 billion values per layer).",
+        "examples": [1],
+    },
+    "displacement_layer": {
+        "description": "Displacement layer for the scatter check (skipped when "
+        "absent).",
+        "examples": ["displacement"],
+    },
     "time_idx": {
         "description": "Index along the layer's time axis; read only this step.",
         "examples": [0],
@@ -319,9 +374,40 @@ ROUTES: dict[str, dict[str, Any]] = {
         "summary": "Series within a circle",
         "description": "Median series of all pixels within `buffer_m` of a point, "
         "plus up to `n_samples` randomly chosen pixel series (fixed seed), "
-        "re-referenced and masked like `/multi_point`.",
+        "re-referenced and masked like `/multi_point`. A 2-D layer (no time axis) "
+        "is a one-step series without a label, as in `/chart_point`: `labels` and "
+        "the series are empty and `n_pixels` counts the circle's valid pixels.",
         "tags": [SERIES],
         **_DATASET_EXTRA,
+    },
+    "GET /reference_candidates": {
+        "summary": "Stable reference-point candidates",
+        "description": "Rank places to put the reference point. Per pixel, the "
+        "median and standard deviation over the whole stack of temporal coherence "
+        "and phase similarity (water excluded; with `use_masks`, pixels outside the "
+        "recommended mask on most dates too). A pixel is viable when both medians "
+        "reach the thresholds (default: the top 5% of the cube's own medians); its "
+        "score is ((med_coh - k std_coh) + (med_sim - k std_sim)) / 2. Each viable "
+        "pixel's circle of `radius_m` (the circle 'Sample around ref marker' "
+        "averages) is scored by viable fraction x mean score; the best centres at "
+        "least `min_separation_m` apart are then ranked after a displacement check "
+        "(scatter of each pixel about the circle median through time). Each "
+        "candidate has the `lon`, `lat` and `radius_m` to set as the reference; "
+        "`recommended` is the first. The per-pixel reductions are cached per cube "
+        "and layer, so only the first call reads the whole stack. Coherence is not "
+        "stability: check each candidate's velocity and what is on the ground.",
+        "tags": [STATS],
+    },
+    "GET /reference_candidates/status": {
+        "summary": "Readiness of the reference finder",
+        "description": "Whether the per-pixel statistics that "
+        "`GET /reference_candidates` needs (median and std through time of "
+        "temporal coherence, phase similarity and the water mask) are ready, being "
+        "computed (with progress) or not started. They are computed once per cube "
+        "and kept in memory and on disk. Both servers start computing them in the "
+        "background once a newly opened cube's server has been idle for a while, "
+        "and pause whenever a request is in flight (`BOWSER_REFSTATS_WARMUP`).",
+        "tags": [STATS],
     },
     "GET /dataset_range/{dataset_name}": {
         "summary": "Value range of a layer",
@@ -383,6 +469,58 @@ ROUTES: dict[str, dict[str, Any]] = {
         "description": "Store a GeoTIFF overlay and return its path, band count "
         "and per-band statistics. Its tiles are served by the `/overlay` tiler "
         "with `url=<path>`.",
+        "tags": [FILES],
+    },
+    "POST /upload_data": {
+        "summary": "Upload data to add",
+        "description": "Store a raster or vector file to add with `POST /data`: "
+        "one file, or a Shapefile's parts (`.shp`, `.dbf`, `.prj`...) together. "
+        "Returns the main file's server path. Uploads are swept after "
+        "`BOWSER_UPLOAD_RETENTION_H` hours.",
+        "tags": [FILES],
+    },
+    "POST /data": {
+        "summary": "Add a raster or vector file",
+        "description": "Make a file ready to draw. Body: "
+        '`{"path": "<server path>", "name": "<shown name>"}`. A raster is '
+        "tiled by `/overlay` from a Cloud-Optimized GeoTIFF (`cog`); a vector "
+        "over 20 MB or 50 000 features becomes a PMTiles archive of vector "
+        "tiles, a smaller one a GeoJSON (`url`). A file that is not yet in that "
+        "form is converted once in the background and cached (keyed by path, size "
+        "and mtime); poll `GET /data/{data_id}` while `status` is `converting`. "
+        "Allowed for uploads (`POST /upload_data`), for `BOWSER_OVERLAY_FILES`, "
+        "and for any path when `BOWSER_ALLOW_OPEN` is set (403 otherwise).",
+        "tags": [FILES],
+    },
+    "GET /files": {
+        "summary": "List a server folder",
+        "description": "One server folder, for picking files to add with "
+        "`POST /data` (Overlays › Load file › Browse): its sub-folders first, then "
+        "the files the page can add (GeoTIFF, GeoJSON/JSON, Shapefile `.shp`, "
+        "GeoPackage, FlatGeobuf, KML/KMZ, GPX, CSV/TSV/TXT, zipped Shapefile) with "
+        "their sizes, sorted by name; not its sub-folders' contents. `dir` "
+        "defaults to the folder of the cube being viewed, else the server user's "
+        "home. Symlinks are resolved; hidden files are left out unless "
+        "`hidden=true`; entries the server's user cannot read are skipped and "
+        "counted (`skipped`); at most 1000 entries (`truncated`). 403 unless "
+        "`BOWSER_ALLOW_OPEN` is set, as for server paths in `POST /data`; no "
+        "folder is off limits beyond what the server's user can read. 400 for a "
+        "path that is not a folder.",
+        "tags": [FILES],
+    },
+    "GET /data/{data_id}": {
+        "summary": "Added file status",
+        "description": "Whether a file added with `POST /data` is still being "
+        "converted, ready (a raster with its COG path, bands and bounds; a vector "
+        "with the `url` to read it from) or failed (with the reason). 404 for an "
+        "unknown id.",
+        "tags": [FILES],
+    },
+    "GET /data/{data_id}.{fmt}": {
+        "summary": "Converted vector",
+        "description": "A vector converted by `POST /data`: the PMTiles archive "
+        "(`fmt=pmtiles`), served in byte ranges for HTTP `Range` requests (206), "
+        "or the GeoJSON (`fmt=geojson`). 404 until the conversion is ready.",
         "tags": [FILES],
     },
     "GET /export/geotiff": {
@@ -526,6 +664,11 @@ ROUTES: dict[str, dict[str, Any]] = {
 LITE_501 = (
     "POST /upload_mask",
     "POST /upload_raster",
+    "POST /upload_data",
+    "POST /data",
+    "GET /data/{data_id}",
+    "GET /data/{data_id}.{fmt}",
+    "GET /files",
     "GET /export/geotiff",
     "POST /polygon_timeseries",
 )
@@ -576,6 +719,19 @@ class ErrorDetail(_Fixed):
     detail: str
 
 
+class DataConversion(_Fixed):
+    """What a server converts added files to (``POST /data``); all off on lite."""
+
+    cog: bool = Field(description="Rasters are converted to Cloud-Optimized GeoTIFFs.")
+    pmtiles: bool = Field(
+        description="Large vectors are converted to PMTiles (needs GDAL's driver)."
+    )
+    pmtiles_min_mb: Optional[float] = Field(
+        description="Vector uploads larger than this many MB go to the server to be "
+        "tiled; smaller ones are read in the browser. Null when `pmtiles` is off."
+    )
+
+
 class AssistantFlag(_Fixed):
     """The Assistant's switch in ``GET /config``."""
 
@@ -604,6 +760,12 @@ class ConfigInfo(_Fixed):
     geotiff_upload: bool = Field(
         description="Whether POST /upload_mask and POST /upload_raster work on "
         "this server."
+    )
+    # --- added data (POST /data) ---
+    data_conversion: DataConversion
+    overlay_files: list[str] = Field(
+        description="Files the page adds when it opens (`bowser run --overlay`, "
+        "BOWSER_OVERLAY_FILES)."
     )
     assistant: AssistantFlag
 
@@ -933,6 +1095,141 @@ class BufferSeries(_Fixed):
     n_pixels: int = Field(description="Pixels with data within the circle.")
 
 
+class ReferenceCandidate(_Fixed):
+    """One candidate of ``GET /reference_candidates``."""
+
+    rank: int = Field(description="1 is the best.")
+    lon: float = Field(description="WGS84 longitude of the pixel centre.")
+    lat: float = Field(description="WGS84 latitude of the pixel centre.")
+    radius_m: float = Field(description="Reference circle radius to use with it.")
+    x: float = Field(description="Easting in the cube's CRS.")
+    y: float = Field(description="Northing in the cube's CRS.")
+    row: int = Field(description="Pixel row at full resolution.")
+    col: int = Field(description="Pixel column at full resolution.")
+    temporal_coherence_median: Optional[float]
+    temporal_coherence_std: Optional[float]
+    phase_similarity_median: Optional[float]
+    phase_similarity_std: Optional[float]
+    pixel_score: Optional[float] = Field(
+        description="((med_coh - k std_coh) + (med_sim - k std_sim)) / 2."
+    )
+    viable_fraction: Optional[float] = Field(
+        description="Share of the circle's pixels that are viable."
+    )
+    mean_score: Optional[float] = Field(
+        description="Mean pixel score of the circle's valid pixels."
+    )
+    neighbourhood_score: Optional[float] = Field(
+        description="viable_fraction x mean_score."
+    )
+    displacement_scatter_m: Optional[float] = Field(
+        description="Median over the circle of std through time of "
+        "(pixel - circle median) displacement, in metres; low is good."
+    )
+    score: Optional[float] = Field(
+        description="neighbourhood_score x s0 / (s0 + displacement_scatter_m)."
+    )
+    velocity: Optional[float] = Field(
+        description="The velocity layer at the pixel, in its units."
+    )
+    reason: str
+
+
+class CandidateThresholds(_Fixed):
+    """Thresholds and weights ``GET /reference_candidates`` used."""
+
+    temporal_coherence_median_min: float
+    phase_similarity_median_min: float
+    from_quantile: dict[str, bool] = Field(
+        description="Per layer: true when the threshold came from `quantile`."
+    )
+    quantile: float
+    k_std: float
+    scatter_scale_m: float = Field(description="s0 of the final score.")
+
+
+class CandidateDistribution(_Fixed):
+    """Percentiles of the per-pixel medians over the valid pixels."""
+
+    temporal_coherence_median: dict[str, Optional[float]]
+    phase_similarity_median: dict[str, Optional[float]]
+    n_valid_pixels: int
+    n_viable_pixels: int
+
+
+class CandidateLayers(_Fixed):
+    """The layers ``GET /reference_candidates`` read (null when absent)."""
+
+    temporal_coherence: str
+    phase_similarity: str
+    displacement: Optional[str]
+    velocity: Optional[str]
+    water_mask: Optional[str]
+    masks: list[str]
+
+
+class CandidateScreening(_Fixed):
+    """The grid the search ran on."""
+
+    level: int = Field(description="Pyramid level screened (0: full resolution).")
+    pixel_size_m: float
+    full_pixel_size_m: float
+    refined: bool = Field(
+        description="Whether the shortlist was recomputed at full resolution "
+        "with every date (after a coarse level or a date subset)."
+    )
+    circle_pixels: int = Field(description="Pixels in one circle when screening.")
+    date_stride: int = Field(description="Every n-th time chunk was screened.")
+    dates_screened: int = Field(description="Dates the screening statistics used.")
+
+
+class CandidateParameters(_Fixed):
+    """The search parameters used."""
+
+    radius_m: float
+    min_separation_m: float
+    n: int
+    use_masks: bool
+
+
+class ReferenceCandidates(_Fixed):
+    """``GET /reference_candidates``."""
+
+    recommended: Optional[ReferenceCandidate] = Field(
+        description="The first candidate: set it with its lon, lat and radius_m."
+    )
+    candidates: list[ReferenceCandidate]
+    thresholds: CandidateThresholds
+    distribution: CandidateDistribution
+    parameters: CandidateParameters
+    layers: CandidateLayers
+    screening: CandidateScreening
+    cached: bool = Field(
+        description="True when the per-pixel stack statistics came from the cache."
+    )
+
+
+class StatsLayerStatus(_Fixed):
+    """One layer's per-pixel statistics in ``GET /reference_candidates/status``."""
+
+    state: Literal["idle", "running", "ready"]
+    progress: float = Field(description="0 to 1.")
+
+
+class ReferenceCandidatesStatus(_Fixed):
+    """``GET /reference_candidates/status``."""
+
+    state: Literal["idle", "running", "ready", "unavailable"] = Field(
+        description="ready: a search answers in seconds; running: being "
+        "prepared (by the background warm-up or a search); idle: not started; "
+        "unavailable: the cube lacks the layers."
+    )
+    progress: float = Field(description="0 to 1, over the layers.")
+    layers: dict[str, StatsLayerStatus]
+    detail: Optional[str]
+    warm_up: bool = Field(description="Whether this server warms up opened cubes.")
+
+
 class ValueRange(_Fixed):
     """``GET /dataset_range/{dataset_name}``."""
 
@@ -1054,6 +1351,78 @@ class UploadedRaster(_Fixed):
     bands: list[BandStats]
 
 
+class UploadedData(_Fixed):
+    """``POST /upload_data``: where the upload is, to pass to ``POST /data``."""
+
+    path: str = Field(description="Server path of the main file.")
+    name: str = Field(description="Its name as uploaded.")
+
+
+class DataStatus(_Fixed):
+    """``POST /data`` and ``GET /data/{data_id}``."""
+
+    id: str = Field(description="Conversion id, for GET /data/{data_id}.")
+    name: str = Field(description="The file's name.")
+    kind: Literal["raster", "vector"]
+    format: Literal["cog", "pmtiles", "geojson"] = Field(
+        description="What it is drawn from: a COG through /overlay, or a PMTiles "
+        "archive or GeoJSON from `url`."
+    )
+    status: Literal["converting", "ready", "failed"]
+    converted: Optional[bool] = Field(
+        None, description="False when a raster was already a COG."
+    )
+    elapsed_s: Optional[float] = Field(
+        None, description="Seconds since the conversion started."
+    )
+    error: Optional[str] = None
+    bounds: Optional[list[float]] = Field(
+        None, description="WGS84 [west, south, east, north]."
+    )
+    # A raster, once ready.
+    cog: Optional[str] = Field(
+        None, description="Server path of the COG; pass as url= to /overlay."
+    )
+    band_count: Optional[int] = None
+    bands: Optional[list[BandStats]] = None
+    nodata: Optional[float] = None
+    dem: Optional[bool] = Field(
+        None,
+        description="Whether it looks like an elevation model (one band of "
+        "heights); the page then draws it as a hillshade.",
+    )
+    # A vector.
+    url: Optional[str] = Field(
+        None, description="Where to read it, once ready: GET /data/{data_id}.{fmt}."
+    )
+    layers: Optional[list[str]] = Field(None, description="Its non-empty layers.")
+    feature_count: Optional[int] = None
+
+
+class FolderEntry(_Fixed):
+    """A sub-folder, or a file ``POST /data`` adds, in ``GET /files``."""
+
+    name: str
+    path: str = Field(description="Server path; pass a file's to POST /data.")
+    type: Literal["dir", "file"]
+    size: Optional[int] = Field(None, description="A file's size in bytes.")
+    kind: Optional[Literal["raster", "vector"]] = Field(
+        None, description="What a file is added as."
+    )
+
+
+class FolderListing(_Fixed):
+    """``GET /files``: one server folder."""
+
+    dir: str = Field(description="The folder, with its symlinks resolved.")
+    parent: Optional[str] = Field(description="Its parent; null at the root.")
+    entries: list[FolderEntry] = Field(
+        description="Sub-folders first, then files, each sorted by name."
+    )
+    truncated: bool = Field(description="More than 1000 entries: only those sent.")
+    skipped: int = Field(description="Entries left out that could not be read.")
+
+
 class GnssStation(_Fixed):
     """A UNR station with its MIDAS velocity (mm/yr, North America fixed)."""
 
@@ -1141,6 +1510,15 @@ def image_response(media_type: str, description: str) -> dict[int | str, Any]:
 
 
 #: ``responses`` for the routes bowser-lite answers with 501.
+#: ``GET /data/{data_id}.{fmt}``: the whole file, or the byte range asked for.
+DATA_FILE_RESPONSES: dict[int | str, Any] = {
+    200: {
+        "description": "The PMTiles archive or GeoJSON.",
+        "content": {"application/vnd.pmtiles": {}, "application/geo+json": {}},
+    },
+    206: {"description": "The byte range of the archive asked for with `Range`."},
+}
+
 NOT_IN_LITE: dict[int | str, Any] = {
     501: {"model": ErrorDetail, "description": "Needs the full server (GDAL)."}
 }

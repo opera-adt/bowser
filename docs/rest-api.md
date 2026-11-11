@@ -43,7 +43,7 @@ are indexes into a layer's `x_values`.
 
 | Group | Endpoint | What it returns |
 | --- | --- | --- |
-| Config | `GET /config` | Page title, logo flag, whether GeoTIFF export works |
+| Config | `GET /config` | Page title, logo flag, whether GeoTIFF export works, what added files are converted to |
 | | `GET /mode` | `md` (GeoZarr) or `cog` (GeoTIFF stack) |
 | Data | `GET /datasets` | Every layer: dates, bounds, reference point, units, description |
 | | `GET /variables` | Dimensions, shape, dtype and attributes of each variable |
@@ -60,6 +60,8 @@ are indexes into a layer's `x_values`.
 | | `GET /histogram/{name}` | Histogram of one step |
 | | `POST /polygon_timeseries` | Per-date statistics inside a polygon |
 | | `POST /profile` | Values along a line |
+| | `GET /reference_candidates` | Stable places to put the reference point |
+| | `GET /reference_candidates/status` | Whether the reference finder's statistics are ready |
 | Tiles | `GET /md/{tms}/tilejson.json` | TileJSON with the tile URL template |
 | | `GET /md/tiles/{tms}/{z}/{x}/{y}` | A map tile |
 | | `GET /colorbar/{cmap}` | A colormap gradient image |
@@ -68,10 +70,47 @@ are indexes into a layer's `x_values`.
 | Export | `GET /export/geotiff` | One step of a layer as a GeoTIFF |
 | Files | `POST /upload_mask` | Store a GeoTIFF mask; returns its server path |
 | | `POST /upload_raster` | Store a GeoTIFF overlay; returns path and band stats |
+| | `POST /upload_data` | Store a file (or a Shapefile's parts) to add with `POST /data` |
+| | `POST /data` | Add a raster or vector file; converts it once in the background |
+| | `GET /data/{id}` | Its conversion status: converting, ready or failed |
+| | `GET /data/{id}.{fmt}` | A converted vector: PMTiles (HTTP Range) or GeoJSON |
+| | `GET /files` | A server folder's sub-folders and addable files (`BOWSER_ALLOW_OPEN`) |
 | | `/overlay/*` (full only) | TiTiler routes for uploaded overlays |
 | Context | `GET /gnss/stations` | UNR GNSS stations in a box, with velocities |
 | | `GET /gnss/series/{station}` | A station's daily positions |
 | | `GET /wms_capabilities` | Named layers of a WMS |
+
+## Added files
+
+`POST /data` with `{"path": ...}` makes a file ready to draw. Uploads
+(`POST /upload_data`), `BOWSER_OVERLAY_FILES` (`bowser run --overlay`) and,
+with `BOWSER_ALLOW_OPEN`, any server path are allowed; other paths get 403.
+
+- A raster is tiled by `/overlay` from a Cloud-Optimized GeoTIFF: one already
+  is used where it is, anything else is converted once. A single-band raster of
+  heights comes back with `"dem": true` and is drawn as a hillshade.
+- A vector over 20 MB or 50 000 features is converted to a PMTiles archive of
+  vector tiles (GDAL's PMTiles driver, zooms up to 14, every attribute kept),
+  read by the page with HTTP Range requests from `GET /data/{id}.pmtiles`. A
+  smaller one becomes a GeoJSON in WGS84 that the page holds whole. The page
+  reads vector files under the threshold itself and never sends them.
+- Conversions run in a background thread; poll `GET /data/{id}` while `status`
+  is `converting`. `/config` says what the server converts:
+  `data_conversion: {cog, pmtiles, pmtiles_min_mb}`.
+- `GET /files?dir=<folder>` lists one server folder for Overlays › Load file ›
+  Browse: its sub-folders, then the files `POST /data` adds, with sizes
+  (`{dir, parent, entries, truncated, skipped}`). Without `dir` it starts in the
+  folder of the cube being viewed, else the server user's home. It is gated
+  like server paths in `POST /data` (403 without `BOWSER_ALLOW_OPEN`) and, like
+  `POST /catalog/scan`, has no root folder of its own: it lists any folder the
+  server's user can read. bowser-lite answers 501.
+
+Conversions of server paths are cached in `BOWSER_CONVERT_CACHE_DIR` (default
+`~/.cache/bowser/convert`), keyed by path, size and mtime, and kept within
+`BOWSER_CONVERT_CACHE_MAX_GB` (default 20) and `BOWSER_CONVERT_CACHE_MAX_DAYS`
+(default 30; 0 turns a limit off): the least recently used go first. An
+upload's conversion sits next to it and is swept with it after
+`BOWSER_UPLOAD_RETENTION_H` hours.
 
 ## Examples
 
@@ -134,13 +173,100 @@ curl -s "http://localhost:8000/md/WebMercatorQuad/tilejson.json?variable=displac
 &time_idx=10&rescale=-0.05,0.05&colormap_name=rdbu_r&tilesize=256"
 ```
 
+## Finding a stable reference point
+
+`GET /reference_candidates` ranks places to put the reference point, in one
+call (Main › Reference Point › *Find a stable reference* on the page):
+
+```bash
+curl -s "http://localhost:8000/reference_candidates?radius_m=100&n=5" \
+  | jq '.recommended | {lon, lat, radius_m, reason}'
+```
+
+How it scores, with the parameters that change each step:
+
+1. **Per pixel, over the whole stack:** the median and standard deviation
+   through time of `temporal_coherence` and of `phase_similarity`. Water
+   (`water_mask` = 0) is left out; with `use_masks=true`, so are pixels outside
+   the `recommended_mask` on most dates.
+2. **Viable pixels:** both medians at least the thresholds, by default the
+   `quantile` (0.95, the top 5 %) of the cube's own medians, so the rule adapts
+   to the cube; `coherence_min` and `similarity_min` set them instead. The
+   **pixel score** is `((med_coh - k std_coh) + (med_sim - k std_sim)) / 2`
+   with `k = k_std` (1): a pixel whose quality swings through time loses to a
+   steady one.
+3. **Neighbourhood:** around each viable pixel, the circle of `radius_m`
+   (100 m; the same pixels *Sample around ref marker* averages). Its
+   `viable_fraction` (pixels off the grid or masked count as not viable) times
+   the circle's `mean_score` is the `neighbourhood_score`, so a lone bright
+   pixel in noise loses to a coherent patch.
+4. **Spacing and displacement check:** the best centres at least
+   `min_separation_m` apart (3 x radius) are shortlisted, and for each the
+   `displacement_scatter_m` is measured: the median over the circle of each
+   pixel's standard deviation through time about the circle's median. Low
+   means the circle moves as one, which a circle-averaged reference needs. The
+   final `score` is `neighbourhood_score x 5 mm / (5 mm + scatter)`.
+
+Each candidate carries the `lon`, `lat` and `radius_m` to set as the
+reference; `recommended` is the first. The response also gives the thresholds
+used, percentiles of both medians over the cube (`distribution`) and, per
+candidate, the medians, standard deviations, velocity and a one-line `reason`.
+
+The per-pixel reductions do not depend on the reference or the parameters, so
+they are computed once per cube and layer and kept, in memory and on disk
+(`~/.cache/bowser/refstats`, or `BOWSER_REFSTATS_CACHE_DIR`; `.npz` files keyed
+by the store, pyramid level, layer, date stride and a fingerprint of the
+layer's files, so a rewritten layer is recomputed). A restarted server reuses
+them. The disk cache drops files older than `BOWSER_REFSTATS_CACHE_MAX_AGE_DAYS`
+(30) and the least recently used beyond `BOWSER_REFSTATS_CACHE_MAX_MB` (2048);
+`BOWSER_REFSTATS_CACHE=0` turns it off. `BOWSER_REFSTATS_WORKERS` (2) threads
+read the stack.
+
+Both servers start computing them in the background when they open a cube (at
+startup, on a catalog entry's first request, on *Open*), and keep out of the
+way while doing so:
+
+- they start 10 s after the cube opened (`BOWSER_REFSTATS_WARMUP_DELAY_S`), once
+  no request came for 2 s (`BOWSER_REFSTATS_WARMUP_IDLE_S`);
+- before each read they pause while any request is in flight (tiles, series,
+  histograms, ...; not the status route), and resume 0.5 s after the last one
+  (`BOWSER_REFSTATS_WARMUP_RESUME_S`);
+- they run at low CPU priority, and bowser-lite, the desktop app's server, reads
+  with one thread (`BOWSER_REFSTATS_WARMUP_WORKERS`).
+
+A search that arrives meanwhile is not held back: it takes the computation
+over, keeping the blocks already read, and finishes it at full speed.
+`GET /reference_candidates/status` says whether the statistics are `ready`,
+`running` (with `progress`) or `idle`, and the page shows *Preparing… 40%*
+while they run. `BOWSER_REFSTATS_WARMUP=0` turns the warm-up off.
+
+A cube larger than 16 million pixels per date is screened on its coarsest
+pyramid level below that size; a screening read above 4 billion values per
+layer also uses every n-th time chunk of dates (`screen_stride` sets it). In
+both cases the shortlisted candidates are recomputed at full resolution with
+every date before ranking, and the thresholds and `distribution` describe the
+screening read. On Arkabutla, screening every 2nd, 3rd or 4th chunk gave the
+same five places as every date (one moved by 30 m), so every date stays the
+default where it is affordable.
+
+**Limits.** Coherence says the phase is consistent, not that the ground is
+still: a coherent building can sit on compacting ground, and a dam or a
+quarry face can be coherent and moving. Before using a candidate, look at its
+`velocity` and its time series, and at what is on the ground there (geology,
+pumping, construction). The thresholds are relative to the cube, so in a cube
+that is poor everywhere the "top 5 %" can still be poor: check the
+`distribution` and the medians. The displacement check compares pixels inside
+the circle with each other; motion of the whole circle is not seen by it.
+
 ## What bowser-lite does not do
 
 bowser-lite needs no GDAL, so it leaves out what needs it:
 
-- `POST /upload_mask`, `POST /upload_raster`, `GET /export/geotiff` and
-  `POST /polygon_timeseries` answer HTTP 501 with a `detail` message, and
-  `GET /config` reports `"geotiff_export": false`;
+- `POST /upload_mask`, `POST /upload_raster`, `GET /export/geotiff`,
+  `POST /polygon_timeseries` and the added-file routes (`/upload_data`,
+  `/data`) answer HTTP 501 with a `detail` message, and `GET /config` reports
+  `"geotiff_export": false` and `data_conversion` all off (small vector files
+  are still read in the browser);
 - GeoTIFF stacks (COG mode, `GET /mode` is always `md`) and the `/cog` and
   `/overlay` tilers (501);
 - of TiTiler's `/md` routes, only the TileJSON and the tiles; tiles are PNG in

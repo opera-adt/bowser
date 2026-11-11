@@ -12,6 +12,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import { useAppContext } from '../context/AppContext';
 import { useRasterTileUrl } from '../map/useRasterTileUrl';
+import { TERRAIN_SOURCE } from '../map/terrain';
 import { OVERLAY_PREFIX, applyTerrain, useBasemapLayers, useDataRaster, useOverlayLayers } from './maplibreLayers';
 import SplitDivider from './SplitDivider';
 
@@ -37,7 +38,7 @@ export function mirrorOverlays(main: maplibregl.Map, right: maplibregl.Map) {
 export default function MapLibreSplit({ main, mainReady, terrain }: {
   main: maplibregl.Map | null;
   mainReady: boolean;
-  terrain: { enabled: boolean; exaggeration: number };
+  terrain: { enabled: boolean; exaggeration: number; source?: typeof TERRAIN_SOURCE };
 }) {
   const { state } = useAppContext();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -72,8 +73,8 @@ export default function MapLibreSplit({ main, mainReady, terrain }: {
   }, [ready, right, main]);
 
   useEffect(() => {
-    if (ready && right) applyTerrain(right, terrain.enabled, terrain.exaggeration);
-  }, [ready, right, terrain.enabled, terrain.exaggeration]);
+    if (ready && right) applyTerrain(right, terrain.enabled, terrain.exaggeration, terrain.source);
+  }, [ready, right, terrain.enabled, terrain.exaggeration, terrain.source?.tiles[0]]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   useBasemapLayers(right, ready);
   useOverlayLayers(right, ready, 'right');
