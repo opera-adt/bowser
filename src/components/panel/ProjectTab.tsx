@@ -171,8 +171,10 @@ export default function ProjectTab() {
     'currentDataset', 'currentTimeIndex', 'colormap', 'vmin', 'vmax',
     'opacity', 'dataMode',
     'refMarkerPosition', 'refEnabled', 'refMarkerVisible', 'refTimeIndex',
-    'timeSeriesPoints', 'annotations', 'layerMasks', 'customMaskPath', 'overlays', 'fitSettings', 'units',
+    'timeSeriesPoints', 'annotations', 'layerMasks', 'customMaskPath', 'overlays', 'units',
     'chartAreas', 'areaBand',
+    // The chart's model: whether it and its residuals are shown, and its terms.
+    'showTrends', 'showResiduals', 'fitSettings',
   ] as const;
   const saveProject = useCallback(() => {
     const project: Record<string, unknown> = { bowser_project: 1, saved: new Date().toISOString() };
@@ -234,6 +236,8 @@ export default function ProjectTab() {
       units: (v) => v === 'metric' || v === 'imperial',
       chartAreas: arrayOf(isArea),
       areaBand: (v) => v === 'std' || v === 'pct',
+      showTrends: isBool,
+      showResiduals: isBool,
       fitSettings: (v) => obj(v) && [0, 1, 2, 3].includes(v.polyOrder as number) && isBool(v.annual) && isBool(v.semiannual)
         && isBool(v.rejectOutliers) && arrayOf(isStr)(v.steps) && arrayOf(isStr)(v.breaks),
     };
