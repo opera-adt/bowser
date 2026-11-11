@@ -97,6 +97,7 @@ expected = {
         "sign_in": [],
         "page_channel": False,
     },
+    "geotiff_upload": False,
 }
 assert cfg.json() == expected, cfg.json()
 assert c.get("/config").json()["title"] != "Cube B"
