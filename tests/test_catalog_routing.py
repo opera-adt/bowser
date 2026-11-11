@@ -63,6 +63,7 @@ SCRIPT = textwrap.dedent(
         "sign_in": [],
         "page_channel": False,
     },
+        "geotiff_upload": True,
     }, cfg.json()
     assert c.get("/config").json()["title"] != "Cube B"
 

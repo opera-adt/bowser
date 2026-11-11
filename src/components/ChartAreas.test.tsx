@@ -265,6 +265,22 @@ describe('areas in the time-series chart', () => {
     expect(screen.getByTitle('Remove Field')).toBeTruthy();
   });
 
+  it('keeps a hidden area chip on show, dimmed, under Pure CSS (whose .hidden is display: none)', async () => {
+    const pure = document.createElement('style');
+    pure.textContent = '.hidden,[hidden]{display:none!important}';
+    document.head.appendChild(pure);
+    try {
+      renderApp(open, <ChartOfFirstWindow />);
+      await waitFor(() => expect(screen.getByTitle('Remove Field')).toBeTruthy());
+      act(() => dispatchRef({ type: 'UPDATE_CHART_AREA', payload: { id: stateRef.chartAreas[0].id, updates: { visible: false } } }));
+      const chip = screen.getByTitle('Remove Field').closest('.chart-area-chip') as HTMLElement;
+      expect(chip.classList.contains('area-hidden')).toBe(true);
+      expect(getComputedStyle(chip).display).not.toBe('none');
+    } finally {
+      pure.remove();
+    }
+  });
+
   it('switches the band to p10–p90 and remembers the choice', async () => {
     renderApp(open, <ChartOfFirstWindow />);
     await waitFor(() => expect(drawn.data?.datasets.some(d => d.label === 'Field +1 std')).toBe(true));

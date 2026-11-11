@@ -139,17 +139,50 @@ export function chartedFeatureColors(o: Overlay, charted: Charted[]): Map<number
 
 type DrawingFeature = { id?: unknown; geometry?: { coordinates?: unknown } | null; properties?: Record<string, unknown> | null };
 
+type Position = number[];
+
+/** A closed ring with its vertices from the smallest one, counter-clockwise (by the shoelace sign). */
+function canonicalRing(ring: Position[]): Position[] {
+  const closed = ring.length > 1 && ring[0][0] === ring[ring.length - 1][0] && ring[0][1] === ring[ring.length - 1][1];
+  let pts = closed ? ring.slice(0, -1) : ring.slice();
+  let area = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const [x1, y1] = pts[i], [x2, y2] = pts[(i + 1) % pts.length];
+    area += x1 * y2 - x2 * y1;
+  }
+  if (area < 0) pts = pts.reverse();
+  let start = 0;
+  pts.forEach((p, i) => { if (p[0] < pts[start][0] || (p[0] === pts[start][0] && p[1] < pts[start][1])) start = i; });
+  return [...pts.slice(start), ...pts.slice(0, start)];
+}
+
+/**
+ * A key that is the same for the same shape however its rings are written: the editor hands
+ * shapes back with their rings reversed (and may start them at another vertex), and a polygon
+ * may come back as a one-part MultiPolygon.
+ */
+export function shapeKey(geometry: { type?: string; coordinates?: unknown } | null | undefined): string {
+  const c = geometry?.coordinates;
+  if (!Array.isArray(c)) return JSON.stringify(c ?? null);
+  const isRing = (r: unknown) => Array.isArray(r) && Array.isArray(r[0]) && typeof (r[0] as unknown[])[0] === 'number';
+  const isPolygon = (p: unknown) => Array.isArray(p) && p.length > 0 && p.every(isRing);
+  const polygons: unknown[] | null = isPolygon(c) ? [c] : (c.length > 0 && c.every(isPolygon) ? c : null);
+  if (!polygons) return JSON.stringify(c);
+  return JSON.stringify(polygons.map(p => (p as Position[][]).map(canonicalRing)));
+}
+
 /**
  * The drawn shape an area stands for (one drawn for + Area, or picked from the Drawings): found
- * by its geometry, since the editor may reorder shapes; -1 when it is not a drawing.
+ * by its shape (shapeKey), since the editor may reorder shapes and rewrite their rings; -1 when
+ * it is not a drawing.
  */
 export function drawingIndexOf(
   area: { geometry?: { coordinates: unknown }; source?: { overlayId: string } },
   drawings: OverlayFeatures | undefined,
 ): number {
   if (!drawings || !area.geometry || (area.source && area.source.overlayId !== DRAWINGS_ID)) return -1;
-  const shape = JSON.stringify(area.geometry.coordinates);
-  return (drawings.features as DrawingFeature[]).findIndex(f => JSON.stringify(f?.geometry?.coordinates) === shape);
+  const shape = shapeKey(area.geometry);
+  return (drawings.features as DrawingFeature[]).findIndex(f => shapeKey(f?.geometry) === shape);
 }
 
 /** A drawn shape's name (its ``name`` property), or "" when it has none. */
@@ -179,12 +212,12 @@ function carryNames(old: OverlayFeatures | undefined, next: OverlayFeatures): Ov
   const before = old.features as DrawingFeature[];
   const key = (f: DrawingFeature) => (f.id !== undefined && f.id !== null ? `id:${String(f.id)}` : null);
   const byId = new Map(before.flatMap(f => (key(f) && drawingName(f) ? [[key(f)!, drawingName(f)]] : [])));
-  const byShape = new Map(before.flatMap(f => (drawingName(f) ? [[JSON.stringify(f.geometry?.coordinates), drawingName(f)]] : [])));
+  const byShape = new Map(before.flatMap(f => (drawingName(f) ? [[shapeKey(f.geometry), drawingName(f)]] : [])));
   return {
     ...next,
     features: (next.features as DrawingFeature[]).map(f => {
       if (drawingName(f)) return f;
-      const name = (key(f) && byId.get(key(f)!)) || byShape.get(JSON.stringify(f.geometry?.coordinates));
+      const name = (key(f) && byId.get(key(f)!)) || byShape.get(shapeKey(f.geometry));
       return name ? { ...f, properties: { ...(f.properties ?? {}), name } } : f;
     }),
   };
