@@ -196,6 +196,8 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     JSON.stringify(state.timeSeriesPoints.map(p => ({ id: p.id, position: p.position, visible: p.visible }))),
     state.refMarkerPosition,
     state.refEnabled,
+    state.refBufferEnabled,
+    state.refBufferRadius,
     state.datasetInfo,
     state.layerMasks,
     fetchMultiPointTimeSeries,
