@@ -14,6 +14,9 @@ import { customGnssOverlay, gnssOverlay } from '../../map/contextServices';
 import { SectionHeader, Switch } from './controls';
 import { displayUnit, type DisplayUnit } from '../../utils/units';
 
+/** How a GNSS file should look, with example files to copy. */
+const GNSS_FORMAT_DOCS = 'https://github.com/opera-adt/bowser/blob/main/docs/gnss.md#the-file-format';
+
 /** Half the side (degrees) of the view the zoom button opens on a station: about 2 km. */
 const ZOOM_DEG = 0.01;
 
@@ -160,7 +163,7 @@ export default function GnssTab() {
   return (
     <>
       <div className="sidebar-section">
-        <SectionHeader label="GNSS stations" />
+        <SectionHeader label="UNR GNSS stations" />
         <div style={{ display: 'flex', gap: 6 }}>
           <button type="button" className="hist-btn" disabled={loading || !state.viewBounds} onClick={find}>
             {loading ? 'Finding…' : stations ? 'Find again in this view' : 'Find stations in this view'}
@@ -213,7 +216,7 @@ export default function GnssTab() {
         </div>
       </div>
       <div className="sidebar-section">
-        <SectionHeader label="Your GNSS files" />
+        <SectionHeader label="Load local GNSS file" />
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
           <button type="button" className="hist-btn" style={{ flex: 1 }} disabled={fileBusy}
             title="CSV (date, east, north, up, and the station's lon/lat) or NGL .tenv3; one station per file, or a station column"
@@ -230,6 +233,9 @@ export default function GnssTab() {
           </select>
           <input ref={fileInput} type="file" multiple accept={GNSS_ACCEPT} style={{ display: 'none' }} aria-label="GNSS files"
             onChange={e => { const files = Array.from(e.target.files ?? []); e.currentTarget.value = ''; if (files.length) void pickFiles(files); }} />
+        </div>
+        <div className="row-label" style={{ fontSize: '0.7em' }}>
+          <a href={GNSS_FORMAT_DOCS} target="_blank" rel="noopener noreferrer">File format and examples</a>
         </div>
         {allowOpen && (
           <div style={{ display: 'flex', gap: 4 }}>
@@ -254,7 +260,7 @@ export default function GnssTab() {
                 else showCustom(custom);
               }} />
             </div>
-            <div className="gnss-list" role="listbox" aria-label="Your GNSS stations">
+            <div className="gnss-list" role="listbox" aria-label="Local GNSS stations">
               {custom.map(s => (
                 <div key={s.id} className="gnss-row">
                   <button type="button" role="option" aria-selected={!!selected && gnssKey(selected) === gnssKey(s)}

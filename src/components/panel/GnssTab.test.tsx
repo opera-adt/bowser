@@ -70,7 +70,7 @@ afterEach(() => { cleanup(); dispatch.mockReset(); vi.restoreAllMocks(); vi.unst
 const overlaysAdded = () => dispatch.mock.calls.map(([a]) => a).filter(a => a.type === 'ADD_OVERLAY')
   .map(a => (a as { payload: { id: string; data: GeoJSON.FeatureCollection } }).payload);
 
-describe('GNSS tab › Your GNSS files', () => {
+describe('GNSS tab › Load local GNSS file', () => {
   it('loads picked files: posts their text and the units, reports rows and skipped rows, lists and maps the stations', async () => {
     render(<GnssTab />);
     fireEvent.change(screen.getByLabelText('Units of the files'), { target: { value: 'mm' } });
@@ -79,7 +79,7 @@ describe('GNSS tab › Your GNSS files', () => {
     expect(await screen.findByText(/custom_station\.csv: DEMO, 22 rows \(1 skipped\) in mm, 2025-11-01 – 2026-03-28/)).toBeTruthy();
     const post = calls().find(c => c.url === '/gnss/custom' && c.init?.method === 'POST')!;
     expect(JSON.parse(String(post.init!.body))).toEqual({ text: 'date,east,north,up\n', name: 'custom_station.csv', units: 'mm' });
-    const list = screen.getByRole('listbox', { name: 'Your GNSS stations' });
+    const list = screen.getByRole('listbox', { name: 'Local GNSS stations' });
     expect(within(list).getByRole('option', { name: /DEMO/ })).toBeTruthy();
     const layer = overlaysAdded().find(o => o.id === 'gnss_custom')!;
     expect(layer.data.features.map(f => f.properties!.id)).toEqual(['DEMO']);
@@ -96,7 +96,9 @@ describe('GNSS tab › Your GNSS files', () => {
     const file = picked('a,b\n', 'bad.csv');
     fireEvent.change(screen.getByLabelText('GNSS files'), { target: { files: [file] } });
     expect((await screen.findByRole('alert')).textContent).toBe('bad.csv: No columns found: give a header row');
-    expect(screen.queryByRole('listbox', { name: 'Your GNSS stations' })).toBeNull();
+    expect(screen.queryByRole('listbox', { name: 'Local GNSS stations' })).toBeNull();
+    // The file format and example files are one click away.
+    expect(screen.getByRole('link', { name: 'File format and examples' }).getAttribute('href')).toMatch(/docs\/gnss\.md#the-file-format$/);
   });
 
   it('lists stations loaded before (by the Assistant or MCP) when the tab opens, and maps them', async () => {

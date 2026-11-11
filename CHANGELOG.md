@@ -8,7 +8,7 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- GNSS tab › *Your GNSS files*: load station time series from your own CSV
+- GNSS tab › *Load local GNSS file*: load station time series from your own CSV
   files (picked on your computer, or a server path with `BOWSER_ALLOW_OPEN`).
   Dates as ISO, YYYYMMDD, decimal year or MJD; east, north and up in m, mm or
   cm (from the header, a `# units:` line, a Units choice, or guessed and said
