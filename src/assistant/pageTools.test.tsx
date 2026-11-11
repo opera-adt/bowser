@@ -10,7 +10,7 @@ const { dispatch, mockState } = vi.hoisted(() => ({ dispatch: vi.fn(), mockState
 vi.mock('../context/AppContext', () => ({ useAppContext: () => ({ state: mockState, dispatch }) }));
 vi.mock('react-chartjs-2', () => ({ Bar: () => null }));
 
-import { closeMatches, newDone, PAGE_TOOL_NAMES, runPageTool, type PageContext } from './pageTools';
+import { closeMatches, newDone, PAGE_TOOL_NAMES, runPageTool, toolStatus, type PageContext } from './pageTools';
 import { registerNavigator } from '../map/navigator';
 import Histogram from '../components/Histogram';
 import { MapTopRightToolbar } from '../components/MapToolbars';
@@ -225,4 +225,10 @@ it('every page tool the server defines has an implementation here', () => {
     'rename_point', 'remove_point', 'set_point_style', 'list_areas', 'rename_area', 'set_area_style', 'set_area_band',
     'set_chart_layers', 'set_layer_display', 'set_date_range', 'export_chart', 'check_series'];
   expect([...PAGE_TOOL_NAMES].sort()).toEqual([...server, ...chart].sort());
+});
+
+it("the status line uses the label the server sends, else the tool's name in words", () => {
+  expect(toolStatus('set_masks', 'Setting the masks')).toBe('Setting the masks');
+  expect(toolStatus('set_masks')).toBe('Set masks');
+  expect(toolStatus('Read file')).toBe('Read file');
 });

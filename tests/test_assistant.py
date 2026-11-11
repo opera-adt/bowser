@@ -375,6 +375,9 @@ def test_data_tool_runs_on_the_server_and_its_result_goes_back(tmp_path, monkeyp
     result = ev[3]
     assert result["ok"] and result["name"] == "list_layers"
     assert result["result"]["layers"]["displacement"]["unit_reported"] == "mm"
+    # The call says what it is doing, from the tool's spec (shared with bowser mcp
+    # and the signed-in agent).
+    assert ev[2]["status"] == "Listing the layers"
     assert ev[-1] == {"type": "done", "stop": "end"}
     # The second request carries the tool's result for the model.
     tool_msg = fake.sent[1]["messages"][-1]
@@ -402,8 +405,14 @@ def test_page_tool_ends_the_request_for_the_page(tmp_path, monkeypatch):
     )
     ev = events(r.text)
     waiting = next(e for e in ev if e["type"] == "page_tools")
+    # Each page call carries its tool's status line, for the tab.
     assert waiting["calls"] == [
-        {"id": "c1", "name": "add_point", "input": {"lon": -117.5, "lat": 33.5}}
+        {
+            "id": "c1",
+            "name": "add_point",
+            "input": {"lon": -117.5, "lat": 33.5},
+            "status": "Adding the point",
+        }
     ]
     assert waiting["results"][0]["is_error"]
     assert "no_such_tool" in waiting["results"][0]["content"]
@@ -1625,3 +1634,23 @@ def test_config_flag_and_chat_on_the_real_apps(which, cube, tmp_path):
         d["x"] for d in res["api"]["datasets"][0]["data"]
     ]
     assert ev[-1] == {"type": "done", "stop": "end"}
+
+
+def test_every_tool_says_what_it_is_doing():
+    """Each data tool has a short status line, shown while it runs."""
+    from bowser.tools import BowserAPI, ToolSpec, build_tools
+
+    tools = build_tools(BowserAPI("http://x"))
+    # Every tool, data or page, has its own label (not one made from its name).
+    assert [t.name for t in tools if not t.status] == []
+    specs = {t.name: t.status_text for t in tools}
+    assert specs["point_timeseries"] == "Reading the time series"
+    assert specs["fly_to"] == "Moving the map"
+    assert specs["set_masks"] == "Setting the masks"
+    assert specs["trend_at_point"] == "Fitting the trend"
+    assert all(text and not text.endswith(("…", ".")) for text in specs.values())
+
+    async def some_tool():
+        return {}
+
+    assert ToolSpec("some_tool", "", some_tool).status_text == "Some tool"

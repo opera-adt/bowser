@@ -15,7 +15,7 @@ like an agent CLI such as Claude Code's ACP adapter:
   kills both).
 
 Writes what it saw to ``<out>/`` (argv[1]): ``env.json``, ``new.json``,
-``pids.txt``, ``modes.json``.
+``pids.txt``, ``modes.json``, and a line in ``starts.txt`` per start.
 """
 
 import itertools
@@ -29,6 +29,8 @@ from pathlib import Path
 OUT = Path(sys.argv[1])
 OUT.mkdir(parents=True, exist_ok=True)
 (OUT / "env.json").write_text(json.dumps(dict(os.environ)))
+with (OUT / "starts.txt").open("a") as f:
+    f.write(f"{os.getpid()}\n")
 lock = threading.Lock()
 answers: dict = {}
 waiting: dict = {}

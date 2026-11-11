@@ -415,11 +415,19 @@ class ToolSpec:
     #: Runs without asking the user first: it only reads, or only moves the map.
     #: (A signed-in agent's permission requests for it are answered at once.)
     quiet: bool | None = None
+    #: What the tool is doing, for a status line ("Reading the time series");
+    #: empty: made from the name (:attr:`status_text`).
+    status: str = ""
 
     def __post_init__(self) -> None:
         """Tools that only read are quiet unless said otherwise."""
         if self.quiet is None:
             self.quiet = self.read_only
+
+    @property
+    def status_text(self) -> str:
+        """Return the status line: :attr:`status`, or the name in words."""
+        return self.status or self.name.replace("_", " ").capitalize()
 
     @functools.cached_property
     def arg_model(self) -> type[BaseModel]:
@@ -488,13 +496,21 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
         page: bool = False,
         mcp: bool = True,
         open_world: bool = False,
+        status: str = "",
     ):
         """Register ``fn`` with its docstring as the description."""
 
         def register(fn):
             specs.append(
                 ToolSpec(
-                    fn.__name__, _describe(fn), fn, read_only, page, mcp, open_world
+                    fn.__name__,
+                    _describe(fn),
+                    fn,
+                    read_only,
+                    page=page,
+                    mcp=mcp,
+                    open_world=open_world,
+                    status=status,
                 )
             )
             return fn
@@ -502,7 +518,12 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
         return register(fn) if fn is not None else register
 
     def page_tool(
-        fn=None, *, read_only: bool = False, mcp: bool = True, quiet: bool = False
+        fn=None,
+        *,
+        read_only: bool = False,
+        mcp: bool = True,
+        quiet: bool = False,
+        status: str = "",
     ):
         """Register a tool that runs on the page (see :data:`PAGE_COMMANDS`)."""
 
@@ -516,6 +537,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
                     page=True,
                     mcp=mcp,
                     quiet=quiet or read_only,
+                    status=status,
                 )
             )
             return fn
@@ -621,7 +643,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
 
     # --- tools: what is there ----------------------------------------------------
 
-    @tool
+    @tool(status="Asking the server what it serves")
     async def server_info(dataset: Dataset = None) -> dict[str, Any]:
         """Return what the Bowser server serves and can do.
 
@@ -659,7 +681,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
             else "Pass a catalog id as `dataset` to the other tools.",
         }
 
-    @tool
+    @tool(status="Listing the layers")
     async def list_layers(dataset: Dataset = None) -> dict[str, Any]:
         """List the cube's layers, with dates, units and reference information.
 
@@ -713,7 +735,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
 
     # --- tools: time series --------------------------------------------------------
 
-    @tool
+    @tool(status="Reading the time series")
     async def point_timeseries(
         lon: Lon,
         lat: Lat,
@@ -793,7 +815,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
             out["summary"] = "No valid data at this point (masked or nodata)."
         return out
 
-    @tool
+    @tool(status="Reading the time series")
     async def multi_point_timeseries(
         points: Annotated[
             list[PointIn],
@@ -883,7 +905,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
             "masks": mask_note,
         }
 
-    @tool
+    @tool(status="Fitting the trend")
     async def trend_at_point(
         lon: Lon,
         lat: Lat,
@@ -959,7 +981,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
             "small R^2 means the line explains little of the series.",
         }
 
-    @tool
+    @tool(status="Reading the value")
     async def value_at_point(
         lon: Lon,
         lat: Lat,
@@ -1028,7 +1050,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
 
     # --- tools: areas, lines and value ranges -------------------------------------
 
-    @tool
+    @tool(status="Computing the area's statistics")
     async def polygon_statistics(
         geometry: Annotated[
             dict[str, Any],
@@ -1105,7 +1127,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
             "calculation": res.get("calculation"),
         }
 
-    @tool
+    @tool(status="Reading the profile")
     async def profile(
         coords: Annotated[
             list[list[float]],
@@ -1187,7 +1209,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
                 out["bin_width_m"] = res.get("bin_width")
         return out
 
-    @tool
+    @tool(status="Computing the layer's statistics")
     async def layer_statistics(
         layer: Layer = "displacement",
         time_index: TimeIndex = 0,
@@ -1230,7 +1252,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
 
     # --- tools: export -----------------------------------------------------------
 
-    @tool(read_only=False)
+    @tool(read_only=False, status="Exporting the GeoTIFF")
     async def export_geotiff(
         layer: Layer = "displacement",
         time_index: Annotated[
@@ -1310,7 +1332,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
 
     # --- tools: choosing a reference point ----------------------------------------
 
-    @tool
+    @tool(status="Finding a stable reference (the first run reads the whole stack)")
     async def find_reference_candidates(
         radius_m: Annotated[
             float,
@@ -1435,7 +1457,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
 
     # --- tools: places (no page needed) -----------------------------------------
 
-    @tool(open_world=True)
+    @tool(open_world=True, status="Looking up the place")
     async def geocode(
         query: Annotated[
             str,
@@ -1465,7 +1487,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
 
     # --- tools: the page's map -------------------------------------------------------
 
-    @page_tool(read_only=True)
+    @page_tool(read_only=True, status="Reading the view")
     async def get_view() -> dict[str, Any]:
         """Return where the page's map is looking.
 
@@ -1477,7 +1499,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
         """
         return await on_page("get_view")
 
-    @page_tool(quiet=True)
+    @page_tool(quiet=True, status="Moving the map")
     async def fly_to(
         lon: Lon,
         lat: Lat,
@@ -1498,7 +1520,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
         """
         return await on_page("fly_to", lon=lon, lat=lat, zoom=zoom)
 
-    @page_tool(quiet=True)
+    @page_tool(quiet=True, status="Moving the map")
     async def fit_bounds(
         west: Annotated[float, Field(ge=-180, le=180, description="West longitude.")],
         south: Annotated[float, Field(ge=-90, le=90, description="South latitude.")],
@@ -1523,7 +1545,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
             padding=padding,
         )
 
-    @page_tool(quiet=True)
+    @page_tool(quiet=True, status="Moving the map")
     async def pan(
         direction: Annotated[
             Literal["north", "south", "east", "west"],
@@ -1556,7 +1578,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
             "pan", direction=direction, fraction=fraction, distance_m=distance_m
         )
 
-    @page_tool(quiet=True)
+    @page_tool(quiet=True, status="Zooming the map")
     async def zoom(
         level: Annotated[
             float | None,
@@ -1580,7 +1602,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
             raise BowserError("Give level or delta, not both.")
         return await on_page("zoom", level=level, delta=delta)
 
-    @page_tool(quiet=True)
+    @page_tool(quiet=True, status="Going to the place")
     async def go_to(
         query: Annotated[
             str,
@@ -1608,7 +1630,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
         """
         return await on_page("go_to", query=query, zoom=zoom)
 
-    @page_tool
+    @page_tool(status="Setting the terrain")
     async def set_terrain(
         on: Annotated[bool, Field(description="3D terrain on or off.")],
         exaggeration: Annotated[
@@ -1637,7 +1659,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
             "set_terrain", on=on, exaggeration=exaggeration, pitch=pitch
         )
 
-    @page_tool
+    @page_tool(status="Setting the split screen")
     async def set_split_screen(
         on: Annotated[bool, Field(description="Split screen on or off.")],
         left_layer: Annotated[
@@ -1670,7 +1692,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
 
     # --- tools: the page's points, reference and layer ------------------------------
 
-    @page_tool
+    @page_tool(status="Adding the point")
     async def add_point(
         lon: Lon,
         lat: Lat,
@@ -1685,7 +1707,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
         """
         return await on_page("add_point", lon=lon, lat=lat, name=name)
 
-    @page_tool(read_only=True)
+    @page_tool(read_only=True, status="Reading the reference")
     async def get_reference() -> dict[str, Any]:
         """Return the page's reference: point, circle sampling and reference date.
 
@@ -1695,7 +1717,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
         """
         return await on_page("get_reference")
 
-    @page_tool
+    @page_tool(status="Setting the reference point")
     async def set_reference_point(
         lon: Lon,
         lat: Lat,
@@ -1720,7 +1742,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
         """
         return await on_page("set_reference_point", lon=lon, lat=lat, radius_m=radius_m)
 
-    @page_tool
+    @page_tool(status="Resetting the reference")
     async def reset_reference() -> dict[str, Any]:
         """Move the page's reference point back to the cube's own (reference_lonlat).
 
@@ -1728,7 +1750,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
         """
         return await on_page("reset_reference")
 
-    @page_tool
+    @page_tool(status="Setting the reference date")
     async def set_reference_date(
         date: Annotated[
             str | None,
@@ -1748,17 +1770,17 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
         """
         return await on_page("set_reference_date", date=date, reset=reset or None)
 
-    @page_tool
+    @page_tool(status="Switching the layer")
     async def switch_layer(layer: Layer) -> dict[str, Any]:
         """Show another layer on the page's map (the left side in split screen)."""
         return await on_page("switch_layer", layer=layer)
 
-    @page_tool
+    @page_tool(status="Opening the chart")
     async def open_chart() -> dict[str, Any]:
         """Open the page's time-series chart with its points and areas."""
         return await on_page("open_chart")
 
-    @page_tool(mcp=False)
+    @page_tool(mcp=False, status="Adding the overlay")
     async def add_overlay(
         path: Annotated[str, Field(description="Path of the GeoTIFF on the server.")],
         name: Annotated[
@@ -1773,7 +1795,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
 
     # --- tools: the page's masks ------------------------------------------------------
 
-    @page_tool(read_only=True)
+    @page_tool(read_only=True, status="Reading the masks")
     async def get_masks(
         layer_ranges: Annotated[
             bool,
@@ -1794,7 +1816,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
         """
         return await on_page("get_masks", layer_ranges=layer_ranges)
 
-    @page_tool
+    @page_tool(status="Setting the masks")
     async def set_masks(
         masks: Annotated[
             list[LayerMask],
@@ -1833,7 +1855,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
             "set_masks", masks=[m.model_dump() for m in masks], replace=replace
         )
 
-    @page_tool
+    @page_tool(status="Clearing the masks")
     async def clear_masks(
         keep_recommended: Annotated[
             bool, Field(description="Keep recommended_mask on if it is.")
@@ -1842,7 +1864,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
         """Remove the page's layer masks (all, or all but recommended_mask)."""
         return await on_page("clear_masks", keep_recommended=keep_recommended)
 
-    @page_tool
+    @page_tool(status="Setting the recommended mask")
     async def set_recommended_mask(
         on: Annotated[bool, Field(description="Use the cube's recommended_mask.")],
     ) -> dict[str, Any]:
@@ -1851,7 +1873,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
 
     # --- tools: the page's display ----------------------------------------------------
 
-    @page_tool(read_only=True)
+    @page_tool(read_only=True, status="Reading the display settings")
     async def get_display(side: Side = "left") -> dict[str, Any]:
         """Return how the page draws a layer.
 
@@ -1860,7 +1882,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
         """
         return await on_page("get_display", side=side)
 
-    @page_tool
+    @page_tool(status="Setting the colormap")
     async def set_colormap(
         name: Annotated[
             str, Field(description="Colormap name, from get_display's list.")
@@ -1873,7 +1895,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
         """Change the colormap of the page's layer. Unknown names get close matches."""
         return await on_page("set_colormap", name=name, reverse=reverse, side=side)
 
-    @page_tool
+    @page_tool(status="Setting the color range")
     async def set_color_range(
         vmin: Annotated[float | None, Field(description="Lower end.")] = None,
         vmax: Annotated[float | None, Field(description="Upper end.")] = None,
@@ -1907,7 +1929,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
             "set_color_range", vmin=vmin, vmax=vmax, unit=unit, preset=preset, side=side
         )
 
-    @page_tool
+    @page_tool(status="Setting the opacity")
     async def set_opacity(
         opacity: Annotated[
             float, Field(ge=0, le=1, description="0 = invisible, 1 = opaque.")
@@ -1919,7 +1941,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
 
     # --- tools: every other control ---------------------------------------------------
 
-    @page_tool(read_only=True)
+    @page_tool(read_only=True, status="Listing the page commands")
     async def list_commands(
         query: Annotated[
             str | None,
@@ -1940,7 +1962,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
         """
         return await on_page("list_commands", query=query)
 
-    @page_tool
+    @page_tool(status="Running the page command")
     async def run_command(
         id: Annotated[  # noqa: A002  (the command's id, as the model sees it)
             str, Field(max_length=80, description="Command id from list_commands.")

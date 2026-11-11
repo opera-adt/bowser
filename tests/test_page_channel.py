@@ -655,5 +655,6 @@ def test_the_assistant_moves_the_reference_to_the_finders_choice(served, monkeyp
             "id": "s",
             "name": "set_reference_point",
             "input": {"lon": -90.05, "lat": 34.82, "radius_m": 150.0},
+            "status": "Setting the reference point",
         }
     ]
