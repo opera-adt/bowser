@@ -2,8 +2,8 @@
 
 ``GET /histogram/{layer}?time_index=t`` is asked on every date change. Cubes made
 by ``bowser`` carry every date's histogram in the layer's ``bowser_histogram``
-attribute (:func:`compute_histograms`
-writes it). Without it, the servers used to read the date at full
+attribute (:func:`compute_histograms` writes it; ``bowser add-histograms`` adds it
+to an existing store). Without it, the servers used to read the date at full
 resolution: on a DISP-S1 frame (7733 x 9464, chunks of 8 dates x 256 x 256) about
 5 s of CPU on the full server and 2 s on bowser-lite, because the read decodes
 the 8 dates of every chunk and the percentiles sort ~11 M values. Now:
@@ -609,3 +609,84 @@ def start_warm_up(
 
     threading.Thread(target=run, name="bowser-histogram-warmup", daemon=True).start()
     return True
+
+
+# --- storing them in a cube ---------------------------------------------------------
+
+
+class StoreNotWritableError(OSError):
+    """The cube cannot be written in place (remote, or no write permission)."""
+
+
+def _variables(ds: xr.Dataset) -> list[str]:
+    """Layers worth a histogram: numeric, with ``y`` and ``x`` dimensions."""
+    return [
+        str(n)
+        for n, v in ds.data_vars.items()
+        if {"y", "x"} <= set(v.dims) and np.issubdtype(v.dtype, np.number)
+    ]
+
+
+def add_to_store(
+    uri: str,
+    *,
+    level: int | None = None,
+    variables: Sequence[str] | None = None,
+    force: bool = False,
+    workers: int | None = None,
+    echo: Callable[[str], None] = print,
+) -> dict[str, float]:
+    """Compute every date's histogram of a cube's layers and store them in it.
+
+    Writes the ``bowser_histogram`` attribute of each layer at level 0 (where both
+    servers read it) in place, in the layer's zarr metadata. ``level`` is the
+    pyramid level to read (None: :func:`pick_level`). Layers that already have
+    the attribute are skipped unless ``force``. Returns the seconds per layer.
+
+    Raises
+    ------
+    StoreNotWritableError
+        For a remote store or one without write permission.
+
+    """
+    import zarr  # noqa: PLC0415
+
+    from .lite.cube import open_cube  # noqa: PLC0415 - GDAL-free reader
+
+    path = uri[len("file://") :] if uri.startswith("file://") else uri
+    if "://" in path:
+        raise StoreNotWritableError(f"{uri} is remote and cannot be written in place")
+    cube = open_cube(path)
+    datasets = [lv.dataset for lv in cube.levels]
+    names = list(variables) if variables else _variables(cube.dataset)
+    missing = [n for n in names if n not in cube.dataset.data_vars]
+    if missing:
+        raise KeyError(f"Not in {uri}: {', '.join(missing)}")
+    asset0 = cube.levels[0].asset
+    targets = {n: "/".join(p for p in (asset0, n) if p) for n in names}
+    for n, p in targets.items():
+        meta = [Path(path, p, f) for f in ("zarr.json", ".zattrs", ".zarray")]
+        meta = [m for m in meta if m.exists()] or [Path(path, p)]
+        if not all(os.access(m, os.W_OK) for m in meta):
+            raise StoreNotWritableError(f"{Path(path, p)} is not writable")
+    n_workers = refstats.read_workers() if workers is None else workers
+    seconds: dict[str, float] = {}
+    for n in names:
+        if not force and isinstance(
+            cube.dataset[n].attrs.get("bowser_histogram"), list
+        ):
+            echo(f"{n}: already has histograms (--force to recompute)")
+            continue
+        t0 = time.perf_counter()
+        das = layers(datasets, n)
+        srcs = [Source(path, x.asset) for x in cube.levels]
+        lv = pick_level(datasets, n, sources=srcs) if level is None else level
+        lv = min(lv, len(das) - 1)
+        entries = compute_histograms(
+            das[lv], NBINS, level=lv, source=srcs[lv], workers=n_workers
+        )
+        arr = zarr.open_array(store=path, path=targets[n], mode="r+")
+        arr.attrs["bowser_histogram"] = entries
+        seconds[n] = time.perf_counter() - t0
+        echo(f"{n}: {len(entries)} histograms from level {lv} in {seconds[n]:.1f} s")
+    return seconds

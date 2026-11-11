@@ -421,7 +421,8 @@ ROUTES: dict[str, dict[str, Any]] = {
         "step. A histogram stored in the cube (`bowser_histogram` attribute) is "
         "returned as is when present. Otherwise it is read from the finest pyramid "
         "level holding at most `BOWSER_HISTOGRAM_MAX_PIXELS` (4 million) valid "
-        "pixels (`level`), cached, and every date is computed in the background.",
+        "pixels (`level`), cached, and every date is computed in the background "
+        "(see `bowser add-histograms` to store them in the cube).",
         "tags": [STATS],
     },
     "POST /polygon_timeseries": {

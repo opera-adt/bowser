@@ -454,3 +454,46 @@ def test_background_waits_while_requests_are_in_flight(cube, monkeypatch):
     assert H.SERVICE.cached(levels[0], ("displacement", 8, H.NBINS)) == H.compute_one(
         levels[1]["displacement"], 8, level=1
     )
+
+
+# --- storing them in a cube ------------------------------------------------------
+
+
+def test_cli_stores_histograms_and_servers_serve_them(tmp_path):
+    pytest.importorskip("rioxarray")
+    from click.testing import CliRunner
+
+    from bowser.cli import cli_app
+
+    store = _pyramid(tmp_path / "copy.zarr")
+    run = CliRunner().invoke(
+        cli_app,
+        ["add-histograms", str(store)],
+        env={"BOWSER_HISTOGRAM_MAX_PIXELS": str(LIMIT)},
+    )
+    assert run.exit_code == 0, run.output
+    assert "displacement: 9 histograms from level 1 in" in run.output
+    assert "velocity: 1 histograms from level 1 in" in run.output
+    meta = json.loads((store / "0" / "displacement" / "zarr.json").read_text())
+    entries = meta["attributes"]["bowser_histogram"]
+    levels = _levels(store)
+    assert entries == H.compute_histograms(levels[1]["displacement"], level=1)
+    # Already there: skipped unless forced.
+    again = CliRunner().invoke(
+        cli_app, ["add-histograms", str(store), "-v", "displacement"]
+    )
+    assert "already has histograms" in again.output
+    for which in ("bowser.main", "bowser.lite.main"):
+        out = _serve(which, store, tmp_path)
+        assert out["computed"] == 0, which  # nothing computed: served as stored
+        assert out["t7"] == entries[7]
+    # A store that cannot be written says so and points to the server's cache.
+    meta_file = store / "0" / "velocity" / "zarr.json"
+    meta_file.chmod(0o444)
+    try:
+        ro = CliRunner().invoke(cli_app, ["add-histograms", str(store), "--force"])
+    finally:
+        meta_file.chmod(0o644)
+    assert ro.exit_code != 0 and "not writable" in ro.output and "cache" in ro.output
+    remote = CliRunner().invoke(cli_app, ["add-histograms", "s3://bucket/cube.zarr"])
+    assert remote.exit_code != 0 and "cannot be written in place" in remote.output
