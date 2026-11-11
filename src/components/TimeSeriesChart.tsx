@@ -104,7 +104,15 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     return out;
   }, [state.refTimeIndex, state.datasetInfo, state.dataMode]);
   // Each series minus its own value at that date, as the map's tiles.
-  const chartDataMap = useMemo(() => relativeChartData(fetchedDataMap, refX), [fetchedDataMap, refX]);
+  // Each series under its point's name as it is now: renaming a point in the Points panel
+  // relabels the chart and the CSV without fetching the series again.
+  const pointNames = JSON.stringify(state.timeSeriesPoints.map(p => [p.id, p.name]));
+  const chartDataMap = useMemo(() => {
+    const names = new Map<string, string>(JSON.parse(pointNames));
+    return Object.fromEntries(Object.entries(relativeChartData(fetchedDataMap, refX)).map(([ds, cd]) => [ds, {
+      ...cd, datasets: cd.datasets.map(d => ({ ...d, label: names.get(d.pointId) ?? d.label })),
+    }]));
+  }, [fetchedDataMap, refX, pointNames]);
   const bufferData = useMemo(() => Object.fromEntries(Object.entries(fetchedBuffer).map(([key, b]) => {
     const ds = key.split('::')[0];
     return [key, ds in refX
