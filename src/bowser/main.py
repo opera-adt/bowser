@@ -79,7 +79,11 @@ from titiler.core.errors import (  # noqa: E402
 )
 from titiler.core.factory import TilerFactory  # noqa: E402
 
-from .layer_info import describe_layer, describe_raster_group  # noqa: E402
+from .layer_info import (  # noqa: E402
+    describe_layer,
+    describe_raster_group,
+    radar_wavelength,
+)
 from .readers import CustomReader  # noqa: E402
 from .titiler import (  # noqa: E402
     Amplitude,
@@ -480,6 +484,7 @@ def create_xarray_dataset_info(ds: xr.Dataset) -> dict:
 
     los_metadata = _los_metadata_from_attrs(dict(ds.attrs))
     reference_lonlat = _reference_lonlat(ds)
+    wavelength = radar_wavelength(ds.attrs, *(v.attrs for v in ds.data_vars.values()))
     dataset_info = {}
     skip_spatial_reference = not settings.BOWSER_USE_SPATIAL_REFERENCE_DISP
     for var_name, var in ds.data_vars.items():
@@ -513,6 +518,7 @@ def create_xarray_dataset_info(ds: xr.Dataset) -> dict:
             "label": attrs.get("long_name", var_name),
             "los_metadata": los_metadata,
             "reference_lonlat": reference_lonlat,
+            **({"radar_wavelength_m": wavelength} if wavelength else {}),
             **describe_layer(str(var_name), attrs),
         }
 

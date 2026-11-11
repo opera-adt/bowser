@@ -80,6 +80,34 @@ describe("fitModel", () => {
     expect(fitModel(pts.slice(0, 3), { ...DEFAULT_MODEL, polyOrder: 3, annual: true })).toBeNull();
   });
 
+  it("gives the annual peak's day a formal error that matches its scatter over noise draws", () => {
+    // 60 noisy draws of one annual cycle peaking near DOY 120: the spread of the fitted peak day
+    // is what peakDoyStd says (the formal error assumes the noise the residuals show).
+    let seed = 7;
+    const gauss = () => {
+      const u = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+      return Math.sqrt(-2 * Math.log(u())) * Math.cos(2 * Math.PI * u());
+    };
+    const peaks: number[] = [];
+    const stds: number[] = [];
+    for (let k = 0; k < 60; k++) {
+      const pts = Array.from({ length: 90 }, (_, i) => {
+        const t = T0 + i * 24 * DAY;
+        return { t, value: 0.004 * Math.cos(2 * Math.PI * (decimalYear(t) - 119 / 365.25)) + 0.002 * gauss() };
+      });
+      const a = fitModel(pts, { ...DEFAULT_MODEL, polyOrder: 0, annual: true })!.annual!;
+      peaks.push(a.peakDoy);
+      stds.push(a.peakDoyStd);
+    }
+    const mean = peaks.reduce((x, y) => x + y, 0) / peaks.length;
+    const spread = Math.sqrt(peaks.reduce((x, y) => x + (y - mean) ** 2, 0) / (peaks.length - 1));
+    const formal = stds.reduce((x, y) => x + y, 0) / stds.length;
+    expect(mean).toBeGreaterThan(110);
+    expect(mean).toBeLessThan(130);
+    expect(formal).toBeGreaterThan(0.6 * spread);
+    expect(formal).toBeLessThan(1.6 * spread);
+  });
+
   it("decimalYear is calendar based", () => {
     expect(decimalYear(Date.UTC(2020, 0, 1))).toBe(2020);
     expect(decimalYear(Date.UTC(2021, 6, 2, 12))).toBeCloseTo(2021.5, 3);

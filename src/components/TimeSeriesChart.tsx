@@ -24,6 +24,7 @@ import { useAreaReference } from '../hooks/useAreaReference';
 import { useAreaStatsFetch } from '../hooks/useAreaStatsFetch';
 import { readChartDisplayOpen, saveChartDisplayOpen } from '../utils/chartDisplayPref';
 import { refIndexOf, toIsoDate } from '../utils/areaStats';
+import { registerChart, type ChartSnapshot, type LayerDisplay, type SeriesTag } from '../assistant/chartView';
 
 // Chart.js plugin to wire legend-click visibility to all related datasets (raw, trend,
 // residual, samples, median) that share the same base label.
@@ -76,6 +77,15 @@ function useThemeVersion(): number {
     return () => obs.disconnect();
   }, []);
   return v;
+}
+
+/** Which part of an area a dataset of areaChartDatasets draws. */
+function areaRole(d: Record<string, unknown>): SeriesTag['role'] {
+  const label = String(d.label ?? '');
+  if (d.fill === '+1') return 'band_upper';
+  if (label.endsWith(' median')) return 'area_median';
+  if (label.endsWith(' mean')) return 'area_mean';
+  return 'band_lower';
 }
 
 interface BufferResult {
@@ -131,6 +141,34 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
   const [displayOpen, setDisplayOpen] = useState(readChartDisplayOpen);
   const toggleDisplay = () => setDisplayOpen(o => { saveChartDisplayOpen(!o); return !o; });
   const chartRef = useRef<ChartJS<'line'>>(null);
+  // What the chart draws and its export buttons, for the Assistant's chart tools (assistant/chartView.ts).
+  const snapRef = useRef<ChartSnapshot | null>(null);
+  const exportRef = useRef<{ csv: () => boolean; png: () => boolean }>({ csv: () => false, png: () => false });
+  useEffect(() => registerChart({
+    windowId,
+    snapshot: () => snapRef.current,
+    setLayerDisplay: (ds: string, patch: Partial<LayerDisplay>) => {
+      // As the layer's Display options row: the offset, y min/max (empty = auto) and colour.
+      if (patch.offset !== undefined) setDsOffsets(prev => ({ ...prev, [ds]: patch.offset as number }));
+      if (patch.ymin !== undefined || patch.ymax !== undefined) {
+        setDsYLimits(prev => {
+          const lim = prev[ds] ?? { min: '', max: '' };
+          const text = (v: number | null | undefined, old: string) => (v === undefined ? old : v === null ? '' : String(v));
+          return { ...prev, [ds]: { min: text(patch.ymin, lim.min), max: text(patch.ymax, lim.max) } };
+        });
+      }
+      if (patch.color !== undefined) {
+        setDsColorOverrides(prev => {
+          const next = { ...prev };
+          if (patch.color === null) delete next[ds];
+          else next[ds] = patch.color as string;
+          return next;
+        });
+      }
+    },
+    exportCsv: () => exportRef.current.csv(),
+    exportPng: () => exportRef.current.png(),
+  }), [windowId]);
   const { panelRef, panelStyle, onDragMouseDown, resizeGrip } = useDraggableResizable({
     defaultWidth: Math.min(560, window.innerWidth * 0.38),
     defaultHeight: 420,
@@ -330,8 +368,10 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
   const handleExportToCSV = useCallback(() => {
     if (!firstDs) return;
     // Exclude the fitted-trend line series (label "… trend") — keep real data series.
+    // Each series under its point's name now (a point renamed after its data came keeps it).
+    const nameOf = Object.fromEntries(state.timeSeriesPoints.map(p => [p.id, p.name]));
     const allDatasets = Object.entries(chartDataMap).flatMap(([dsName, cd]) =>
-      cd.datasets.filter(d => !d.label.endsWith(' trend')).map(d => ({ ...d, _dsName: dsName }))
+      cd.datasets.filter(d => !d.label.endsWith(' trend')).map(d => ({ ...d, label: nameOf[d.pointId] ?? d.label, _dsName: dsName }))
     );
     if (allDatasets.length === 0) return;
     const multiDs = activeDatasetsForChart.length > 1;
@@ -361,12 +401,12 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     const headers = ['Time', ...allDatasets.map(colName)];
     const byLabel: Record<string, Record<string, number>> = {};
     allDatasets.forEach(d => {
-      const key = multiDs ? `${d._dsName}::${d.label}` : d.label;
+      const key = `${d._dsName}::${d.pointId}`;
       d.data.forEach(pt => { (byLabel[pt.x as string] ??= {})[key] = pt.y; });
     });
     const allTimes = [...new Set(allDatasets.flatMap(d => d.data.map(pt => pt.x as string)))].sort();
     const rows = allTimes.map(t => [t, ...allDatasets.map(d => {
-      const key = multiDs ? `${d._dsName}::${d.label}` : d.label;
+      const key = `${d._dsName}::${d.pointId}`;
       return byLabel[t]?.[key]?.toString() ?? '';
     })]);
 
@@ -379,6 +419,12 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     const blob = new Blob([out], { type: 'text/csv;charset=utf-8;' });
     void saveFile(blob, `time-series-${activeDatasetsForChart[0]}-${new Date().toISOString().slice(0, 16).replace(/[:.]/g, '-')}.csv`);
   }, [chartDataMap, firstDs, activeDatasetsForChart, state.timeSeriesPoints, fits, state.fitSettings, state.datasetInfo, state.units]);
+  const exportPng = () => {
+    const canvas = chartRef.current?.canvas;
+    if (canvas) downloadChartAsPng(canvas, `timeseries-${activeDatasetsForChart[0]}-${Date.now()}.png`);
+    return !!canvas;
+  };
+  exportRef.current = { csv: () => { if (!firstDs) return false; handleExportToCSV(); return true; }, png: exportPng };
 
   // Layers with an area answer (they may have no point data).
   const areaDsNames = activeDatasetsForChart.filter(ds => visibleAreas.some(a => areaResults[areaStatsKey(ds, a.id)]?.data));
@@ -544,7 +590,25 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [themeVersion, refX, state.units, state.showTrends, state.vmin, state.vmax, state.datasetInfo, state.bufferEnabled, handleChartClick, JSON.stringify(activeChartDs), JSON.stringify(dsOffsets), JSON.stringify(dsColorOverrides), JSON.stringify(dsYLimits), firstAreaLabel, JSON.stringify(Object.fromEntries(Object.entries(chartDataMap).map(([k, v]) => [k, v.datasets.flatMap(d => d.data.map(pt => pt.y))]))) ]);
 
-  if (!state.showChart) return null;
+  /** What the chart shows now, for the chart tools: ``datasets`` exactly as handed to <Line>. */
+  const snapshot = (status: ChartSnapshot['status'], datasets: ChartSnapshot['datasets'] = [], message?: string, dates: string[] = []): ChartSnapshot => ({
+    status, message, layers: activeChartDs, datasets, fits,
+    fitSettings: state.fitSettings, showTrends: state.showTrends, showResiduals: state.showResiduals,
+    dateRange: { start: state.dateRangeStart, end: state.dateRangeEnd, first: dates[0] ?? null, last: dates[dates.length - 1] ?? null },
+    referenceDates: Object.fromEntries(activeChartDs.map(ds => [ds,
+      ds in refX ? refDateLabel(refX[ds]) : state.datasetInfo[ds]?.reference_date ?? null])),
+    units: Object.fromEntries(activeChartDs.map(ds => [ds, displayUnit(state.datasetInfo[ds]?.unit, state.units)])),
+    display: Object.fromEntries(activeChartDs.map(ds => {
+      const lim = dsYLimits[ds];
+      const num = (v: string | undefined) => (v === undefined || v === '' || Number.isNaN(parseFloat(v)) ? null : parseFloat(v));
+      return [ds, { offset: dsOffsets[ds] ?? 0, ymin: num(lim?.min), ymax: num(lim?.max), color: dsColorOverrides[ds] ?? null }];
+    })),
+  });
+
+  if (!state.showChart) {
+    snapRef.current = null;
+    return null;
+  }
 
   // Dataset selector helpers
   const setWinDs = (dsNames: string[]) =>
@@ -595,10 +659,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
           <button className="chart-btn" onClick={handleExportToCSV} title="Export CSV">
             <i className="fa-solid fa-download"></i>
           </button>
-          <button className="chart-btn" title="Save as PNG (transparent background)" onClick={() => {
-            const canvas = chartRef.current?.canvas;
-            if (canvas) downloadChartAsPng(canvas, `timeseries-${activeDatasetsForChart[0]}-${Date.now()}.png`);
-          }}>
+          <button className="chart-btn" title="Save as PNG (transparent background)" onClick={exportPng}>
             <i className="fa-solid fa-camera"></i>
           </button>
           <button className="chart-btn" title="New chart window" onClick={spawnNewChart}>
@@ -692,6 +753,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
   );
 
   if (state.timeSeriesPoints.length === 0 && visibleAreas.length === 0) {
+    snapRef.current = snapshot('empty', [], 'No points or areas in the chart.');
     return (
       <div id="chart-container" ref={panelRef} style={panelStyle}>
         {headerContent}
@@ -704,6 +766,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
   }
 
   if (isLoading) {
+    snapRef.current = snapshot('loading');
     return (
       <div id="chart-container" ref={panelRef} style={panelStyle}>
         {headerContent}
@@ -729,13 +792,14 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
         factor: shown.factor, unit: shown.label, yAxisID: `y${activeChartDs.indexOf(dsName)}`,
         reference, toX: toIsoDate, inRange, band: state.areaBand, style: area,
         refIndex: dsName in refX ? refIndexOf(result, refX[dsName]) : null,
-      });
+      }).map(d => ({ ...d, _series: { kind: 'area', id: area.id, name: area.name, layer: dsName, role: areaRole(d) } as SeriesTag }) as Record<string, unknown>);
     });
   });
   const hasAreaData = areaDatasets.some(d => (d.data as unknown[]).length > 0);
 
   // A masked point comes back as a dataset with no points: that is no data too.
   if (!hasAreaData && areaPending && !Object.values(chartDataMap).some(d => d.datasets.some(series => series.data.length > 0))) {
+    snapRef.current = snapshot('loading');
     return (
       <div id="chart-container" ref={panelRef} style={panelStyle}>
         {headerContent}
@@ -745,6 +809,9 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     );
   }
   if (!hasAreaData && !Object.values(chartDataMap).some(d => d.datasets.some(series => series.data.length > 0))) {
+    snapRef.current = snapshot('empty', [], activeDatasetsForChart.length === 0 ? 'No layer here has a time dimension.'
+      : state.layerMasks.length > 0 ? `Masking hides every date at the selected points (masks on: ${state.layerMasks.map(m => m.dataset).join(', ')}).`
+      : 'No data at the selected points or areas.');
     return (
       <div id="chart-container" ref={panelRef} style={panelStyle}>
         {headerContent}
@@ -806,13 +873,15 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     const refIso = refAt === undefined || refAt === null ? null : toIsoDate(refAt);
 
     cd.datasets.forEach(dataset => {
-      const baseLabel = multiDs ? `${dataset.label} [${dsName}]` : dataset.label;
-      // The point's own colour and style (Style button), as on the map; a layer's colour
-      // (Display options) wins for that layer's series, so layers sharing the chart tell apart.
+      // The point's own name, colour and style (Points panel, Style button), as on the map; a layer's
+      // colour (Display options) wins for that layer's series, so layers sharing the chart tell apart.
       const point = state.timeSeriesPoints.find(p => p.id === dataset.pointId);
+      const name = point?.name ?? dataset.label;
+      const baseLabel = multiDs ? `${name} [${dsName}]` : name;
       const borderColor = dsColorOverrides[dsName] ?? point?.color ?? dataset.borderColor;
       const backgroundColor = `${borderColor}33`;
       const look = seriesStyle(point?.marker, point?.line, ms);
+      const tag = (role: SeriesTag['role']): SeriesTag => ({ kind: 'point', id: dataset.pointId, name, layer: dsName, role });
 
       if (state.bufferEnabled) {
         const buf = bufferData[`${dsName}::${dataset.pointId}`];
@@ -821,6 +890,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
         buf.samples.forEach((sample: Array<{ x: string; y: number }>, i: number) => {
           datasetList.push({
             label: `${baseLabel} sample ${i}`,
+            _series: tag('sample'),
             _baseLabel: baseLabel,
             _unit: unit,
             yAxisID,
@@ -838,6 +908,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
           .filter((pt: { x: string; y: number }) => { const t = new Date(pt.x).getTime(); return t >= dateStart && t <= dateEnd; });
         datasetList.push({
           label: `${baseLabel} median`,
+          _series: tag('median'),
           _baseLabel: baseLabel,
           _unit: unit,
           yAxisID,
@@ -854,6 +925,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
 
         datasetList.push({
           label: baseLabel,
+          _series: tag('data'),
           _baseLabel: baseLabel,
           _unit: unit,
           _trendMmPerYear: trendRate(dsName, dataset.pointId),
@@ -871,6 +943,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
         if (state.showTrends && fit && isoData.length > 1) {
           datasetList.push({
             label: `${baseLabel} trend`,
+            _series: tag('model'),
             _baseLabel: baseLabel,
             _unit: unit,
             _trendMmPerYear: trendRate(dsName, dataset.pointId),
@@ -888,6 +961,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
           if (state.showResiduals) {
             datasetList.push({
               label: `${baseLabel} residual`,
+              _series: tag('residual'),
               _baseLabel: baseLabel,
               _unit: unit,
               yAxisID,
@@ -907,6 +981,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
   const maxDate = allIsoLabels[allIsoLabels.length - 1] ?? '';
   const sliderStart = state.dateRangeStart ?? minDate;
   const sliderEnd   = state.dateRangeEnd   ?? maxDate;
+  snapRef.current = snapshot('ready', formattedChartData.datasets, undefined, isoLabels);
 
   return (
     <div id="chart-container" ref={panelRef} style={panelStyle}>

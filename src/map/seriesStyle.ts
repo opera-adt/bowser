@@ -39,6 +39,9 @@ export interface AreaStyle {
   bandOpacity: number;
 }
 
+/** The line widths an area's Style row offers, px. */
+export const AREA_WIDTHS = [1, 1.5, 2, 3, 4] as const;
+
 export const AREA_STYLE: AreaStyle = { lineWidth: 2, line: 'solid', showMean: true, showBand: true, bandOpacity: 0.2 };
 
 /** An area's style with the defaults filled in. */

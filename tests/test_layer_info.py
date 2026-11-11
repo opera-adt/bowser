@@ -5,7 +5,7 @@ import copy
 import numpy as np
 import pytest
 
-from bowser.layer_info import describe_layer, describe_raster_group
+from bowser.layer_info import describe_layer, describe_raster_group, radar_wavelength
 
 
 @pytest.mark.parametrize(
@@ -198,3 +198,14 @@ def test_group_does_not_use_an_inverted_flag_dictionary_for_all_dates():
     assert result["source_flags"] == []
     assert any("Category meanings differ" in text for text in result["metadata_notes"])
     assert headers == original
+
+
+def test_radar_wavelength_comes_from_the_cube_or_its_variables():
+    assert radar_wavelength({}, {"wavelength_m": "0.05546576"}) == 0.05546576
+    assert (
+        radar_wavelength({"radar_wavelength": 0.2384}, {"wavelength_m": 0.05}) == 0.2384
+    )
+    # A filter's cutoff "wavelength" (metres on the ground) and nonsense are not it.
+    assert radar_wavelength({"wavelength_cutoff": 50.0}, {"wavelength": 50.0}) is None
+    assert radar_wavelength({"wavelength": "C-band"}) is None
+    assert radar_wavelength() is None

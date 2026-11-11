@@ -338,3 +338,31 @@ def describe_raster_group(name: str, headers: Sequence[Mapping[str, Any]]) -> La
     if notes:
         info["metadata_notes"] = notes
     return info
+
+
+#: Attribute names a producer may record the radar wavelength under (metres).
+_WAVELENGTH_KEYS = (
+    "radar_wavelength_m",
+    "radar_wavelength",
+    "wavelength_m",
+    "wavelength",
+)
+
+
+def radar_wavelength(*attr_maps: Mapping[str, Any]) -> float | None:
+    """Return the radar wavelength (m) recorded in a cube's attributes, or None.
+
+    Looks in each mapping in turn (the cube's own attributes first, then its
+    variables'), for a value between 5 mm and 1 m: Sentinel-1's C band is
+    0.0555 m, NISAR's L band 0.238 m. Unwrapping errors are multiples of half of
+    it, which is what the chart's series checks look for.
+    """
+    for attrs in attr_maps:
+        for key in _WAVELENGTH_KEYS:
+            try:
+                value = float(attrs[key])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if 0.005 <= value <= 1.0:
+                return value
+    return None

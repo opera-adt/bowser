@@ -117,6 +117,26 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `bowser mcp` on the same computer reads (`--token` or `BOWSER_PAGE_TOKEN`
   otherwise). `GET /config` says whether it is on
   (`assistant.page_channel`).
+- Chart tools for every AI path, run in the page like the other page tools
+  (see [docs/mcp.md](docs/mcp.md#the-chart)): `get_chart_data` returns the
+  chart's series exactly as drawn (reference point and date, masks, date range
+  and units applied) and `get_fit_results` the fitted model's rate, seasonal
+  amplitudes and peak days, step sizes, segment rates and RMS, each with a
+  1-sigma error; `set_fit`, `add_step`, `remove_step` and `set_residuals` set
+  the model as the Model card does and return the fit; `list_points`,
+  `rename_point`, `remove_point`, `set_point_style`, `list_areas`,
+  `rename_area`, `set_area_style` and `set_area_band` work as the Points panel
+  and the Style button; `set_chart_layers`, `set_layer_display`,
+  `set_date_range` and `export_chart` as the chart's layer chips, Display
+  options and export buttons; `check_series` flags likely steps, one-date
+  outliers and jumps of about half the radar wavelength (unwrapping errors),
+  with checks ported from the OPERA DISP Portal. The model is told to fit with
+  these tools, read numbers from the chart instead of fetching them again, and
+  run `check_series` and ask before adding a step.
+- The model's annual and semi-annual peak day of year has a 1-sigma error, as
+  the amplitude has.
+- `GET /datasets` gives a GeoZarr layer's `radar_wavelength_m` when the cube
+  records it (for example a variable's `wavelength_m` attribute).
 - `geocode` and `GET /geocode`: place names and addresses to coordinates
   through OpenStreetMap's Nominatim, at most one request per second, cached,
   with a User-Agent naming Bowser; `BOWSER_GEOCODER_URL` replaces or turns it
