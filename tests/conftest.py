@@ -1,15 +1,21 @@
-"""Session-wide test settings.
+"""Session-wide test settings: keep tests out of the user's own folders.
 
-The reference finder keeps per-pixel statistics on disk under
-``$XDG_CACHE_HOME/bowser/refstats``; point that at a temporary folder so tests
-never write to the user's cache. ``XDG_CACHE_HOME`` survives the subprocess
-helpers that drop ``BOWSER_*`` variables. Nothing from ``bowser`` is imported
-here: ``bowser.config`` must not load at collection.
+- The reference finder keeps per-pixel statistics on disk under
+  ``$XDG_CACHE_HOME/bowser/refstats``; point that at a temporary folder so tests
+  never write to the user's cache. ``XDG_CACHE_HOME`` survives the subprocess
+  helpers that drop ``BOWSER_*`` variables.
+- Page token files go to ``$XDG_RUNTIME_DIR/bowser``; point that at a temporary
+  folder too, for the whole session, so a server shared by several tests keeps
+  its token.
+
+Nothing from ``bowser`` is imported here: ``bowser.config`` must not load at
+collection.
 """
 
 from __future__ import annotations
 
 import os
+import sys
 
 import pytest
 
@@ -23,3 +29,22 @@ def _private_cache(tmp_path_factory):
         os.environ.pop("XDG_CACHE_HOME", None)
     else:
         os.environ["XDG_CACHE_HOME"] = old
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _page_token_folder(tmp_path_factory):
+    """Point the page token's folder (``$XDG_RUNTIME_DIR/bowser``) at a temp dir."""
+    runtime = tmp_path_factory.mktemp("runtime")
+    runtime.chmod(0o700)
+    saved = {k: os.environ.get(k) for k in ("XDG_RUNTIME_DIR", "BOWSER_PAGE_TOKEN")}
+    os.environ["XDG_RUNTIME_DIR"] = str(runtime)
+    os.environ.pop("BOWSER_PAGE_TOKEN", None)
+    yield
+    page = sys.modules.get("bowser.assistant.page")
+    if page is not None:
+        page.forget_token()
+    for k, v in saved.items():
+        if v is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = v

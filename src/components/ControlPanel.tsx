@@ -7,6 +7,7 @@ import ProjectTab from './panel/ProjectTab';
 import GnssTab from './panel/GnssTab';
 import StatsTab from './panel/StatsTab';
 import AssistantTab from './panel/AssistantTab';
+import { useWaiting } from '../assistant/attention';
 import operaEmblem from '../assets/opera-emblem.png';
 import bowserMark from '../assets/bowser-mark.svg';
 
@@ -39,6 +40,8 @@ export default function ControlPanel({ title, operaLogo }: { title: string; oper
   const { state, dispatch } = useAppContext();
   const tab: TabId = TABS.some(t => t.id === state.panelTab) ? state.panelTab as TabId : 'main';
   const setTab = (id: TabId) => dispatch({ type: 'SET_PANEL_TAB', payload: id });
+  // The Assistant waits for an answer (a request to run a tool): say so on its rail icon.
+  const waiting = useWaiting();
 
   return (
     <div id="menu">
@@ -57,6 +60,9 @@ export default function ControlPanel({ title, operaLogo }: { title: string; oper
           <button key={t.id} type="button" role="tab" id={`tab-${t.id}`} aria-selected={tab === t.id} aria-controls={`panel-${t.id}`}
             className="panel-rail-btn" onClick={() => setTab(t.id)}>
             {t.icon}
+            {t.id === 'assistant' && waiting > 0 && tab !== 'assistant' && (
+              <span className="panel-rail-badge" role="status" aria-label={`The Assistant waits for your answer (${waiting})`}>{waiting}</span>
+            )}
             <span className="panel-rail-label">{t.label}</span>
           </button>
         ))}

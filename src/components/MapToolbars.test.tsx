@@ -74,3 +74,80 @@ describe('map toolbars (MapLibre: some features not there yet)', () => {
     expect(right.getByTitle('3D terrain')).toBeTruthy();
   });
 });
+
+describe("the Assistant's commands (src/assistant/commands.ts)", () => {
+  const env = () => ({ getState: () => mockState as never, dispatch });
+
+  it('every toolbar button has a command', async () => {
+    const { COMMAND_IDS } = await import('../assistant/commands');
+    const left = render(<MapLeftToolbar measureActive={false} onToggleMeasure={() => {}} onMeasureOff={() => {}} />);
+    const right = render(<MapTopRightToolbar onToggleToolbars={() => {}} />);
+    const buttons = [...left.container.querySelectorAll('.map-tool-btn'), ...right.container.querySelectorAll('.map-tool-btn')];
+    expect(buttons.length).toBeGreaterThan(12);
+    for (const b of buttons) {
+      const id = b.getAttribute('data-command');
+      expect(id && COMMAND_IDS.has(id), `${b.getAttribute('title')} has no command`).toBe(true);
+    }
+  });
+
+  it('run_command dispatches what clicking does, and only when the state differs', async () => {
+    const { runCommand } = await import('../assistant/commands');
+    const cases: [string, string, Record<string, unknown>, (s: Record<string, any>) => void][] = [
+      ['Split screen — compare two layers', 'map.split_screen', { on: true }, s => { s.splitScreen = true; }],
+      ['Toggle colorbar on map', 'map.colorbar', { on: false }, s => { s.showColorbar = false; }],
+      ['Toggle LOS geometry indicator', 'map.los', { on: true }, s => { s.showLosIndicator = true; }],
+      ['Inspect pixel value on hover', 'map.inspect', { on: true }, s => { s.pixelInspectEnabled = true; }],
+      ['Toggle annotation mode', 'map.annotations', { on: true }, s => { s.annotationMode = true; }],
+      ['Toggle spatial re-referencing', 'map.rereference', { on: false }, s => { s.refEnabled = false; }],
+    ];
+    for (const [title, id, args, apply] of cases) {
+      dispatch.mockReset();
+      const right = render(<><MapLeftToolbar measureActive={false} onToggleMeasure={() => {}} onMeasureOff={() => {}} /><MapTopRightToolbar onToggleToolbars={() => {}} /></>);
+      fireEvent.click(right.getByTitle(title));
+      const byClick = dispatch.mock.calls.map(c => c[0]);
+      cleanup();
+      dispatch.mockReset();
+      await runCommand(env(), id, args);
+      expect(dispatch.mock.calls.map(c => c[0]), id).toEqual(byClick);
+      // Already so: nothing happens (idempotent).
+      dispatch.mockReset();
+      const saved = { ...mockState };
+      apply(mockState);
+      await runCommand(env(), id, args);
+      expect(dispatch, id).not.toHaveBeenCalled();
+      Object.assign(mockState, saved);
+    }
+  });
+
+  it('basemap, grid and draw tools: the same actions as the controls', async () => {
+    const { runCommand } = await import('../assistant/commands');
+    const right = render(<MapTopRightToolbar onToggleToolbars={() => {}} />);
+    fireEvent.click(right.getByTitle('Basemap'));
+    fireEvent.click(right.getAllByText('Dark')[0]);
+    const byClick = dispatch.mock.calls.map(c => c[0]);
+    dispatch.mockReset();
+    await runCommand(env(), 'map.basemap', { name: 'esriDark' });
+    expect(dispatch.mock.calls.map(c => c[0])).toEqual(byClick);
+    await expect(runCommand(env(), 'map.basemap', { name: 'google' })).rejects.toThrow('No basemap');
+    dispatch.mockReset();
+    // The Overlays tab's "Drawing tools" switch dispatches SET_DRAWING_ENABLED with the new value.
+    mockState.drawingEnabled = false;
+    await runCommand(env(), 'map.draw_tools', { on: true });
+    expect(dispatch.mock.calls.map(c => c[0])).toEqual([{ type: 'SET_DRAWING_ENABLED', payload: true }]);
+    dispatch.mockReset();
+    mockState.drawingEnabled = true;
+    await runCommand(env(), 'map.draw_tools', { on: true });
+    expect(dispatch).not.toHaveBeenCalled();
+    await expect(runCommand(env(), 'map.draw_tools', {})).rejects.toThrow('on: true or false');
+    await expect(runCommand(env(), 'map.draw_tool', { on: true })).rejects.toThrow('Did you mean map.draw_tools');
+    await expect(runCommand(env(), 'map.draw_tools', { on: true, colour: 'red' })).rejects.toThrow('takes on');
+  });
+
+  it('list_commands filters by words and marks destructive ones', async () => {
+    const { listCommands } = await import('../assistant/commands');
+    const draw = listCommands(env(), 'draw');
+    expect(draw.map(c => c.id)).toContain('map.draw_tools');
+    expect(listCommands(env()).find(c => c.id === 'points.clear_all')).toMatchObject({ destructive: true });
+    expect(listCommands(env()).find(c => c.id === 'map.split_screen')).toMatchObject({ toggle: true, state: false });
+  });
+});

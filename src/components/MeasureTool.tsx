@@ -5,15 +5,20 @@ import { formatDistance, pathLength } from '../map/measure';
 
 interface MeasureToolProps {
   active: boolean;
-  onDeactivate: () => void;
 }
 
-export default function MeasureTool({ active, onDeactivate }: MeasureToolProps) {
+/**
+ * Click to add points along a dashed path with a running total at the last point;
+ * double-click ends the measurement and keeps it shown until the next click starts
+ * a new one or the tool is turned off.
+ */
+export default function MeasureTool({ active }: MeasureToolProps) {
   const map = useMap();
   const pointsRef = useRef<L.LatLng[]>([]);
   const linesRef = useRef<L.Polyline[]>([]);
   const markersRef = useRef<L.CircleMarker[]>([]);
   const labelRef = useRef<L.Popup | null>(null);
+  const finishedRef = useRef(false);
 
 
   const clearAll = () => {
@@ -31,7 +36,12 @@ export default function MeasureTool({ active, onDeactivate }: MeasureToolProps) 
 
     map.getContainer().style.cursor = 'crosshair';
 
+    finishedRef.current = false;
     const onClick = (e: L.LeafletMouseEvent) => {
+      if (finishedRef.current) {  // a click after a finished measurement starts a new one
+        finishedRef.current = false;
+        clearAll();
+      }
       const pts = pointsRef.current;
       pts.push(e.latlng);
 
@@ -58,7 +68,7 @@ export default function MeasureTool({ active, onDeactivate }: MeasureToolProps) 
 
     const onDblClick = (e: L.LeafletMouseEvent) => {
       L.DomEvent.stop(e);
-      onDeactivate();
+      finishedRef.current = true;
     };
 
     map.on('click', onClick);

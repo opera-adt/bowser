@@ -40,6 +40,7 @@ import { applyTerrain, useBasemapLayers, useBufferCircles, useDataRaster, useOve
 import { useDrawTools } from './drawTools';
 import { useIdentify } from './identifyTool';
 import { registerPmtiles } from '../map/pmtiles';
+import { registerNavigator, whenMoved } from '../map/navigator';
 import { registerDemTerrain, terrainDem, terrainSourceFor } from '../map/demTerrain';
 
 // Custom PMTiles archives (Overlays › Services) are read through pmtiles://.
@@ -86,7 +87,7 @@ function TerrainButton({ enabled, exaggeration, onChange }: {
   return (
     <div style={{ position: 'relative' }}>
       <button
-        className={`map-tool-btn terrain-trigger${enabled ? ' active' : ''}`}
+        className={`map-tool-btn terrain-trigger${enabled ? ' active' : ''}`} data-command="map.terrain"
         onClick={() => setOpen(v => !v)}
         title={enabled ? `3D terrain ON (${exaggeration}× exaggeration)` : '3D terrain'}
       ><i className="fa-solid fa-mountain"></i></button>
@@ -282,6 +283,43 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
     terrainWasOn.current = terrain.enabled;
   }, [ready, fitted, terrain, terrainSource.tiles[0]]);  // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── the Assistant's map tools (src/map/navigator.ts) ───────────────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map) return;
+    const moved = (move: () => void) => whenMoved((e, f) => map.on(e, f), (e, f) => map.off(e, f), move);
+    return registerNavigator({
+      kind: 'maplibre',
+      getView: () => {
+        const b = map.getBounds();
+        const c = map.getCenter();
+        const canvas = map.getCanvas();
+        return {
+          center: [c.lng, c.lat], zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch(),
+          bounds: [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()], map: 'maplibre',
+          width: canvas?.clientWidth ?? 0, height: canvas?.clientHeight ?? 0,
+        };
+      },
+      flyTo: (lon, lat, zoom) => moved(() => map.flyTo({ center: [lon, lat], ...(zoom === undefined ? {} : { zoom }), duration: 1200 })),
+      fitBounds: (w, s, e, n, padding, maxZoom) => moved(() => map.fitBounds([[w, s], [e, n]], { padding, duration: 1200, ...(maxZoom === undefined ? {} : { maxZoom }) })),
+      panBy: (dx, dy) => moved(() => map.panBy([dx, dy], { duration: 600 })),
+      zoomTo: z => moved(() => map.zoomTo(z, { duration: 600 })),
+      terrain: {
+        get: () => ({ ...terrainRef.current }),
+        set: async (enabled, exaggeration, pitch) => {
+          // The popover's onChange (setTerrainState): clamps and remembers the setting; the
+          // terrain effect then tilts in from a flat view (TERRAIN_PITCH) or back to flat.
+          setTerrainState(enabled, exaggeration);
+          if (pitch !== undefined) {
+            await new Promise(r => setTimeout(r, 50));
+            await moved(() => map.easeTo({ pitch, duration: 600 }));
+          }
+          return { enabled, exaggeration: clampExaggeration(exaggeration) };
+        },
+      },
+    });
+  }, [ready]);  // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── basemaps, data raster (double-buffered) ────────────────────────────────
   useBasemapLayers(mapRef.current, ready);
   useOverlayLayers(mapRef.current, ready, 'main');
@@ -429,6 +467,7 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
       ) : (
         <button
           className="map-tool-btn"
+          data-command="map.toolbar"
           title="Show toolbar"
           onClick={onToggleToolbars}
           style={{ position: 'absolute', top: 10, right: 10, zIndex: 3000 }}
@@ -436,7 +475,7 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
       )}
       <div ref={containerRef} data-testid="maplibre-map" style={{ height: '100%', width: '100%' }} />
       <MapLibreProfile map={mapRef.current} ready={ready} />
-      <MapLibreMeasure map={mapRef.current} ready={ready} active={measureActive} onDeactivate={() => setMeasureActive(false)} />
+      <MapLibreMeasure map={mapRef.current} ready={ready} active={measureActive} />
       {state.splitScreen && <MapLibreSplit main={mapRef.current} mainReady={ready} terrain={{ ...terrain, source: terrainSource }} />}
       <MapLibreGraticule map={mapRef.current} ready={ready} mode={state.graticuleMode} />
       <MapLibreAnnotations map={mapRef.current} ready={ready} />

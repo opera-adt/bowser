@@ -63,6 +63,7 @@ SCRIPT = textwrap.dedent(
         "providers": [],
         "configured": [],
         "sign_in": [],
+        "page_channel": False,
     },
         "geotiff_upload": True,
         "data_conversion": {

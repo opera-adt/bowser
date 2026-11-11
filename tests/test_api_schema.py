@@ -41,7 +41,7 @@ LITE_ONLY_TILE_QUERY = {"scale", "format"}
 #: colorbars, lite PNG.
 BINARY = {"GET /colorbar/{cmap_name}"}
 #: Routes that stream server-sent events rather than send JSON.
-EVENT_STREAMS = {"POST /assistant/chat"}
+EVENT_STREAMS = {"POST /assistant/chat", "GET /page/events"}
 #: Routes that answer a small HTML page (the browser lands on them).
 PAGES = {"GET /auth/callback"}
 
@@ -190,6 +190,17 @@ SCRIPT = textwrap.dedent(
           params={"west": -125, "south": 30, "east": -110, "north": 45})
     check("gnss_series", "GET", "/gnss/series/{station}", "/gnss/series/P056")
     check("wms", "GET", "/wms_capabilities", params={"url": "https://example.com"})
+    zq = {"threshold_mm_yr": 40, "coherence_min": 0.5, "min_area_m2": 1000}
+    check("zones", "GET", "/deformation_zones", params=zq)
+    for name, q in {
+        "ramp": zq,
+        "east": {"threshold_mm_yr": 20, "sign": "positive", "max_zones": 1},
+        "fitted": {"threshold_mm_yr": 30, "layer": "displacement"},
+        "box": {"threshold_mm_yr": 10, "bbox": "-117.68,33.95,-117.67,33.96"},
+    }.items():
+        body = c.get("/deformation_zones", params=q).json()
+        body.pop("result_id", None)
+        result.setdefault("zones", {})[name] = body
     if which == "full":
         square = [[lon - 0.002, lat - 0.002], [lon + 0.002, lat - 0.002],
                   [lon + 0.002, lat + 0.002], [lon - 0.002, lat + 0.002],
@@ -395,3 +406,19 @@ def test_response_models_match_real_responses(apps, which):
     checked = set(apps[which]["checked"].values())
     modelled = {r["key"] for r in apps[which]["own_routes"] if r["model"]}
     assert checked == modelled, sorted(checked ^ modelled)
+
+
+def test_deformation_zones_are_the_same_on_both_servers(apps):
+    """Full and lite find the same zones (bowser.zones, numpy only)."""
+    full, lite = apps["full"]["zones"], apps["lite"]["zones"]
+    assert full == lite
+    ramp = full["ramp"]
+    assert ramp["n_zones"] == 2, ramp
+    assert {f["properties"]["direction"] for f in ramp["zones"]["features"]} == {
+        "negative",
+        "positive",
+    }
+    assert full["east"]["n_zones"] == 1
+    assert full["east"]["zones"]["features"][0]["properties"]["mean_rate"] > 20
+    assert "fitted" in full["fitted"]["source"]
+    assert full["box"]["bbox"] == [-117.68, 33.95, -117.67, 33.96]

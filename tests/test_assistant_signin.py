@@ -46,7 +46,8 @@ from fastapi.testclient import TestClient  # noqa: E402
 from pydantic import SecretStr  # noqa: E402
 
 from bowser import api_models as api  # noqa: E402
-from bowser.assistant import acp, relay, signin  # noqa: E402
+from bowser import context  # noqa: E402
+from bowser.assistant import acp, page, relay, signin  # noqa: E402
 from bowser.assistant.keys import KeyStore  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
@@ -115,6 +116,7 @@ class NoOllama:
 def make_app(s: SimpleNamespace) -> FastAPI:
     app = FastAPI()
     app.include_router(relay.router)
+    app.include_router(page.router)
     app.dependency_overrides[relay.get_settings] = lambda: s
     app.dependency_overrides[relay.get_ollama] = NoOllama
 
@@ -142,6 +144,28 @@ def make_app(s: SimpleNamespace) -> FastAPI:
     @app.get("/catalog")
     def catalog():
         return {"datasets": []}
+
+    # Deformation zones of a small synthetic cube, and the context routes
+    # (Overpass is a mock in the test that uses them).
+    app.include_router(context.router)
+
+    @app.get("/deformation_zones")
+    def deformation_zones(threshold_mm_yr: float = 5.0, max_zones: int = 50):
+        import test_context  # noqa: PLC0415
+
+        return context.zones_answer(
+            test_context.planted(),
+            test_context.TO_XY,
+            threshold_mm_yr=threshold_mm_yr,
+            sign="both",
+            min_area_m2=0.0,
+            bbox=None,
+            layer=None,
+            coherence_min=None,
+            max_zones=max_zones,
+            ref_lon=None,
+            ref_lat=None,
+        )
 
     return app
 
@@ -899,12 +923,9 @@ def test_claude_chat_through_acp_with_mcp_tools_and_a_permission(served):
         )
     kinds = [e["type"] for e in ev]
     assert kinds[0] == "status"
-    assert answered and answered[0]["name"] == "list_layers"
-    assert [o["kind"] for o in answered[0]["options"]] == [
-        "allow_once",
-        "allow_always",
-        "reject_once",
-    ]
+    # list_layers only reads: its permission request is allowed at once, without
+    # a round trip to the page.
+    assert answered == []
     call = next(e for e in ev if e["type"] == "tool_call")
     assert (call["name"], call["runs"], call["status"]) == (
         "list_layers",
@@ -950,14 +971,22 @@ def test_unanswered_permission_is_declined(served, monkeypatch):
             {
                 "provider": "claude",
                 "conversation": "chat-2",
-                "messages": [{"role": "user", "content": "Which layers?"}],
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": 'CALL add_point {"lon": -117.5, "lat": 33.5}',
+                    }
+                ],
             },
         )
+        asked = next(e for e in ev if e["type"] == "permission")
+        assert (asked["name"], asked["timeout"]) == ("add_point", 1.0)
         closed = next(e for e in ev if e["type"] == "permission_closed")
         assert closed["outcome"] == "timeout"
         result = next(e for e in ev if e["type"] == "tool_result")
         assert result["ok"] is False
-        assert "Not allowed" in "".join(e["text"] for e in ev if e["type"] == "text")
+        text = "".join(e["text"] for e in ev if e["type"] == "text")
+        assert json.loads(text) == [{"tool": "add_point", "allowed": False}]
         # An answer after the fact finds nothing open.
         r = c.post(
             "/assistant/permission",
@@ -1041,6 +1070,351 @@ def test_tool_names_of_different_agents():
     )
     assert acp.tool_name({"title": "bowser.list_layers"}, known) == "list_layers"
     assert acp.tool_name({"title": "Read file"}, known) == "Read file"
+
+
+# --- Sign in with Claude acts on the page (the page channel) -------------------------
+
+
+@pytest.fixture
+def open_page(served, monkeypatch):
+    """A fake page open on the served app, answering like the real one would."""
+    from fake_page import FakePage  # noqa: PLC0415
+
+    page.reset()
+    monkeypatch.setattr(page, "PING_SECONDS", 0.2)
+    state = {
+        "view": {"center": [0.0, 0.0], "zoom": 3},
+        "reference": {"reference_point": [-117.5, 33.5]},
+        "draw_tools": False,
+        "masks": [],
+        "split": {"on": False},
+        "terrain": {"enabled": False, "exaggeration": 2},
+    }
+
+    def handle(name, args):
+        if name == "go_to":
+            state["view"] = {"center": [-90.1253, 34.7562], "zoom": 13}
+            return {"ok": True, "place": "Arkabutla Dam", "view": state["view"]}
+        if name == "get_view":
+            return state["view"]
+        if name == "set_reference_point":
+            state["reference"] = {
+                "reference_point": [args["lon"], args["lat"]],
+                "sample_circle": {
+                    "on": args.get("radius_m", 0) > 0,
+                    "radius_m": args.get("radius_m", 0),
+                },
+            }
+            return {"ok": True, **state["reference"], "chart_rereferenced": True}
+        if name == "get_reference":
+            return state["reference"]
+        if name == "run_command":
+            state["draw_tools"] = args["args"]["on"]
+            return {"id": args["id"], "on": state["draw_tools"]}
+        if name == "set_masks":
+            state["masks"] = args["masks"]
+            return {"ok": True, "masks": args["masks"]}
+        if name == "set_split_screen":
+            state["split"] = args
+            return {"ok": True, **args}
+        if name == "set_terrain":
+            ex = min(10, max(1, args.get("exaggeration", 2)))
+            state["terrain"] = {"enabled": args["on"], "exaggeration": ex}
+            return {"ok": True, "terrain": state["terrain"]}
+        return {"ok": True}
+
+    p = FakePage(served.url, handle).open()
+    yield SimpleNamespace(page=p, state=state)
+    p.close()
+    page.reset()
+
+
+def _ask(c, conversation: str, text: str, auto_allow=False, allow=True):
+    """One question to the signed-in agent; answer its permissions with ``allow``."""
+    asked = []
+
+    def answer(e):
+        if e["type"] == "permission":
+            asked.append(e)
+            c.post(
+                "/assistant/permission",
+                json={
+                    "conversation": conversation,
+                    "id": e["id"],
+                    "choice": "allow" if allow else "reject",
+                },
+            )
+
+    ev = _stream(
+        c,
+        {
+            "provider": "claude",
+            "conversation": conversation,
+            "messages": [{"role": "user", "content": text}],
+            "auto_allow": auto_allow,
+        },
+        answer,
+    )
+    text = "".join(e["text"] for e in ev if e["type"] == "text")
+    return json.loads(text), asked
+
+
+def test_signed_in_claude_moves_the_map_with_go_to(served, open_page):
+    served.claude.state.write_text("signed in")
+    with httpx.Client(base_url=served.url, timeout=120) as c:
+        c.post("/assistant/signin", json={"method": "claude"})
+        results, asked = _ask(
+            c,
+            "nav-1",
+            'CALL go_to {"query": "Arkabutla Dam, Mississippi"}\nCALL get_view {}',
+        )
+    assert asked == []  # moving the map and reading the view never ask
+    assert results[0]["ok"] and results[0]["result"]["place"] == "Arkabutla Dam"
+    assert results[1]["result"] == {"center": [-90.1253, 34.7562], "zoom": 13}
+    assert open_page.page.commands[0] == (
+        "go_to",
+        {"query": "Arkabutla Dam, Mississippi"},
+    )
+
+
+def test_signed_in_claude_sets_the_reference_masks_split_terrain_and_draw_tools(
+    served, open_page, monkeypatch
+):
+    served.claude.state.write_text("signed in")
+    monkeypatch.setattr(relay, "TOOL_BUDGET", 12)  # nine calls in one question
+    masks = [
+        {"dataset": "displacement", "threshold": 0.7, "mode": "min"},
+    ]
+    calls = [
+        'CALL set_reference_point {"lon": -117.6, "lat": 33.6, "radius_m": 150}',
+        "CALL get_reference {}",
+        "CALL reset_reference {}",
+        'CALL set_reference_date {"date": "2020-02-01"}',
+        'CALL add_point {"lon": -117.5, "lat": 33.5, "name": "crest"}',
+        f"CALL set_masks {json.dumps({'masks': masks})}",
+        'CALL run_command {"id": "map.draw_tools", "args": {"on": true}}',
+        'CALL set_split_screen {"on": true, "right_layer": "displacement"}',
+        'CALL set_terrain {"on": true, "exaggeration": 5}',
+    ]
+    with httpx.Client(base_url=served.url, timeout=120) as c:
+        c.post("/assistant/signin", json={"method": "claude"})
+        results, asked = _ask(c, "nav-2", "\n".join(calls), auto_allow=True)
+    assert asked == []  # auto-allow: no round trip to the page for Bowser's tools
+    assert all(r["ok"] for r in results), results
+    names = [c[0] for c in open_page.page.commands]
+    assert names == [
+        "set_reference_point",
+        "get_reference",
+        "reset_reference",
+        "set_reference_date",
+        "add_point",
+        "set_masks",
+        "run_command",
+        "set_split_screen",
+        "set_terrain",
+    ]
+    assert results[1]["result"]["sample_circle"] == {"on": True, "radius_m": 150}
+    assert open_page.state["draw_tools"] is True
+    assert open_page.state["masks"] == masks
+    assert open_page.state["terrain"] == {"enabled": True, "exaggeration": 5}
+
+
+def test_signed_in_claude_highlights_the_roads_on_moving_ground(
+    served, open_page, monkeypatch
+):
+    """'Which roads are in the area moving faster than 5 mm/yr?' through the page
+    channel: zones, the roads in the largest, and its highlight on the page."""
+    import test_context  # noqa: PLC0415
+
+    mock = test_context.Services()
+    mock.elements = test_context.roads_through_zone_a()
+    monkeypatch.setattr(context.FETCHER, "transport", httpx.MockTransport(mock.handler))
+    context.FETCHER.clear()
+    context.RESULTS.clear()
+    served.claude.state.write_text("signed in")
+    calls = [
+        "Which roads are in the area moving faster than 5 mm/yr?",
+        'CALL deformation_zones {"threshold_mm_yr": 5}',
+        'CALL infrastructure_in_area {"zone": "Z1", "kinds": ["roads"]}',
+        'CALL highlight_infrastructure {"zone": "Z1", "kinds": ["roads"], '
+        '"color": "#ff0000"}',
+    ]
+    with httpx.Client(base_url=served.url, timeout=120) as c:
+        c.post("/assistant/signin", json={"method": "claude"})
+        results, asked = _ask(c, "ctx-1", "\n".join(calls), auto_allow=True)
+    assert asked == []
+    assert all(r["ok"] for r in results), results
+    zones_found, roads, _ = (r["result"] for r in results)
+    assert zones_found["zones"][0]["zone"] == "Z1"
+    assert roads["summary"]["roads"]["named"][0]["name"] == "Levee Rd"
+    assert [c[0] for c in open_page.page.commands] == [
+        "draw_highlight",
+        "draw_highlight",
+        "highlight_infrastructure",
+    ]
+    assert open_page.page.commands[1][1]["result_id"] == roads["result_id"]
+    assert open_page.page.commands[2][1] == {
+        "kinds": ["roads"],
+        "zone": "Z1",
+        "color": "#ff0000",
+    }
+    assert len(mock.requests) == 1  # one Overpass request; the page asks the server
+    context.RESULTS.clear()
+
+
+def test_auto_allow_covers_only_bowsers_tools(served, open_page):
+    served.claude.state.write_text("signed in")
+    with httpx.Client(base_url=served.url, timeout=120) as c:
+        c.post("/assistant/signin", json={"method": "claude"})
+        # Off (the default): a tool that changes the page asks, and a refusal
+        # stops it; tools that only read or move the map never ask.
+        results, asked = _ask(
+            c,
+            "auto-1",
+            'CALL add_point {"lon": -117.5, "lat": 33.5}\nCALL get_view {}\n'
+            'CALL list_layers {}\nCALL fly_to {"lon": -117.5, "lat": 33.5}',
+            allow=False,
+        )
+        assert [a["name"] for a in asked] == ["add_point"]
+        assert results[0] == {"tool": "add_point", "allowed": False}
+        assert all(r["ok"] for r in results[1:])
+        assert [c[0] for c in open_page.page.commands] == ["get_view", "fly_to"]
+        # On: Bowser's tools run without asking; anything else still asks.
+        results, asked = _ask(
+            c,
+            "auto-2",
+            'CALL add_point {"lon": -117.5, "lat": 33.5}\nASK Bash',
+            auto_allow=True,
+            allow=False,
+        )
+        assert [a["title"] for a in asked] == ["Bash"]
+        assert results[0]["ok"] and results[1] == {"tool": "Bash", "allowed": False}
+        # A look-alike of another server is not Bowser's.
+        results, asked = _ask(
+            c, "auto-3", "ASK mcp__other__get_view", auto_allow=True, allow=False
+        )
+        assert len(asked) == 1
+
+
+def test_bowser_tool_names_are_strict():
+    known = {"get_view", "list_layers"}
+    assert acp.bowser_tool({"title": "mcp__bowser__get_view"}, known) == "get_view"
+    meta = {"_meta": {"claudeCode": {"toolName": "mcp__bowser__list_layers"}}}
+    assert acp.bowser_tool(meta, known) == "list_layers"
+    for title in ("get_view", "mcp__other__get_view", "mcp__bowser__rm", "Bash"):
+        assert acp.bowser_tool({"title": title}, known) is None
+
+
+def test_claude_gets_the_pages_context_and_a_tool_budget(
+    served, open_page, monkeypatch
+):
+    served.claude.state.write_text("signed in")
+    monkeypatch.setattr(relay, "TOOL_BUDGET", 2)
+    context = {"layer": "displacement", "view": {"center": [-117.5, 33.5], "zoom": 12}}
+    with httpx.Client(base_url=served.url, timeout=120) as c:
+        c.post("/assistant/signin", json={"method": "claude"})
+        ev = _stream(
+            c,
+            {
+                "provider": "claude",
+                "conversation": "ctx-1",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "CALL get_view {}\nCALL get_reference {}\n"
+                        "CALL get_view {}",
+                    }
+                ],
+                "auto_allow": True,
+                "page_context": context,
+            },
+        )
+    prompt = (served.claude.out / "prompt.txt").read_text()
+    assert prompt.startswith(
+        f"[page: {json.dumps(context, separators=(',', ':'))}]\n\n"
+    )
+    assert {"type": "budget", "limit": 2} in ev
+    results = json.loads("".join(e["text"] for e in ev if e["type"] == "text"))
+    assert [r.get("ok", r.get("allowed")) for r in results] == [True, True, False]
+    assert [c[0] for c in open_page.page.commands] == ["get_view", "get_reference"]
+
+
+@pytest.mark.usefixtures("open_page")
+def test_always_allow_remembers_the_tool_for_the_session(served):
+    served.claude.state.write_text("signed in")
+    with httpx.Client(base_url=served.url, timeout=120) as c:
+        c.post("/assistant/signin", json={"method": "claude"})
+        asked = []
+
+        def always(e):
+            if e["type"] == "permission":
+                asked.append(e)
+                c.post(
+                    "/assistant/permission",
+                    json={
+                        "conversation": "al-1",
+                        "id": e["id"],
+                        "choice": "allow_always",
+                    },
+                )
+
+        call = 'CALL add_point {"lon": -117.5, "lat": 33.5}'
+        _stream(
+            c,
+            {
+                "provider": "claude",
+                "conversation": "al-1",
+                "messages": [{"role": "user", "content": call}],
+            },
+            always,
+        )
+        assert len(asked) == 1
+        results, again = _ask(c, "al-1", call.replace("33.5", "33.6"))
+    assert again == [] and results[0]["ok"]
+
+
+def test_quiet_tools_are_those_that_read_or_move_the_map():
+    from bowser.tools import BowserAPI, build_tools  # noqa: PLC0415
+
+    specs = {s.name: s for s in build_tools(BowserAPI())}
+    quiet = {n for n, s in specs.items() if s.quiet}
+    assert {
+        "server_info",
+        "list_layers",
+        "point_timeseries",
+        "multi_point_timeseries",
+        "trend_at_point",
+        "value_at_point",
+        "polygon_statistics",
+        "profile",
+        "layer_statistics",
+        "get_view",
+        "get_masks",
+        "get_display",
+        "get_reference",
+        "list_commands",
+        "geocode",
+        "find_reference_candidates",
+        "fly_to",
+        "go_to",
+        "pan",
+        "zoom",
+        "fit_bounds",
+    } <= quiet
+    assert not quiet & {
+        "export_geotiff",
+        "set_masks",
+        "set_reference_point",
+        "run_command",
+        "add_point",
+        "set_colormap",
+        "clear_masks",
+    }
+    # Read-only tools say so to MCP clients too.
+    assert all(
+        specs[n].read_only
+        for n in quiet - {"fly_to", "go_to", "pan", "zoom", "fit_bounds"}
+    )
 
 
 # --- the adapter, installed once; the agent started before the first question ---
@@ -1338,3 +1712,31 @@ def test_warm_session_closes_on_sign_out_and_stop(served, how):
             break
         time.sleep(0.05)
     assert not _alive(pid)
+
+
+def test_the_agents_bowser_mcp_gets_the_page_token_in_its_env(served, open_page):
+    from bowser import page_token  # noqa: PLC0415
+
+    served.claude.state.write_text("signed in")
+    with httpx.Client(base_url=served.url, timeout=120) as c:
+        c.post("/assistant/signin", json={"method": "claude"})
+        ev = _stream(
+            c,
+            {
+                "provider": "claude",
+                "conversation": "tok-1",
+                "messages": [{"role": "user", "content": "CALL get_view {}"}],
+            },
+        )
+    token = page_token.for_url(served.url)
+    assert token
+    new = json.loads((served.claude.out / "new.json").read_text())
+    env = {e["name"]: e["value"] for e in new["mcpServers"][0]["env"]}
+    assert env[page_token.ENV] == token
+    # The page tool worked through it, and the token is in no event.
+    results = json.loads("".join(e["text"] for e in ev if e["type"] == "text"))
+    assert results[0]["ok"]
+    assert open_page.page.commands == [("get_view", {})]
+    assert token not in json.dumps(ev)
+    # The agent's own environment does not carry it.
+    assert token not in (served.claude.out / "env.json").read_text()

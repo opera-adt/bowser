@@ -76,6 +76,7 @@ export default function TimeStepper({ value, count, onChange, onPlayingChange }:
 
   const arrow = (dir: Direction, label: string, glyph: string, atEnd: boolean) => (
     <button type="button" className={`date-badge-step time-step-btn${playing === dir ? ' playing' : ''}`}
+      data-command={dir === 1 ? 'time.next' : 'time.previous'}
       aria-label={label} aria-pressed={playing === dir} disabled={atEnd && playing !== dir}
       title={playing === dir ? 'Stop playing' : `${label} (click twice to play, right-click for speed)`}
       onClick={() => click(dir)}

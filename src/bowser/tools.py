@@ -18,6 +18,7 @@ import functools
 import inspect
 import json
 import math
+import os
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +27,8 @@ from urllib.parse import urlencode
 
 import httpx
 from pydantic import BaseModel, Field, create_model
+
+from .chart_tools import CHART_COMMANDS, CHART_INSTRUCTIONS, register_chart_tools
 
 DEFAULT_URL = "http://127.0.0.1:8000"
 
@@ -58,6 +61,46 @@ Typical flows:
 - "How does an area behave?": polygon_statistics (full server), or several points.
 - "Where does it change?": profile along a line across the feature at one date.
 - "Is the colour scale sensible / how big are values on this date?": layer_statistics.
+- "Who and what is affected by motion in X?": go_to X -> deformation_zones (look
+  at the velocity's spread first, layer_statistics on velocity, to pick a
+  threshold) -> infrastructure_in_area with a zone id ("Z1") -> highlight_infrastructure
+  for what the user asked about. clear_highlights removes the drawings.
+- "What is around this point?": infrastructure_at (roads, buildings, rail,
+  bridges, pipelines, dams, levees within a radius, from OpenStreetMap).
+- Read the ground first: before interpreting a time series at a point, call
+  site_context there (land cover, geology, wetlands, soil, slope, nearby
+  infrastructure and the cube's coherence at the point).
+- Context on the map: list_context_layers, then add_context_layer (roads,
+  buildings, land cover, geology, soils, GNSS stations...) or
+  remove_context_layer, as the Overlays › Services toggles.
+
+Finding places. Each question comes with what the page shows (its view, layer,
+reference and points) when a page is open: use it for "here", "this area" or
+"the middle of the view" without a tool call (get_view otherwise). For a named
+place (a dam, a town, an address) call geocode or go_to first. Never search for
+a place by scanning with profile or by sampling points; profile is only for a
+line the user asked for. If the place is ambiguous or not found, offer the
+geocoder's candidates or ask the user to click it on the map; do not guess. Use
+few tool calls: a question has a limited number.
+
+The page tools act on the Bowser page the user has open (on their own computer):
+- Moving the map: use go_to for place names and addresses, fly_to for
+  coordinates, fit_bounds for an area, pan and zoom for small moves; call
+  get_view first if unsure where the user is looking. geocode only looks a place
+  up (no page needed).
+- The reference: to change it, use set_reference_point (radius_m samples a
+  circle around it); to choose a good one, use find_reference_candidates and
+  then set_reference_point with the recommended lon/lat and radius_m.
+  get_reference and reset_reference read and undo it.
+- Masks: get_masks, set_masks, clear_masks, set_recommended_mask. Mode min keeps
+  pixels >= threshold, mode max keeps pixels <= threshold; say how you read the
+  user's words. The data tools apply the page's masks by default.
+- Display: get_display, set_colormap, set_color_range (presets for 'one sigma',
+  'two sigma', 2-98%, full, symmetric), set_opacity, set_split_screen,
+  set_terrain.
+- For a toolbar or panel option not covered by a specific tool, call
+  list_commands, then run_command. Ask the user before a command marked
+  destructive.
 
 What the numbers are. Displacement is measured along the radar's line of sight
 (LOS), not vertical: a value can be vertical motion, horizontal motion or both, and
@@ -71,8 +114,8 @@ stable ground look like it moves. Lengths stored in metres are given in mm,
 rates in mm/yr.
 
 Reading a time series: never interpret displacement from the curve alone. First
-establish what is on the ground at that point (ask the user, or use other tools you
-have for geology, land cover, terrain, wetlands, snow, earthquakes, wells or GNSS),
+establish what is on the ground at that point (site_context; or ask the user, or
+use other tools you have for snow, earthquakes, wells or GNSS),
 and the quality there (temporal_coherence, phase_similarity or recommended_mask at
 the same point), then say which effects could explain the signal and how sure you
 are. Wetlands, flooded vegetation, irrigated fields and watered turf can bias the
@@ -146,6 +189,22 @@ Dataset = Annotated[
         "serves a single cube."
     ),
 ]
+Side = Annotated[
+    Literal["left", "right"],
+    Field(
+        description="Which layer: left is the main layer; right is the split "
+        "screen's right layer."
+    ),
+]
+UsePageMasks = Annotated[
+    bool,
+    Field(
+        description="Apply the open page's layer masks (as its map and chart "
+        "do), so the answer matches what the user sees; false reads unmasked "
+        "values. Without a connected page nothing is masked. The result's "
+        "`masks` says what was applied."
+    ),
+]
 TimeIndex = Annotated[
     int,
     Field(
@@ -154,6 +213,99 @@ TimeIndex = Annotated[
         "Clamped to the last date.",
     ),
 ]
+
+
+#: The context layers of Overlays › Services (src/map/contextServices.ts).
+CONTEXT_LAYER_IDS = (
+    "roads",
+    "boundaries",
+    "buildings",
+    "land_cover",
+    "geology",
+    "soils",
+    "gnss",
+)
+ContextLayerId = Annotated[
+    Literal[
+        "roads", "boundaries", "buildings", "land_cover", "geology", "soils", "gnss"
+    ],
+    Field(
+        description="Context layer id (list_context_layers): roads (with railways), "
+        "boundaries, buildings, land_cover, geology, soils or gnss."
+    ),
+]
+#: The kinds of infrastructure the tools look up (OpenStreetMap).
+KIND_NAMES = ("roads", "buildings", "rail", "bridges", "pipelines", "dams", "levees")
+InfraKind = Literal[
+    "roads", "buildings", "rail", "bridges", "pipelines", "dams", "levees"
+]
+Kinds = Annotated[
+    list[InfraKind] | None,
+    Field(
+        min_length=1,
+        description="Kinds to look up; omit for all of roads, buildings, rail, "
+        "bridges, pipelines, dams and levees.",
+    ),
+]
+ShowOnMap = Annotated[
+    bool,
+    Field(
+        description="Also draw what was found on the open page, as a highlight "
+        "layer (when a page is connected)."
+    ),
+]
+AreaGeometry = Annotated[
+    dict[str, Any] | None,
+    Field(description="GeoJSON Polygon or MultiPolygon (or Feature), lon/lat."),
+]
+AreaBbox = Annotated[
+    list[float] | None,
+    Field(
+        min_length=4, max_length=4, description="[west, south, east, north], lon/lat."
+    ),
+]
+AreaName = Annotated[
+    str | None,
+    Field(
+        max_length=120,
+        description="Name of a shape drawn on the page or of a chart area (get_areas).",
+    ),
+]
+ZoneId = Annotated[
+    str | None,
+    Field(
+        max_length=80,
+        description='A zone of deformation_zones: "Z1" (latest zones) or its '
+        '"<zones_id>/Z1".',
+    ),
+]
+EXPOSURE_NOTE = (
+    "Being in or near moving ground says nothing about the condition of any "
+    "feature: never call a road, building or structure damaged, unsafe or at "
+    "risk from this; motion must be confirmed by a qualified expert."
+)
+
+
+def _downslope_in_los(terrain: dict, los: dict | None) -> dict[str, Any]:
+    """How much of a downslope motion the cube's line of sight sees (+ = towards)."""
+    slope = terrain.get("slope_deg")
+    aspect = terrain.get("aspect_deg")
+    if slope is None or aspect is None or slope < 2:
+        return {}
+    if not los or not all(k in los for k in ("east", "north", "up")):
+        return {
+            "downslope_seen_in_los": None,
+            "downslope_note": "The cube gives no look direction.",
+        }
+    s, a = math.radians(slope), math.radians(aspect)
+    down = (math.cos(s) * math.sin(a), math.cos(s) * math.cos(a), -math.sin(s))
+    share = down[0] * los["east"] + down[1] * los["north"] + down[2] * los["up"]
+    return {
+        "downslope_seen_in_los": round(share, 2),
+        "downslope_note": "Share of a downslope movement seen along the line of "
+        "sight (1 = all of it, towards the satellite; negative = seen as motion "
+        "away), with the cube's look direction.",
+    }
 
 
 class PointIn(BaseModel):
@@ -190,13 +342,20 @@ class BowserAPI:
         transport: httpx.AsyncBaseTransport | None = None,
         timeout: float = 300.0,
         headers: dict[str, str] | None = None,
+        page_token: str | None = None,
     ) -> None:
         """Set up a client for the server at ``base_url`` (or ``transport``).
 
         ``headers`` go with every request (the Assistant passes on the page's
         Authorization header, so a server behind Basic Auth answers its tools).
+        ``page_token`` lets the page tools act on the open page (see
+        :mod:`bowser.page_token`); without it, ``BOWSER_PAGE_TOKEN`` or the
+        server's token file (when the server runs on this computer) is used.
         """
         self.base_url = base_url.rstrip("/")
+        self._page_token = page_token
+        #: The page's layer masks, when the caller knows them (the Assistant).
+        self.page_masks: list[dict[str, Any]] | None = None
         self._client = httpx.AsyncClient(
             base_url=self.base_url,
             transport=transport,
@@ -240,6 +399,62 @@ class BowserAPI:
     async def post(self, path: str, body: Any, **params: Any) -> Any:
         """POST ``body`` as JSON to ``path`` and return the answer's JSON."""
         return (await self.request("POST", path, params, json=body)).json()
+
+    async def page(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
+        """Run page tool ``name`` on the user's open page; return its answer.
+
+        Goes through the server's page channel (``POST /page/command``). Raises
+        BowserError with the server's or the page's message: no page open, not
+        allowed on this server, the page did not answer, or the page refused.
+        """
+        from . import page_token  # noqa: PLC0415
+
+        token = (
+            self._page_token
+            or os.environ.get(page_token.ENV)
+            or page_token.for_url(self.base_url)
+        )
+        headers = {}
+        if token:
+            # Keep an Authorization header the server needs (Basic Auth).
+            if "authorization" in self._client.headers:
+                headers[page_token.HEADER] = token
+            else:
+                headers["Authorization"] = f"Bearer {token}"
+        try:
+            r = await self._client.post(
+                "/page/command", json={"name": name, "input": args}, headers=headers
+            )
+        except httpx.TransportError as e:
+            raise BowserError(
+                f"Cannot reach the Bowser server at {self.base_url} "
+                f"({type(e).__name__})."
+            ) from e
+        if r.status_code >= 400:
+            raise BowserError(_detail(r))
+        answer = r.json()
+        if not answer.get("ok"):
+            raise BowserError(answer.get("error") or "The page could not do that.")
+        result = answer.get("result")
+        return result if isinstance(result, dict) else {"result": result}
+
+    async def current_page_masks(self) -> list[dict[str, Any]] | None:
+        """Return the page's layer masks for the API, or None without a page.
+
+        The Assistant sets :attr:`page_masks` from the chat request; otherwise the
+        open page is asked (``get_masks``).
+        """
+        if self.page_masks is not None:
+            return self.page_masks
+        try:
+            res = await self.page("get_masks", {"layer_ranges": False})
+        except BowserError:
+            return None
+        return [
+            {"dataset": m["layer"], "threshold": m["threshold"], "mode": m["mode"]}
+            for m in res.get("masks") or []
+            if isinstance(m, dict) and {"layer", "threshold", "mode"} <= set(m)
+        ]
 
     async def aclose(self) -> None:
         """Close the HTTP client."""
@@ -316,9 +531,23 @@ class ToolSpec:
     description: str
     fn: Callable[..., Awaitable[dict[str, Any]]]
     read_only: bool = True
+    #: Runs on the user's open page (the page channel, or the Assistant's page).
+    page: bool = False
+    #: Offered by ``bowser mcp`` (false for a tool only the Assistant's page has).
+    mcp: bool = True
+    #: Talks to a service outside Bowser (the geocoder).
+    open_world: bool = False
+    #: Runs without asking the user first: it only reads, or only moves the map.
+    #: (A signed-in agent's permission requests for it are answered at once.)
+    quiet: bool | None = None
     #: What the tool is doing, for a status line ("Reading the time series");
     #: empty: made from the name (:attr:`status_text`).
     status: str = ""
+
+    def __post_init__(self) -> None:
+        """Tools that only read are quiet unless said otherwise."""
+        if self.quiet is None:
+            self.quiet = self.read_only
 
     @property
     def status_text(self) -> str:
@@ -385,14 +614,91 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
     """
     specs: list[ToolSpec] = []
 
-    def tool(fn=None, *, read_only: bool = True, status: str = ""):
+    def tool(
+        fn=None,
+        *,
+        read_only: bool = True,
+        page: bool = False,
+        mcp: bool = True,
+        open_world: bool = False,
+        status: str = "",
+    ):
         """Register ``fn`` with its docstring as the description."""
 
         def register(fn):
-            specs.append(ToolSpec(fn.__name__, _describe(fn), fn, read_only, status))
+            specs.append(
+                ToolSpec(
+                    fn.__name__,
+                    _describe(fn),
+                    fn,
+                    read_only,
+                    page=page,
+                    mcp=mcp,
+                    open_world=open_world,
+                    status=status,
+                )
+            )
             return fn
 
         return register(fn) if fn is not None else register
+
+    def page_tool(
+        fn=None,
+        *,
+        read_only: bool = False,
+        mcp: bool = True,
+        quiet: bool = False,
+        open_world: bool = False,
+        status: str = "",
+    ):
+        """Register a tool that runs on the page (see :data:`PAGE_COMMANDS`)."""
+
+        def register(fn):
+            specs.append(
+                ToolSpec(
+                    fn.__name__,
+                    _describe(fn),
+                    fn,
+                    read_only,
+                    page=True,
+                    mcp=mcp,
+                    open_world=open_world,
+                    quiet=quiet or read_only,
+                    status=status,
+                )
+            )
+            return fn
+
+        return register(fn) if fn is not None else register
+
+    async def on_page(tool_name: str, /, **args: Any) -> dict[str, Any]:
+        """Run page tool ``tool_name`` on the open page (None arguments left out)."""
+        return await api.page(
+            tool_name, {k: v for k, v in args.items() if v is not None}
+        )
+
+    async def page_masks(use: bool, given: list[LayerMask] | None):
+        """Return ``(masks for the API, a note on them)`` for a data tool."""
+        if given:
+            masks = [m.model_dump() for m in given]
+            return masks, {"applied": masks, "source": "argument"}
+        if not use:
+            return [], {"applied": [], "source": "none", "note": "Unmasked values."}
+        current = await api.current_page_masks()
+        if current is None:
+            return [], {
+                "applied": [],
+                "source": "none",
+                "note": "No Bowser page is connected: values are unmasked.",
+            }
+        return current, {
+            "applied": current,
+            "source": "page",
+            "note": "The page's masks (as on its map and chart): dates where a "
+            "mask fails at the point are left out."
+            if current
+            else "The page has no masks: values are unmasked.",
+        }
 
     async def layers(dataset: str | None) -> dict[str, dict]:
         return await api.get("/datasets", dataset=dataset)
@@ -565,6 +871,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
         ref_lat: RefLat = None,
         ref_buffer_m: RefBuffer = 0.0,
         use_cube_reference: UseCubeReference = True,
+        use_page_masks: UsePageMasks = True,
         dataset: Dataset = None,
     ) -> dict[str, Any]:
         """Return a layer's time series at a point (nearest pixel), as on the page.
@@ -582,7 +889,9 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
             )
         ref_lon, ref_lat, ref = reference(info, ref_lon, ref_lat, use_cube_reference)
         factor, unit = unit_scale(info.get("unit"))
-        if ref_buffer_m > 0 and ref_lon is not None:
+        masks, mask_note = await page_masks(use_page_masks, None)
+        buffered = ref_buffer_m > 0 and ref_lon is not None
+        if buffered or masks:
             res = await api.post(
                 "/multi_point",
                 {
@@ -590,14 +899,16 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
                     "dataset_name": layer,
                     "ref_lon": ref_lon,
                     "ref_lat": ref_lat,
-                    "ref_buffer_m": ref_buffer_m,
+                    "ref_buffer_m": ref_buffer_m if buffered else 0.0,
+                    "layer_masks": masks,
                 },
                 dataset=dataset,
             )
             if not res["datasets"]:
                 raise BowserError(f"Bowser could not read {layer!r} at the point.")
             labels, data = res["labels"], res["datasets"][0]["data"]
-            ref["note"] += f" Reference is the median within {ref_buffer_m:g} m."
+            if buffered:
+                ref["note"] += f" Reference is the median within {ref_buffer_m:g} m."
         else:
             res = await api.get(
                 "/chart_point",
@@ -620,6 +931,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
             "n_missing": len(labels) - len(dates),
             "dates": dates,
             "values": values,
+            "masks": mask_note,
         }
         if values:
             out["summary"] = (
@@ -648,9 +960,11 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
             list[LayerMask] | None,
             Field(
                 description="Drop dates where another layer fails a threshold at "
-                "the point, as the page's masks do."
+                "the point, as the page's masks do. Given, these replace the "
+                "page's masks."
             ),
         ] = None,
+        use_page_masks: UsePageMasks = True,
         dataset: Dataset = None,
     ) -> dict[str, Any]:
         """Return the time series of several points against one reference.
@@ -671,6 +985,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
             ref["note"] += f" Reference is the median within {ref_buffer_m:g} m."
         factor, unit = unit_scale(info.get("unit"))
         names = [p.name or f"point {i + 1}" for i, p in enumerate(points)]
+        masks, mask_note = await page_masks(use_page_masks, layer_masks)
         res = await api.post(
             "/multi_point",
             {
@@ -683,7 +998,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
                 "ref_lat": ref_lat,
                 "ref_buffer_m": ref_buffer_m,
                 "calculate_trends": trends,
-                "layer_masks": [m.model_dump() for m in layer_masks or []],
+                "layer_masks": masks,
             },
             dataset=dataset,
         )
@@ -714,6 +1029,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
             "reference": ref,
             "dates": labels,
             "points": rows,
+            "masks": mask_note,
         }
 
     @tool(status="Fitting the trend")
@@ -725,6 +1041,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
         ref_lat: RefLat = None,
         ref_buffer_m: RefBuffer = 0.0,
         use_cube_reference: UseCubeReference = True,
+        use_page_masks: UsePageMasks = True,
         dataset: Dataset = None,
     ) -> dict[str, Any]:
         """Fit a straight-line rate (velocity) through a point's time series.
@@ -743,7 +1060,9 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
             )
         ref_lon, ref_lat, ref = reference(info, ref_lon, ref_lat, use_cube_reference)
         factor, unit = unit_scale(info.get("unit"))
-        if ref_buffer_m > 0 and ref_lon is not None:
+        masks, mask_note = await page_masks(use_page_masks, None)
+        buffered = ref_buffer_m > 0 and ref_lon is not None
+        if buffered or masks:
             res = await api.post(
                 "/multi_point",
                 {
@@ -751,8 +1070,9 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
                     "dataset_name": layer,
                     "ref_lon": ref_lon,
                     "ref_lat": ref_lat,
-                    "ref_buffer_m": ref_buffer_m,
+                    "ref_buffer_m": ref_buffer_m if buffered else 0.0,
                     "calculate_trends": True,
+                    "layer_masks": masks,
                 },
                 dataset=dataset,
             )
@@ -760,7 +1080,8 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
             if not t:
                 raise BowserError("Too few dates with data at the point for a trend.")
             mm, std, r2 = t["mmPerYear"], t["stdMmPerYear"], t["rSquared"]
-            ref["note"] += f" Reference is the median within {ref_buffer_m:g} m."
+            if buffered:
+                ref["note"] += f" Reference is the median within {ref_buffer_m:g} m."
         else:
             t = await api.get(
                 f"/trend_analysis/{layer}",
@@ -782,6 +1103,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
             "unit": "mm/yr" if factor == 1000.0 else f"{unit} per year",
             "period": [labels[0], labels[-1]],
             "reference": ref,
+            "masks": mask_note,
             "note": "Rate 0 with R^2 0 means fewer than two dates had data. A "
             "small R^2 means the line explains little of the series.",
         }
@@ -967,8 +1289,10 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
         """Return a layer's values along a line at one date, by distance.
 
         Values are as stored (relative to the producer's reference point and
-        date), not re-referenced to a point. Use it to see where a signal starts
-        and stops, e.g. across a dam, a fault or a subsidence bowl.
+        date), not re-referenced to a point. Only for an explicit cross-section
+        the user asked for (where a signal starts and stops across a dam, a
+        fault or a subsidence bowl), never to find a feature or a place: for a
+        named place use geocode or go_to.
         """
         info = await layer_info(dataset, layer)
         for c in coords:
@@ -1133,6 +1457,1188 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
         out.update(path=str(dest.resolve()), bytes=len(r.content))
         return out
 
+    # --- tools: choosing a reference point ----------------------------------------
+
+    @tool(status="Finding a stable reference (the first run reads the whole stack)")
+    async def find_reference_candidates(
+        radius_m: Annotated[
+            float,
+            Field(
+                ge=0,
+                le=5000,
+                description="Radius (m) of the circle scored around each pixel.",
+            ),
+        ] = 100.0,
+        n: Annotated[
+            int, Field(ge=1, le=50, description="Most candidates to return.")
+        ] = 5,
+        min_separation_m: Annotated[
+            float | None,
+            Field(
+                ge=0,
+                description="Least distance (m) between candidates; omit for the "
+                "server's default.",
+            ),
+        ] = None,
+        use_masks: Annotated[
+            bool,
+            Field(
+                description="Apply the cube's recommended mask to the pixels "
+                "considered."
+            ),
+        ] = False,
+        coherence_min: Annotated[
+            float | None,
+            Field(
+                ge=0,
+                le=1,
+                description="Least median temporal coherence; omit for the top "
+                "quantile.",
+            ),
+        ] = None,
+        similarity_min: Annotated[
+            float | None,
+            Field(
+                ge=0,
+                le=1,
+                description="Least median phase similarity; omit for the top quantile.",
+            ),
+        ] = None,
+        quantile: Annotated[
+            float,
+            Field(
+                gt=0,
+                lt=1,
+                description="Keep pixels whose medians are in this top quantile "
+                "of the cube.",
+            ),
+        ] = 0.95,
+        dataset: Dataset = None,
+    ) -> dict[str, Any]:
+        """Find stable places to put the InSAR reference point, in one call.
+
+        For every pixel the server takes the median and standard deviation, over
+        the whole stack, of temporal coherence and phase similarity (water
+        excluded). It keeps pixels whose medians are in the cube's top 5% (or above
+        coherence_min / similarity_min), then scores a circle of radius_m around
+        each (the share of viable pixels × the mean score) and checks how much the
+        displacement inside the circle scatters. It returns up to n spaced
+        candidates with their stats, velocity and a reason, plus the thresholds
+        used and the stack's distribution. To use the best one, call
+        set_reference_point with the recommended candidate's lon, lat and
+        radius_m. Coherence is not stability: mention the candidate's velocity and
+        what is on the ground (a dam or building can be coherent and moving), and
+        offer the other candidates. The first call on a cube reads the whole stack
+        (tens of seconds); later calls take seconds.
+        """
+        params = {
+            "radius_m": radius_m,
+            "n": n,
+            "min_separation_m": min_separation_m,
+            "use_masks": str(use_masks).lower(),
+            "coherence_min": coherence_min,
+            "similarity_min": similarity_min,
+            "quantile": quantile,
+            "dataset": dataset,
+        }
+        try:
+            r = await api._client.get(
+                "/reference_candidates",
+                params={k: v for k, v in params.items() if v is not None},
+                timeout=max(api._client.timeout.read or 0, 300.0),
+            )
+        except httpx.TransportError as e:
+            raise BowserError(
+                f"Cannot reach the Bowser server at {api.base_url} "
+                f"({type(e).__name__})."
+            ) from e
+        if r.status_code >= 400:
+            detail = _detail(r)
+            if r.status_code == 404 and detail == "Not Found":
+                raise BowserError("This Bowser server has no reference finder.")
+            raise BowserError(detail)
+        res = r.json()
+        keys = (
+            "rank",
+            "lon",
+            "lat",
+            "radius_m",
+            "temporal_coherence_median",
+            "phase_similarity_median",
+            "viable_fraction",
+            "displacement_scatter_m",
+            "velocity",
+            "reason",
+        )
+        return {
+            "recommended": res.get("recommended"),
+            "candidates": [
+                {k: c.get(k) for k in keys if k in c}
+                for c in res.get("candidates") or []
+            ],
+            "thresholds": res.get("thresholds"),
+            "distribution": res.get("distribution"),
+            "note": "Use set_reference_point with the recommended candidate's lon, "
+            "lat and radius_m; say its velocity and what is on the ground there.",
+        }
+
+    # --- tools: places (no page needed) -----------------------------------------
+
+    @tool(open_world=True, status="Looking up the place")
+    async def geocode(
+        query: Annotated[
+            str,
+            Field(
+                min_length=1,
+                max_length=200,
+                description="Place name or address, e.g. 'Arkabutla Dam, "
+                "Mississippi' or '1600 Pennsylvania Ave, Washington DC'.",
+            ),
+        ],
+        limit: Annotated[
+            int, Field(ge=1, le=10, description="Most candidates to return.")
+        ] = 5,
+    ) -> dict[str, Any]:
+        """Find a place name or address: candidates with lon/lat and a bounding box.
+
+        Best first, each with `name`, `lon`, `lat`, `bbox` [west, south, east,
+        north] and `kind`. From OpenStreetMap's Nominatim (credit it when you
+        quote a result). Needs no open page; to move the map there use go_to.
+        """
+        res = await api.get("/geocode", q=query, limit=limit)
+        return {
+            **res,
+            "note": "Coordinates are WGS84 lon/lat; bbox is [west, south, east, "
+            "north]." + ("" if res.get("results") else " Nothing was found."),
+        }
+
+    # --- tools: what is on the ground (context and infrastructure) -------------------
+
+    async def drawn(
+        result_id: str, name: str, color: str | None, show: bool, n: int = 1
+    ) -> dict:
+        """Draw a kept result on the page when asked and a page is connected."""
+        if not show:
+            return {"on_map": False, "note": "show_on_map was false."}
+        if not n:
+            return {"on_map": False, "note": "Nothing found, so nothing drawn."}
+        try:
+            res = await api.page(
+                "draw_highlight",
+                {
+                    k: v
+                    for k, v in (
+                        ("result_id", result_id),
+                        ("name", name),
+                        ("color", color),
+                    )
+                    if v is not None
+                },
+            )
+        except BowserError as e:
+            return {
+                "on_map": False,
+                "note": f"Not drawn: {e} Without a connected page, describe the "
+                "result instead.",
+            }
+        return {
+            "on_map": True,
+            "layer": res.get("name") or name,
+            "note": "Drawn as a highlight layer (Overlays › Layers); "
+            "clear_highlights removes it.",
+        }
+
+    async def infra_query(body: dict[str, Any], kinds_given: bool) -> dict:
+        """Ask POST /infrastructure, without buildings if they make it too large.
+
+        Only when the kinds were the default; the answer says so.
+        """
+        try:
+            return await api.post("/infrastructure", body)
+        except BowserError as e:
+            if kinds_given or "too large for buildings" not in str(e):
+                raise
+            body = {**body, "kinds": [k for k in body["kinds"] if k != "buildings"]}
+            res = await api.post("/infrastructure", body)
+            res["note"] = (
+                "Buildings were left out: the area is too large for them (their box "
+                "must be at most 60 km²); ask for a smaller area. " + res["note"]
+            )
+            return res
+
+    def infra_answer(res: dict, drawn_note: dict) -> dict:
+        return {
+            "where": res["where"],
+            "area_m2": res["area_m2"],
+            "kinds": res["kinds"],
+            "summary": res["summary"],
+            "text": res["text"],
+            "result_id": res["result_id"],
+            "map": drawn_note,
+            "attribution": res["attribution"],
+            "note": res["note"] + " " + EXPOSURE_NOTE,
+        }
+
+    @page_tool(read_only=True, status="Listing the context layers")
+    async def list_context_layers() -> dict[str, Any]:
+        """List the context layers of Overlays › Services, and which are on.
+
+        Each with its id (for add_context_layer / remove_context_layer), label,
+        what it shows and its source: roads and railways, admin boundaries,
+        buildings (3D), land cover, geology, soils and GNSS stations. Also lists
+        the highlight layers the tools drew (clear_highlights removes them).
+        """
+        return await on_page("list_context_layers")
+
+    @page_tool(status="Adding the context layer")
+    async def add_context_layer(
+        id: ContextLayerId,  # noqa: A002  (the layer's id, as the model sees it)
+        opacity: Annotated[
+            float | None,
+            Field(ge=0, le=1, description="0-1; omit for the toggle's default."),
+        ] = None,
+        year: Annotated[
+            int | None,
+            Field(
+                ge=2017,
+                le=2025,
+                description="Land cover only: the year (default the latest).",
+            ),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Turn on a context layer of Overlays › Services, as its toggle does.
+
+        Roads (with railways), boundaries, buildings (from zoom 13; tilt the map
+        for heights), land cover (a year), geology, soils (loaded for the view:
+        zoom in first) or GNSS stations (found in the view). Already on: only
+        the opacity changes. Returns the layer and the page's message.
+        """
+        return await on_page("add_context_layer", id=id, opacity=opacity, year=year)
+
+    @page_tool(status="Removing the context layer")
+    async def remove_context_layer(
+        id: ContextLayerId,  # noqa: A002  (the layer's id, as the model sees it)
+    ) -> dict[str, Any]:
+        """Turn off a context layer of Overlays › Services, as its toggle does."""
+        return await on_page("remove_context_layer", id=id)
+
+    @tool(open_world=True, status="Looking up OpenStreetMap")
+    async def infrastructure_at(
+        lon: Lon,
+        lat: Lat,
+        radius_m: Annotated[
+            float,
+            Field(gt=0, le=5000, description="Radius of the circle (m)."),
+        ] = 500.0,
+        kinds: Kinds = None,
+        show_on_map: ShowOnMap = True,
+    ) -> dict[str, Any]:
+        """Find the infrastructure within a radius of a point (OpenStreetMap).
+
+        Per kind (roads, buildings, rail, bridges, pipelines, dams, levees): the
+        count, the length inside by class, building count, footprint and types,
+        and the named features. Draws them on the page as a highlight layer
+        when a page is connected (show_on_map). Being near moving ground says
+        nothing about the condition of any feature.
+        """
+        body = {
+            "point": [lon, lat],
+            "radius_m": radius_m,
+            "kinds": list(kinds or KIND_NAMES),
+        }
+        res = await infra_query(body, kinds is not None)
+        note = await drawn(
+            res["result_id"],
+            f"Infrastructure within {radius_m:g} m",
+            None,
+            show_on_map,
+            res["n_features"],
+        )
+        return infra_answer(res, note)
+
+    @tool(open_world=True, status="Looking up OpenStreetMap")
+    async def infrastructure_in_area(
+        geometry: AreaGeometry = None,
+        bbox: AreaBbox = None,
+        area: AreaName = None,
+        zone: ZoneId = None,
+        kinds: Kinds = None,
+        show_on_map: ShowOnMap = True,
+        list_limit: Annotated[
+            int, Field(ge=0, le=50, description="Named features listed per kind.")
+        ] = 10,
+    ) -> dict[str, Any]:
+        """Find the infrastructure in an area (OpenStreetMap), and draw it.
+
+        Give one area: a GeoJSON polygon, a bbox, the name of a shape drawn on
+        the page or of a chart area (area; see get_areas), or a deformation zone
+        (zone: "Z1" from deformation_zones). Per kind: count, length inside by
+        class (lines are clipped to the area), building count, footprint and
+        types, named features. Buildings need a small area (box up to 60 km²).
+        Draws them when a page is connected (show_on_map). Never say a feature
+        is damaged or at risk from this.
+        """
+        given = [
+            k
+            for k, v in (
+                ("geometry", geometry),
+                ("bbox", bbox),
+                ("area", area),
+                ("zone", zone),
+            )
+            if v is not None
+        ]
+        if len(given) != 1:
+            raise BowserError("Give one of geometry, bbox, area or zone.")
+        body: dict[str, Any] = {
+            "kinds": list(kinds or KIND_NAMES),
+            "list_limit": list_limit,
+        }
+        label = "Infrastructure in the area"
+        if area is not None:
+            found = await on_page("get_areas", name=area)
+            body["geometry"] = found["geometry"]
+            label = f"Infrastructure in {found.get('name') or area}"
+        elif zone is not None:
+            body["zone"] = zone
+            label = f"Infrastructure in zone {zone}"
+        elif bbox is not None:
+            body["bbox"] = bbox
+        else:
+            body["geometry"] = geometry
+        res = await infra_query(body, kinds is not None)
+        note = await drawn(
+            res["result_id"], label, None, show_on_map, res["n_features"]
+        )
+        return infra_answer(res, note)
+
+    @page_tool(open_world=True, status="Drawing the infrastructure")
+    async def highlight_infrastructure(
+        kinds: Annotated[
+            list[InfraKind],
+            Field(min_length=1, description="What to draw, e.g. ['roads']."),
+        ],
+        geometry: AreaGeometry = None,
+        bbox: AreaBbox = None,
+        area: AreaName = None,
+        zone: ZoneId = None,
+        color: Annotated[
+            str | None,
+            Field(
+                pattern=r"^#[0-9A-Fa-f]{6}$",
+                description="Line and fill colour, #rrggbb; omit for orange.",
+            ),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Draw the infrastructure of an area on the page, in a highlight layer.
+
+        The area as for infrastructure_in_area (one of geometry, bbox, area or
+        zone). The layer is named for what it shows and listed in Overlays ›
+        Layers; clear_highlights removes it (or every highlight). Returns how
+        many features were drawn, per kind.
+        """
+        given = [v for v in (geometry, bbox, area, zone) if v is not None]
+        if len(given) != 1:
+            raise BowserError("Give one of geometry, bbox, area or zone.")
+        return await on_page(
+            "highlight_infrastructure",
+            kinds=kinds,
+            geometry=geometry,
+            bbox=bbox,
+            area=area,
+            zone=zone,
+            color=color,
+        )
+
+    @page_tool(status="Clearing the highlights")
+    async def clear_highlights(
+        name: Annotated[
+            str | None,
+            Field(
+                max_length=120,
+                description="One highlight layer's name; omit to remove them all.",
+            ),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Remove the highlight layers the tools drew (all, or one by name)."""
+        return await on_page("clear_highlights", name=name)
+
+    @page_tool(read_only=True, status="Reading the drawn areas")
+    async def get_areas(
+        name: Annotated[
+            str | None,
+            Field(
+                max_length=120,
+                description="A shape's or chart area's name; omit to list them.",
+            ),
+        ] = None,
+    ) -> dict[str, Any]:
+        """List the shapes drawn on the page and the chart's areas, or get one.
+
+        Without name: their names and kinds. With name: that one's GeoJSON
+        geometry (lon/lat), to pass to the area tools.
+        """
+        return await on_page("get_areas", name=name)
+
+    @tool(status="Finding moving zones")
+    async def deformation_zones(
+        threshold_mm_yr: Annotated[
+            float,
+            Field(
+                gt=0,
+                description="Rate |mm/yr| a zone's cells must reach; check the "
+                "layer's spread first (layer_statistics on velocity).",
+            ),
+        ],
+        min_area_m2: Annotated[
+            float, Field(ge=0, description="Leave out zones smaller than this (m²).")
+        ] = 0.0,
+        bbox: AreaBbox = None,
+        sign: Annotated[
+            Literal["both", "negative", "positive"],
+            Field(
+                description="negative: away from the satellite (subsidence on most "
+                "passes); positive: towards it; both."
+            ),
+        ] = "both",
+        layer: Annotated[
+            str | None,
+            Field(
+                description="Rate layer; omit for velocity, or a straight-line rate "
+                "fitted to displacement when the cube has no velocity."
+            ),
+        ] = None,
+        coherence_min: Annotated[
+            float | None,
+            Field(
+                ge=0,
+                le=1,
+                description="Leave out cells whose median temporal coherence is "
+                "below this (e.g. 0.5).",
+            ),
+        ] = None,
+        max_zones: Annotated[
+            int, Field(ge=1, le=200, description="The largest zones kept.")
+        ] = 20,
+        include_geometry: Annotated[
+            bool,
+            Field(
+                description="Return each zone's polygon (long); ids are enough "
+                "for the area tools."
+            ),
+        ] = False,
+        show_on_map: ShowOnMap = True,
+        dataset: Dataset = None,
+    ) -> dict[str, Any]:
+        """Find the connected areas where the cube's rate passes a threshold.
+
+        From the cube's velocity layer, or a rate fitted to its displacement
+        (`source` says which). Each zone: id (Z1 = largest), direction
+        (negative = away from the satellite), area, mean, median and peak rate
+        (mm/yr), centroid and box. Pass a zone id to infrastructure_in_area or
+        highlight_infrastructure. Draws the zones when a page is connected.
+        Rates are relative to the producer's reference; a noisy or incoherent
+        area can form zones too, so use coherence_min and look at the series.
+        """
+        res = await api.get(
+            "/deformation_zones",
+            threshold_mm_yr=threshold_mm_yr,
+            min_area_m2=min_area_m2,
+            bbox=",".join(f"{v:g}" for v in bbox) if bbox else None,
+            sign=sign,
+            layer=layer,
+            coherence_min=coherence_min,
+            max_zones=max_zones,
+            dataset=dataset,
+        )
+        zones_out = []
+        for f in res["zones"]["features"]:
+            z = dict(f["properties"])
+            if include_geometry:
+                z["geometry"] = f["geometry"]
+            zones_out.append(z)
+        note = await drawn(
+            res["result_id"],
+            f"Zones |rate| >= {threshold_mm_yr:g} {res['unit']}",
+            None,
+            show_on_map,
+            len(zones_out),
+        )
+        biggest = zones_out[0] if zones_out else None
+        return {
+            "source": res["source"],
+            "threshold": threshold_mm_yr,
+            "unit": res["unit"],
+            "sign": sign,
+            "n_zones": res["n_zones"],
+            "n_found": res["n_found"],
+            "truncated": res["truncated"],
+            "total_area_m2": res["total_area_m2"],
+            "cell_m": res["cell_m"],
+            "quality_mask": res["quality_mask"],
+            "zones": zones_out,
+            "zones_id": res["result_id"],
+            "map": note,
+            "summary": (
+                f"{res['n_zones']} zone(s) with |rate| >= {threshold_mm_yr:g} "
+                f"{res['unit']}, {res['total_area_m2'] / 1e6:.2f} km² in all"
+                + (
+                    f"; largest {biggest['zone']}: {biggest['area_km2']} km², mean "
+                    f"{biggest['mean_rate']} {res['unit']}"
+                    if biggest
+                    else ""
+                )
+            ),
+            "note": "Rates are relative to the producer's reference point. Zone "
+            "edges follow the grid (cells of about cell_m). A zone is a screening "
+            "result: check its time series, coherence and what is on the ground. "
+            + EXPOSURE_NOTE,
+        }
+
+    async def _quality_at(all_layers: dict, lon: float, lat: float, dataset):
+        """Read the cube's median temporal coherence and phase similarity at a point."""
+        found: dict[str, Any] = {}
+        for name in ("temporal_coherence", "phase_similarity"):
+            for cand in (f"median_{name}", f"average_{name}", name):
+                info = all_layers.get(cand)
+                if info is None:
+                    continue
+                try:
+                    vals = await api.get(
+                        "/point",
+                        dataset_name=cand,
+                        lon=lon,
+                        lat=lat,
+                        dataset=dataset,
+                    )
+                except BowserError:
+                    break
+                arr = [v for v in vals if v is not None and math.isfinite(v)]
+                if arr:
+                    found[name] = {
+                        "value": round(float(sorted(arr)[len(arr) // 2]), 3),
+                        "layer": cand,
+                        "how": "median over the dates"
+                        if len(vals) > 1
+                        else "as stored",
+                    }
+                break
+        if not found:
+            return {
+                "factor": "quality",
+                "status": "no_data",
+                "finding": "The cube has no coherence or phase similarity at this "
+                "point (no such layer, or nodata).",
+                "caution": "Blank or masked does not mean stable.",
+            }
+        coh = (found.get("temporal_coherence") or {}).get("value")
+        sim = (found.get("phase_similarity") or {}).get("value")
+        low = (coh is not None and coh < 0.5) or (sim is not None and sim < 0.5)
+        parts = [
+            f"{k.replace('_', ' ')} {v['value']} ({v['layer']}, {v['how']})"
+            for k, v in found.items()
+        ]
+        return {
+            "factor": "quality",
+            "status": "flagged" if low else "clear",
+            "finding": "Cube quality here: " + "; ".join(parts) + ".",
+            "caution": "Low coherence or phase similarity: the series is noisy and "
+            "unwrapping errors are more likely; do not read small trends."
+            if low
+            else None,
+            **found,
+        }
+
+    @tool(open_world=True, status="Reading the ground at the point")
+    async def site_context(
+        lon: Lon,
+        lat: Lat,
+        radius_m: Annotated[
+            float,
+            Field(gt=0, le=2000, description="Radius for nearby infrastructure (m)."),
+        ] = 300.0,
+        dataset: Dataset = None,
+    ) -> dict[str, Any]:
+        """Say what is on the ground at a point: call it before reading a time series.
+
+        Land cover, geology (sediment or bedrock), mapped wetlands, soil (peat,
+        expansive clay, fill), terrain slope and how much of a downslope motion
+        the radar sees, nearby infrastructure, and the cube's quality there
+        (median temporal coherence and phase similarity). Each factor says what
+        it means for the interpretation; a service that cannot be reached says
+        "could not be looked up", which is not the same as nothing there.
+        Context suggests explanations; it does not prove them.
+        """
+        all_layers = await layers(dataset)
+        info = next(iter(all_layers.values()), {})
+        check_point(info, lon, lat)
+        try:
+            ground = await api.get("/site_context", lon=lon, lat=lat)
+            factors = ground["factors"]
+        except BowserError as e:
+            factors = [
+                {
+                    "factor": "ground",
+                    "status": "unavailable",
+                    "finding": f"Could not be looked up ({e}).",
+                    "caution": None,
+                }
+            ]
+        los = None
+        for i in all_layers.values():
+            m = i.get("los_metadata") or {}
+            if m.get("los_enu_ground_to_sat"):
+                los = m["los_enu_ground_to_sat"]
+                break
+        for f in factors:
+            if f.get("factor") == "terrain" and f.get("slope_deg") is not None:
+                f.update(_downslope_in_los(f, los))
+        factors.append(await _quality_at(all_layers, lon, lat, dataset))
+        try:
+            infra = await api.post(
+                "/infrastructure",
+                {
+                    "point": [lon, lat],
+                    "radius_m": radius_m,
+                    "kinds": list(KIND_NAMES),
+                    "list_limit": 3,
+                },
+            )
+            factors.append(
+                {
+                    "factor": "infrastructure",
+                    "status": "clear",
+                    "finding": f"Within {radius_m:g} m: {infra['text']}.",
+                    "caution": None,
+                    "summary": infra["summary"],
+                    "source": infra["attribution"],
+                }
+            )
+        except BowserError as e:
+            factors.append(
+                {
+                    "factor": "infrastructure",
+                    "status": "unavailable",
+                    "finding": f"Could not be looked up ({e}).",
+                    "caution": None,
+                }
+            )
+        flagged = [f["factor"] for f in factors if f["status"] == "flagged"]
+        missing = [
+            f["factor"] for f in factors if f["status"] in ("unavailable", "off")
+        ]
+        text = f"Flagged: {', '.join(flagged) or 'nothing'}"
+        if missing:
+            text += f"; could not be looked up: {', '.join(missing)}"
+        return {
+            "point": [lon, lat],
+            "factors": factors,
+            "summary": text,
+            "note": "Say which factors could explain the signal and how sure you "
+            "are; name what could not be looked up. Context suggests explanations, "
+            "it does not prove them.",
+        }
+
+    # --- tools: the page's map -------------------------------------------------------
+
+    @page_tool(read_only=True, status="Reading the view")
+    async def get_view() -> dict[str, Any]:
+        """Return where the page's map is looking.
+
+        Center [lon, lat], zoom (MapLibre's scale: 0 = the whole world, ~10 a
+        city, ~15 streets), bearing, pitch, bounds [west, south, east, north],
+        the map in use (maplibre or leaflet), split screen (on, left and right
+        layers) and 3D terrain (on, exaggeration). Call it first when unsure
+        where the user is looking.
+        """
+        return await on_page("get_view")
+
+    @page_tool(quiet=True, status="Moving the map")
+    async def fly_to(
+        lon: Lon,
+        lat: Lat,
+        zoom: Annotated[
+            float | None,
+            Field(
+                ge=0,
+                le=22,
+                description="Zoom (0 = world, ~10 = a city, ~15 = streets); omit "
+                "to keep the current zoom.",
+            ),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Move the page's map to coordinates (lon, lat), keeping the zoom unless given.
+
+        For a place name or address use go_to; for an area use fit_bounds.
+        Returns the new view.
+        """
+        return await on_page("fly_to", lon=lon, lat=lat, zoom=zoom)
+
+    @page_tool(quiet=True, status="Moving the map")
+    async def fit_bounds(
+        west: Annotated[float, Field(ge=-180, le=180, description="West longitude.")],
+        south: Annotated[float, Field(ge=-90, le=90, description="South latitude.")],
+        east: Annotated[float, Field(ge=-180, le=180, description="East longitude.")],
+        north: Annotated[float, Field(ge=-90, le=90, description="North latitude.")],
+        padding: Annotated[
+            int, Field(ge=0, le=400, description="Margin around the box, pixels.")
+        ] = 40,
+    ) -> dict[str, Any]:
+        """Fit the page's map to a box (west < east, south < north).
+
+        Returns the new view.
+        """
+        if west >= east or south >= north:
+            raise BowserError("Give west < east and south < north.")
+        return await on_page(
+            "fit_bounds",
+            west=west,
+            south=south,
+            east=east,
+            north=north,
+            padding=padding,
+        )
+
+    @page_tool(quiet=True, status="Moving the map")
+    async def pan(
+        direction: Annotated[
+            Literal["north", "south", "east", "west"],
+            Field(description="Which way to move the view."),
+        ],
+        fraction: Annotated[
+            float,
+            Field(
+                gt=0,
+                le=2,
+                description="How far, as a fraction of the view's height (north, "
+                "south) or width (east, west); 0.5 = half a screen.",
+            ),
+        ] = 0.5,
+        distance_m: Annotated[
+            float | None,
+            Field(
+                gt=0,
+                le=5_000_000,
+                description="How far in metres on the ground; replaces fraction.",
+            ),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Move the page's map view north, south, east or west, keeping the zoom.
+
+        By a fraction of the view (default half) or a distance in metres.
+        Returns the new view.
+        """
+        return await on_page(
+            "pan", direction=direction, fraction=fraction, distance_m=distance_m
+        )
+
+    @page_tool(quiet=True, status="Zooming the map")
+    async def zoom(
+        level: Annotated[
+            float | None,
+            Field(ge=0, le=22, description="Zoom to this level (0 = world)."),
+        ] = None,
+        delta: Annotated[
+            float | None,
+            Field(
+                ge=-10,
+                le=10,
+                description="Zoom in (positive) or out (negative) by this much; "
+                "1 doubles the scale.",
+            ),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Zoom the page's map to a level, or in or out by a step (give one of them).
+
+        The center stays. Returns the new view.
+        """
+        if (level is None) == (delta is None):
+            raise BowserError("Give level or delta, not both.")
+        return await on_page("zoom", level=level, delta=delta)
+
+    @page_tool(quiet=True, status="Going to the place")
+    async def go_to(
+        query: Annotated[
+            str,
+            Field(
+                min_length=1,
+                max_length=200,
+                description="Place name or address, e.g. 'Arkabutla Dam, Mississippi'.",
+            ),
+        ],
+        zoom: Annotated[
+            float | None,
+            Field(
+                ge=0,
+                le=22,
+                description="Zoom to use at the place; omit to fit the place's "
+                "extent.",
+            ),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Move the page's map to a place name or address.
+
+        Geocodes the query (OpenStreetMap), then fits the best match's extent, or
+        flies to its point at `zoom`. Returns the place found and the new view;
+        check it is the place the user meant (geocode lists the candidates).
+        """
+        return await on_page("go_to", query=query, zoom=zoom)
+
+    @page_tool(status="Setting the terrain")
+    async def set_terrain(
+        on: Annotated[bool, Field(description="3D terrain on or off.")],
+        exaggeration: Annotated[
+            float | None,
+            Field(
+                description="Vertical exaggeration, 1-10 (clamped; the page "
+                "reports the value used). Omit to keep it."
+            ),
+        ] = None,
+        pitch: Annotated[
+            float | None,
+            Field(
+                ge=0,
+                le=85,
+                description="Camera tilt in degrees so the relief shows; omit "
+                "for the page's default (60 when terrain comes on flat).",
+            ),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Turn 3D terrain on or off and set its vertical exaggeration (MapLibre map).
+
+        The same as the terrain button's popover, which also remembers the
+        setting. The Leaflet map has no 3D terrain and says so.
+        """
+        return await on_page(
+            "set_terrain", on=on, exaggeration=exaggeration, pitch=pitch
+        )
+
+    @page_tool(status="Setting the split screen")
+    async def set_split_screen(
+        on: Annotated[bool, Field(description="Split screen on or off.")],
+        left_layer: Annotated[
+            str | None,
+            Field(
+                description="Layer on the left (the main layer), a name from "
+                "list_layers; omit to keep it."
+            ),
+        ] = None,
+        right_layer: Annotated[
+            str | None,
+            Field(description="Layer on the right side; omit to keep it."),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Compare two layers side by side: split screen and each side's layer.
+
+        Left is the main layer (as switch_layer sets it), right the split
+        screen's layer. Layer names are checked, with close matches suggested.
+        Returns both sides with their colormaps and ranges.
+        """
+        given = [n for n in (left_layer, right_layer) if n]
+        if given:
+            known = await layers(None)
+            bad = [n for n in given if n not in known]
+            if bad:
+                raise BowserError(_unknown_layers(bad, list(known)))
+        return await on_page(
+            "set_split_screen", on=on, left_layer=left_layer, right_layer=right_layer
+        )
+
+    # --- tools: the page's points, reference and layer ------------------------------
+
+    @page_tool(status="Adding the point")
+    async def add_point(
+        lon: Lon,
+        lat: Lat,
+        name: Annotated[
+            str | None,
+            Field(max_length=40, description='Short label, e.g. "Dam crest".'),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Add a time-series point to the page's map and chart (the chart opens).
+
+        Points read with the data tools are added already.
+        """
+        return await on_page("add_point", lon=lon, lat=lat, name=name)
+
+    @page_tool(read_only=True, status="Reading the reference")
+    async def get_reference() -> dict[str, Any]:
+        """Return the page's reference: point, circle sampling and reference date.
+
+        The reference point [lon, lat], whether re-referencing is on, whether
+        "Sample around ref marker" is on with its radius (m), the cube's own
+        reference point, and the reference date of the current layer.
+        """
+        return await on_page("get_reference")
+
+    @page_tool(status="Setting the reference point")
+    async def set_reference_point(
+        lon: Lon,
+        lat: Lat,
+        radius_m: Annotated[
+            float | None,
+            Field(
+                ge=0,
+                le=5000,
+                description="Use the median within this radius (m) around the "
+                "point ('Sample around ref marker'); 0 turns that off and uses "
+                "the one pixel; omit to keep the page's setting.",
+            ),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Move the page's reference point; map and chart become relative to it.
+
+        To change the reference, use this. Choose stable ground (bedrock, an old
+        building, a GNSS station), not the feature studied; to choose a good one,
+        use find_reference_candidates, then this tool with its lon/lat and
+        radius_m. Returns the new reference and whether the chart was
+        re-referenced.
+        """
+        return await on_page("set_reference_point", lon=lon, lat=lat, radius_m=radius_m)
+
+    @page_tool(status="Resetting the reference")
+    async def reset_reference() -> dict[str, Any]:
+        """Move the page's reference point back to the cube's own (reference_lonlat).
+
+        Says so when the cube names no reference point.
+        """
+        return await on_page("reset_reference")
+
+    @page_tool(status="Setting the reference date")
+    async def set_reference_date(
+        date: Annotated[
+            str | None,
+            Field(
+                description="Date, YYYY-MM-DD; the nearest date of the layer is used."
+            ),
+        ] = None,
+        reset: Annotated[
+            bool, Field(description="Go back to the producer's reference date.")
+        ] = False,
+    ) -> dict[str, Any]:
+        """Make the page's displacement relative to a date of the current layer.
+
+        Values on that date become 0.
+
+        Give the date, or reset=true for the producer's reference date.
+        """
+        return await on_page("set_reference_date", date=date, reset=reset or None)
+
+    @page_tool(status="Switching the layer")
+    async def switch_layer(layer: Layer) -> dict[str, Any]:
+        """Show another layer on the page's map (the left side in split screen)."""
+        return await on_page("switch_layer", layer=layer)
+
+    @page_tool(status="Opening the chart")
+    async def open_chart() -> dict[str, Any]:
+        """Open the page's time-series chart with its points and areas."""
+        return await on_page("open_chart")
+
+    @page_tool(mcp=False, status="Adding the overlay")
+    async def add_overlay(
+        path: Annotated[str, Field(description="Path of the GeoTIFF on the server.")],
+        name: Annotated[
+            str | None, Field(description="Name in the layer list.")
+        ] = None,
+    ) -> dict[str, Any]:
+        """Add a GeoTIFF on the server's disk to the map as an overlay.
+
+        Full server only, and only where the page may open files on the server.
+        """
+        return await on_page("add_overlay", path=path, name=name)
+
+    # --- tools: the page's masks ------------------------------------------------------
+
+    @page_tool(read_only=True, status="Reading the masks")
+    async def get_masks(
+        layer_ranges: Annotated[
+            bool,
+            Field(
+                description="Also list the layers usable as masks with their value "
+                "range and percentiles, to choose thresholds."
+            ),
+        ] = True,
+    ) -> dict[str, Any]:
+        """Return the page's masks and the layers that can mask.
+
+        Each layer mask (layer, threshold, mode), the custom mask and whether
+        recommended_mask is on.
+
+        Mode min keeps pixels >= threshold, mode max keeps pixels <= threshold.
+        Masks apply to the map (both sides of a split screen), the chart and,
+        by default, the data tools.
+        """
+        return await on_page("get_masks", layer_ranges=layer_ranges)
+
+    @page_tool(status="Setting the masks")
+    async def set_masks(
+        masks: Annotated[
+            list[LayerMask],
+            Field(
+                max_length=12,
+                description="Masks as {dataset: layer name, threshold, mode}. "
+                "mode min keeps pixels >= threshold (e.g. temporal_coherence 0.7 "
+                "keeps coherence >= 0.7); mode max keeps pixels <= threshold "
+                "(e.g. 'residual 0' keeps residual <= 0: mode max, threshold 0).",
+            ),
+        ],
+        replace: Annotated[
+            bool,
+            Field(
+                description="Replace the page's layer masks (true) or add to them "
+                "(false; a mask on the same layer is updated)."
+            ),
+        ] = True,
+    ) -> dict[str, Any]:
+        """Set the page's layer masks, as the Masking panel does.
+
+        Pixels that fail a mask are hidden.
+
+        "Coherence above 0.7" is {temporal_coherence, 0.7, min}; "residual 0" or
+        "below 0.5" is mode max. Say in your answer how you read the user's
+        words. Layer names are checked against the cube, with close matches
+        suggested. recommended_mask is a mask like any other (on: threshold 0.5,
+        mode min); set_masks with replace keeps it only if listed, so use
+        set_recommended_mask to keep or change it alone. Returns what was applied.
+        """
+        known = await layers(None)
+        bad = [m.dataset for m in masks if m.dataset not in known]
+        if bad:
+            raise BowserError(_unknown_layers(bad, list(known)))
+        return await on_page(
+            "set_masks", masks=[m.model_dump() for m in masks], replace=replace
+        )
+
+    @page_tool(status="Clearing the masks")
+    async def clear_masks(
+        keep_recommended: Annotated[
+            bool, Field(description="Keep recommended_mask on if it is.")
+        ] = False,
+    ) -> dict[str, Any]:
+        """Remove the page's layer masks (all, or all but recommended_mask)."""
+        return await on_page("clear_masks", keep_recommended=keep_recommended)
+
+    @page_tool(status="Setting the recommended mask")
+    async def set_recommended_mask(
+        on: Annotated[bool, Field(description="Use the cube's recommended_mask.")],
+    ) -> dict[str, Any]:
+        """Turn the cube's recommended_mask on or off (keeps the usable pixels)."""
+        return await on_page("set_recommended_mask", on=on)
+
+    # --- tools: the page's display ----------------------------------------------------
+
+    @page_tool(read_only=True, status="Reading the display settings")
+    async def get_display(side: Side = "left") -> dict[str, Any]:
+        """Return how the page draws a layer.
+
+        The layer, colormap, vmin/vmax (with unit), opacity, rewrap, split
+        screen and the available colormaps.
+        """
+        return await on_page("get_display", side=side)
+
+    @page_tool(status="Setting the colormap")
+    async def set_colormap(
+        name: Annotated[
+            str, Field(description="Colormap name, from get_display's list.")
+        ],
+        reverse: Annotated[
+            bool | None, Field(description="Reverse it; omit to keep as is.")
+        ] = None,
+        side: Side = "left",
+    ) -> dict[str, Any]:
+        """Change the colormap of the page's layer. Unknown names get close matches."""
+        return await on_page("set_colormap", name=name, reverse=reverse, side=side)
+
+    @page_tool(status="Setting the color range")
+    async def set_color_range(
+        vmin: Annotated[float | None, Field(description="Lower end.")] = None,
+        vmax: Annotated[float | None, Field(description="Upper end.")] = None,
+        unit: Annotated[
+            Literal["m", "cm", "mm", "in"] | None,
+            Field(
+                description="Unit of vmin/vmax when the layer is in metres (or "
+                "m/yr); omit for the layer's own unit."
+            ),
+        ] = None,
+        preset: Annotated[
+            Literal["2-98%", "1sigma", "2sigma", "full", "symmetric"] | None,
+            Field(
+                description="One of the histogram's buttons instead of vmin/vmax: "
+                "2-98% (2nd-98th percentile), 1sigma (16th-84th percentile, the "
+                "±1σ button), 2sigma (2.3rd-97.7th, ±2σ), full (min to max), "
+                "symmetric (the ±0 button: centred on 0, ±max(|vmin|, |vmax|))."
+            ),
+        ] = None,
+        side: Side = "left",
+    ) -> dict[str, Any]:
+        """Set the colour range of the page's layer: vmin/vmax, or a preset.
+
+        For 'one sigma' or 'two sigma', use the preset; 'symmetric' means
+        centred on 0. Percentiles are of the layer at the date shown. Returns
+        the vmin/vmax applied, in the layer's unit.
+        """
+        if preset is None and vmin is None and vmax is None:
+            raise BowserError("Give vmin and/or vmax, or a preset.")
+        return await on_page(
+            "set_color_range", vmin=vmin, vmax=vmax, unit=unit, preset=preset, side=side
+        )
+
+    @page_tool(status="Setting the opacity")
+    async def set_opacity(
+        opacity: Annotated[
+            float, Field(ge=0, le=1, description="0 = invisible, 1 = opaque.")
+        ],
+        side: Side = "left",
+    ) -> dict[str, Any]:
+        """Set the opacity of the page's data layer."""
+        return await on_page("set_opacity", opacity=opacity, side=side)
+
+    # --- tools: every other control ---------------------------------------------------
+
+    @page_tool(read_only=True, status="Listing the page commands")
+    async def list_commands(
+        query: Annotated[
+            str | None,
+            Field(
+                max_length=100,
+                description="Words to filter by (e.g. 'draw', 'basemap', 'chart').",
+            ),
+        ] = None,
+    ) -> dict[str, Any]:
+        """List the page's toolbar and panel commands.
+
+        Each with id, label, description, arguments and, for a toggle,
+        whether it is on.
+
+        For a toolbar or panel option not covered by a specific tool (draw
+        tools, identify, measure, basemap, grid, chart options, time playback,
+        theme, panel tabs...), call list_commands then run_command.
+        """
+        return await on_page("list_commands", query=query)
+
+    @page_tool(status="Running the page command")
+    async def run_command(
+        id: Annotated[  # noqa: A002  (the command's id, as the model sees it)
+            str, Field(max_length=80, description="Command id from list_commands.")
+        ],
+        args: Annotated[
+            dict[str, Any] | None,
+            Field(
+                description="The command's arguments; toggles take {on: true} or "
+                "{on: false}."
+            ),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Run one of the page's commands (see list_commands); returns its new state.
+
+        Commands marked destructive (they delete work, such as clearing all
+        points) need the user's go-ahead: ask first.
+        """
+        return await on_page("run_command", id=id, args=args)
+
+    # --- tools: the page's time-series chart (bowser.chart_tools) ---------------------
+    register_chart_tools(page_tool, on_page)
+
     return specs
 
 
@@ -1143,6 +2649,75 @@ def _filename(r: httpx.Response, layer: str, time_index: int | None) -> str:
         if name and "/" not in name and "\\" not in name:
             return name
     return f"{layer}" + ("" if time_index is None else f"_{time_index}") + ".tif"
+
+
+def _unknown_layers(names: list[str], known: list[str]) -> str:
+    """Say which layer names are unknown, with the closest known names."""
+    import difflib  # noqa: PLC0415
+
+    def key(s: str) -> str:
+        return "".join(c for c in s.lower() if c.isalnum())
+
+    keyed = {key(k): k for k in known}
+    parts = []
+    for name in names:
+        close = difflib.get_close_matches(key(name), list(keyed), n=3, cutoff=0.5)
+        # Word order differs ("time_series_residual_inversion"): compare sorted words.
+        words = sorted(name.lower().replace("-", "_").replace(" ", "_").split("_"))
+        for k in known:
+            kw = sorted(k.lower().split("_"))
+            if (
+                key(k) not in close
+                and difflib.SequenceMatcher(None, "".join(words), "".join(kw)).ratio()
+                > 0.75
+            ):
+                close.append(key(k))
+        hint = ", ".join(keyed[c] for c in close)
+        parts.append(f"{name!r}" + (f" (did you mean {hint}?)" if hint else ""))
+    return "No layer " + "; ".join(parts) + f". Layers: {', '.join(sorted(known))}."
+
+
+#: The page tools ``bowser mcp`` sends through the page channel.
+PAGE_COMMANDS = frozenset(
+    {
+        "get_view",
+        "fly_to",
+        "fit_bounds",
+        "pan",
+        "zoom",
+        "go_to",
+        "set_terrain",
+        "set_split_screen",
+        "add_point",
+        "get_reference",
+        "set_reference_point",
+        "reset_reference",
+        "set_reference_date",
+        "switch_layer",
+        "open_chart",
+        "get_masks",
+        "set_masks",
+        "clear_masks",
+        "set_recommended_mask",
+        "get_display",
+        "set_colormap",
+        "set_color_range",
+        "set_opacity",
+        "list_commands",
+        "run_command",
+        "list_context_layers",
+        "add_context_layer",
+        "remove_context_layer",
+        "highlight_infrastructure",
+        "clear_highlights",
+        "get_areas",
+        # Not a tool: how the data tools draw what they found (show_on_map).
+        "draw_highlight",
+    }
+)
+PAGE_COMMANDS |= CHART_COMMANDS
+
+INSTRUCTIONS += "\n" + CHART_INSTRUCTIONS
 
 
 def _describe(fn) -> str:

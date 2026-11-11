@@ -275,6 +275,7 @@ def test_relay_is_off_unless_enabled(tmp_path):
         "providers": [],
         "configured": [],
         "sign_in": [],
+        "page_channel": False,
     }
 
 
@@ -404,8 +405,14 @@ def test_page_tool_ends_the_request_for_the_page(tmp_path, monkeypatch):
     )
     ev = events(r.text)
     waiting = next(e for e in ev if e["type"] == "page_tools")
+    # Each page call carries its tool's status line, for the tab.
     assert waiting["calls"] == [
-        {"id": "c1", "name": "add_point", "input": {"lon": -117.5, "lat": 33.5}}
+        {
+            "id": "c1",
+            "name": "add_point",
+            "input": {"lon": -117.5, "lat": 33.5},
+            "status": "Adding the point",
+        }
     ]
     assert waiting["results"][0]["is_error"]
     assert "no_such_tool" in waiting["results"][0]["content"]
@@ -455,7 +462,10 @@ def test_tools_sent_to_the_model_are_the_mcp_tools(tmp_path, monkeypatch):
             return (await client.list_tools()).tools
 
     mcp_tools = asyncio.run(listing())
-    assert set(sent) == {t.name for t in mcp_tools}
+    # The page tools are among them; only add_overlay (files on the server) is the
+    # Assistant's alone.
+    assert set(sent) - {"add_overlay"} == {t.name for t in mcp_tools}
+    assert {"go_to", "fly_to", "set_reference_point", "set_masks"} <= set(sent)
     for t in mcp_tools:
         assert sent[t.name] == {
             "name": t.name,
@@ -477,6 +487,160 @@ def test_tools_sent_to_the_model_are_the_mcp_tools(tmp_path, monkeypatch):
     )
     names = {t["name"] for t in hosted.sent[0]["tools"]}
     assert names == set(sent) - {"export_geotiff"}
+
+
+# --- the page's context, the tool budget, finding a place --------------------------
+
+
+def test_the_pages_context_reaches_the_model(tmp_path, monkeypatch):
+    fake = ScriptedProvider([Turn("It is at the center.", [], "end")])
+    monkeypatch.setattr(relay, "open_provider", lambda *_a, **_k: fake)
+    context = {
+        "layer": "displacement",
+        "view": {"center": [-90.12, 34.76], "zoom": 13.2},
+        "points": [{"name": "crest", "lon": -90.125, "lat": 34.756}],
+        "reference_point": [-90.1, 34.8],
+    }
+    local(make_app(settings(tmp_path))).post(
+        "/assistant/chat",
+        json={
+            "provider": "ollama",
+            "messages": [{"role": "user", "content": "What is in the middle?"}],
+            "page_context": context,
+        },
+    )
+    system = fake.sent[0]["system"]
+    assert "The page now" in system
+    assert json.dumps(context, separators=(",", ":")) in system
+    # The question itself is untouched.
+    assert fake.sent[0]["messages"][0]["content"] == "What is in the middle?"
+    # Kept short: a page with many points is cut.
+    big = {"points": [{"name": f"p{i}", "lon": 0.0, "lat": 0.0} for i in range(500)]}
+    assert len(relay.page_context_text(big)) <= relay.CONTEXT_CHARS + 1
+
+
+def test_tool_budget_stops_the_loop_and_says_so(tmp_path, monkeypatch):
+    calls = [
+        Turn("", [ToolCall(f"c{i}", "list_layers", {"dataset": f"d{i}"})], "tool_use")
+        for i in range(4)
+    ]
+    fake = ScriptedProvider(
+        [*calls, Turn("I could not find it; please click it.", [], "end")]
+    )
+    monkeypatch.setattr(relay, "open_provider", lambda *_a, **_k: fake)
+    s = settings(tmp_path, BOWSER_ASSISTANT_TOOL_BUDGET=3)
+    r = local(make_app(s)).post(
+        "/assistant/chat",
+        json={"provider": "ollama", "messages": [{"role": "user", "content": "x"}]},
+    )
+    ev = events(r.text)
+    results = [e for e in ev if e["type"] == "tool_result"]
+    assert [e["ok"] for e in results] == [True, True, True, False]
+    assert "limit of 3 tool calls" in results[-1]["result"]
+    assert {"type": "budget", "limit": 3} in ev
+    # The model is told to answer with what it has.
+    assert "No tool calls are left" in fake.sent[-1]["system"]
+    assert ev[-1] == {"type": "done", "stop": "end"}
+
+
+def test_the_same_call_again_is_refused_and_a_similar_one_costs_double():
+    b = relay.ToolBudget(4)
+    assert b.charge("profile", {"coords": [[-90.12345, 34.75], [-90.1, 34.8]]}) is None
+    assert "already called" in b.charge(
+        "profile", {"coords": [[-90.12345, 34.75], [-90.1, 34.8]]}
+    )
+    assert b.charge("profile", {"coords": [[-90.12341, 34.75], [-90.1, 34.8]]}) is None
+    assert b.used == 3
+    assert "limit of 4" in b.charge(
+        "profile", {"coords": [[-90.12342, 34.75], [-90.1, 34.8]]}
+    )
+    # Calls made earlier in the same question (before the page ran tools) count.
+    history = [
+        {"role": "user", "content": "q"},
+        {
+            "role": "assistant",
+            "tool_calls": [{"id": "1", "name": "go_to", "input": {"query": "dam"}}],
+        },
+        {"role": "tool", "results": []},
+    ]
+    b = relay.ToolBudget(4, history)
+    assert b.used == 1 and "already called" in b.charge("go_to", {"query": "dam"})
+    assert relay.tool_budget(SimpleNamespace()) == relay.TOOL_BUDGET
+
+
+def test_a_named_place_is_geocoded_not_scanned(tmp_path, monkeypatch):
+    """A wiring test: a scripted model asks for "the dam"; geocode answers on the
+    server (a mock Nominatim), then point_timeseries reads there; no profile."""
+    from bowser import geocode  # noqa: PLC0415
+    from bowser.assistant import page  # noqa: PLC0415
+
+    def nominatim(_request):
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "display_name": "Arkabutla Dam",
+                    "lon": "-117.5",
+                    "lat": "33.5",
+                    "boundingbox": ["33.49", "33.51", "-117.51", "-117.49"],
+                    "type": "dam",
+                }
+            ],
+        )
+
+    g = geocode.Geocoder(interval=0, transport=httpx.MockTransport(nominatim))
+    monkeypatch.setattr(page, "GEOCODER", g)
+    fake = ScriptedProvider(
+        [
+            Turn(
+                "", [ToolCall("g", "geocode", {"query": "Arkabutla Dam"})], "tool_use"
+            ),
+            Turn(
+                "",
+                [ToolCall("p", "point_timeseries", {"lon": -117.5, "lat": 33.5})],
+                "tool_use",
+            ),
+            Turn("The dam moved 1 mm.", [], "end"),
+        ]
+    )
+    monkeypatch.setattr(relay, "open_provider", lambda *_a, **_k: fake)
+    app = make_app(settings(tmp_path))
+    app.include_router(page.router)
+
+    @app.get("/chart_point")
+    def chart_point():
+        return {
+            "labels": ["2020-01-01", "2020-02-01"],
+            "datasets": [
+                {
+                    "data": [
+                        {"x": "2020-01-01", "y": 0.0},
+                        {"x": "2020-02-01", "y": 0.001},
+                    ]
+                }
+            ],
+        }
+
+    r = local(app).post(
+        "/assistant/chat",
+        json={
+            "provider": "ollama",
+            "messages": [{"role": "user", "content": "Trend at the dam?"}],
+            "page_masks": [],
+        },
+    )
+    ev = events(r.text)
+    ran = [(e["name"], e["ok"]) for e in ev if e["type"] == "tool_result"]
+    assert ran == [("geocode", True), ("point_timeseries", True)]
+    found = next(e for e in ev if e["type"] == "tool_result")["result"]
+    assert found["results"][0]["lon"] == -117.5
+    assert "profile" not in [e.get("name") for e in ev if e["type"] == "tool_call"]
+    # The instructions and profile's description steer away from scanning.
+    sent = {t["name"]: t for t in fake.sent[0]["tools"]}
+    assert "never to find a feature or a place" in sent["profile"]["description"]
+    assert (
+        "Never search for\na place by scanning with profile" in fake.sent[0]["system"]
+    )
 
 
 # --- Ollama on this computer -------------------------------------------------------
@@ -1476,8 +1640,13 @@ def test_every_tool_says_what_it_is_doing():
     """Each data tool has a short status line, shown while it runs."""
     from bowser.tools import BowserAPI, ToolSpec, build_tools
 
-    specs = {t.name: t.status_text for t in build_tools(BowserAPI("http://x"))}
+    tools = build_tools(BowserAPI("http://x"))
+    # Every tool, data or page, has its own label (not one made from its name).
+    assert [t.name for t in tools if not t.status] == []
+    specs = {t.name: t.status_text for t in tools}
     assert specs["point_timeseries"] == "Reading the time series"
+    assert specs["fly_to"] == "Moving the map"
+    assert specs["set_masks"] == "Setting the masks"
     assert specs["trend_at_point"] == "Fitting the trend"
     assert all(text and not text.endswith(("…", ".")) for text in specs.values())
 

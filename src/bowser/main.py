@@ -8,7 +8,7 @@ import time
 import warnings
 from contextvars import ContextVar
 from pathlib import Path
-from typing import Annotated, Any, Callable, Optional
+from typing import Annotated, Any, Callable, Literal, Optional
 
 import matplotlib
 import numpy as np
@@ -35,9 +35,12 @@ from starlette_cramjam.middleware import CompressionMiddleware
 
 from . import api_models as api
 from . import histograms
+from .assistant.page import router as page_router
 from .assistant.relay import assistant_config
 from .assistant.relay import router as assistant_router
 from .config import settings
+from .context import router as context_router
+from .context import zones_answer
 from .polygon import PolygonRequest, summarize_rasters, summarize_xarray
 from .reference import (
     PointMethod,
@@ -79,7 +82,11 @@ from titiler.core.errors import (  # noqa: E402
 )
 from titiler.core.factory import TilerFactory  # noqa: E402
 
-from .layer_info import describe_layer, describe_raster_group  # noqa: E402
+from .layer_info import (  # noqa: E402
+    describe_layer,
+    describe_raster_group,
+    radar_wavelength,
+)
 from .readers import CustomReader  # noqa: E402
 from .titiler import (  # noqa: E402
     Amplitude,
@@ -480,6 +487,7 @@ def create_xarray_dataset_info(ds: xr.Dataset) -> dict:
 
     los_metadata = _los_metadata_from_attrs(dict(ds.attrs))
     reference_lonlat = _reference_lonlat(ds)
+    wavelength = radar_wavelength(ds.attrs, *(v.attrs for v in ds.data_vars.values()))
     dataset_info = {}
     skip_spatial_reference = not settings.BOWSER_USE_SPATIAL_REFERENCE_DISP
     for var_name, var in ds.data_vars.items():
@@ -513,6 +521,7 @@ def create_xarray_dataset_info(ds: xr.Dataset) -> dict:
             "label": attrs.get("long_name", var_name),
             "los_metadata": los_metadata,
             "reference_lonlat": reference_lonlat,
+            **({"radar_wavelength_m": wavelength} if wavelength else {}),
             **describe_layer(str(var_name), attrs),
         }
 
@@ -624,6 +633,10 @@ def _data_conversion() -> dict[str, Any]:
 # The Assistant tab: provider status, keys and the chat relay (off unless
 # BOWSER_ASSISTANT is set).
 app.include_router(assistant_router, tags=[api.ASSISTANT])
+# The page channel: Bowser's tools act on the open page (same gate as page keys).
+app.include_router(page_router, tags=[api.ASSISTANT])
+# What is on the ground: OpenStreetMap infrastructure and site context (the AI tools).
+app.include_router(context_router)
 
 
 @app.get(
@@ -1412,6 +1425,53 @@ async def get_histogram(
 
     return JSONResponse(
         await histograms.SERVICE.get(rg, (dataset_name, time_index, nbins), from_file)
+    )
+
+
+@app.get(
+    "/deformation_zones",
+    responses={200: {"model": api.DeformationZones}},
+    **api.route_doc("GET /deformation_zones"),
+)
+def deformation_zones(
+    threshold_mm_yr: Annotated[
+        float, Query(gt=0, **api.PARAMS["threshold_mm_yr"])
+    ] = 5.0,
+    sign: Annotated[
+        Literal["both", "negative", "positive"], Query(**api.PARAMS["zone_sign"])
+    ] = "both",
+    min_area_m2: Annotated[float, Query(ge=0, **api.PARAMS["min_area_m2"])] = 0.0,
+    bbox: Annotated[Optional[str], Query(**api.PARAMS["zone_bbox"])] = None,
+    layer: Annotated[Optional[str], Query(**api.PARAMS["rate_layer"])] = None,
+    coherence_min: Annotated[
+        Optional[float], Query(ge=0, le=1, **api.PARAMS["zones_coherence_min"])
+    ] = None,
+    max_zones: Annotated[int, Query(ge=1, le=500, **api.PARAMS["max_zones"])] = 50,
+    ref_lon: Annotated[
+        Optional[float], Query(ge=-180, le=180, **api.PARAMS["ref_lon"])
+    ] = None,
+    ref_lat: Annotated[
+        Optional[float], Query(ge=-90, le=90, **api.PARAMS["ref_lat"])
+    ] = None,
+    target: BowserState = Depends(TargetState),
+):
+    """Find the connected areas where the rate passes a threshold (bowser.zones)."""
+    if target.mode != "md":
+        raise HTTPException(
+            status_code=400, detail="Deformation zones need a GeoZarr cube (MD mode)."
+        )
+    return zones_answer(
+        target.dataset,
+        target.transformer_from_lonlat,
+        threshold_mm_yr=threshold_mm_yr,
+        sign=sign,
+        min_area_m2=min_area_m2,
+        bbox=bbox,
+        layer=layer,
+        coherence_min=coherence_min,
+        max_zones=max_zones,
+        ref_lon=ref_lon,
+        ref_lat=ref_lat,
     )
 
 

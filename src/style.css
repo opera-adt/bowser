@@ -176,6 +176,24 @@ body {
   color: var(--sb-accent);
 }
 
+/* The Assistant waits for an answer while another tab is open. */
+.panel-rail-btn { position: relative; }
+.panel-rail-badge {
+  position: absolute;
+  top: 2px;
+  right: 8px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--sb-red);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+}
+
 /* Quiet labels: only the open tab names itself; the others show their names while
    the pointer is over the rail or a tab has keyboard focus. */
 .panel-rail-label {
@@ -2753,6 +2771,15 @@ img.huechange { filter: hue-rotate(120deg); }
   border: 1px solid var(--sb-border);
   border-radius: var(--radius-sm);
   background: var(--sb-surface2);
+}
+
+.ai-permission.open {
+  border: 2px solid var(--sb-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--sb-accent) 25%, transparent);
+}
+
+.ai-permission-clock {
+  font-variant-numeric: tabular-nums;
 }
 
 .ai-permission-detail {

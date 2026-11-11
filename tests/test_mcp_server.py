@@ -31,6 +31,7 @@ pytest.importorskip("rioxarray")
 
 from mcp import Client  # noqa: E402
 
+from bowser.chart_tools import CHART_COMMANDS  # noqa: E402
 from bowser.mcp_server import INSTRUCTIONS, build_server  # noqa: E402
 
 REGRESSION = Path(__file__).resolve().parent / "regression"
@@ -46,6 +47,46 @@ TOOLS = {
     "profile",
     "layer_statistics",
     "export_geotiff",
+    "geocode",
+    "find_reference_candidates",
+    "infrastructure_at",
+    "infrastructure_in_area",
+    "deformation_zones",
+    "site_context",
+}
+#: The page tools: they act on the open page through the server's page channel.
+PAGE_TOOLS = {
+    "get_view",
+    "fly_to",
+    "fit_bounds",
+    "pan",
+    "zoom",
+    "go_to",
+    "set_terrain",
+    "set_split_screen",
+    "add_point",
+    "get_reference",
+    "set_reference_point",
+    "reset_reference",
+    "set_reference_date",
+    "switch_layer",
+    "open_chart",
+    "get_masks",
+    "set_masks",
+    "clear_masks",
+    "set_recommended_mask",
+    "get_display",
+    "set_colormap",
+    "set_color_range",
+    "set_opacity",
+    "list_commands",
+    "run_command",
+    "list_context_layers",
+    "add_context_layer",
+    "remove_context_layer",
+    "highlight_infrastructure",
+    "clear_highlights",
+    "get_areas",
 }
 
 #: Calls each app answers twice: through the MCP tool and through the HTTP API.
@@ -222,7 +263,7 @@ def test_tools_have_descriptions_and_schemas():
             return (await client.list_tools()).tools
 
     tools = asyncio.run(listing())
-    assert {t.name for t in tools} == TOOLS
+    assert {t.name for t in tools} == TOOLS | PAGE_TOOLS | CHART_COMMANDS
     for t in tools:
         assert len(t.description or "") > 40, t.name
         schema = t.input_schema

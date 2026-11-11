@@ -212,10 +212,12 @@ describe('AssistantTab', () => {
     const first = chats[0].body;
     expect(first.provider).toBe('ollama');
     expect(first.model).toBe('qwen3');
-    expect(first.messages[0].content).toMatch(/^\[page: \{"layer":"displacement"/);
-    expect(first.messages[0].content).toMatch(/Is the dam crest moving\?$/);
-    expect(first.page_tools.map((t: { name: string }) => t.name)).toEqual(
-      expect.arrayContaining(['fly_to', 'add_point', 'set_reference_point', 'set_reference_date', 'switch_layer', 'open_chart', 'add_overlay']));
+    // What the page shows goes with the question, apart from it (the server tells the model).
+    expect(first.messages[0].content).toBe('Is the dam crest moving?');
+    expect(first.page_context).toMatchObject({ layer: 'displacement', date_shown: '2020-01-01', time_index: 0, points: [], masks: [] });
+    // The page tools are the server's (src/bowser/tools.py); the page sends its masks.
+    expect(first.page_tools).toEqual([]);
+    expect(first.page_masks).toEqual([]);
     // The second request sends both results back, in the order of the calls.
     const toolMsg = chats[1].body.messages.at(-1);
     expect(toolMsg.role).toBe('tool');
@@ -325,6 +327,50 @@ describe('AssistantTab sign-in', () => {
     const starts = calls.filter(c => c.url === '/assistant/agent').map(c => c.body.conversation);
     expect(starts[1]).not.toBe(first);
     expect(calls.find(c => c.url === '/assistant/stop')!.body).toEqual({ conversation: first });
+  });
+
+  it('auto-allow: an icon in the chat header, remembered in this browser and sent with the chat', async () => {
+    localStorage.removeItem('bowser-assistant');
+    const calls = server(CLAUDE_ON, [
+      sse({ type: 'text', text: 'Done.' }, { type: 'message', message: { role: 'assistant', content: 'Done.' } }, { type: 'done', stop: 'end' }),
+    ]);
+    renderTab();
+    const toggle = await screen.findByRole('button', { name: "Allow Bowser's tools without asking" });
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+    expect(toggle.querySelector('.fa-lock')).toBeTruthy();
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-pressed')).toBe('true');
+    expect(toggle.querySelector('.fa-unlock')).toBeTruthy();
+    expect(screen.getByText(/Auto-allow on/)).toBeTruthy();
+    expect(JSON.parse(localStorage.getItem('bowser-assistant')!).autoAllow).toBe(true);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Question' }), { target: { value: 'Go to the dam' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(await screen.findByText('Done.')).toBeTruthy();
+    const body = calls.find(c => c.url === '/assistant/chat')!.body;
+    expect(body.auto_allow).toBe(true);
+    expect(body.page_context.layer).toBe('displacement');
+    // A new tab in this browser starts with it on.
+    cleanup();
+    server(CLAUDE_ON);
+    renderTab();
+    expect((await screen.findByRole('button', { name: "Allow Bowser's tools without asking" })).getAttribute('aria-pressed')).toBe('true');
+    localStorage.removeItem('bowser-assistant');
+  });
+
+  it('says when the tool calls of a question ran out', async () => {
+    server(CLAUDE_ON, [
+      sse(
+        { type: 'budget', limit: 8 },
+        { type: 'text', text: 'Click the dam on the map, please.' },
+        { type: 'message', message: { role: 'assistant', content: 'Click the dam on the map, please.' } },
+        { type: 'done', stop: 'end' },
+      ),
+    ]);
+    renderTab();
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Question' }), { target: { value: 'Where is the dam?' } });
+    await waitFor(() => expect((screen.getByRole('button', { name: 'Send' }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(await screen.findByText('Stopped after 8 tool calls.')).toBeTruthy();
   });
 
   it('lists the sign-in buttons from the server, with the API key form below them', async () => {
@@ -448,8 +494,49 @@ describe('AssistantTab sign-in', () => {
     fireEvent.change(await screen.findByRole('textbox', { name: 'Question' }), { target: { value: 'layers?' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     const card = await screen.findByRole('group', { name: 'Allow list_layers?' });
-    expect(await within(card).findByText('Not answered in time, so it was denied.')).toBeTruthy();
+    expect(await within(card).findByText(/Not answered in time, so list_layers was denied\./)).toBeTruthy();
     expect(within(card).queryByRole('button', { name: 'Always allow' })).toBeNull();
+  });
+
+  it('an open request is outlined, counts down, badges the rail; Retry asks again after a timeout', async () => {
+    const { useWaiting } = await import('../../assistant/attention');
+    let waiting = -1;
+    const Probe = () => { waiting = useWaiting(); return null; };
+    let release: () => void = () => {};
+    const held = new Promise<void>(r => { release = r; });
+    const calls = server(CLAUDE_ON, [], c => {
+      if (c.url !== '/assistant/chat') return null;
+      const n = calls.filter(x => x.url === '/assistant/chat').length;
+      if (n === 1) {
+        // The first answer stays open (the request waits) until the test lets it time out.
+        const body = new ReadableStream({
+          async start(ctl) {
+            const enc = new TextEncoder();
+            ctl.enqueue(enc.encode(`data: ${JSON.stringify({ type: 'permission', id: 'p1', name: 'add_point', title: 'mcp__bowser__add_point', detail: '{}', options: [{ kind: 'allow_once', name: 'Allow' }, { kind: 'reject_once', name: 'Reject' }], timeout: 600 })}\n\n`));
+            await held;
+            ctl.enqueue(enc.encode(`data: ${JSON.stringify({ type: 'permission_closed', id: 'p1', outcome: 'timeout' })}\n\ndata: ${JSON.stringify({ type: 'done', stop: 'end' })}\n\n`));
+            ctl.close();
+          },
+        });
+        return new Response(body, { headers: { 'content-type': 'text/event-stream' } });
+      }
+      return sse({ type: 'text', text: 'Added.' }, { type: 'message', message: { role: 'assistant', content: 'Added.' } }, { type: 'done', stop: 'end' });
+    });
+    render(<AppProvider><Seed /><Probe /></AppProvider>);
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Question' }), { target: { value: 'Add a point at the dam' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    const card = await screen.findByRole('group', { name: 'Allow add_point?' });
+    expect(card.className).toContain('open');
+    expect(within(card).getByRole('timer').textContent).toMatch(/Denied in (10:00|9:5\d) without an answer/);
+    await waitFor(() => expect(waiting).toBe(1));
+    release();
+    expect(await within(card).findByText(/Not answered in time, so add_point was denied\./)).toBeTruthy();
+    await waitFor(() => expect(waiting).toBe(0));
+    fireEvent.click(await within(card).findByRole('button', { name: 'Retry' }));
+    expect(await screen.findByText('Added.')).toBeTruthy();
+    const chats = calls.filter(c => c.url === '/assistant/chat');
+    expect(chats).toHaveLength(2);
+    expect(chats[1].body.messages.at(-1)).toEqual({ role: 'user', content: 'Add a point at the dam' });
   });
 
   it('shows Manage usage when the ChatGPT plan limit is reached', async () => {

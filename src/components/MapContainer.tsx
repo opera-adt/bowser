@@ -14,6 +14,7 @@ import {
   mapClickActions, markerPopupText, pixelInspectRequest, pixelInspectText,
   pointClickActions, pointDoubleClickActions, pointDragEndActions, refDragEnd, viewBoundsAction,
 } from '../map/interactions';
+import { leafletZoom, maplibreZoom, registerNavigator, whenMoved } from '../map/navigator';
 import { useAppContext } from '../context/AppContext';
 import { baseMaps } from '../basemap';
 import { basemapLeafletZoom, MAP_MAX_ZOOM } from '../map/basemapStyle';
@@ -121,6 +122,30 @@ function MapViewController() {
       dispatch(viewBoundsAction(b.getSouth(), b.getWest(), b.getNorth(), b.getEast()));
     },
   });
+
+  // The Assistant's map tools (src/map/navigator.ts); zoom levels converted to MapLibre's.
+  useEffect(() => {
+    const moved = (move: () => void) => whenMoved((e, f) => map.on(e, f), (e, f) => map.off(e, f), move);
+    return registerNavigator({
+      kind: 'leaflet',
+      getView: () => {
+        const b = map.getBounds();
+        const c = map.getCenter();
+        const size = map.getSize();
+        return {
+          center: [c.lng, c.lat], zoom: maplibreZoom(map.getZoom()), bearing: 0, pitch: 0,
+          bounds: [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()], map: 'leaflet',
+          width: size.x, height: size.y,
+        };
+      },
+      flyTo: (lon, lat, zoom) => moved(() => map.flyTo([lat, lon], zoom === undefined ? map.getZoom() : leafletZoom(zoom))),
+      fitBounds: (w, s, e, n, padding, maxZoom) => moved(() => map.fitBounds([[s, w], [n, e]], {
+        padding: [padding, padding], ...(maxZoom === undefined ? {} : { maxZoom: leafletZoom(maxZoom) }),
+      })),
+      panBy: (dx, dy) => moved(() => map.panBy([dx, dy])),
+      zoomTo: z => moved(() => map.setZoom(leafletZoom(z))),
+    });
+  }, [map]);
 
   return null;
 }
@@ -614,6 +639,7 @@ export default function MapContainer({ toolbarsVisible, onToggleToolbars }: { to
       ) : (
         <button
           className="map-tool-btn"
+          data-command="map.toolbar"
           title="Show toolbar"
           onClick={onToggleToolbars}
           style={{ position: 'absolute', top: 10, right: 10, zIndex: 3000 }}
@@ -683,7 +709,7 @@ export default function MapContainer({ toolbarsVisible, onToggleToolbars }: { to
       <MapEvents toolActive={measureActive || profileActive} />
       <MousePosition />
       <ScaleBar />
-      <MeasureTool active={measureActive} onDeactivate={() => setMeasureActive(false)} />
+      <MeasureTool active={measureActive} />
       <ProfileToolMap />
       <MapViewController />
       <MapResizeWatcher />

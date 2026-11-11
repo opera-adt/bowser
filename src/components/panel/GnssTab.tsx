@@ -7,7 +7,7 @@ import { useApi } from '../../hooks/useApi';
 import { refDragEnd } from '../../map/interactions';
 import { chartLayerFor } from '../../utils/chartLayers';
 import { GNSS_LAYER_ID, distanceKm, gnssLosSeries, losVector, mmPerUnit, toLos, typicalLos, type GnssSeries, type GnssStation } from '../../map/gnss';
-import type { Overlay } from '../../types';
+import { gnssOverlay } from '../../map/contextServices';
 import { SectionHeader, Switch } from './controls';
 import { displayUnit, type DisplayUnit } from '../../utils/units';
 
@@ -59,16 +59,8 @@ export default function GnssTab() {
   };
 
   const showOnMap = (list: GnssStation[]) => {
-    const overlay: Overlay = {
-      id: GNSS_LAYER_ID, name: 'GNSS stations (UNR)', type: 'vector', visible: true, opacity: 1, aboveData: true,
-      color: '#e11d48', pointRadius: 5, lineWidth: 1,
-      data: { type: 'FeatureCollection', features: list.map(s => ({
-        type: 'Feature', geometry: { type: 'Point', coordinates: [s.lon, s.lat] }, properties: { ...s },
-      })) },
-      attribution: 'GNSS: Nevada Geodetic Laboratory (UNR), MIDAS velocities, NA fixed',
-    };
     dispatch({ type: 'REMOVE_OVERLAY', payload: GNSS_LAYER_ID });
-    dispatch({ type: 'ADD_OVERLAY', payload: overlay });
+    dispatch({ type: 'ADD_OVERLAY', payload: gnssOverlay(list) });
   };
 
   const [cx, cy] = state.viewBounds

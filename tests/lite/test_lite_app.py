@@ -95,6 +95,7 @@ expected = {
         "providers": [],
         "configured": [],
         "sign_in": [],
+        "page_channel": False,
     },
     "geotiff_upload": False,
     # Converting added files needs GDAL: small vectors are still read in the browser.

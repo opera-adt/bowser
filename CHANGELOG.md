@@ -84,7 +84,13 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     when not answered). If Claude Code is not signed in, Bowser starts Claude
     Code's own sign-in on Anthropic's page. Bowser never reads Claude Code's
     credentials and never calls Anthropic itself. Needs Claude Code and
-    Node.js (`npx`).
+    Node.js. Its ACP adapter is installed once into Bowser's cache
+    (`~/.cache/bowser/acp`, without the SDK's own copy of the agent) and run
+    with `node`; npx stands in, and the tab says so, when that fails. The
+    agent starts when the tab opens, not at the first question, and the tab
+    shows how far it got (installing, starting, ready, with the seconds;
+    `POST`/`GET /assistant/agent`); one session per chat, closed after 10 idle
+    minutes.
   - "Continue with ChatGPT" is OpenAI's "Sign in with ChatGPT" for
     open-source apps: OAuth with PKCE in your browser, then the chat uses your
     ChatGPT plan through the Responses API. The tokens are kept like keys,
@@ -93,6 +99,90 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     `POST /assistant/permission` and `POST /assistant/stop`; `GET
     /assistant/status` and `GET /config` list the sign-in methods. Signing in
     and signed-in chats answer requests from the same computer only.
+- The Assistant's status line says what is running and for how long: each
+  tool's own label ("Reading the time series… 3 s", "Moving the map… 0 s"),
+  sent by the server with each call on every path (API key, ChatGPT, Claude),
+  then "Thinking…" or "Claude is thinking…"; each tool's row shows how long it
+  took. The labels are part of each tool's spec (`ToolSpec.status`).
+- Bowser's tools act on the page you have open, from every AI path: the
+  Assistant's chat, "Sign in with Claude" (which could not act on the page
+  before) and `bowser mcp` in Claude Code or Claude Desktop. New tools move the
+  map (`get_view`, `fly_to`, `fit_bounds`, `pan`, `zoom`, `go_to`), set 3D
+  terrain and split screen, the reference (`get_reference`,
+  `set_reference_point` with a sampling circle, `reset_reference`), masks
+  (`get_masks`, `set_masks`, `clear_masks`, `set_recommended_mask`) and
+  colours (`get_display`, `set_colormap`, `set_color_range` with the
+  histogram's presets, `set_opacity`), and run any toolbar or panel control
+  (`list_commands`, `run_command`). They are defined once in `bowser.tools`
+  and reach the page through a page channel (`GET /page/events`,
+  `POST /page/focus`, `POST /page/result`, `POST /page/command`): the tab
+  focused most recently acts; only from this computer, with
+  `BOWSER_ASSISTANT_PAGE_KEYS`, and with the server's page token, which the
+  server writes to a private file at start (removed at stop) and
+  `bowser mcp` on the same computer reads (`--token` or `BOWSER_PAGE_TOKEN`
+  otherwise). `GET /config` says whether it is on
+  (`assistant.page_channel`).
+- Chart tools for every AI path, run in the page like the other page tools
+  (see [docs/mcp.md](docs/mcp.md#the-chart)): `get_chart_data` returns the
+  chart's series exactly as drawn (reference point and date, masks, date range
+  and units applied) and `get_fit_results` the fitted model's rate, seasonal
+  amplitudes and peak days, step sizes, segment rates and RMS, each with a
+  1-sigma error; `set_fit`, `add_step`, `remove_step` and `set_residuals` set
+  the model as the Model card does and return the fit; `list_points`,
+  `rename_point`, `remove_point`, `set_point_style`, `list_areas`,
+  `rename_area`, `set_area_style` and `set_area_band` work as the Points panel
+  and the Style button; `set_chart_layers`, `set_layer_display`,
+  `set_date_range` and `export_chart` as the chart's layer chips, Display
+  options and export buttons; `check_series` flags likely steps, one-date
+  outliers and jumps of about half the radar wavelength (unwrapping errors),
+  with checks ported from the OPERA DISP Portal. The model is told to fit with
+  these tools, read numbers from the chart instead of fetching them again, and
+  run `check_series` and ask before adding a step.
+- The model's annual and semi-annual peak day of year has a 1-sigma error, as
+  the amplitude has.
+- `GET /datasets` gives a GeoZarr layer's `radar_wavelength_m` when the cube
+  records it (for example a variable's `wavelength_m` attribute).
+- `geocode` and `GET /geocode`: place names and addresses to coordinates
+  through OpenStreetMap's Nominatim, at most one request per second, cached,
+  with a User-Agent naming Bowser; `BOWSER_GEOCODER_URL` replaces or turns it
+  off.
+- `find_reference_candidates`, the reference finder (`GET
+  /reference_candidates`) as a tool for every AI path.
+- The data tools apply the page's masks by default (`use_page_masks`), so
+  their answers match the map.
+- Each question tells the model what the page shows (view, layer, date,
+  reference, masks, points, split screen, terrain), and a question may use at
+  most 8 tool calls (`BOWSER_ASSISTANT_TOOL_BUDGET`); a repeated call is
+  refused. The tab says "Stopped after 8 tool calls" when they run out.
+- A signed-in Claude asks less and its questions are hard to miss: Bowser's
+  tools that only read or move the map never ask; "Always allow" covers a tool
+  for the rest of the chat; a lock icon in the chat lets it run all of Bowser's
+  tools without asking (remembered in this browser), while any other tool
+  still asks. An open request is outlined, scrolled into view, counts down and
+  badges the Assistant's rail icon; it waits 10 minutes
+  (`BOWSER_ASSISTANT_PERMISSION_SECONDS`) instead of 2, and after a timeout
+  Retry asks the question again.
+- Context and infrastructure tools for the AI, on every path (the Assistant,
+  Sign in with Claude, `bowser mcp`):
+  - `deformation_zones` and `GET /deformation_zones` (full and lite, the same
+    zones): connected areas where |velocity| (or a rate fitted to the
+    displacement) reaches a threshold, with outlines, area, mean, median and
+    peak rate, and ids to pass on;
+  - `infrastructure_at`, `infrastructure_in_area` and `POST /infrastructure`:
+    roads, buildings, rail, bridges, pipelines, dams and levees at a point or
+    in an area, a drawn shape, a chart area or a zone, from OpenStreetMap
+    through the Overpass API (one request per second, one at a time, cached,
+    with a User-Agent naming Bowser; `BOWSER_OVERPASS_URL` moves or turns it
+    off);
+  - `site_context` and `GET /site_context`: land cover, geology, wetlands,
+    soil, slope (and how much of a downslope motion the radar sees), nearby
+    infrastructure and the cube's coherence at a point, to read before a time
+    series; each service that cannot be reached says so
+    (`BOWSER_CONTEXT_SERVICES=off` turns them all off);
+  - page tools `list_context_layers`, `add_context_layer`,
+    `remove_context_layer` (the Overlays › Services toggles),
+    `highlight_infrastructure`, `clear_highlights` and `get_areas`; the tools
+    above draw what they find as highlight layers when a page is connected.
 
 ### Changed
 
