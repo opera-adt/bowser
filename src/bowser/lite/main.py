@@ -7,6 +7,7 @@ cube) and/or ``BOWSER_CATALOG_FILE`` (``?dataset=<id>`` routing),
 ``BOWSER_ALLOW_OPEN``, ``BOWSER_REMEMBER_OPENED``.
 
 Not in lite (HTTP 501): GeoTIFF uploads (``/upload_raster``, ``/upload_mask``),
+added-file conversion (``/upload_data``, ``/data``, ``/files``),
 ``/export/geotiff``, COG mode and the ``/cog`` and ``/overlay`` tilers.
 """
 
@@ -206,7 +207,9 @@ def get_config(
     ``polygon_stats`` is False for the same reason: ``/polygon_timeseries``
     answers 501 here, so the chart's "+ Area" button is off. ``geotiff_upload``
     is False too: ``/upload_mask`` and ``/upload_raster`` answer 501, so the
-    custom mask's Upload button is off.
+    custom mask's Upload button is off. ``data_conversion`` is all off:
+    converting added files to COG or PMTiles needs GDAL, so only the vectors
+    the browser reads itself can be added, and ``overlay_files`` is empty.
     """
     if dataset is None and (ref := request.headers.get("referer")):
         values = parse_qs(urlparse(ref).query).get("dataset")
@@ -219,6 +222,8 @@ def get_config(
         "polygon_stats": False,
         "assistant": assistant_config(settings),
         "geotiff_upload": False,
+        "data_conversion": {"cog": False, "pmtiles": False, "pmtiles_min_mb": None},
+        "overlay_files": [],
     }
 
 
@@ -1103,6 +1108,56 @@ def upload_mask():
 def upload_raster():
     """501: GeoTIFF overlays need GDAL."""
     return _not_in_lite("Adding a GeoTIFF overlay")
+
+
+@app.post(
+    "/upload_data",
+    responses=api.NOT_IN_LITE,
+    **api.route_doc("POST /upload_data", lite_stub=True),
+)
+def upload_data():
+    """501: added files are converted with GDAL."""
+    return _not_in_lite("Adding a file on the server")
+
+
+@app.post(
+    "/data",
+    responses=api.NOT_IN_LITE,
+    **api.route_doc("POST /data", lite_stub=True),
+)
+def open_data():
+    """501: added files are converted with GDAL."""
+    return _not_in_lite("Adding a file on the server")
+
+
+@app.get(
+    "/data/{data_id}.{fmt}",
+    responses=api.NOT_IN_LITE,
+    **api.route_doc("GET /data/{data_id}.{fmt}", lite_stub=True),
+)
+def data_file(data_id: str, fmt: str):  # noqa: ARG001
+    """501: added files are converted with GDAL."""
+    return _not_in_lite("Adding a file on the server")
+
+
+@app.get(
+    "/data/{data_id}",
+    responses=api.NOT_IN_LITE,
+    **api.route_doc("GET /data/{data_id}", lite_stub=True),
+)
+def data_status(data_id: str):  # noqa: ARG001
+    """501: added files are converted with GDAL."""
+    return _not_in_lite("Adding a file on the server")
+
+
+@app.get(
+    "/files",
+    responses=api.NOT_IN_LITE,
+    **api.route_doc("GET /files", lite_stub=True),
+)
+def list_files():
+    """501: lite cannot add server files, so it does not list them."""
+    return _not_in_lite("Browsing server folders for files to add")
 
 
 @app.get(

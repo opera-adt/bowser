@@ -7,14 +7,16 @@ import type { Overlay, OverlayFeatures } from '../types';
 import { featureBounds } from './fileParsers';
 import { classColorExpression } from './soilClasses';
 import { MARKER_IMAGE_RADIUS, markerImageId } from './markers';
+import { demParams, demTileUrl } from './dem';
 
 export function hexToRgba(hex: string): [number, number, number, number] {
   const h = (hex || '#000000').replace('#', '');
   return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16), 255];
 }
 
-/** XYZ template for an uploaded GeoTIFF: RGB, continuous colormap, or discrete bins. */
+/** XYZ template for an uploaded GeoTIFF: RGB, continuous colormap, discrete bins, or a DEM. */
 export function geotiffTileUrl(o: Overlay): string {
+  if (o.dem) return demTileUrl(o);
   const vmin = o.vmin ?? 0, vmax = o.vmax ?? 1, nbins = o.nbins ?? 5;
   const binColors = o.binColors ?? [];
   // Force PNG so areas outside the raster footprint are transparent.
@@ -40,6 +42,7 @@ export function geotiffTileUrl(o: Overlay): string {
 /** What changes the rendered tiles (beyond the URL itself): a change remounts the layer. */
 export function overlayVizKey(o: Overlay): string {
   if (o.type !== 'geotiff') return o.type;
+  if (o.dem) return `dem:${JSON.stringify(demParams(o))}`;
   const nbins = o.nbins ?? 5;
   return o.mode === 'cmap' ? (o.discrete ? `d${nbins}:${(o.binColors ?? []).join('')}` : (o.cmap ?? '')) : 'rgb';
 }
@@ -64,13 +67,18 @@ export function overlaySource(o: Overlay): { tiles: string[]; maxzoom: number } 
   return { tiles: [geotiffTileUrl(o)], maxzoom: 22 };
 }
 
+/** Whether an overlay is shown at all: visible, and for a file added through the server, ready. */
+export function overlayDrawable(o: Overlay): boolean {
+  return o.visible && (!o.conversion || o.conversion.status === 'ready');
+}
+
 /**
  * Whether an overlay is drawn on a map. Without split screen only the main map exists;
  * in split screen the main map is what shows left of the divider and the right map what
  * shows right of it, so `side` picks one or both.
  */
 export function overlayOnMap(o: Overlay, splitScreen: boolean, map: 'main' | 'right'): boolean {
-  if (!o.visible) return false;
+  if (!overlayDrawable(o)) return false;
   const side = o.side ?? 'both';
   if (!splitScreen) return map === 'main';
   return side === 'both' || (side === 'left' ? map === 'main' : map === 'right');

@@ -108,9 +108,18 @@ export function useDataRaster(
   }, [ready, map, opacity, tileUrl]);
 }
 
-/** Terrain on/off and exaggeration. */
-export function applyTerrain(map: maplibregl.Map, enabled: boolean, exaggeration: number) {
-  if (enabled && !map.getSource(TERRAIN_SOURCE_ID)) map.addSource(TERRAIN_SOURCE_ID, TERRAIN_SOURCE);
+/**
+ * Terrain on/off and exaggeration. ``source`` is the global terrain, or a DEM overlay's merged
+ * into it (demTerrain.ts); switching between them replaces the source.
+ */
+export function applyTerrain(map: maplibregl.Map, enabled: boolean, exaggeration: number,
+  source: typeof TERRAIN_SOURCE = TERRAIN_SOURCE) {
+  const current = map.getSource(TERRAIN_SOURCE_ID) as { tiles?: string[] } | undefined;
+  if (current && current.tiles?.[0] !== source.tiles[0]) {
+    map.setTerrain(null);
+    map.removeSource(TERRAIN_SOURCE_ID);
+  }
+  if (enabled && !map.getSource(TERRAIN_SOURCE_ID)) map.addSource(TERRAIN_SOURCE_ID, source);
   map.setTerrain(terrainSpec(enabled, exaggeration));
   // MapLibre 6 rebuilds the terrain (reading the new exaggeration) but schedules no
   // frame, so without this the slider only shows after the next pan or zoom.

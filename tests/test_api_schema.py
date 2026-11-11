@@ -210,6 +210,28 @@ SCRIPT = textwrap.dedent(
             with open(tif, "rb") as f:
                 check(name, "POST", f"/{name}",
                       files={"file": ("overlay.tif", f, "image/tiff")})
+        # A striped (non-COG) DEM, uploaded: converted in the background, polled.
+        y, x = np.mgrid[0:600, 0:600]
+        dem_tif = work / "dem.tif"
+        with rasterio.open(dem_tif, "w", driver="GTiff", width=600, height=600,
+                           count=1, dtype="float32", crs="EPSG:4326", nodata=-9999,
+                           transform=from_origin(lon, lat, 1e-5, 1e-5)) as dst:
+            dst.write((100 + np.sin(x / 50.0) * np.cos(y / 40.0) * 20)
+                      .astype("float32")[None])
+        with open(dem_tif, "rb") as f:
+            check("upload_data", "POST", "/upload_data",
+                  files=[("files", ("dem.tif", f, "image/tiff"))])
+        r = c.post("/data", json={"path": str(dem_tif)})
+        assert r.status_code == 200, r.text
+        job = r.json()
+        import time
+        t0 = time.time()
+        while job["status"] == "converting" and time.time() - t0 < 120:
+            time.sleep(0.1)
+            job = c.get(f"/data/{job['id']}").json()
+        check("data", "POST", "/data", json={"path": str(dem_tif)})
+        check("data_status", "GET", "/data/{data_id}", f"/data/{job['id']}")
+        check("files", "GET", "/files", params={"dir": str(work)})
     Path(out).write_text(json.dumps(result))
     """
 )
@@ -222,6 +244,7 @@ def _run(which: str, cube: Path, work: Path) -> dict:
         "BOWSER_STACK_DATA_FILE": str(cube),
         "BOWSER_ALLOW_OPEN": "true",
         "BOWSER_UPLOAD_DIR": str(work / "uploads"),
+        "BOWSER_CONVERT_CACHE_DIR": str(work / "convert_cache"),
     }
     env.pop("BOWSER_CATALOG_FILE", None)
     proc = subprocess.run(
