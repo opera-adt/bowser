@@ -31,6 +31,11 @@ export default defineConfig({
 			},
 		},
 	},
+	// The GPU renderer's decoder worker loads its decompressors on demand (code-split).
+	worker: {
+		format: 'es',
+		rollupOptions: { output: { entryFileNames: 'assets/[name]-[hash].js' } },
+	},
 	build: {
 		outDir: 'src/bowser/dist/',
 		minify: false,

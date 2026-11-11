@@ -5,11 +5,14 @@ import type * as maplibregl from 'maplibre-gl';
 import { AppProvider, useAppContext } from '../../context/AppContext';
 import type { RasterGroup } from '../../types';
 import { resetGpuCapsCache } from './capability';
-import { useGpuRender, type GpuRenderStatus } from './useGpuRender';
+import { statsText, useGpuRender, type GpuRenderStatus } from './useGpuRender';
 
 // The GPU runtime (zarrita, colormap tables, the custom layer), as the hook loads it.
 const rt = vi.hoisted(() => {
-  const layers: { id: string; setParams: ReturnType<typeof vi.fn>; opts: { onFailure: (r: string) => void; watchSlowFrames: boolean } }[] = [];
+  const layers: {
+    id: string; setParams: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>;
+    opts: { onFailure: (r: string) => void; watchSlowFrames: boolean };
+  }[] = [];
   return {
     loaded: 0,
     layers,
@@ -24,6 +27,9 @@ vi.mock('./runtime', () => {
     GpuCubeLayer: class {
       readonly id = 'gpu-data';
       setParams = vi.fn();
+      close = vi.fn();
+      stats = () => ({ textureBytes: 3 * 1048576, peakTextureBytes: 4 * 1048576, budgetBytes: 384 * 1048576,
+        f16: 3, f32: 1, evicted: 2, dropped: 0, maxHalfError: 1e-5 });
       constructor(_cube: unknown, public opts: { onFailure: (r: string) => void; watchSlowFrames: boolean }) {
         rt.layers.push(this as never);
       }
@@ -165,7 +171,15 @@ describe('useGpuRender', () => {
     act(() => { rt.layers[0].opts.onFailure('WebGL context lost'); });
     expect(status).toMatchObject({ active: false, renderer: 'tiles', reason: 'fell back to tiles: WebGL context lost' });
     expect(map.removeLayer).toHaveBeenCalledWith('gpu-data');
+    expect(rt.layers[0].close).toHaveBeenCalled();   // its decoder workers stop
     expect(warn).toHaveBeenCalledWith('[bowser] data layer: tiles — fell back to tiles: WebGL context lost');
+  });
+
+  it("shows the GPU layer's texture memory with the label", async () => {
+    start('/?render=gpu');
+    await waitFor(() => expect(status.stats).not.toBeNull());
+    expect(status.stats).toMatchObject({ f16: 3, f32: 1, budgetBytes: 384 * 1048576 });
+    expect(statsText(status.stats!)).toBe('3.0/384 MB · 3 f16, 1 f32 · 2 evicted');
   });
 
   it('falls back to tiles when the cube cannot be opened at /zarr/', async () => {

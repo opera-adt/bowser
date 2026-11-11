@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cfDecoding, cfNumber, decodeValues, withDataset } from './cube';
+import { cfDecoding, cfNumber, decodeValues, withDataset } from './cf';
 
 describe('CF decoding (as xarray on the servers)', () => {
   it("reads xarray's base64 fill values and plain numbers", () => {
