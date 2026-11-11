@@ -283,6 +283,49 @@ describe('AssistantTab sign-in', () => {
   });
   const CHATGPT_ON = signedIn('chatgpt', { account: 'me@example.com', plan: 'ChatGPT plan', models: ['gpt-6.1-sol'], model: 'gpt-6.1-sol' });
   const CLAUDE_ON = signedIn('claude', { account: 'me@example.com', plan: 'Max' });
+  const agentState = (phase: string, text: string, elapsed: number, note: string | null = null) => ({ phase, text, elapsed, error: null, note });
+  const READY = agentState('ready', 'Ready', 4.2);
+
+  it('starts Claude Code before the first question and shows each phase with its seconds', async () => {
+    const states = [
+      agentState('starting', 'Starting Claude Code…', 5),
+      agentState('ready', 'Ready', 7.4),
+    ];
+    const calls = server(CLAUDE_ON, [], c => {
+      if (c.url === '/assistant/agent' && c.method === 'POST') return json(agentState('installing', "Installing Anthropic's adapter (first time only)…", 3));
+      if (c.url.startsWith('/assistant/agent?')) return json(states.shift() ?? READY);
+      if (c.url === '/assistant/stop') return json({ stopped: 1 });
+      return null;
+    });
+    renderTab();
+    // Started at once (no question asked), and followed until ready.
+    expect(await screen.findByText("Installing Anthropic's adapter (first time only)… 3 s")).toBeTruthy();
+    const start = calls.find(c => c.url === '/assistant/agent' && c.method === 'POST')!;
+    expect(start.body.conversation).toMatch(/^[A-Za-z0-9_-]+$/);
+    expect(await screen.findByText('Starting Claude Code… 5 s', {}, { timeout: 3000 })).toBeTruthy();
+    expect(await screen.findByText(/^Ready \(7 s\)/, {}, { timeout: 3000 })).toBeTruthy();
+    expect(calls.filter(c => c.url === '/assistant/chat')).toHaveLength(0);
+  });
+
+  it('a new chat starts its own agent, and npx standing in says so', async () => {
+    const calls = server(CLAUDE_ON, [], c => {
+      if (c.url === '/assistant/agent' && c.method === 'POST') return json(agentState('ready', 'Ready', 9, 'npm could not install the adapter. Using npx instead, which is slower to start.'));
+      if (c.url === '/assistant/stop') return json({ stopped: 1 });
+      return null;
+    });
+    renderTab();
+    expect(await screen.findByText(/Using npx instead/)).toBeTruthy();
+    const first = calls.find(c => c.url === '/assistant/agent')!.body.conversation;
+    // New chat needs an entry first; simulate one with a question that errors.
+    fireEvent.change(screen.getByRole('textbox', { name: 'Question' }), { target: { value: 'hi' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await screen.findByRole('alert');
+    fireEvent.click(screen.getAllByRole('button', { name: 'New chat' })[1]);
+    await waitFor(() => expect(calls.filter(c => c.url === '/assistant/agent')).toHaveLength(2));
+    const starts = calls.filter(c => c.url === '/assistant/agent').map(c => c.body.conversation);
+    expect(starts[1]).not.toBe(first);
+    expect(calls.find(c => c.url === '/assistant/stop')!.body).toEqual({ conversation: first });
+  });
 
   it('lists the sign-in buttons from the server, with the API key form below them', async () => {
     const off = { ...STATUS, providers: [ANTHROPIC] };  // nothing ready: the setup opens by itself
@@ -365,10 +408,11 @@ describe('AssistantTab sign-in', () => {
         { type: 'message', message: { role: 'assistant', content: 'It is stable.' } },
         { type: 'done', stop: 'end' },
       ),
-    ], c => (c.url === '/assistant/permission' ? json({ ok: true }) : c.url === '/assistant/stop' ? json({ stopped: 1 }) : null));
+    ], c => (c.url === '/assistant/permission' ? json({ ok: true }) : c.url === '/assistant/stop' ? json({ stopped: 1 })
+      : c.url.startsWith('/assistant/agent') ? json(READY) : null));
     renderTab();
     expect(await screen.findByText(/Claude · Signed in as me@example.com · Max/)).toBeTruthy();
-    expect(screen.getByText(/Answered by Claude Code on this computer/)).toBeTruthy();
+    expect(await screen.findByText(/Ready \(4 s\) · Claude Code on this computer, with your Max plan/)).toBeTruthy();
     fireEvent.change(screen.getByRole('textbox', { name: 'Question' }), { target: { value: 'Is it moving?' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
 

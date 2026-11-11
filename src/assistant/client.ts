@@ -87,7 +87,7 @@ export type ChatEvent =
   | { type: 'error'; kind: string; message: string; code?: string }
   | { type: 'done'; stop: 'end' | 'max_tokens' | 'refusal' | 'page_tools' | 'max_steps' | 'cancelled'; detail?: string }
   /** A signed-in agent: what it is doing, and its requests to run a tool. */
-  | { type: 'status'; text: string }
+  | { type: 'status'; text: string; phase?: AgentPhase; elapsed?: number }
   | { type: 'permission'; id: string; name: string; title: string; detail: string; options: { kind: string; name: string }[]; timeout: number }
   | { type: 'permission_closed'; id: string; outcome: string };
 
@@ -159,6 +159,32 @@ export async function answerPermission(conversation: string, id: string, choice:
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ conversation, id, choice }),
   }));
+}
+
+export type AgentPhase = 'none' | 'installing' | 'starting' | 'ready' | 'error';
+
+/** How far a chat's signed-in agent has started (GET/POST /assistant/agent). */
+export interface AgentState {
+  phase: AgentPhase;
+  text: string;
+  /** Seconds since the start (to ready, once ready). */
+  elapsed: number;
+  error: string | null;
+  /** Set when npx stands in for the installed adapter (slower). */
+  note: string | null;
+}
+
+/** Start a chat's agent now, before its first question. */
+export async function startAgent(conversation: string): Promise<AgentState> {
+  return json(await fetch('/assistant/agent', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ conversation }),
+  }));
+}
+
+export async function fetchAgentState(conversation: string): Promise<AgentState> {
+  return json(await fetch(`/assistant/agent?conversation=${encodeURIComponent(conversation)}`, { cache: 'no-store' }));
 }
 
 /** Stop a chat's agent (its process is killed); errors are ignored. */

@@ -2,8 +2,8 @@ import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } fr
 import { useAppContext } from '../../context/AppContext';
 import { useApi } from '../../hooks/useApi';
 import {
-  answerPermission, fetchModels, fetchStatus, removeKey, saveKey, signIn, signOut, stopAgent, streamChat, RelayError,
-  type AssistantStatus, type ChatEvent, type ConvMessage, type ModelInfo, type ProviderInfo, type SignInMethod, type ToolResult,
+  answerPermission, fetchAgentState, fetchModels, startAgent, fetchStatus, removeKey, saveKey, signIn, signOut, stopAgent, streamChat, RelayError,
+  type AgentState, type AssistantStatus, type ChatEvent, type ConvMessage, type ModelInfo, type ProviderInfo, type SignInMethod, type ToolResult,
 } from '../../assistant/client';
 import { newDone, PAGE_TOOL_NAMES, PAGE_TOOLS, pageState, runPageTool, showResult, type PageContext } from '../../assistant/pageTools';
 import { SectionHeader } from './controls';
@@ -108,6 +108,11 @@ export default function AssistantTab() {
   const [signUrl, setSignUrl] = useState<string | null>(null);
   const starting = useRef<string | null>(null);
   const conversation = useRef(newConversation());
+  /** The chat's id as state too, so a new chat starts its own agent. */
+  const [convId, setConvId] = useState(conversation.current);
+  const [agentState, setAgentState] = useState<AgentState | null>(null);
+  /** Bumped to start the agent again (after Stop). */
+  const [warmKey, setWarmKey] = useState(0);
   // Each provider's live model list (GET /assistant/models), asked for once it has a key.
   const [live, setLive] = useState<Record<string, ModelInfo[]>>({});
   const [modelsFailed, setModelsFailed] = useState<Record<string, boolean>>({});
@@ -165,6 +170,25 @@ export default function AssistantTab() {
     : (provider && prefs.models?.[provider.id]) ?? provider?.model ?? '';
   const agent = account?.kind === 'local_agent';
   const ready = account ? Boolean(agent || model) : Boolean(provider?.available && provider.configured && model);
+
+  // Start the signed-in agent as soon as it is chosen and the tab is shown, not at
+  // the first question, and follow its start until it is ready.
+  useEffect(() => {
+    if (!shown || !agent) return;
+    let live = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const follow = (s: AgentState) => {
+      if (!live) return;
+      setAgentState(s);
+      if (s.phase === 'installing' || s.phase === 'starting') {
+        timer = setTimeout(() => { fetchAgentState(convId).then(follow).catch(() => undefined); }, 1000);
+      }
+    };
+    startAgent(convId).then(follow).catch(e => {
+      if (live) setAgentState({ phase: 'error', text: (e as Error).message, elapsed: 0, error: (e as Error).message, note: null });
+    });
+    return () => { live = false; clearTimeout(timer); };
+  }, [shown, agent, convId, warmKey]);
 
   // Finish a sign-in this page started: use that account.
   useEffect(() => {
@@ -355,7 +379,10 @@ export default function AssistantTab() {
                 setWorking('Reading the data…');
                 add({ kind: 'tool', id: ev.id, name: ev.name, input: ev.input, state: 'running', where: ev.runs === 'agent' ? 'agent' : 'server' });
                 break;
-              case 'status': setWorking(ev.text); break;
+              case 'status':
+                setWorking(`${ev.text}${ev.elapsed !== undefined ? ` ${Math.round(ev.elapsed)} s` : ''}`);
+                if (ev.phase) setAgentState(a => ({ phase: ev.phase!, text: ev.text, elapsed: ev.elapsed ?? 0, error: null, note: a?.note ?? null }));
+                break;
               case 'permission':
                 setWorking(null);
                 add({
@@ -430,12 +457,14 @@ export default function AssistantTab() {
 
   const stop = () => {
     abort.current?.abort();
-    if (agent) void stopAgent(conversation.current);
+    // Stop ends the agent's process; a fresh one starts for the next question.
+    if (agent) void stopAgent(conversation.current).then(() => setWarmKey(k => k + 1));
   };
   const newChat = () => {
     if (busy) return;
     if (agent) void stopAgent(conversation.current);
     conversation.current = newConversation();
+    setConvId(conversation.current);
     history.current = [];
     setEntries([]);
   };
@@ -648,9 +677,7 @@ export default function AssistantTab() {
             Using ChatGPT plan · <a href={account.usage_url} target="_blank" rel="noopener noreferrer">Manage usage</a>
           </div>
         )}
-        {agent && account && (
-          <div className="row-label ai-small">Answered by Claude Code on this computer, with your {account.plan ?? 'Claude'} plan.</div>
-        )}
+        {agent && account && <AgentStatus state={agentState} plan={account.plan} />}
         <div className="row-label ai-small">
           Answers come from satellite data and can be wrong: line-of-sight motion relative to a reference point and date.
           Confirm any finding with a qualified expert before acting on it.
@@ -722,6 +749,28 @@ function SignInRow({ m, inUse, url, onSignIn, onConsent, onSignOut, onUse }: {
       <button type="button" className="hist-btn ai-signin-btn" onClick={m.state === 'no_plan' ? onConsent : onSignIn}>{m.label}</button>
       <div className={`row-label ai-small${m.detail ? ' ai-error' : ''}`}>{m.detail ?? m.blurb}</div>
     </div>
+  );
+}
+
+/** How far the signed-in agent has started: installing (first time only), starting, ready; with the seconds. */
+function AgentStatus({ state, plan }: { state: AgentState | null; plan: string | null }) {
+  if (!state?.phase || state.phase === 'none') return null;
+  const seconds = `${Math.round(state.elapsed)} s`;
+  return (
+    <>
+      {state.phase === 'installing' || state.phase === 'starting' ? (
+        <div className="ai-working row-label" role="status" aria-label="Agent status">
+          <span className="ai-spinner" aria-hidden="true" />{state.text} {seconds}
+        </div>
+      ) : state.phase === 'ready' ? (
+        <div className="row-label ai-small" role="status" aria-label="Agent status">
+          Ready ({seconds}) · Claude Code on this computer, with your {plan ?? 'Claude'} plan.
+        </div>
+      ) : (
+        <div className="row-label ai-small ai-error" role="alert">{state.error ?? state.text}</div>
+      )}
+      {state.note && <div className="row-label ai-small">{state.note}</div>}
+    </>
   );
 }
 
