@@ -187,7 +187,9 @@ def get_config(
     ``geotiff_export`` is False: exports need the full server (``bowser run``),
     so the page turns its GeoTIFF button off instead of failing with a 501.
     ``polygon_stats`` is False for the same reason: ``/polygon_timeseries``
-    answers 501 here, so the chart's "+ Area" button is off.
+    answers 501 here, so the chart's "+ Area" button is off. ``geotiff_upload``
+    is False too: ``/upload_mask`` and ``/upload_raster`` answer 501, so the
+    custom mask's Upload button is off.
     """
     if dataset is None and (ref := request.headers.get("referer")):
         values = parse_qs(urlparse(ref).query).get("dataset")
@@ -198,6 +200,7 @@ def get_config(
         "opera_logo": settings.BOWSER_OPERA_LOGO,
         "geotiff_export": False,
         "polygon_stats": False,
+        "geotiff_upload": False,
     }
 
 

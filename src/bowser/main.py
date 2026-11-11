@@ -575,6 +575,7 @@ async def get_config(
         "opera_logo": settings.BOWSER_OPERA_LOGO,
         "geotiff_export": True,
         "polygon_stats": True,
+        "geotiff_upload": True,
     }
 
 
