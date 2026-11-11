@@ -208,6 +208,14 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and kept in the reference finder's disk cache. The page asks for no
   histogram while playing through the dates. `GET /dataset_range` on the full
   server also left the event loop.
+- `GET /dataset_range` no longer reads the layer. It read the first date at full
+  resolution on every call, about 20 s on a DISP-S1 frame, and the page asks for
+  it at load for the default mask's slider. Both servers now answer from that
+  date's histogram: the one stored in the cube, else the cached or coarse-level
+  one `GET /histogram` uses. `min`, `max`, `p2` and `p98` are the histogram's;
+  `p5` and `p95` come from its counts, within one bin (1 % of the range) of the
+  exact percentiles. Without a stored histogram the values are those of the
+  coarse level, as for `GET /histogram`.
 - **Breaking:** Bowser now requires Python 3.12 or newer (`requires-python
   = ">=3.12"`); Python 3.11 is no longer supported. The `writer` extra's
   geozarr-toolkit and rasterio 1.5 already needed 3.12, and the pixi

@@ -1290,47 +1290,19 @@ async def get_colorbar(
     response_model=api.ValueRange,
     **api.route_doc("GET /dataset_range/{dataset_name}"),
 )
-def get_dataset_range(
+async def get_dataset_range(
     dataset_name: Annotated[str, PathParam(**api.PARAMS["dataset_name"])],
     target: BowserState = Depends(TargetState),
 ):
-    """Return the value range of a dataset for use in mask threshold sliders."""
-    if target.mode == "md":
-        if dataset_name not in target.dataset.data_vars:
-            raise HTTPException(
-                status_code=404, detail=f"Variable {dataset_name} not found"
-            )
-        da = target.dataset[dataset_name]
-        dim = _non_spatial_dim(da)
-        arr = (
-            (da.isel({dim: 0}) if dim is not None else da).values.ravel().astype(float)
-        )
-    else:
-        if dataset_name not in target.raster_groups:
-            raise HTTPException(
-                status_code=404, detail=f"Dataset {dataset_name} not found"
-            )
-        rg = target.raster_groups[dataset_name]
-        with rasterio.open(rg.file_list[0]) as src:
-            arr = src.read(1).ravel().astype(float)
-            nodata = src.nodata
-        if nodata is not None:
-            arr = arr[arr != nodata]
+    """Return the value range of a dataset for use in mask threshold sliders.
 
-    valid = arr[np.isfinite(arr)]
-    if valid.size == 0:
+    From the first time step's histogram (``_layer_histogram``): stored in the
+    cube, cached, or computed once in a worker thread, never a full read per call.
+    """
+    found = histograms.value_range(await _layer_histogram(target, dataset_name, 0))
+    if found is None:
         raise HTTPException(status_code=204, detail="No valid data")
-
-    return JSONResponse(
-        {
-            "min": float(valid.min()),
-            "max": float(valid.max()),
-            "p2": float(np.percentile(valid, 2)),
-            "p98": float(np.percentile(valid, 98)),
-            "p5": float(np.percentile(valid, 5)),
-            "p95": float(np.percentile(valid, 95)),
-        }
-    )
+    return JSONResponse(found)
 
 
 @app.post(
@@ -1377,20 +1349,10 @@ def polygon_timeseries(
     return JSONResponse(result)
 
 
-@app.get(
-    "/histogram/{dataset_name}",
-    response_class=JSONResponse,
-    responses={200: {"description": "Return histogram data for one time slice"}},
-    response_model=api.Histogram,
-    **api.route_doc("GET /histogram/{dataset_name}"),
-)
-async def get_histogram(
-    dataset_name: Annotated[str, PathParam(**api.PARAMS["dataset_name"])],
-    time_index: Annotated[int, Query(ge=0, **api.PARAMS["time_index"])] = 0,
-    nbins: Annotated[int, Query(ge=4, le=256, **api.PARAMS["nbins"])] = 100,
-    target: BowserState = Depends(TargetState),
-):
-    """Compute a histogram of valid pixel values for one time step of a dataset.
+async def _layer_histogram(
+    target: BowserState, dataset_name: str, time_index: int, nbins: int = 100
+) -> dict:
+    """Return the histogram of one time step of a layer (404 for an unknown one).
 
     The stored histogram when the cube has one; otherwise from a coarse pyramid
     level, cached, one at a time in a worker thread (``bowser.histograms``).
@@ -1405,10 +1367,8 @@ async def get_histogram(
         if dim is not None:
             time_index = min(time_index, da.sizes[dim] - 1)
         datasets, sources = _cube_levels(target)
-        return JSONResponse(
-            await histograms.histogram(
-                datasets, dataset_name, time_index, nbins, sources=sources
-            )
+        return await histograms.histogram(
+            datasets, dataset_name, time_index, nbins, sources=sources
         )
 
     if dataset_name not in target.raster_groups:
@@ -1424,9 +1384,26 @@ async def get_histogram(
             arr = arr[arr != nodata]
         return histograms.summarize(arr, nbins)
 
-    return JSONResponse(
-        await histograms.SERVICE.get(rg, (dataset_name, time_index, nbins), from_file)
+    return await histograms.SERVICE.get(
+        rg, (dataset_name, time_index, nbins), from_file
     )
+
+
+@app.get(
+    "/histogram/{dataset_name}",
+    response_class=JSONResponse,
+    responses={200: {"description": "Return histogram data for one time slice"}},
+    response_model=api.Histogram,
+    **api.route_doc("GET /histogram/{dataset_name}"),
+)
+async def get_histogram(
+    dataset_name: Annotated[str, PathParam(**api.PARAMS["dataset_name"])],
+    time_index: Annotated[int, Query(ge=0, **api.PARAMS["time_index"])] = 0,
+    nbins: Annotated[int, Query(ge=4, le=256, **api.PARAMS["nbins"])] = 100,
+    target: BowserState = Depends(TargetState),
+):
+    """Compute a histogram of valid pixel values for one time step of a dataset."""
+    return JSONResponse(await _layer_histogram(target, dataset_name, time_index, nbins))
 
 
 @app.get(
