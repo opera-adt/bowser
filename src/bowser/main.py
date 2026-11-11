@@ -1276,7 +1276,7 @@ async def get_colorbar(
     response_model=api.ValueRange,
     **api.route_doc("GET /dataset_range/{dataset_name}"),
 )
-async def get_dataset_range(
+def get_dataset_range(
     dataset_name: Annotated[str, PathParam(**api.PARAMS["dataset_name"])],
     target: BowserState = Depends(TargetState),
 ):

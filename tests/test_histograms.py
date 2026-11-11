@@ -305,11 +305,12 @@ UVICORN = textwrap.dedent(
     import numpy as np
     import uvicorn
     which, port = sys.argv[1], int(sys.argv[2])
-    real = np.histogram
-    def slow(*a, **k):  # a slow histogram, wherever it is computed
-        time.sleep(3)
-        return real(*a, **k)
-    np.histogram = slow
+    def slow(f):  # slow statistics, wherever they are computed
+        def run(*a, **k):
+            time.sleep(1.5)
+            return f(*a, **k)
+        return run
+    np.histogram, np.percentile = slow(np.histogram), slow(np.percentile)
     mod = __import__(which, fromlist=["app"])
     uvicorn.run(mod.app, host="127.0.0.1", port=port, log_level="warning")
     """
@@ -323,7 +324,10 @@ def _free_port() -> int:
 
 
 @pytest.mark.parametrize("which", ["bowser.main", "bowser.lite.main"])
-def test_config_is_answered_while_a_histogram_is_computed(cube, tmp_path, which):
+@pytest.mark.parametrize(
+    "path", ["/histogram/displacement?time_index=3", "/dataset_range/displacement"]
+)
+def test_config_is_answered_while_statistics_are_computed(cube, tmp_path, which, path):
     pytest.importorskip("rioxarray")
     port = _free_port()
     base = f"http://127.0.0.1:{port}"
@@ -357,19 +361,15 @@ def test_config_is_answered_while_a_histogram_is_computed(cube, tmp_path, which)
                     pytest.fail(log.read_text()[-3000:])
                 time.sleep(0.1)
         done = {}
-        th = threading.Thread(
-            target=lambda: done.setdefault(
-                "h", get("/histogram/displacement?time_index=3", 60)
-            )
-        )
+        th = threading.Thread(target=lambda: done.setdefault("h", get(path, 60)))
         th.start()
-        time.sleep(0.5)  # the histogram is now sleeping inside np.histogram
+        time.sleep(0.5)  # now sleeping inside np.histogram or np.percentile
         t0 = time.perf_counter()
         get("/config", 60)
         waited = time.perf_counter() - t0
         th.join()
         assert "h" in done
-        assert waited < 1.5, f"/config waited {waited:.1f} s behind the histogram"
+        assert waited < 1.5, f"/config waited {waited:.1f} s behind {path}"
     finally:
         proc.terminate()
         proc.wait(timeout=30)
