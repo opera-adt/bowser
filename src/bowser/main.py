@@ -26,6 +26,7 @@ from fastapi import (
 )
 from fastapi import Path as PathParam
 from fastapi.middleware.cors import CORSMiddleware
+from pyproj import CRS
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response as StarletteResponse
 from starlette.staticfiles import StaticFiles
@@ -48,6 +49,14 @@ from .reference import (
     select_circle,
     select_point,
 )
+from .reference_candidates import (
+    CandidateParams,
+    candidate_query,
+    run_or_http_error,
+    warm_up,
+)
+from .reference_candidates import status as candidates_status
+from .refstats import Source, track_activity, warm_up_enabled
 from .state import BowserState, DatasetRegistry
 from .utils import (
     _uses_spatial_reference,
@@ -74,7 +83,14 @@ from titiler.core.factory import TilerFactory  # noqa: E402
 
 from .layer_info import describe_layer, describe_raster_group  # noqa: E402
 from .readers import CustomReader  # noqa: E402
-from .titiler import Amplitude, JSONResponse, Phase, Rewrap, Shift  # noqa: E402
+from .titiler import (  # noqa: E402
+    Amplitude,
+    DemRender,
+    JSONResponse,
+    Phase,
+    Rewrap,
+    Shift,
+)
 
 logger = logging.getLogger("bowser")
 warnings.filterwarnings(
@@ -230,12 +246,18 @@ async def _route_dataset(request: Request, call_next):
             return JSONResponse(
                 {"detail": f"unknown dataset id {name!r}"}, status_code=404
             )
-        token = _request_state.set(registry.get(name))
+        routed = registry.get(name)
+        _warm(routed)
+        token = _request_state.set(routed)
     try:
         return await call_next(request)
     finally:
         if token is not None:
             _request_state.reset(token)
+
+
+# Requests in flight, so the reference finder's warm-up can step aside.
+app.middleware("http")(track_activity)
 
 
 def _resolve_state(dataset: str | None) -> BowserState:
@@ -582,6 +604,22 @@ async def get_config(
         "polygon_stats": True,
         "assistant": assistant_config(settings),
         "geotiff_upload": True,
+        # Added data (POST /data): what this server converts, and what it opens
+        # at startup (bowser run --overlay).
+        "data_conversion": _data_conversion(),
+        "overlay_files": list(settings.BOWSER_OVERLAY_FILES),
+    }
+
+
+def _data_conversion() -> dict[str, Any]:
+    """Return ``/config``'s ``data_conversion``: COGs, and PMTiles with GDAL."""
+    from .convert import PMTILES_MIN_MB, pmtiles_available  # noqa: PLC0415
+
+    pmtiles = pmtiles_available()
+    return {
+        "cog": True,
+        "pmtiles": pmtiles,
+        "pmtiles_min_mb": PMTILES_MIN_MB if pmtiles else None,
     }
 
 
@@ -620,6 +658,13 @@ async def get_catalog():
         "datasets": [e.to_dict() for e in entries],
         "allow_open": settings.BOWSER_ALLOW_OPEN,
     }
+
+
+#: Why the page may not open a server path (POST /catalog/open, POST /data, GET /files).
+_OPEN_OFF = (
+    "Opening data from the page is off on this server "
+    "(set BOWSER_ALLOW_OPEN=true, or run `bowser run` locally)."
+)
 
 
 def _opened_id(name: str, uri: str) -> str:
@@ -677,8 +722,7 @@ async def open_dataset(
     if not settings.BOWSER_ALLOW_OPEN:
         raise HTTPException(
             status_code=403,
-            detail="Opening data from the page is off on this server "
-            "(set BOWSER_ALLOW_OPEN=true, or run `bowser run` locally).",
+            detail=_OPEN_OFF,
         )
     uri = str(body.get("uri") or "").strip()
     if not uri:
@@ -712,6 +756,7 @@ async def open_dataset(
         id=_opened_id(name, uri), name=name, uri=uri, bbox=tuple(bounds)
     )
     registry.register(entry, state)
+    _warm(state)
     if settings.BOWSER_REMEMBER_OPENED and settings.BOWSER_CATALOG_FILE:
         from .catalog import load_catalog, save_catalog  # noqa: PLC0415
 
@@ -844,8 +889,7 @@ async def _get_ref_median(
     circle = select_circle(da, cx, cy, buffer_m, margin_window=True, sqrt_distance=True)
     if circle is None:
         return await _get_point_values(dataset_name, lon, lat, layer_masks)
-    # (time,) for a (time, y, x) variable. A 2-D variable is pooled per window
-    # row, as before; its series has no time axis to plot either way.
+    # (time,) for a (time, y, x) variable, (1,) for a 2-D one.
     return reference_median(pool(*circle))
 
 
@@ -1499,7 +1543,8 @@ async def buffer_timeseries(
         )
         if circle is None:
             raise HTTPException(status_code=404, detail="Buffer outside dataset extent")
-        flat = pool(*circle)  # (time, n_pixels), NaN outside the circle
+        # (time, n_pixels), NaN outside the circle; (1, n_pixels) for a 2-D layer.
+        flat = pool(*circle)
 
         # Reference subtraction (use buffer median when ref_buffer_m > 0)
         if ref_lon is not None and ref_lat is not None:
@@ -1597,6 +1642,65 @@ async def buffer_timeseries(
             "n_pixels": int(flat.shape[1]),
         }
     )
+
+
+def _cube_levels(st: BowserState) -> tuple[list, list]:
+    """Return the pyramid datasets of an MD state and where each was read from."""
+    levels = list(st.levels) if st.levels else []
+    datasets = [lv.dataset for lv in levels] or [st.dataset]
+    assets = [lv.asset for lv in levels] or [""]
+    sources = [Source(str(st.uri), a) if st.uri else None for a in assets]
+    return datasets, sources
+
+
+def _warm(st: BowserState | None) -> None:
+    """Start the reference finder's background warm-up for an opened cube."""
+    if st is None or st.mode != "md" or st.dataset is None:
+        return
+    datasets, sources = _cube_levels(st)
+    warm_up(datasets, sources=sources, default=True)
+
+
+@app.get(
+    "/reference_candidates/status",
+    response_class=JSONResponse,
+    response_model=api.ReferenceCandidatesStatus,
+    **api.route_doc("GET /reference_candidates/status"),
+)
+def reference_candidates_status(target: BowserState = Depends(TargetState)):
+    """Readiness of the per-pixel statistics behind ``/reference_candidates``."""
+    if target.mode != "md":
+        raise HTTPException(
+            status_code=400, detail="Reference candidates need a GeoZarr cube"
+        )
+    datasets, _ = _cube_levels(target)
+    return JSONResponse(
+        {**candidates_status(datasets), "warm_up": warm_up_enabled(True)}
+    )
+
+
+@app.get(
+    "/reference_candidates",
+    response_class=JSONResponse,
+    response_model=api.ReferenceCandidates,
+    **api.route_doc("GET /reference_candidates"),
+)
+def reference_candidates(
+    params: CandidateParams = Depends(candidate_query),
+    target: BowserState = Depends(TargetState),
+):
+    """Rank stable reference-point candidates (see ``bowser.reference_candidates``).
+
+    A plain ``def``: FastAPI runs it in its thread pool, so the first call's
+    whole-stack read does not block the event loop.
+    """
+    if target.mode != "md":
+        raise HTTPException(
+            status_code=400, detail="Reference candidates need a GeoZarr cube"
+        )
+    datasets, sources = _cube_levels(target)
+    crs = CRS.from_user_input(target.dataset.rio.crs)
+    return JSONResponse(run_or_http_error(datasets, crs, params, sources))
 
 
 @app.post(
@@ -2046,6 +2150,210 @@ async def upload_raster(file: UploadFile):
     )
 
 
+def _in_uploads(path: Path) -> bool:
+    """Return whether ``path`` is a file uploaded to this server."""
+    try:
+        path.resolve().relative_to(_UPLOAD_DIR.resolve())
+    except ValueError:
+        return False
+    return True
+
+
+def _safe_name(name: str) -> str:
+    """Return an uploaded file's base name with only safe characters."""
+    import re  # noqa: PLC0415
+
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", Path(name).name).strip("._") or "file"
+
+
+@app.post(
+    "/upload_data",
+    responses={200: {"model": api.UploadedData}},
+    **api.route_doc("POST /upload_data"),
+)
+async def upload_data(files: list[UploadFile]):
+    """Store files to add with ``POST /data``: one file, or a Shapefile's parts.
+
+    The parts keep a common prefix and their extensions, so GDAL finds a
+    Shapefile's ``.dbf``/``.prj`` next to its ``.shp``. Returns the main file's
+    path: the ``.shp`` among parts, else the first file.
+    """
+    import uuid  # noqa: PLC0415
+
+    if not files:
+        raise HTTPException(status_code=400, detail="Send at least one file.")
+    prefix = f"data_{uuid.uuid4().hex}_"
+    saved: list[Path] = []
+    for f in files:
+        dest = _UPLOAD_DIR / (prefix + _safe_name(f.filename or "file"))
+        await _save_upload(f, dest)
+        saved.append(dest)
+    main = next((p for p in saved if p.suffix.lower() == ".shp"), saved[0])
+    return {
+        "path": str(main),
+        "name": Path(files[saved.index(main)].filename or main.name).name,
+    }
+
+
+def _data_response(job: dict[str, Any]) -> dict[str, Any]:
+    """Add what the page needs to draw a ready conversion.
+
+    A raster: its bands, nodata, bounds and whether it looks like a DEM; a vector:
+    the URL the page reads it from (``GET /data/{id}.pmtiles`` or ``.geojson``).
+    """
+    from .convert import SUFFIX, raster_summary  # noqa: PLC0415
+    from .dem import looks_like_dem  # noqa: PLC0415
+
+    out = {k: v for k, v in job.items() if k != "output"}
+    if job["status"] != "ready":
+        return out
+    if job["kind"] == "vector":
+        return {**out, "url": f"/data/{job['id']}{SUFFIX[job['format']]}"}
+    try:
+        info = raster_summary(job["cog"])
+        dem = info["band_count"] == 1 and looks_like_dem(job["cog"], job["name"])
+    except Exception as exc:  # noqa: BLE001
+        return {**out, "status": "failed", "error": f"Could not read it: {exc}"}
+    return {**out, **info, "dem": dem}
+
+
+@app.post(
+    "/data",
+    responses={200: {"model": api.DataStatus}},
+    **api.route_doc("POST /data"),
+)
+def open_data(
+    body: dict = Body(..., examples=[{"path": "/data/lidar/dem.tif"}]),
+):
+    """Add a raster or vector file to the map; convert it once in the background.
+
+    Allowed for an upload (``POST /upload_data``), for the server's
+    ``BOWSER_OVERLAY_FILES``, and for any path when ``BOWSER_ALLOW_OPEN`` is set.
+    """
+    from . import convert  # noqa: PLC0415
+
+    raw = str(body.get("path") or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Give the path of a file.")
+    path = Path(raw).expanduser()
+    upload = _in_uploads(path)
+    preset = path.resolve() in {
+        Path(p).expanduser().resolve() for p in settings.BOWSER_OVERLAY_FILES
+    }
+    if not upload and not preset and not settings.BOWSER_ALLOW_OPEN:
+        raise HTTPException(
+            status_code=403,
+            detail=f"{_OPEN_OFF} Upload the file instead.",
+        )
+    if not path.is_file():
+        raise HTTPException(status_code=400, detail=f"No such file: {path}")
+    name = str(body.get("name") or "").strip() or path.name
+    try:
+        job = convert.prepare(path, _UPLOAD_DIR if upload else None, name=name)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=400, detail=f"Could not add {name}: {exc}"
+        ) from exc
+    return _data_response(job)
+
+
+def _find_conversion(data_id: str) -> tuple[dict[str, Any], Path]:
+    """Return a conversion's status and folder: the cache, or the uploads."""
+    from . import convert  # noqa: PLC0415
+
+    for folder in (convert.cache_dir(), _UPLOAD_DIR):
+        try:
+            return convert.status(data_id, folder), folder
+        except KeyError:
+            continue
+    raise HTTPException(status_code=404, detail=f"No conversion {data_id}.")
+
+
+def _start_folder(dataset: str | None) -> Path:
+    """Return where Load file › Browse starts without a folder: the cube's, or home.
+
+    The cube is the catalog entry ``dataset``, else ``BOWSER_STACK_DATA_FILE``;
+    only one on this machine (not a URL) has a folder to start in.
+    """
+    entry = registry.catalog.get(dataset) if dataset else None
+    for uri in (entry.uri if entry else "", settings.BOWSER_STACK_DATA_FILE):
+        if uri and "://" not in uri:
+            folder = Path(uri).expanduser().parent
+            if folder.is_dir():
+                return folder
+    return Path.home()
+
+
+@app.get(
+    "/files",
+    responses={200: {"model": api.FolderListing}},
+    **api.route_doc("GET /files"),
+)
+def list_files(
+    dir: str | None = Query(  # noqa: A002
+        None,
+        description="Server folder to list; default: the cube's, else home.",
+        examples=["/data/lidar"],
+    ),
+    hidden: bool = Query(False, description="Also list hidden (dot) files."),
+    dataset: str | None = Query(None, **api.PARAMS["dataset"]),
+):
+    """List one server folder: its sub-folders, then the files ``POST /data`` adds.
+
+    Gated like server paths in ``POST /data``: off (403) unless
+    ``BOWSER_ALLOW_OPEN`` is set. No folder is off limits beyond what the
+    server's user can read, as with ``POST /catalog/scan``.
+    """
+    from .convert import addable_kind  # noqa: PLC0415
+    from .scan import list_folder  # noqa: PLC0415
+
+    if not settings.BOWSER_ALLOW_OPEN:
+        raise HTTPException(status_code=403, detail=_OPEN_OFF)
+    folder = Path(dir).expanduser() if dir and dir.strip() else _start_folder(dataset)
+    try:
+        return list_folder(folder, addable_kind, hidden=hidden)
+    except NotADirectoryError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=403, detail=f"Cannot read {folder}: permission denied."
+        ) from exc
+
+
+# Before GET /data/{data_id}, which would otherwise take "<id>.pmtiles" as an id.
+@app.get(
+    "/data/{data_id}.{fmt}",
+    response_class=StarletteResponse,
+    responses=api.DATA_FILE_RESPONSES,
+    **api.route_doc("GET /data/{data_id}.{fmt}"),
+)
+def data_file(
+    data_id: str = PathParam(..., pattern="^[0-9a-f]{24}$"),
+    fmt: str = PathParam(..., pattern="^(pmtiles|geojson)$"),
+):
+    """Send a converted vector; a PMTiles archive in byte ranges (HTTP Range)."""
+    from starlette.responses import FileResponse  # noqa: PLC0415
+
+    job, _ = _find_conversion(data_id)
+    if job["status"] != "ready" or job.get("format") != fmt:
+        raise HTTPException(status_code=404, detail=f"No {fmt} for {data_id}.")
+    media = "application/vnd.pmtiles" if fmt == "pmtiles" else "application/geo+json"
+    # Starlette's FileResponse answers Range requests with 206 and the bytes asked
+    # for, which is how the page's PMTiles reader fetches one tile at a time.
+    return FileResponse(job["output"], media_type=media)
+
+
+@app.get(
+    "/data/{data_id}",
+    responses={200: {"model": api.DataStatus}},
+    **api.route_doc("GET /data/{data_id}"),
+)
+def data_status(data_id: str = PathParam(..., pattern="^[0-9a-f]{24}$")):
+    """Return a conversion's status (poll after ``POST /data``)."""
+    job, _ = _find_conversion(data_id)
+    return _data_response(job)
+
+
 @app.get(
     "/gnss/stations",
     responses={200: {"model": api.GnssStations}},
@@ -2283,7 +2591,12 @@ logger.info("Configured COG endpoints at /cog/*")
 # reprojecting on the fly — with the standard render params (colormap_name,
 # rescale=min,max, bidx for RGB). Also exposes /overlay/info, /overlay/statistics
 # and /overlay/WebMercatorQuad/tilejson.json that the frontend uses for metadata.
-overlay_endpoints = TilerFactory(router_prefix="/overlay")
+# ``algorithm=dem`` draws an elevation model as hillshade / colour relief (DemRender);
+# TiTiler's own algorithms (``terrarium`` for 3D terrain, ...) stay available.
+overlay_endpoints = TilerFactory(
+    router_prefix="/overlay",
+    process_dependency=default_algorithms.register({"dem": DemRender}).dependency,
+)
 app.include_router(overlay_endpoints.router, prefix="/overlay", tags=[api.FILES])
 logger.info("Configured overlay endpoints at /overlay/*")
 
@@ -2963,5 +3276,7 @@ else:
         "Build it with `npm ci && npm run build` before installing from source, "
         "or use the published package / Docker image."
     )
+# The reference finder's statistics start in the background; requests are not held.
+_warm(_default_state)
 print(f"Setup complete: time to load datasets: {time.time() - t0:.1f} sec.")
 logger.info(f"Bowser started in {state.mode.upper()} mode")

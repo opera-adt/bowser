@@ -155,6 +155,8 @@ describe('display', () => {
       dispatch.mockReset();
       const view = render(<Histogram />);
       await act(async () => { await new Promise(r => setTimeout(r, 300)); });
+      // The histogram may set the layer's default 2–98 % range when it loads; compare the click only.
+      dispatch.mockReset();
       fireEvent.click(view.getByText(button));
       const byButton = actions();
       cleanup();

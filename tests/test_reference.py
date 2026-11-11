@@ -107,6 +107,20 @@ def test_median_is_per_time_step_and_ignores_nan():
     assert np.isnan(reference_median(np.full((2, 4), np.nan))).all()
 
 
+@pytest.mark.parametrize("margin_window", [False, True])
+def test_2d_layer_pools_to_one_step(margin_window):
+    """A layer without a time axis is one step, not one series per window row."""
+    da = _cube().isel(time=1)
+    cx, cy = float(da.x[4]), float(da.y[4])
+    circle = select_circle(da, cx, cy, 25, margin_window=margin_window)
+    assert circle is not None and circle.values.ndim == 2
+    pooled = pool(*circle)
+    assert pooled.shape == (1, circle.inside.size)
+    np.testing.assert_array_equal(
+        reference_median(pooled), [np.median(circle.values[circle.inside])]
+    )
+
+
 def test_viewer_median_and_export_offset_agree():
     """The map's buffer median and the GeoTIFF reference are the same value."""
     da = _cube()

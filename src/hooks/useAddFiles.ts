@@ -1,15 +1,40 @@
 /**
- * Adding local files as overlays, from a drop on the map or the Layers tab. Vectors (GeoJSON,
- * CSV/TSV with lon/lat columns, KML, GPX, Shapefiles) are read in the browser. GeoTIFFs go to
- * /upload_raster and are tiled by the server, which reprojects any CRS. The map then fits to
- * what was added; progress and problems appear in the map's message.
+ * Adding files as overlays, from a drop on the map or the Layers tab, a path on the server,
+ * or `bowser run --overlay`. Small vectors (GeoJSON, CSV/TSV with lon/lat columns, KML, GPX,
+ * Shapefiles) are read in the browser. Rasters, vectors over /config's
+ * ``data_conversion.pmtiles_min_mb`` and GeoPackages go to the server (POST /data), which
+ * makes them ready to draw once, in the background (map/addData.ts): the layer's row says
+ * so meanwhile. The map then fits to what was added; progress and problems appear in the
+ * map's message.
  */
-import { useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { featureBounds, fileKind, parseCsv, parseGeoJson, parseGpx, parseKml } from '../map/fileParsers';
+import { followData, overlayFromJob, SERVER_ONLY, startData, uploadData, type DataJob } from '../map/addData';
 import type { Overlay, OverlayFeatures } from '../types';
 
-export const ACCEPT = '.geojson,.json,.csv,.tsv,.txt,.kml,.gpx,.zip,.shp,.dbf,.prj,.cpg,.shx,.tif,.tiff';
+export const ACCEPT = '.geojson,.json,.csv,.tsv,.txt,.kml,.gpx,.zip,.shp,.dbf,.prj,.cpg,.shx,.gpkg,.fgb,.kmz,.tif,.tiff';
+
+/** What the server converts added files to (/config ``data_conversion``); all off on bowser-lite. */
+export interface DataConversion {
+  cog: boolean;
+  pmtiles: boolean;
+  pmtiles_min_mb: number | null;
+}
+
+/** /config's ``data_conversion``, or null until it is known. */
+export function useDataConversion(): DataConversion | null {
+  const [conversion, setConversion] = useState<DataConversion | null>(null);
+  useEffect(() => {
+    let live = true;
+    fetch('/config')
+      .then(r => (r.ok ? r.json() : null))
+      .then(cfg => { if (live && cfg?.data_conversion) setConversion(cfg.data_conversion); })
+      .catch(() => undefined);
+    return () => { live = false; };
+  }, []);
+  return conversion;
+}
 /** Vector files are read whole into memory. */
 export const MAX_VECTOR_BYTES = 200 * 1024 * 1024;
 
@@ -37,29 +62,6 @@ function vectorOverlay(name: string, data: OverlayFeatures): Overlay {
   return {
     id: nextId(), name, type: 'vector', visible: true, opacity: 1, aboveData: true, data,
     bounds: featureBounds(data), color: VECTOR_COLORS[added % VECTOR_COLORS.length], lineWidth: 2, pointRadius: 5,
-  };
-}
-
-/** Upload a GeoTIFF: band metadata from the server, WGS84 bounds from the tiler's tilejson. */
-async function rasterOverlay(file: File): Promise<Overlay> {
-  const form = new FormData();
-  form.append('file', file);
-  const res = await fetch('/upload_raster', { method: 'POST', body: form });
-  if (!res.ok) {
-    const detail = await res.json().then(j => j.detail).catch(() => null);
-    throw new Error(detail ?? `HTTP ${res.status}`);
-  }
-  const meta = await res.json();
-  let bounds: Bounds | null = null;
-  try {
-    const tj = await fetch(`/overlay/WebMercatorQuad/tilejson.json?url=${encodeURIComponent(meta.path)}&tilesize=256`).then(r => r.json());
-    if (Array.isArray(tj.bounds) && tj.bounds.length === 4) bounds = tj.bounds;
-  } catch { /* bounds optional */ }
-  const b0 = meta.bands?.[0] ?? { p2: 0, p98: 1, min: 0, max: 1 };
-  return {
-    id: nextId(), name: meta.name, type: 'geotiff', path: meta.path, bandCount: meta.band_count, bands: meta.bands ?? [],
-    bounds, visible: true, opacity: 1, aboveData: false, mode: meta.band_count >= 3 ? 'rgb' : 'cmap', cmap: 'viridis',
-    vmin: b0.p2 ?? b0.min ?? 0, vmax: b0.p98 ?? b0.max ?? 1, discrete: false, nbins: 5, binColors: binColorsFor(5),
   };
 }
 
@@ -91,8 +93,24 @@ async function readShapefileParts(parts: File[]) {
   return Array.isArray(out) ? out[0] : out;
 }
 
+/**
+ * Add a file the server is making ready (POST /data's answer): its layer now, drawn once
+ * the server is done. Returns the layer.
+ */
+export function useAddServerData() {
+  const { dispatch } = useAppContext();
+  return useCallback((job: DataJob): Overlay => {
+    const o = overlayFromJob(job, { id: nextId(), color: VECTOR_COLORS[added % VECTOR_COLORS.length], binColors: binColorsFor(5) });
+    dispatch({ type: 'ADD_OVERLAY', payload: o });
+    void followData(o, job, dispatch);
+    return o;
+  }, [dispatch]);
+}
+
 export function useAddFiles() {
   const { dispatch } = useAppContext();
+  const conversion = useDataConversion();
+  const addServerData = useAddServerData();
   return useCallback(async (files: FileList | File[]) => {
     const say = (message: string | null) => dispatch({ type: 'SET_OVERLAY_MESSAGE', payload: message });
     const list = Array.from(files);
@@ -105,6 +123,17 @@ export function useAddFiles() {
       bounds = union(bounds, o.bounds ?? null);
       count += 1;
     };
+    // Through the server: uploaded, then converted in the background (its row says how far along).
+    const viaServer = async (parts: File[], name: string) => {
+      say(`Uploading ${name}…`);
+      const up = await uploadData(parts);
+      const o = addServerData(await startData(up.path, name));
+      bounds = union(bounds, o.bounds ?? null);
+      count += 1;
+    };
+    // Vectors this large are tiled on the server when it can (PMTiles), rather than read here.
+    const tooBig = (bytes: number) => !!conversion?.pmtiles && conversion.pmtiles_min_mb !== null
+      && bytes > conversion.pmtiles_min_mb * 1024 * 1024;
 
     for (const file of list) {
       const kind = fileKind(file.name);
@@ -114,11 +143,18 @@ export function useAddFiles() {
         continue;
       }
       try {
-        if (kind === 'unknown') throw new Error('unsupported file type (GeoJSON, CSV/TSV, KML, GPX, Shapefile or GeoTIFF)');
-        if (kind === 'kmz') throw new Error('KMZ is not supported; unzip it and add the .kml inside');
-        if (kind === 'geotiff') {
-          say(`Uploading ${file.name}…`);
-          add(await rasterOverlay(file));
+        if (SERVER_ONLY.test(file.name)) {
+          if (conversion && !conversion.cog) {
+            throw new Error(kind === 'kmz'
+              ? 'KMZ needs the full Bowser server (bowser run); or unzip it and add the .kml inside'
+              : 'GeoPackage and FlatGeobuf files need the full Bowser server (bowser run)');
+          }
+          await viaServer([file], file.name);
+          continue;
+        }
+        if (kind === 'unknown') throw new Error('unsupported file type (GeoJSON, CSV/TSV, KML/KMZ, GPX, Shapefile, GeoPackage or GeoTIFF)');
+        if (kind === 'geotiff' || tooBig(file.size)) {
+          await viaServer([file], file.name);
           continue;
         }
         if (file.size > MAX_VECTOR_BYTES) throw new Error(`${(file.size / 1024 / 1024).toFixed(0)} MB is over the 200 MB limit`);
@@ -140,6 +176,12 @@ export function useAddFiles() {
     for (const parts of shpGroups.values()) {
       const name = baseName(parts[0].name);
       try {
+        if (tooBig(parts.reduce((n, f) => n + f.size, 0))) {
+          const shp = parts.find(f => f.name.toLowerCase().endsWith('.shp'));
+          if (!shp) throw new Error('a Shapefile needs its .shp (add .shp, .dbf and .prj together, or a .zip)');
+          await viaServer(parts, shp.name);
+          continue;
+        }
         const layer = await readShapefileParts(parts);
         if (!layer.features?.length) throw new Error('no features in the Shapefile');
         add(vectorOverlay(name, layer));
@@ -155,5 +197,5 @@ export function useAddFiles() {
     }
     if (problems.length) say(problems.length === 1 ? `Could not add ${problems[0]}` : `Could not add ${problems.length} files. ${problems.join(' · ')}`);
     else say(count === 1 ? 'Added 1 layer.' : `Added ${count} layers.`);
-  }, [dispatch]);
+  }, [dispatch, conversion, addServerData]);
 }

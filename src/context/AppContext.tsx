@@ -77,6 +77,7 @@ const initialState: AppState = {
   refMarkerVisible: true,
   refBufferEnabled: false,
   refBufferRadius: 500,
+  refCandidates: [],
   showRefChart: false,
   markerSize: 4,
   dateRangeStart: null,
@@ -340,7 +341,9 @@ function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppSt
       // Restore a saved project — merge the saved slices over current state.
       return { ...state, ...action.payload };
     case 'ADD_OVERLAY':
-      return { ...state, overlays: [...state.overlays, action.payload] };
+      // A DEM goes to the bottom of the stack, just above the basemap: it is the ground the
+      // other layers sit on. Everything else goes on top.
+      return { ...state, overlays: action.payload.dem ? [action.payload, ...state.overlays] : [...state.overlays, action.payload] };
     case 'REMOVE_OVERLAY':
       return { ...state, overlays: state.overlays.filter(o => o.id !== action.payload) };
     case 'UPDATE_OVERLAY':
@@ -352,6 +355,11 @@ function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppSt
       };
     case 'SET_OVERLAYS':
       return { ...state, overlays: action.payload };
+    case 'MOVE_OVERLAY_TO_BOTTOM': {
+      // A raster the server took for a DEM, once ready: the ground the other layers sit on.
+      const moved = state.overlays.find(o => o.id === action.payload);
+      return moved ? { ...state, overlays: [moved, ...state.overlays.filter(o => o !== moved)] } : state;
+    }
     case 'SET_OVERLAY_MESSAGE':
       return { ...state, overlayMessage: action.payload };
     case 'TOGGLE_DATE_BADGE':
@@ -386,6 +394,10 @@ function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppSt
       return { ...state, refBufferEnabled: !state.refBufferEnabled };
     case 'SET_REF_BUFFER_RADIUS':
       return { ...state, refBufferRadius: action.payload };
+    case 'SET_REF_BUFFER_ENABLED':
+      return { ...state, refBufferEnabled: action.payload };
+    case 'SET_REF_CANDIDATES':
+      return { ...state, refCandidates: action.payload };
     case 'TOGGLE_REF_CHART':
       return { ...state, showRefChart: !state.showRefChart };
     case 'SET_MARKER_SIZE':

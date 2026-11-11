@@ -1,12 +1,13 @@
 import { useCallback, useRef, useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
-import { ACCEPT, useAddFiles } from '../../hooks/useAddFiles';
+import { ACCEPT, useAddFiles, useDataConversion } from '../../hooks/useAddFiles';
 import { inspectPmtiles, pmtilesOverlay } from '../../map/pmtiles';
 import { CONTEXT_LAYERS, LAND_COVER_YEARS, type ContextKey } from '../../map/contextLayers';
 import { addService, removeService, serviceRow, type ServiceId } from '../../map/contextServices';
 import { DATA_ROW, DRAWINGS_ID, drawingIndexOf, drawingName, overlayRows, reorderOverlays } from '../../map/overlays';
 import { downloadLayer } from '../../map/exportLayer';
 import { browserHasWebGL2, chooseMap } from '../../map/mapChoice';
+import LoadFile from './LoadFile';
 import OverlayRow from './OverlayRow';
 import { SectionHeader, Switch } from './controls';
 
@@ -40,6 +41,7 @@ export default function OverlaysTab() {
 function LayersView() {
   const { state, dispatch } = useAppContext();
   const addFiles = useAddFiles();
+  const conversion = useDataConversion();
   const [dragging, setDragging] = useState<string | null>(null);
   const [dropOn, setDropOn] = useState<{ id: string; below: boolean } | null>(null);
   const [zoneActive, setZoneActive] = useState(false);
@@ -68,12 +70,16 @@ function LayersView() {
             void addFiles(e.dataTransfer.files);
           }}>
           <strong>Drop files here or click to choose</strong>
-          <small>Vector: GeoJSON, CSV, KML, GPX, Shapefile</small>
-          <small>Raster: GeoTIFF</small>
+          <small>Vector: GeoJSON, CSV, KML, GPX, Shapefile{conversion?.cog ? ', GeoPackage, KMZ' : ''}</small>
+          <small>Raster: GeoTIFF; an elevation model (DEM) is drawn as a hillshade</small>
+          {conversion?.pmtiles && conversion.pmtiles_min_mb !== null && (
+            <small>Vectors over {conversion.pmtiles_min_mb} MB are tiled on the server</small>
+          )}
           <input type="file" multiple accept={ACCEPT} aria-label="Add files" style={{ display: 'none' }}
             onChange={e => { if (e.target.files?.length) void addFiles(Array.from(e.target.files)); e.currentTarget.value = ''; }} />
         </label>
         <div className="row-label" style={{ textAlign: 'center', fontSize: '0.72em' }}>You can also drop files on the map.</div>
+        {conversion?.cog && <LoadFile />}
       </div>
       <div className="sidebar-section">
         <SectionHeader label="Layers" />

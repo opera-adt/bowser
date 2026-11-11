@@ -8,7 +8,7 @@ import { useAppContext } from '../context/AppContext';
 import { useApi } from '../hooks/useApi';
 import { MultiPointTimeSeriesData } from '../types';
 import { downloadChartAsPng } from '../utils/screenshot';
-import { chartLayerFor, timeSeriesLayers } from '../utils/chartLayers';
+import { addChartLayer, chartLayerFor, timeSeriesLayers } from '../utils/chartLayers';
 import { LayerOptions } from './panel/controls';
 import ModelCard, { type PickKind } from './ModelCard';
 import SeriesStylePopover from './SeriesStylePopover';
@@ -549,7 +549,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
   // Dataset selector helpers
   const setWinDs = (dsNames: string[]) =>
     dispatch({ type: 'SET_CHART_WINDOW_DS', payload: { id: windowId, dsNames } });
-  const addWinDs = (ds: string) => { if (!winDsNames.includes(ds)) setWinDs([...winDsNames, ds]); };
+  const addWinDs = (ds: string) => setWinDs(addChartLayer(winDsNames, followedDs, ds));
   const removeWinDs = (ds: string) => setWinDs(winDsNames.filter(d => d !== ds));
   const spawnNewChart = () => dispatch({
     type: 'ADD_CHART_WINDOW',

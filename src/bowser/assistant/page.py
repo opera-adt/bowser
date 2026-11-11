@@ -105,11 +105,12 @@ _sent: deque[float] = deque()
 
 def reset() -> None:
     """Forget every page and command (tests)."""
-    for page in PAGES.values():
+    # Snapshots: a page's stream closing on the server thread removes it meanwhile.
+    for page in list(PAGES.values()):
         page.closed = True
         page.send({"type": "bye"})
     PAGES.clear()
-    for p in PENDING.values():
+    for p in list(PENDING.values()):
         _settle(p.future, None, "reset")
     PENDING.clear()
     _sent.clear()
@@ -117,7 +118,7 @@ def reset() -> None:
 
 def target() -> Page | None:
     """Return the page commands go to: the most recently focused, else opened."""
-    live = [p for p in PAGES.values() if not p.closed]
+    live = [p for p in list(PAGES.values()) if not p.closed]
     if not live:
         return None
     return max(live, key=lambda p: (p.focused, p.opened))
@@ -316,7 +317,9 @@ async def page_events(
         old.closed = True
         old.send({"type": "bye"})
     while len(PAGES) >= MAX_PAGES:
-        stale = min(PAGES.values(), key=lambda p: max(p.seen, p.focused, p.opened))
+        stale = min(
+            list(PAGES.values()), key=lambda p: max(p.seen, p.focused, p.opened)
+        )
         stale.closed = True
         stale.send({"type": "bye"})
         PAGES.pop(stale.id, None)
