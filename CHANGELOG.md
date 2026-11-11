@@ -8,6 +8,11 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `bowser add-histograms CUBE.zarr` stores every date's colour histogram in an
+  existing GeoZarr cube (`bowser_histogram`, the attribute the converter
+  writes), computed in one pass over the stack from a coarse pyramid level
+  (`--level auto|N`, `--variables`, `--force`). See docs/rest-api.md.
+
 - Find a stable reference point: `GET /reference_candidates` (full server and
   bowser-lite, same answers) ranks places by the whole-stack median and
   standard deviation of temporal coherence and phase similarity, how much of
@@ -181,6 +186,17 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `GET /histogram` no longer holds the server up. Without a stored histogram
+  it read the date at full resolution: on a DISP-S1 frame 5 s of CPU on the full
+  server, on its event loop, so `/config` and `/datasets` waited up to 20 s
+  after page load. Both servers now read the finest pyramid level with at most
+  `BOWSER_HISTOGRAM_MAX_PIXELS` valid pixels (the answer's new `level`), in a
+  worker thread, one at a time, cached; identical requests share one
+  computation and a queued one whose page has moved on is dropped. Every date
+  is then computed in the background (idle server only, pausing for requests)
+  and kept in the reference finder's disk cache. The page asks for no
+  histogram while playing through the dates. `GET /dataset_range` on the full
+  server also left the event loop.
 - **Breaking:** Bowser now requires Python 3.12 or newer (`requires-python
   = ">=3.12"`); Python 3.11 is no longer supported. The `writer` extra's
   geozarr-toolkit and rasterio 1.5 already needed 3.12, and the pixi

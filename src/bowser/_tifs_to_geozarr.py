@@ -724,38 +724,13 @@ def _compute_histogram_stats(arr: np.ndarray, nbins: int = 100) -> list[dict]:
     """Return per-time-step histogram stats for embedding in zarr attrs.
 
     For 2-D arrays (single file groups) a one-element list is returned so the
-    caller can always index by time_index without special-casing.
+    caller can always index by time_index without special-casing. The format
+    both servers read (``bowser.histograms.compute_histograms``).
     """
-    slices = [arr] if arr.ndim == 2 else [arr[i] for i in range(arr.shape[0])]
-    results: list[dict] = []
-    for sl in slices:
-        valid = sl.ravel().astype(np.float64)
-        valid = valid[np.isfinite(valid)]
-        if valid.size == 0:
-            results.append(
-                {
-                    k: 0.0
-                    for k in ("min", "max", "p2", "p98", "p16", "p84", "p23", "p977")
-                }
-                | {"bins": [], "counts": []}
-            )
-            continue
-        counts, bin_edges = np.histogram(valid, bins=nbins)
-        results.append(
-            {
-                "bins": bin_edges.tolist(),
-                "counts": counts.tolist(),
-                "min": float(valid.min()),
-                "max": float(valid.max()),
-                "p2": float(np.percentile(valid, 2)),
-                "p98": float(np.percentile(valid, 98)),
-                "p16": float(np.percentile(valid, 16)),
-                "p84": float(np.percentile(valid, 84)),
-                "p23": float(np.percentile(valid, 2.275)),
-                "p977": float(np.percentile(valid, 97.725)),
-            }
-        )
-    return results
+    from .histograms import compute_histograms  # noqa: PLC0415
+
+    dims = ("y", "x") if arr.ndim == 2 else ("time", "y", "x")
+    return compute_histograms(xr.DataArray(arr, dims=dims), nbins)
 
 
 def _sanitize(name: str) -> str:

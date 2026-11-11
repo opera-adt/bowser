@@ -33,6 +33,7 @@ from starlette.responses import FileResponse, JSONResponse, RedirectResponse
 from starlette.staticfiles import StaticFiles
 
 from .. import api_models as api
+from .. import histograms
 from ..assistant.page import router as page_router
 from ..assistant.relay import assistant_config
 from ..assistant.relay import router as assistant_router
@@ -598,7 +599,7 @@ def get_dataset_range(
     response_model=api.Histogram,
     **api.route_doc("GET /histogram/{dataset_name}"),
 )
-def get_histogram(
+async def get_histogram(
     dataset_name: DatasetNamePath,
     time_index: Annotated[int, Query(ge=0, **api.PARAMS["time_index"])] = 0,
     nbins: Annotated[int, Query(ge=4, le=256, **api.PARAMS["nbins"])] = 100,
@@ -606,38 +607,21 @@ def get_histogram(
 ):
     """Histogram and percentiles of one time step.
 
-    Uses the stored ``bowser_histogram`` when present.
+    The stored ``bowser_histogram`` when present; otherwise from a coarse pyramid
+    level, cached, one at a time in a worker thread, never on the event loop
+    (``bowser.histograms``). Every date is then computed in the background with
+    one reader thread, pausing for requests.
     """
     cube = resolve(dataset)
     da = sampling.require_var(cube.dataset, dataset_name)
     dim = meta.non_spatial_dim(da)
     if dim is not None:
         time_index = min(time_index, da.sizes[dim] - 1)
-    cached = da.attrs.get("bowser_histogram")
-    if isinstance(cached, list) and cached:
-        idx = time_index if dim is not None else 0
-        if 0 <= idx < len(cached):
-            entry = cached[idx]
-            if isinstance(entry, dict) and "bins" in entry and "counts" in entry:
-                return NanJSONResponse(entry)
-    arr = _first_step(cube, dataset_name, time_index)
-    valid = arr[np.isfinite(arr)]
-    if valid.size == 0:
-        return NanJSONResponse(
-            dict.fromkeys(("min", "max", "p2", "p98", "p16", "p84", "p23", "p977"), 0.0)
-            | {"bins": [], "counts": []}
-        )
-    counts, edges = np.histogram(valid, bins=nbins)
-    names = ("p2", "p98", "p16", "p84", "p23", "p977")
-    pct = np.percentile(valid, [2, 98, 16, 84, 2.275, 97.725])
+    datasets, sources = _cube_levels(cube)
     return NanJSONResponse(
-        {
-            "bins": edges.tolist(),
-            "counts": counts.tolist(),
-            "min": float(valid.min()),
-            "max": float(valid.max()),
-        }
-        | {k: float(v) for k, v in zip(names, pct)}
+        await histograms.histogram(
+            datasets, dataset_name, time_index, nbins, sources=sources, workers=1
+        )
     )
 
 

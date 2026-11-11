@@ -52,6 +52,9 @@ export function presetRange(
 // scrubbing the time slider back and forth.
 const histogramCache = new Map<string, HistogramData>();
 
+/** Forget the cached histograms (for tests). */
+export function clearHistogramCache() { histogramCache.clear(); }
+
 export function cachedHistogram(dataset: string, timeIndex: number): HistogramData | undefined {
   return histogramCache.get(`${dataset}:${timeIndex}`);
 }

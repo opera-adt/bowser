@@ -546,6 +546,53 @@ def _dump_raster_groups(raster_groups, output):
         json.dump(out_dicts, f, indent=2)
 
 
+@cli_app.command("add-histograms")
+@click.argument("cube", type=str)
+@click.option(
+    "--level",
+    default="auto",
+    show_default=True,
+    help="Pyramid level to read: 'auto' (the finest with at most "
+    "BOWSER_HISTOGRAM_MAX_PIXELS valid pixels) or a level number (0 = full "
+    "resolution).",
+)
+@click.option(
+    "--variables",
+    "-v",
+    multiple=True,
+    help="Layers to do (repeatable). Default: every numeric layer with y and x.",
+)
+@click.option("--force", is_flag=True, help="Recompute layers that already have them.")
+def add_histograms(cube: str, level: str, variables: tuple[str, ...], force: bool):
+    """Store every date's colour histogram in an existing GeoZarr CUBE.
+
+    Writes the `bowser_histogram` attribute that both servers read, so the
+    histogram is ready for every date without reading the data. Done in place.
+    """
+    from .histograms import StoreNotWritableError, add_to_store
+
+    if level != "auto" and not level.isdigit():
+        raise click.BadParameter(
+            "must be 'auto' or a level number", param_hint="--level"
+        )
+    try:
+        add_to_store(
+            cube,
+            level=None if level == "auto" else int(level),
+            variables=variables or None,
+            force=force,
+            echo=click.echo,
+        )
+    except StoreNotWritableError as e:
+        raise click.ClickException(
+            f"{e}. Serve it as it is: bowser computes the histograms in the "
+            "background and keeps them in its cache (BOWSER_REFSTATS_CACHE_DIR), "
+            "so a restarted server has them at once."
+        ) from e
+    except KeyError as e:
+        raise click.ClickException(str(e.args[0])) from e
+
+
 @cli_app.command()
 @click.argument("dolphin-work-dir", type=str)
 @click.option(

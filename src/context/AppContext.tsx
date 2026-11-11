@@ -42,6 +42,7 @@ const initialState: AppState = {
   refMarkerPosition: [0, 0],
   currentDataset: '',
   currentTimeIndex: 0,
+  playing: false,
   refValues: {},
   refTimeIndex: {},
   selectedBasemap: 'esriSatellite',
@@ -289,6 +290,8 @@ function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppSt
       return { ...state, currentDataset: action.payload };
     case 'SET_TIME_INDEX':
       return { ...state, currentTimeIndex: action.payload };
+    case 'SET_PLAYING':
+      return state.playing === action.payload ? state : { ...state, playing: action.payload };
     case 'SET_REF_VALUES':
       return {
         ...state,

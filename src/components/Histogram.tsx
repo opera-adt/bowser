@@ -7,6 +7,12 @@ import { hasStoredRange } from '../utils/colorRange';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip);
 
+/** Wait this long after the last date change before asking for its histogram. */
+export const HISTOGRAM_DEBOUNCE_MS = 250;
+
+// The shared histogram cache lives in ../utils/colorPresets (also used by the Assistant).
+export { clearHistogramCache } from '../utils/colorPresets';
+
 interface HistogramProps {
   // When provided, overrides the defaults drawn from state.
   dataset?: string;
@@ -32,9 +38,17 @@ export default function Histogram({ dataset, vmin, vmax, onSetVmin, onSetVmax }:
   useEffect(() => {
     if (!effectiveDataset) return;
     const cached = cachedHistogram(effectiveDataset, state.currentTimeIndex);
+    // An aborted request leaves `loading` set; clear it on every early return.
     if (cached) {
       setHistData(cached);
       setHistDataset(effectiveDataset);
+      setLoading(false);
+      return;
+    }
+    // While playing through the dates, keep the last histogram (its range buttons
+    // still work) and ask for the date playback stops on.
+    if (state.playing) {
+      setLoading(false);
       return;
     }
 
@@ -52,9 +66,9 @@ export default function Histogram({ dataset, vmin, vmax, onSetVmin, onSetVmax }:
       } finally {
         if (!controller.signal.aborted) setLoading(false);
       }
-    }, 250);
+    }, HISTOGRAM_DEBOUNCE_MS);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [effectiveDataset, state.currentTimeIndex]);
+  }, [effectiveDataset, state.currentTimeIndex, state.playing]);
 
   // The buttons' ranges: src/utils/colorPresets.ts (also the Assistant's set_color_range).
   const apply = (preset: RangePreset) => {
