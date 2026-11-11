@@ -127,6 +127,16 @@ def cli_app():
         "single-worker server, off otherwise."
     ),
 )
+@click.option(
+    "--assistant/--no-assistant",
+    "assistant",
+    default=None,
+    help=(
+        "Show the Assistant tab: a chat with your own AI provider (keys are kept "
+        "on this computer). Default: on for a local (127.0.0.1/localhost) server, "
+        "off otherwise; a shared server sets BOWSER_ASSISTANT and its own key."
+    ),
+)
 def run(
     stack_file,
     rasters_file,
@@ -144,6 +154,7 @@ def run(
     s3_anon,
     opera_logo,
     allow_open,
+    assistant,
 ):
     """Run the web server."""
     import uvicorn
@@ -178,6 +189,7 @@ def run(
         )
     os.environ["BOWSER_ALLOW_OPEN"] = str(allow_open).lower()
     os.environ["BOWSER_OPERA_LOGO"] = str(opera_logo).lower()
+    os.environ.update(_assistant_env(assistant, host))
 
     protocol = "https" if ssl_certfile else "http"
     display_host = "localhost" if host in ("127.0.0.1", "0.0.0.0") else host
@@ -192,6 +204,20 @@ def run(
         ssl_certfile=ssl_certfile,
         ssl_keyfile=ssl_keyfile,
     )
+
+
+def _assistant_env(assistant: bool | None, host: str) -> dict[str, str]:
+    """Return the Assistant's settings for a server on ``host``.
+
+    On by default for a local server, where the page may also save the user's
+    keys on this computer; never page keys on a server others can reach.
+    """
+    local = host in ("127.0.0.1", "localhost", "::1")
+    on = local if assistant is None else assistant
+    return {
+        "BOWSER_ASSISTANT": str(on).lower(),
+        "BOWSER_ASSISTANT_PAGE_KEYS": str(on and local).lower(),
+    }
 
 
 def _setup_gdal_env(ignore_sidecar_files: bool = False):
@@ -275,6 +301,12 @@ def desktop(browser, lite):
     default=None,
     help="Let the page open any GeoZarr path. Default: on for 127.0.0.1/localhost.",
 )
+@click.option(
+    "--assistant/--no-assistant",
+    "assistant",
+    default=None,
+    help="Show the Assistant tab. Default: on for 127.0.0.1/localhost.",
+)
 def lite(
     stack_file,
     catalog_file,
@@ -286,6 +318,7 @@ def lite(
     htpasswd_file,
     opera_logo,
     allow_open,
+    assistant,
 ):
     """Run bowser-lite: the GeoZarr web UI, without GDAL, rio-tiler or matplotlib.
 
@@ -310,6 +343,7 @@ def lite(
             else allow_open
         ).lower(),
         "BOWSER_OPERA_LOGO": str(opera_logo).lower(),
+        **_assistant_env(assistant, host),
     }
     if title:
         env["BOWSER_TITLE"] = title
@@ -319,6 +353,60 @@ def lite(
     display_host = "localhost" if host in ("127.0.0.1", "0.0.0.0") else host
     print(f"Setting up bowser-lite on http://{display_host}:{port}")
     uvicorn.run("bowser.lite.main:app", host=host, port=port, log_level=log_level)
+
+
+@cli_app.command()
+@click.option(
+    "--url",
+    default="http://127.0.0.1:8000",
+    show_default=True,
+    help="Bowser server to call (`bowser run` or `bowser lite`).",
+)
+@click.option(
+    "-s",
+    "--stack-file",
+    default=None,
+    help="Serve this GeoZarr cube with bowser-lite inside this process, instead "
+    "of calling --url. No polygon statistics or GeoTIFF export (use `bowser run` "
+    "and --url for those).",
+)
+@click.option(
+    "--http",
+    "use_http",
+    is_flag=True,
+    help="Serve MCP over streamable HTTP at /mcp instead of stdio.",
+)
+@click.option(
+    "--host", default="127.0.0.1", show_default=True, help="Interface for --http."
+)
+@click.option(
+    "--port", "-p", default=8765, show_default=True, type=int, help="Port for --http."
+)
+def mcp(url, stack_file, use_http, host, port):
+    """Run an MCP server whose tools read a Bowser server's data.
+
+    For AI assistants such as Claude Desktop or Claude Code: the tools give time
+    series, trends, profiles and statistics from the cube that a running Bowser
+    server has open. Talks MCP over stdio by default. Needs the `mcp` extra:
+    pip install 'bowser-insar[mcp]'. See docs/mcp.md.
+    """
+    try:
+        from .mcp_server import build_server, lite_transport  # noqa: PLC0415
+    except ImportError as e:
+        raise click.ClickException(
+            f"The MCP server needs the `mcp` extra ({e}). Install it with: "
+            "pip install 'bowser-insar[mcp]'"
+        ) from e
+
+    if stack_file:
+        server = build_server("http://bowser-lite", lite_transport(stack_file))
+    else:
+        server = build_server(url)
+    if use_http:
+        click.echo(f"Bowser MCP server on http://{host}:{port}/mcp", err=True)
+        server.run("streamable-http", host=host, port=port)
+    else:
+        server.run("stdio")
 
 
 @cli_app.command()

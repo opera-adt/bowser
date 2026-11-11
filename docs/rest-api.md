@@ -27,6 +27,9 @@ model; the models are in `src/bowser/api_models.py`, and
 `tests/test_api_schema.py` checks real responses against them and that the
 routes the two servers share are described the same way.
 
+An MCP server, `bowser mcp`, wraps these calls as tools for AI assistants; see
+[mcp.md](mcp.md).
+
 ## Choosing the dataset
 
 A server started on one cube serves it to every call. A server started with a

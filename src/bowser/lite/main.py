@@ -32,6 +32,8 @@ from starlette.responses import FileResponse, JSONResponse, RedirectResponse
 from starlette.staticfiles import StaticFiles
 
 from .. import api_models as api
+from ..assistant.relay import assistant_config
+from ..assistant.relay import router as assistant_router
 from ..catalog import CatalogEntry, load_catalog, save_catalog
 from ..config import settings
 from ..reference_candidates import (
@@ -201,7 +203,9 @@ def get_config(
     ``geotiff_export`` is False: exports need the full server (``bowser run``),
     so the page turns its GeoTIFF button off instead of failing with a 501.
     ``polygon_stats`` is False for the same reason: ``/polygon_timeseries``
-    answers 501 here, so the chart's "+ Area" button is off.
+    answers 501 here, so the chart's "+ Area" button is off. ``geotiff_upload``
+    is False too: ``/upload_mask`` and ``/upload_raster`` answer 501, so the
+    custom mask's Upload button is off.
     """
     if dataset is None and (ref := request.headers.get("referer")):
         values = parse_qs(urlparse(ref).query).get("dataset")
@@ -212,7 +216,14 @@ def get_config(
         "opera_logo": settings.BOWSER_OPERA_LOGO,
         "geotiff_export": False,
         "polygon_stats": False,
+        "assistant": assistant_config(settings),
+        "geotiff_upload": False,
     }
+
+
+# The Assistant tab: provider status, keys and the chat relay (off unless
+# BOWSER_ASSISTANT is set).
+app.include_router(assistant_router, tags=[api.ASSISTANT])
 
 
 @app.get(

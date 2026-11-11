@@ -7,6 +7,7 @@ import LayerInfo from './LayerInfo';
 import TimeStepper from './TimeStepper';
 import RefDatePicker from './RefDatePicker';
 import ReferenceCandidates from './ReferenceCandidates';
+import CustomMaskUpload from './CustomMaskUpload';
 import { displayUnit } from '../../utils/units';
 import { readLayerInfoShown, saveLayerInfoShown } from '../../utils/layerInfoPref';
 import { baseColormap } from '../../utils/colormaps';
@@ -548,35 +549,7 @@ export default function MainTab() {
                 <i className="fa-solid fa-plus" style={{ marginRight: 5 }}></i>Add layer mask
               </button>
             )}
-            <div className="custom-mask-row" style={{ marginTop: 8 }}>
-              <label className="minmax-label" style={{ marginBottom: 4 }}>Custom mask (GeoTIFF)</label>
-              <div className="custom-mask-controls">
-                <label className="hist-btn" style={{ cursor: 'pointer', textAlign: 'center' }}>
-                  Upload
-                  <input type="file" accept=".tif,.tiff" style={{ display: 'none' }}
-                    onChange={async e => {
-                      const f = e.target.files?.[0];
-                      if (!f) return;
-                      const form = new FormData();
-                      form.append('file', f);
-                      const res = await fetch('/upload_mask', { method: 'POST', body: form });
-                      if (res.ok) {
-                        const data = await res.json();
-                        dispatch({ type: 'SET_CUSTOM_MASK_PATH', payload: data.path });
-                      }
-                    }} />
-                </label>
-                {state.customMaskPath && (
-                  <button className="hist-btn" style={{ color: 'var(--sb-red)' }}
-                    onClick={() => dispatch({ type: 'SET_CUSTOM_MASK_PATH', payload: null })}>Clear</button>
-                )}
-              </div>
-              {state.customMaskPath && (
-                <div style={{ fontSize: '0.72em', color: 'var(--sb-muted)', wordBreak: 'break-all', marginTop: 2 }}>
-                  {state.customMaskPath.split('/').pop()}
-                </div>
-              )}
-            </div>
+            <CustomMaskUpload />
           </>
         )}
       </div>
