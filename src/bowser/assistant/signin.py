@@ -928,6 +928,9 @@ async def install_adapter(spec: AgentSpec, root: Path | None = None) -> Path:
             "--no-fund",
             "--no-save",
             "--loglevel=error",
+            # The SDK's bundled agent binary (~250 MB) is never run: the adapter
+            # is told to run the user's own program (program_env).
+            *(["--omit=optional"] if spec.program_env else []),
             spec.adapter,
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.DEVNULL,

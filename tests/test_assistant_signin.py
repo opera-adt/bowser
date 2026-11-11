@@ -1143,6 +1143,8 @@ def test_adapter_is_installed_once_then_run_with_node(npm):
     call = npm.calls()[0].split()
     assert call[:2] == ["install", "--prefix"]
     assert "--no-audit" in call and "--no-fund" in call
+    # Not the SDK's own copy of the agent: the user's runs.
+    assert "--omit=optional" in call
     assert call[-1] == "@agentclientprotocol/claude-agent-acp@0.92.0"
     assert installs == [1]
     # The next start reuses it: no npm, no install status.
