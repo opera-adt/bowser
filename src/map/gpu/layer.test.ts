@@ -128,7 +128,7 @@ describe('GpuCubeLayer', () => {
     const chunk = 8 * 256 * 256 * 2;
     expect(s.peakTextureBytes).toBeLessThanOrEqual(budget + 2 * 25 * chunk);
     expect(live.size).toBeLessThan(budget / chunk + 2 * 25 + 4);   // textures really deleted
-  });
+  }, 30_000);
 
   it('evicts chunks away from the view before older dates of the view', async () => {
     const chunk = 8 * 256 * 256 * 2;

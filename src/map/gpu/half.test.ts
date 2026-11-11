@@ -21,17 +21,18 @@ describe('float16 rounding (as numpy astype(float16))', () => {
   });
 
   it('round-trips every float16 and rounds every midpoint to the even neighbour', () => {
+    const bad: string[] = [];
     for (let h = 0; h < 0x10000; h++) {
       const v = halfToFloat(h);
-      if (Number.isNaN(v)) { expect(toHalfBits(v) & 0x7c00).toBe(0x7c00); continue; }
-      expect(toHalfBits(v)).toBe(h);
+      const got = toHalfBits(v);
+      if (Number.isNaN(v) ? (got & 0x7c00) !== 0x7c00 : got !== h) bad.push(`${h}: ${got}`);
     }
     for (let h = 0; h < 0x7bff; h++) {             // positive finite neighbours, and their negatives
       const mid = (halfToFloat(h) + halfToFloat(h + 1)) / 2;
       const even = h % 2 === 0 ? h : h + 1;
-      expect(toHalfBits(mid)).toBe(even);
-      expect(toHalfBits(-mid)).toBe(even | 0x8000);
+      if (toHalfBits(mid) !== even || toHalfBits(-mid) !== (even | 0x8000)) bad.push(`mid ${h}`);
     }
+    expect(bad).toEqual([]);
   });
 
   it('matches the platform Float16Array where there is one', () => {
@@ -40,7 +41,8 @@ describe('float16 rounding (as numpy astype(float16))', () => {
     const values = new Float32Array(20000);
     for (let i = 0; i < values.length; i++) values[i] = (Math.random() - 0.5) * 2 ** (Math.random() * 40 - 30);
     const native = new Uint16Array(new F16(values).buffer);
-    for (let i = 0; i < values.length; i++) expect(toHalfBits(values[i])).toBe(native[i]);
+    const bad = Array.from(values).filter((v, i) => toHalfBits(v) !== native[i]);
+    expect(bad).toEqual([]);
   });
 });
 
