@@ -443,9 +443,13 @@ def test_tiles_when_the_decoder_worker_cannot_load(browser, server):
     page.goto(f"{server['base']}/?render=gpu")
     label = page.locator("[data-testid=render-label][data-renderer=tiles]")
     label.wait_for(timeout=60_000)
-    assert "fell back to tiles: decoder worker" in label.inner_text(), label.inner_text()
+    assert (
+        "fell back to tiles: decoder worker" in label.inner_text()
+    ), label.inner_text()
     page.wait_for_timeout(1500)
     requests = [m for m in logs if m.startswith("request: ")]
     assert any("/md/tiles/" in m for m in requests), requests
-    assert any("data layer: tiles — fell back to tiles: decoder" in m for m in logs), logs
+    assert any(
+        "data layer: tiles — fell back to tiles: decoder" in m for m in logs
+    ), logs
     ctx.close()
