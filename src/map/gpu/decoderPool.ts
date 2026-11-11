@@ -68,6 +68,21 @@ export async function serveRequest(req: DecodeRequest, source: DecodeSource):
   }
 }
 
+/**
+ * Answer ``req`` with ``post`` (the worker's postMessage). If the answer can't be sent
+ * (a buffer that can't be transferred, say), an error answer is sent instead, so the
+ * page's request never waits forever.
+ */
+export async function answer(req: DecodeRequest, source: DecodeSource,
+  post: (message: DecodeResponse, transfer: Transferable[]) => void) {
+  const { response, transfer } = await serveRequest(req, source);
+  try {
+    post(response, transfer);
+  } catch (e) {
+    post({ id: req.id, ok: false, error: `could not send the answer: ${(e as Error).message}` }, []);
+  }
+}
+
 /** The part of a Worker the pool uses. */
 export interface WorkerLike {
   postMessage(message: unknown, transfer: Transferable[]): void;

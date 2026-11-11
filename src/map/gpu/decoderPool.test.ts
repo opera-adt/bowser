@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-  DecoderPool, poolSize, serveRequest, type DecodeRequest, type DecodeResponse, type DecodeSource, type WorkerLike,
+  answer, DecoderPool, poolSize, serveRequest, type DecodeRequest, type DecodeResponse, type DecodeSource, type WorkerLike,
 } from './decoderPool';
 import { halfToFloat } from './half';
 import { codecNames, prewarmCodecs } from './zarrCube';
@@ -64,6 +64,19 @@ describe('serveRequest (the worker side)', () => {
     expect(response).toEqual({ id: 3, ok: false, error: 'no zarr here' });
     const meta = await serveRequest({ id: 4, op: 'variable', store, path: '0/displacement' }, failing);
     expect(meta.response).toEqual({ id: 4, ok: true, result: { ndim: 3, tChunk: 4, nTime: 6 } });
+  });
+});
+
+describe('answer (the worker posting back)', () => {
+  it('sends an error answer when the chunk cannot be sent', async () => {
+    const sent: unknown[] = [];
+    const post = vi.fn((m: DecodeResponse, t: Transferable[]) => {
+      if (t.length) throw new Error('DataCloneError');
+      sent.push(m);
+    });
+    await answer({ id: 9, op: 'chunk', store, path: 'v', coords: [0, 0, 0], half: false }, source(new Float32Array(2), {}), post);
+    expect(post).toHaveBeenCalledTimes(2);
+    expect(sent).toEqual([{ id: 9, ok: false, error: 'could not send the answer: DataCloneError' }]);
   });
 });
 
