@@ -223,6 +223,14 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `band_descriptions`, `data_type` and `raster_layers`; bowser-lite returns
   them too. Response compression (`BOWSER_COMPRESSION=1`) works again: the
   truncated compressed responses that made it opt-in no longer happen.
+- Reading data no longer holds up the full server's other requests. A time
+  series (`/point`, `/chart_point`, `/multi_point`, `/trend_analysis`,
+  `/buffer_timeseries`), a profile (`/profile`, 4 s for a 60 km line on a
+  DISP-S1 frame), the layer lists (`/datasets`, `/variables`) and
+  `/catalog/open` ran on the server's event loop, so tiles and every other
+  request waited for them. They are plain functions now, run in FastAPI's
+  thread pool as on bowser-lite; `/upload_raster` computes its statistics in a
+  worker thread. Answers are unchanged.
 
 ## [0.6.1] - 2026-11-05
 
