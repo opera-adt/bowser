@@ -522,6 +522,64 @@ describe('MapLibreMap', () => {
     expect(map.sources.has('overlay-a')).toBe(false);
   });
 
+  it('a DEM: above the basemap and below the data on both maps, once its COG is ready', async () => {
+    const { view, map } = await mount();
+    const roads = { id: 'r', name: 'roads', type: 'wms', visible: true, opacity: 1, url: 'https://w/wms', wmsLayers: 'r' };
+    const dem = { id: 'd', name: 'lidar.tif', type: 'geotiff', visible: true, opacity: 0.7, path: '/up/lidar.tif',
+      mode: 'cmap', cmap: 'schwarzwald', vmin: 60, vmax: 140, aboveData: false,
+      dem: { style: 'both', exaggeration: 2 }, conversion: { status: 'converting', format: 'cog' } };
+    const order = (m: InstanceType<typeof FakeMap>) => m.layers.map(l => l.id).filter(id => !/^(profile|measure|buffer)-/.test(id));
+    // While it converts there is nothing to draw.
+    mockState.overlays = [dem, roads];
+    view.rerender(<MapLibreMap />);
+    await act(async () => {});
+    expect(order(map)).toEqual(['basemap-bottom', 'overlay-r', 'data-1']);
+
+    const ready = { ...dem, path: '/cache/abc.tif', conversion: { status: 'ready', format: 'cog' } };
+    mockState.overlays = [ready, roads];
+    view.rerender(<MapLibreMap />);
+    await act(async () => {});
+    expect(order(map)).toEqual(['basemap-bottom', 'overlay-d', 'overlay-r', 'data-1']);
+    const url = new URL(map.sources.get('overlay-d').tiles[0].replace(/\{(\w)\}/g, '$1'));
+    expect(url.searchParams.get('url')).toBe('/cache/abc.tif');
+    expect(url.searchParams.get('algorithm')).toBe('dem');
+    expect(JSON.parse(url.searchParams.get('algorithm_params')!)).toMatchObject({ style: 'both', z_exaggeration: 2, vmin: 60, vmax: 140 });
+    expect(map.getLayer('overlay-d')!.paint['raster-opacity']).toBe(0.7);
+
+    // Split screen: the right map has it under its own data too.
+    Object.assign(mockState, { splitScreen: true, splitDataset: 'displacement', splitColormap: 'viridis',
+      splitVmin: 0, splitVmax: 1, splitOpacity: 0.6, splitTimeIndex: 0 });
+    view.rerender(<MapLibreMap />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+    const right = FakeMap.last;
+    expect(right).not.toBe(map);
+    const rightOrder = order(right);
+    expect(rightOrder[0]).toBe('basemap-bottom');
+    expect(rightOrder.indexOf('overlay-d')).toBe(1);
+    expect(rightOrder.indexOf('overlay-d')).toBeLessThan(rightOrder.findIndex(id => id.startsWith('data-')));
+  });
+
+  it('a DEM used for 3D terrain: merged into the global terrain, which comes back when it is switched off', async () => {
+    expect((globalThis as any).__maplibreProtocols).toContain('bowserdem');
+    const { view, map } = await mount();
+    const dem = { id: 'd', name: 'lidar.tif', type: 'geotiff', visible: true, opacity: 1, path: '/cache/abc.tif',
+      mode: 'cmap', cmap: 'schwarzwald', vmin: 60, vmax: 140, aboveData: false, bounds: [-117.69, 33.95, -117.65, 33.97],
+      dem: { style: 'both', exaggeration: 2, terrain: true, base: 61 }, conversion: { status: 'ready', format: 'cog' } };
+    mockState.overlays = [dem];
+    view.rerender(<MapLibreMap />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+    // switching a DEM to terrain turns 3D terrain on
+    expect(map.terrain).toEqual({ source: 'terrain-dem', exaggeration: 2 });
+    expect(map.sources.get('terrain-dem').tiles[0]).toMatch(/^bowserdem:\/\/\{z\}\/\{x\}\/\{y\}\?dem=/);
+    expect(map.sources.get('terrain-dem').maxzoom).toBe(17);
+
+    mockState.overlays = [{ ...dem, dem: { ...dem.dem, terrain: false } }];
+    view.rerender(<MapLibreMap />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+    expect(map.sources.get('terrain-dem').tiles[0]).toMatch(/^https:\/\/s3\.amazonaws\.com\/elevation-tiles-prod/);
+    expect(map.terrain).toEqual({ source: 'terrain-dem', exaggeration: 2 });
+  });
+
   it('charted features: drawn in their chart colour, following a colour change; the rest keep the layer colour', async () => {
     const { view, map } = await mount();
     const square = (x: number) => ({ type: 'Polygon', coordinates: [[[x, 0], [x + 1, 0], [x + 1, 1], [x, 0]]] });

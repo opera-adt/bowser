@@ -97,6 +97,9 @@ expected = {
         "sign_in": [],
     },
     "geotiff_upload": False,
+    # Converting added files needs GDAL: small vectors are still read in the browser.
+    "data_conversion": {"cog": False, "pmtiles": False, "pmtiles_min_mb": None},
+    "overlay_files": [],
 }
 assert cfg.json() == expected, cfg.json()
 assert c.get("/config").json()["title"] != "Cube B"
@@ -199,6 +202,8 @@ for path, method in (
     ("/upload_raster", "post"),
     ("/upload_mask", "post"),
     ("/export/geotiff", "get"),
+    ("/files", "get"),
+    ("/data", "post"),
     ("/cog/WebMercatorQuad/tilejson.json", "get"),
     ("/overlay/WebMercatorQuad/tilejson.json", "get"),
 ):

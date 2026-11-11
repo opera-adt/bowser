@@ -51,6 +51,8 @@ SCRIPT = textwrap.dedent(
     assert m.status_code == 200, m.text
 
     cfg = c.get("/config", headers={"referer": "http://localhost/?dataset=cube-b"})
+    from bowser.convert import pmtiles_available
+    pm = pmtiles_available()
     assert cfg.json() == {
         "title": "Cube B",
         "opera_logo": False,
@@ -63,6 +65,10 @@ SCRIPT = textwrap.dedent(
         "sign_in": [],
     },
         "geotiff_upload": True,
+        "data_conversion": {
+            "cog": True, "pmtiles": pm, "pmtiles_min_mb": pm and 20 or None
+        },
+        "overlay_files": [],
     }, cfg.json()
     assert c.get("/config").json()["title"] != "Cube B"
 

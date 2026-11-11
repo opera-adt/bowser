@@ -471,6 +471,58 @@ ROUTES: dict[str, dict[str, Any]] = {
         "with `url=<path>`.",
         "tags": [FILES],
     },
+    "POST /upload_data": {
+        "summary": "Upload data to add",
+        "description": "Store a raster or vector file to add with `POST /data`: "
+        "one file, or a Shapefile's parts (`.shp`, `.dbf`, `.prj`...) together. "
+        "Returns the main file's server path. Uploads are swept after "
+        "`BOWSER_UPLOAD_RETENTION_H` hours.",
+        "tags": [FILES],
+    },
+    "POST /data": {
+        "summary": "Add a raster or vector file",
+        "description": "Make a file ready to draw. Body: "
+        '`{"path": "<server path>", "name": "<shown name>"}`. A raster is '
+        "tiled by `/overlay` from a Cloud-Optimized GeoTIFF (`cog`); a vector "
+        "over 20 MB or 50 000 features becomes a PMTiles archive of vector "
+        "tiles, a smaller one a GeoJSON (`url`). A file that is not yet in that "
+        "form is converted once in the background and cached (keyed by path, size "
+        "and mtime); poll `GET /data/{data_id}` while `status` is `converting`. "
+        "Allowed for uploads (`POST /upload_data`), for `BOWSER_OVERLAY_FILES`, "
+        "and for any path when `BOWSER_ALLOW_OPEN` is set (403 otherwise).",
+        "tags": [FILES],
+    },
+    "GET /files": {
+        "summary": "List a server folder",
+        "description": "One server folder, for picking files to add with "
+        "`POST /data` (Overlays › Load file › Browse): its sub-folders first, then "
+        "the files the page can add (GeoTIFF, GeoJSON/JSON, Shapefile `.shp`, "
+        "GeoPackage, FlatGeobuf, KML/KMZ, GPX, CSV/TSV/TXT, zipped Shapefile) with "
+        "their sizes, sorted by name; not its sub-folders' contents. `dir` "
+        "defaults to the folder of the cube being viewed, else the server user's "
+        "home. Symlinks are resolved; hidden files are left out unless "
+        "`hidden=true`; entries the server's user cannot read are skipped and "
+        "counted (`skipped`); at most 1000 entries (`truncated`). 403 unless "
+        "`BOWSER_ALLOW_OPEN` is set, as for server paths in `POST /data`; no "
+        "folder is off limits beyond what the server's user can read. 400 for a "
+        "path that is not a folder.",
+        "tags": [FILES],
+    },
+    "GET /data/{data_id}": {
+        "summary": "Added file status",
+        "description": "Whether a file added with `POST /data` is still being "
+        "converted, ready (a raster with its COG path, bands and bounds; a vector "
+        "with the `url` to read it from) or failed (with the reason). 404 for an "
+        "unknown id.",
+        "tags": [FILES],
+    },
+    "GET /data/{data_id}.{fmt}": {
+        "summary": "Converted vector",
+        "description": "A vector converted by `POST /data`: the PMTiles archive "
+        "(`fmt=pmtiles`), served in byte ranges for HTTP `Range` requests (206), "
+        "or the GeoJSON (`fmt=geojson`). 404 until the conversion is ready.",
+        "tags": [FILES],
+    },
     "GET /export/geotiff": {
         "summary": "Export a layer as GeoTIFF",
         "description": "One time step of a layer as a GeoTIFF at native "
@@ -612,6 +664,11 @@ ROUTES: dict[str, dict[str, Any]] = {
 LITE_501 = (
     "POST /upload_mask",
     "POST /upload_raster",
+    "POST /upload_data",
+    "POST /data",
+    "GET /data/{data_id}",
+    "GET /data/{data_id}.{fmt}",
+    "GET /files",
     "GET /export/geotiff",
     "POST /polygon_timeseries",
 )
@@ -662,6 +719,19 @@ class ErrorDetail(_Fixed):
     detail: str
 
 
+class DataConversion(_Fixed):
+    """What a server converts added files to (``POST /data``); all off on lite."""
+
+    cog: bool = Field(description="Rasters are converted to Cloud-Optimized GeoTIFFs.")
+    pmtiles: bool = Field(
+        description="Large vectors are converted to PMTiles (needs GDAL's driver)."
+    )
+    pmtiles_min_mb: Optional[float] = Field(
+        description="Vector uploads larger than this many MB go to the server to be "
+        "tiled; smaller ones are read in the browser. Null when `pmtiles` is off."
+    )
+
+
 class AssistantFlag(_Fixed):
     """The Assistant's switch in ``GET /config``."""
 
@@ -690,6 +760,12 @@ class ConfigInfo(_Fixed):
     geotiff_upload: bool = Field(
         description="Whether POST /upload_mask and POST /upload_raster work on "
         "this server."
+    )
+    # --- added data (POST /data) ---
+    data_conversion: DataConversion
+    overlay_files: list[str] = Field(
+        description="Files the page adds when it opens (`bowser run --overlay`, "
+        "BOWSER_OVERLAY_FILES)."
     )
     assistant: AssistantFlag
 
@@ -1275,6 +1351,78 @@ class UploadedRaster(_Fixed):
     bands: list[BandStats]
 
 
+class UploadedData(_Fixed):
+    """``POST /upload_data``: where the upload is, to pass to ``POST /data``."""
+
+    path: str = Field(description="Server path of the main file.")
+    name: str = Field(description="Its name as uploaded.")
+
+
+class DataStatus(_Fixed):
+    """``POST /data`` and ``GET /data/{data_id}``."""
+
+    id: str = Field(description="Conversion id, for GET /data/{data_id}.")
+    name: str = Field(description="The file's name.")
+    kind: Literal["raster", "vector"]
+    format: Literal["cog", "pmtiles", "geojson"] = Field(
+        description="What it is drawn from: a COG through /overlay, or a PMTiles "
+        "archive or GeoJSON from `url`."
+    )
+    status: Literal["converting", "ready", "failed"]
+    converted: Optional[bool] = Field(
+        None, description="False when a raster was already a COG."
+    )
+    elapsed_s: Optional[float] = Field(
+        None, description="Seconds since the conversion started."
+    )
+    error: Optional[str] = None
+    bounds: Optional[list[float]] = Field(
+        None, description="WGS84 [west, south, east, north]."
+    )
+    # A raster, once ready.
+    cog: Optional[str] = Field(
+        None, description="Server path of the COG; pass as url= to /overlay."
+    )
+    band_count: Optional[int] = None
+    bands: Optional[list[BandStats]] = None
+    nodata: Optional[float] = None
+    dem: Optional[bool] = Field(
+        None,
+        description="Whether it looks like an elevation model (one band of "
+        "heights); the page then draws it as a hillshade.",
+    )
+    # A vector.
+    url: Optional[str] = Field(
+        None, description="Where to read it, once ready: GET /data/{data_id}.{fmt}."
+    )
+    layers: Optional[list[str]] = Field(None, description="Its non-empty layers.")
+    feature_count: Optional[int] = None
+
+
+class FolderEntry(_Fixed):
+    """A sub-folder, or a file ``POST /data`` adds, in ``GET /files``."""
+
+    name: str
+    path: str = Field(description="Server path; pass a file's to POST /data.")
+    type: Literal["dir", "file"]
+    size: Optional[int] = Field(None, description="A file's size in bytes.")
+    kind: Optional[Literal["raster", "vector"]] = Field(
+        None, description="What a file is added as."
+    )
+
+
+class FolderListing(_Fixed):
+    """``GET /files``: one server folder."""
+
+    dir: str = Field(description="The folder, with its symlinks resolved.")
+    parent: Optional[str] = Field(description="Its parent; null at the root.")
+    entries: list[FolderEntry] = Field(
+        description="Sub-folders first, then files, each sorted by name."
+    )
+    truncated: bool = Field(description="More than 1000 entries: only those sent.")
+    skipped: int = Field(description="Entries left out that could not be read.")
+
+
 class GnssStation(_Fixed):
     """A UNR station with its MIDAS velocity (mm/yr, North America fixed)."""
 
@@ -1362,6 +1510,15 @@ def image_response(media_type: str, description: str) -> dict[int | str, Any]:
 
 
 #: ``responses`` for the routes bowser-lite answers with 501.
+#: ``GET /data/{data_id}.{fmt}``: the whole file, or the byte range asked for.
+DATA_FILE_RESPONSES: dict[int | str, Any] = {
+    200: {
+        "description": "The PMTiles archive or GeoJSON.",
+        "content": {"application/vnd.pmtiles": {}, "application/geo+json": {}},
+    },
+    206: {"description": "The byte range of the archive asked for with `Range`."},
+}
+
 NOT_IN_LITE: dict[int | str, Any] = {
     501: {"model": ErrorDetail, "description": "Needs the full server (GDAL)."}
 }

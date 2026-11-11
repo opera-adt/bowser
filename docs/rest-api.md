@@ -43,7 +43,7 @@ are indexes into a layer's `x_values`.
 
 | Group | Endpoint | What it returns |
 | --- | --- | --- |
-| Config | `GET /config` | Page title, logo flag, whether GeoTIFF export works |
+| Config | `GET /config` | Page title, logo flag, whether GeoTIFF export works, what added files are converted to |
 | | `GET /mode` | `md` (GeoZarr) or `cog` (GeoTIFF stack) |
 | Data | `GET /datasets` | Every layer: dates, bounds, reference point, units, description |
 | | `GET /variables` | Dimensions, shape, dtype and attributes of each variable |
@@ -70,10 +70,47 @@ are indexes into a layer's `x_values`.
 | Export | `GET /export/geotiff` | One step of a layer as a GeoTIFF |
 | Files | `POST /upload_mask` | Store a GeoTIFF mask; returns its server path |
 | | `POST /upload_raster` | Store a GeoTIFF overlay; returns path and band stats |
+| | `POST /upload_data` | Store a file (or a Shapefile's parts) to add with `POST /data` |
+| | `POST /data` | Add a raster or vector file; converts it once in the background |
+| | `GET /data/{id}` | Its conversion status: converting, ready or failed |
+| | `GET /data/{id}.{fmt}` | A converted vector: PMTiles (HTTP Range) or GeoJSON |
+| | `GET /files` | A server folder's sub-folders and addable files (`BOWSER_ALLOW_OPEN`) |
 | | `/overlay/*` (full only) | TiTiler routes for uploaded overlays |
 | Context | `GET /gnss/stations` | UNR GNSS stations in a box, with velocities |
 | | `GET /gnss/series/{station}` | A station's daily positions |
 | | `GET /wms_capabilities` | Named layers of a WMS |
+
+## Added files
+
+`POST /data` with `{"path": ...}` makes a file ready to draw. Uploads
+(`POST /upload_data`), `BOWSER_OVERLAY_FILES` (`bowser run --overlay`) and,
+with `BOWSER_ALLOW_OPEN`, any server path are allowed; other paths get 403.
+
+- A raster is tiled by `/overlay` from a Cloud-Optimized GeoTIFF: one already
+  is used where it is, anything else is converted once. A single-band raster of
+  heights comes back with `"dem": true` and is drawn as a hillshade.
+- A vector over 20 MB or 50 000 features is converted to a PMTiles archive of
+  vector tiles (GDAL's PMTiles driver, zooms up to 14, every attribute kept),
+  read by the page with HTTP Range requests from `GET /data/{id}.pmtiles`. A
+  smaller one becomes a GeoJSON in WGS84 that the page holds whole. The page
+  reads vector files under the threshold itself and never sends them.
+- Conversions run in a background thread; poll `GET /data/{id}` while `status`
+  is `converting`. `/config` says what the server converts:
+  `data_conversion: {cog, pmtiles, pmtiles_min_mb}`.
+- `GET /files?dir=<folder>` lists one server folder for Overlays › Load file ›
+  Browse: its sub-folders, then the files `POST /data` adds, with sizes
+  (`{dir, parent, entries, truncated, skipped}`). Without `dir` it starts in the
+  folder of the cube being viewed, else the server user's home. It is gated
+  like server paths in `POST /data` (403 without `BOWSER_ALLOW_OPEN`) and, like
+  `POST /catalog/scan`, has no root folder of its own: it lists any folder the
+  server's user can read. bowser-lite answers 501.
+
+Conversions of server paths are cached in `BOWSER_CONVERT_CACHE_DIR` (default
+`~/.cache/bowser/convert`), keyed by path, size and mtime, and kept within
+`BOWSER_CONVERT_CACHE_MAX_GB` (default 20) and `BOWSER_CONVERT_CACHE_MAX_DAYS`
+(default 30; 0 turns a limit off): the least recently used go first. An
+upload's conversion sits next to it and is swept with it after
+`BOWSER_UPLOAD_RETENTION_H` hours.
 
 ## Examples
 
@@ -225,9 +262,11 @@ the circle with each other; motion of the whole circle is not seen by it.
 
 bowser-lite needs no GDAL, so it leaves out what needs it:
 
-- `POST /upload_mask`, `POST /upload_raster`, `GET /export/geotiff` and
-  `POST /polygon_timeseries` answer HTTP 501 with a `detail` message, and
-  `GET /config` reports `"geotiff_export": false`;
+- `POST /upload_mask`, `POST /upload_raster`, `GET /export/geotiff`,
+  `POST /polygon_timeseries` and the added-file routes (`/upload_data`,
+  `/data`) answer HTTP 501 with a `detail` message, and `GET /config` reports
+  `"geotiff_export": false` and `data_conversion` all off (small vector files
+  are still read in the browser);
 - GeoTIFF stacks (COG mode, `GET /mode` is always `md`) and the `/cog` and
   `/overlay` tilers (501);
 - of TiTiler's `/md` routes, only the TileJSON and the tiles; tiles are PNG in

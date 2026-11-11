@@ -42,7 +42,7 @@ export function useApi() {
     return data.mode;
   }, []);
 
-  const fetchConfig = useCallback(async (): Promise<{ title: string; opera_logo?: boolean }> => {
+  const fetchConfig = useCallback(async (): Promise<{ title: string; opera_logo?: boolean; overlay_files?: string[] }> => {
     const response = await fetch('/config');
     return await response.json();
   }, []);

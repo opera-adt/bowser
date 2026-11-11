@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     # next time (the desktop app).
     BOWSER_REMEMBER_OPENED: bool = False
 
+    # Raster or vector files the page adds as layers when it opens
+    # (`bowser run --overlay`, repeatable; a JSON list here). The page may add these
+    # even when BOWSER_ALLOW_OPEN is off. A DEM among them is drawn as a hillshade.
+    BOWSER_OVERLAY_FILES: list[str] = []
+
     # Show the OPERA emblem at the top of the side panel instead of the Bowser mark
     # (`bowser run --opera-logo`).
     BOWSER_OPERA_LOGO: bool = False

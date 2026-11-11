@@ -128,6 +128,19 @@ def cli_app():
     ),
 )
 @click.option(
+    "--overlay",
+    "overlay_files",
+    multiple=True,
+    type=click.Path(exists=True, dir_okay=False),
+    help=(
+        "A raster or vector file to add as a layer when the page opens; repeat for "
+        "more. A GeoTIFF that is not cloud-optimized, or a vector over 20 MB, is "
+        "converted once in the background (cached in BOWSER_CONVERT_CACHE_DIR, "
+        "default ~/.cache/bowser/convert). An elevation model is drawn as a "
+        "hillshade."
+    ),
+)
+@click.option(
     "--assistant/--no-assistant",
     "assistant",
     default=None,
@@ -154,6 +167,7 @@ def run(
     s3_anon,
     opera_logo,
     allow_open,
+    overlay_files,
     assistant,
 ):
     """Run the web server."""
@@ -189,6 +203,10 @@ def run(
         )
     os.environ["BOWSER_ALLOW_OPEN"] = str(allow_open).lower()
     os.environ["BOWSER_OPERA_LOGO"] = str(opera_logo).lower()
+    if overlay_files:
+        os.environ["BOWSER_OVERLAY_FILES"] = json.dumps(
+            [str(Path(f).resolve()) for f in overlay_files]
+        )
     os.environ.update(_assistant_env(assistant, host))
 
     protocol = "https" if ssl_certfile else "http"
