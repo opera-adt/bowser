@@ -150,8 +150,11 @@ def pool(values: np.ndarray, inside: np.ndarray) -> np.ndarray:
     """Return ``(N, n_window)``: the first axis of ``values``, then its pixels.
 
     Pixels not ``inside`` become NaN. The first axis is the series (time) axis
-    of a ``(N, ny, nx)`` window; a 2-D ``values`` is pooled per row.
+    of a ``(N, ny, nx)`` window; a 2-D ``(ny, nx)`` window (a layer without a
+    time axis) is one step, ``N = 1``.
     """
+    if values.ndim == inside.ndim:
+        values = values[np.newaxis]
     return np.where(inside, values, np.nan).reshape(values.shape[0], -1)
 
 
