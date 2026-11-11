@@ -288,3 +288,26 @@ def test_big_files_are_refused(tmp_path, monkeypatch):
     monkeypatch.setattr(gnss_csv, "MAX_BYTES", 10)
     with pytest.raises(GnssCsvError, match="MB"):
         gnss_csv.read_file(f)
+
+
+EXAMPLES = Path(__file__).parent.parent / "docs" / "examples" / "gnss"
+
+
+@pytest.mark.parametrize(
+    ("file", "stations", "units", "units_from"),
+    [
+        ("one_station.csv", ["DEMO"], "mm", "header"),
+        ("several_stations.csv", ["STA1", "STA2"], "m", "header"),
+        ("minimal.csv", ["MINI"], "mm", "file"),
+    ],
+)
+def test_the_documented_examples_read_as_described(file, stations, units, units_from):
+    """docs/examples/gnss: every file loads cleanly, as docs/gnss.md says."""
+    path = EXAMPLES / file
+    out = parse_gnss_csv(path.read_text(), path.name)
+    assert out["skipped"] == 0 and not out.get("warnings")
+    assert [s["id"] for s in out["stations"]] == stations
+    for st in out["stations"]:
+        assert (st["units"], st["units_from"]) == (units, units_from)
+        assert -118 < st["lon"] < -117 and 33 < st["lat"] < 34
+        assert st["rows"] >= 10

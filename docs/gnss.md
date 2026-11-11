@@ -3,10 +3,10 @@
 The GNSS tab compares GNSS stations with the InSAR cube. Two kinds of station
 show there and on the map:
 
-- **UNR stations** (*Find stations in this view*): public stations of the
+- **UNR GNSS stations** (*Find stations in this view*): public stations of the
   Nevada Geodetic Laboratory, with MIDAS velocities and daily positions in the
   North America fixed frame (`GET /gnss/stations`, `GET /gnss/series/{station}`).
-- **Your GNSS files** (*Load GNSS files…*): station time series from your own
+- **Load local GNSS file** (*Load GNSS files…*): station time series from your own
   CSV files, drawn as amber squares (*GNSS station (your file)* in the legend).
 
 Choosing a station shows its rates and its record projected on the cube's line
@@ -58,8 +58,15 @@ date,east (mm),north (mm),up (mm),sig_e (mm),sig_n (mm),sig_u (mm)
 2025-11-08,0.39,0.13,0.62,0.8,0.9,2.5
 ```
 
-A complete example is
-[tests/data/gnss/custom_station.csv](../tests/data/gnss/custom_station.csv).
+**Example files** to copy, in [docs/examples/gnss/](examples/gnss/):
+
+| File | Shows |
+| --- | --- |
+| [one_station.csv](examples/gnss/one_station.csv) | The recommended layout: one station, its name and location in `#` lines, ISO dates, millimetres with 1-sigma columns. |
+| [several_stations.csv](examples/gnss/several_stations.csv) | Several stations in one table, with station, lon and lat columns; decimal years; metres. |
+| [minimal.csv](examples/gnss/minimal.csv) | The minimum: no header row (date, east, north, up), units from a `# units:` line. |
+
+Each loads with no skipped rows (a test checks it).
 
 **Columns.** A header row names them, in any order and case; the delimiter is a
 comma, semicolon, tab or spaces.
