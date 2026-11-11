@@ -29,6 +29,7 @@ import httpx
 from pydantic import BaseModel, Field, create_model
 
 from .chart_tools import CHART_COMMANDS, CHART_INSTRUCTIONS, register_chart_tools
+from .file_tools import register_file_tools
 
 DEFAULT_URL = "http://127.0.0.1:8000"
 
@@ -788,6 +789,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
             for name, ok in (
                 ("polygon_statistics", config.get("polygon_stats")),
                 ("export_geotiff", config.get("geotiff_export")),
+                ("convert_to_cog", config.get("geotiff_export")),
             )
             if not ok
         ]
@@ -2636,6 +2638,8 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
         """
         return await on_page("run_command", id=id, args=args)
 
+    # --- tools: the user's files: GNSS series, rasters to COG (bowser.file_tools) ---
+    register_file_tools(tool, api)
     # --- tools: the page's time-series chart (bowser.chart_tools) ---------------------
     register_chart_tools(page_tool, on_page)
 

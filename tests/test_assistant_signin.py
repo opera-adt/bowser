@@ -1400,9 +1400,12 @@ def test_quiet_tools_are_those_that_read_or_move_the_map():
         "pan",
         "zoom",
         "fit_bounds",
+        "list_gnss_stations",
     } <= quiet
     assert not quiet & {
         "export_geotiff",
+        "load_gnss_csv",
+        "convert_to_cog",
         "set_masks",
         "set_reference_point",
         "run_command",

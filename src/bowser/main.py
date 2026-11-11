@@ -2194,7 +2194,7 @@ def _data_response(job: dict[str, Any]) -> dict[str, Any]:
         dem = info["band_count"] == 1 and looks_like_dem(job["cog"], job["name"])
     except Exception as exc:  # noqa: BLE001
         return {**out, "status": "failed", "error": f"Could not read it: {exc}"}
-    return {**out, **info, "dem": dem}
+    return {**out, **info, "dem": dem, "cog_bytes": Path(job["cog"]).stat().st_size}
 
 
 @app.post(

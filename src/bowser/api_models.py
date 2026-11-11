@@ -1710,6 +1710,7 @@ class DataStatus(_Fixed):
     cog: Optional[str] = Field(
         None, description="Server path of the COG; pass as url= to /overlay."
     )
+    cog_bytes: Optional[int] = Field(None, description="The COG's size in bytes.")
     band_count: Optional[int] = None
     bands: Optional[list[BandStats]] = None
     nodata: Optional[float] = None
