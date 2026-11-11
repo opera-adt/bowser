@@ -22,7 +22,7 @@ import warnings
 from contextvars import ContextVar
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Optional
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Optional
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import numpy as np
@@ -38,6 +38,8 @@ from ..assistant.relay import assistant_config
 from ..assistant.relay import router as assistant_router
 from ..catalog import CatalogEntry, load_catalog, save_catalog
 from ..config import settings
+from ..context import router as context_router
+from ..context import zones_answer
 from ..reference_candidates import (
     CandidateParams,
     candidate_query,
@@ -232,6 +234,8 @@ def get_config(
 app.include_router(assistant_router, tags=[api.ASSISTANT])
 # The page channel: Bowser's tools act on the open page (same gate as page keys).
 app.include_router(page_router, tags=[api.ASSISTANT])
+# What is on the ground: OpenStreetMap infrastructure and site context (the AI tools).
+app.include_router(context_router)
 
 
 @app.get(
@@ -634,6 +638,50 @@ def get_histogram(
             "max": float(valid.max()),
         }
         | {k: float(v) for k, v in zip(names, pct)}
+    )
+
+
+@app.get(
+    "/deformation_zones",
+    responses={200: {"model": api.DeformationZones}},
+    **api.route_doc("GET /deformation_zones"),
+)
+def deformation_zones(
+    threshold_mm_yr: Annotated[
+        float, Query(gt=0, **api.PARAMS["threshold_mm_yr"])
+    ] = 5.0,
+    sign: Annotated[
+        Literal["both", "negative", "positive"], Query(**api.PARAMS["zone_sign"])
+    ] = "both",
+    min_area_m2: Annotated[float, Query(ge=0, **api.PARAMS["min_area_m2"])] = 0.0,
+    bbox: Annotated[Optional[str], Query(**api.PARAMS["zone_bbox"])] = None,
+    layer: Annotated[Optional[str], Query(**api.PARAMS["rate_layer"])] = None,
+    coherence_min: Annotated[
+        Optional[float], Query(ge=0, le=1, **api.PARAMS["zones_coherence_min"])
+    ] = None,
+    max_zones: Annotated[int, Query(ge=1, le=500, **api.PARAMS["max_zones"])] = 50,
+    ref_lon: Annotated[
+        Optional[float], Query(ge=-180, le=180, **api.PARAMS["ref_lon"])
+    ] = None,
+    ref_lat: Annotated[
+        Optional[float], Query(ge=-90, le=90, **api.PARAMS["ref_lat"])
+    ] = None,
+    dataset: str | None = Query(None, **api.PARAMS["dataset"]),
+):
+    """Find the connected areas where the rate passes a threshold (bowser.zones)."""
+    cube = resolve(dataset)
+    return zones_answer(
+        cube.dataset,
+        cube.transformer_from_lonlat,
+        threshold_mm_yr=threshold_mm_yr,
+        sign=sign,
+        min_area_m2=min_area_m2,
+        bbox=bbox,
+        layer=layer,
+        coherence_min=coherence_min,
+        max_zones=max_zones,
+        ref_lon=ref_lon,
+        ref_lat=ref_lat,
     )
 
 

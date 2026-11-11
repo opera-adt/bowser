@@ -109,6 +109,10 @@ a point outside the cube is refused rather than read at the nearest edge pixel.
 | `export_geotiff` | A GeoTIFF of one date: its download URL, or the file saved where you say (full server) | `GET /export/geotiff` |
 | `find_reference_candidates` | Stable places for the reference point: the recommended one and up to `n` spaced candidates with coherence, phase similarity, scatter, velocity and a reason | `GET /reference_candidates` |
 | `geocode` | Candidates for a place name or address, with lon/lat and a bounding box (OpenStreetMap Nominatim; no page needed) | `GET /geocode` |
+| `deformation_zones` | Connected areas where \|rate\| reaches `threshold_mm_yr` (from the velocity layer, or a rate fitted to the displacement): id (`Z1` = largest), direction, area, mean, median and peak rate, centroid, box; optional `min_area_m2`, `bbox`, `sign`, `coherence_min` | `GET /deformation_zones` |
+| `infrastructure_at` | Roads, buildings, rail, bridges, pipelines, dams and levees within `radius_m` of a point: counts, length by class, building footprint and types, named features (OpenStreetMap) | `POST /infrastructure` |
+| `infrastructure_in_area` | The same in a GeoJSON polygon, a bbox, a shape drawn on the page or a chart area (`area`), or a zone (`zone: "Z1"`) | `POST /infrastructure` |
+| `site_context` | What is on the ground at a point: land cover, geology, wetlands, soil, slope and how much of a downslope motion the radar sees, nearby infrastructure, and the cube's coherence and phase similarity there | `GET /site_context`, `POST /infrastructure`, `GET /point` |
 
 On bowser-lite, `polygon_statistics` and `export_geotiff` return a tool error
 that says the full server is needed; `server_info` lists them under
@@ -118,6 +122,10 @@ that says the full server is needed; `server_info` lists them under
 open page's layer masks by default (`use_page_masks`), so their answers match
 the map and the chart; each result's `masks` says what was applied. Without a
 connected page the values are unmasked.
+
+`deformation_zones`, `infrastructure_at` and `infrastructure_in_area` draw
+what they find on the open page as a highlight layer (`show_on_map`, on by
+default; without a page they say so and answer anyway).
 
 Values follow the API: `point_timeseries`, `multi_point_timeseries`,
 `trend_at_point`, `value_at_point` and `export_geotiff` can subtract a
@@ -150,6 +158,9 @@ Assistant's own chat. With no page open they say so: "No Bowser page is open
 | `switch_layer`, `open_chart` | The layer shown, the chart |
 | `get_masks`, `set_masks`, `clear_masks`, `set_recommended_mask` | Layer masks: `min` keeps pixels ≥ the threshold, `max` keeps pixels ≤ it |
 | `get_display`, `set_colormap`, `set_color_range`, `set_opacity` | Colormap, range (or a preset: `2-98%`, `1sigma`, `2sigma`, `full`, `symmetric`) and opacity, per side in split screen |
+| `list_context_layers`, `add_context_layer`, `remove_context_layer` | The context layers of Overlays › Services, as their toggles: `roads` (with railways), `boundaries`, `buildings`, `land_cover` (a `year`), `geology`, `soils`, `gnss`; with an optional `opacity` |
+| `highlight_infrastructure`, `clear_highlights` | Draw the infrastructure of an area (`kinds`, and a polygon, bbox, `area` or `zone`) in a highlight layer, in a `color`; remove the highlights, all or one by name |
+| `get_areas` | The shapes drawn on the map and the chart's areas, or one's GeoJSON geometry by `name` |
 | `list_commands`, `run_command` | Every other toolbar and panel control (draw tools, identify, measure, basemap, grid, chart options, time playback, theme, panel tabs...); toggles take `{"on": true}` |
 
 Layer and colormap names are checked, with close matches suggested
@@ -236,3 +247,45 @@ OpenStreetMap's attribution. An administrator can use another
 Nominatim-compatible service (their own, for heavy use) with
 `BOWSER_GEOCODER_URL=https://.../search`, or turn geocoding off with
 `BOWSER_GEOCODER_URL=off`.
+
+## Context and infrastructure
+
+The context tools answer "who and what is affected by motion in X?" the way the
+instructions describe: `go_to` X, `deformation_zones` (look at the velocity's
+spread with `layer_statistics` first to choose a threshold), then
+`infrastructure_in_area` with a zone id, then `highlight_infrastructure` for
+what the user asked about. Before reading a time series, `site_context` at the
+point says what the ground is.
+
+Zones are found on the server, on the cube itself: 4-connected cells whose
+|rate| reaches the threshold (a zone never mixes motion towards and away from
+the satellite), outlined along the cells' edges and simplified to half a cell.
+The full server and bowser-lite run the same numpy code (scipy's labelling
+when installed), so they give the same zones. Rates are relative to the
+producer's reference unless `ref_lon`/`ref_lat` is given to the HTTP API. The
+zones and the infrastructure found are kept on the server for four hours
+(`GET /context/results/{id}`), so the page can draw them and later tools can
+use a zone by its id.
+
+The outside services are used through the Bowser server, as their operators
+ask, with the same rules as the geocoder: a User-Agent naming Bowser (never a
+person), requests spaced per service for the whole server, answers cached for a
+day, attribution with the results, and a variable to point each service
+elsewhere or turn it off (read on each request). A service that cannot be
+reached, or is off, is reported as "could not be looked up", which is not the
+same as nothing there.
+
+| Service | Used for | Spacing | Variable |
+| --- | --- | --- | --- |
+| [Overpass API](https://wiki.openstreetmap.org/wiki/Overpass_API) (OpenStreetMap; `overpass-api.de`, then `overpass.private.coffee` when busy) | Infrastructure | 1 s, one request at a time; buildings only in areas whose box is up to 60 km², other kinds up to 2,500 km² | `BOWSER_OVERPASS_URL` (comma-separated list) |
+| Sentinel-2 10 m land cover (Impact Observatory, Microsoft, Esri) | Land cover | 0.5 s | `BOWSER_LANDCOVER_URL` |
+| [Macrostrat](https://macrostrat.org) | Geology | 0.5 s | `BOWSER_MACROSTRAT_URL` |
+| USFWS National Wetlands Inventory | Wetlands (US) | 0.5 s | `BOWSER_WETLANDS_URL` |
+| USDA NRCS Soil Data Access (SSURGO) | Soil (US) | 0.5 s | `BOWSER_SOILS_URL` |
+| AWS Terrain Tiles (Terrarium) | Elevation and slope | none (static tiles) | `BOWSER_TERRAIN_URL` |
+
+`BOWSER_CONTEXT_SERVICES=off` turns all of them off. `POST /infrastructure`,
+`GET /site_context` and `GET /context/results/{id}` answer only where the
+Assistant is on (`BOWSER_ASSISTANT`), as `GET /geocode`. Being in or near a
+zone says nothing about the condition of any feature, and the tools tell the
+model never to call a road, building or structure damaged or at risk.

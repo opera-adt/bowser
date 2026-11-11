@@ -61,6 +61,18 @@ Typical flows:
 - "How does an area behave?": polygon_statistics (full server), or several points.
 - "Where does it change?": profile along a line across the feature at one date.
 - "Is the colour scale sensible / how big are values on this date?": layer_statistics.
+- "Who and what is affected by motion in X?": go_to X -> deformation_zones (look
+  at the velocity's spread first, layer_statistics on velocity, to pick a
+  threshold) -> infrastructure_in_area with a zone id ("Z1") -> highlight_infrastructure
+  for what the user asked about. clear_highlights removes the drawings.
+- "What is around this point?": infrastructure_at (roads, buildings, rail,
+  bridges, pipelines, dams, levees within a radius, from OpenStreetMap).
+- Read the ground first: before interpreting a time series at a point, call
+  site_context there (land cover, geology, wetlands, soil, slope, nearby
+  infrastructure and the cube's coherence at the point).
+- Context on the map: list_context_layers, then add_context_layer (roads,
+  buildings, land cover, geology, soils, GNSS stations...) or
+  remove_context_layer, as the Overlays › Services toggles.
 
 Finding places. Each question comes with what the page shows (its view, layer,
 reference and points) when a page is open: use it for "here", "this area" or
@@ -102,8 +114,8 @@ stable ground look like it moves. Lengths stored in metres are given in mm,
 rates in mm/yr.
 
 Reading a time series: never interpret displacement from the curve alone. First
-establish what is on the ground at that point (ask the user, or use other tools you
-have for geology, land cover, terrain, wetlands, snow, earthquakes, wells or GNSS),
+establish what is on the ground at that point (site_context; or ask the user, or
+use other tools you have for snow, earthquakes, wells or GNSS),
 and the quality there (temporal_coherence, phase_similarity or recommended_mask at
 the same point), then say which effects could explain the signal and how sure you
 are. Wetlands, flooded vegetation, irrigated fields and watered turf can bias the
@@ -201,6 +213,99 @@ TimeIndex = Annotated[
         "Clamped to the last date.",
     ),
 ]
+
+
+#: The context layers of Overlays › Services (src/map/contextServices.ts).
+CONTEXT_LAYER_IDS = (
+    "roads",
+    "boundaries",
+    "buildings",
+    "land_cover",
+    "geology",
+    "soils",
+    "gnss",
+)
+ContextLayerId = Annotated[
+    Literal[
+        "roads", "boundaries", "buildings", "land_cover", "geology", "soils", "gnss"
+    ],
+    Field(
+        description="Context layer id (list_context_layers): roads (with railways), "
+        "boundaries, buildings, land_cover, geology, soils or gnss."
+    ),
+]
+#: The kinds of infrastructure the tools look up (OpenStreetMap).
+KIND_NAMES = ("roads", "buildings", "rail", "bridges", "pipelines", "dams", "levees")
+InfraKind = Literal[
+    "roads", "buildings", "rail", "bridges", "pipelines", "dams", "levees"
+]
+Kinds = Annotated[
+    list[InfraKind] | None,
+    Field(
+        min_length=1,
+        description="Kinds to look up; omit for all of roads, buildings, rail, "
+        "bridges, pipelines, dams and levees.",
+    ),
+]
+ShowOnMap = Annotated[
+    bool,
+    Field(
+        description="Also draw what was found on the open page, as a highlight "
+        "layer (when a page is connected)."
+    ),
+]
+AreaGeometry = Annotated[
+    dict[str, Any] | None,
+    Field(description="GeoJSON Polygon or MultiPolygon (or Feature), lon/lat."),
+]
+AreaBbox = Annotated[
+    list[float] | None,
+    Field(
+        min_length=4, max_length=4, description="[west, south, east, north], lon/lat."
+    ),
+]
+AreaName = Annotated[
+    str | None,
+    Field(
+        max_length=120,
+        description="Name of a shape drawn on the page or of a chart area (get_areas).",
+    ),
+]
+ZoneId = Annotated[
+    str | None,
+    Field(
+        max_length=80,
+        description='A zone of deformation_zones: "Z1" (latest zones) or its '
+        '"<zones_id>/Z1".',
+    ),
+]
+EXPOSURE_NOTE = (
+    "Being in or near moving ground says nothing about the condition of any "
+    "feature: never call a road, building or structure damaged, unsafe or at "
+    "risk from this; motion must be confirmed by a qualified expert."
+)
+
+
+def _downslope_in_los(terrain: dict, los: dict | None) -> dict[str, Any]:
+    """How much of a downslope motion the cube's line of sight sees (+ = towards)."""
+    slope = terrain.get("slope_deg")
+    aspect = terrain.get("aspect_deg")
+    if slope is None or aspect is None or slope < 2:
+        return {}
+    if not los or not all(k in los for k in ("east", "north", "up")):
+        return {
+            "downslope_seen_in_los": None,
+            "downslope_note": "The cube gives no look direction.",
+        }
+    s, a = math.radians(slope), math.radians(aspect)
+    down = (math.cos(s) * math.sin(a), math.cos(s) * math.cos(a), -math.sin(s))
+    share = down[0] * los["east"] + down[1] * los["north"] + down[2] * los["up"]
+    return {
+        "downslope_seen_in_los": round(share, 2),
+        "downslope_note": "Share of a downslope movement seen along the line of "
+        "sight (1 = all of it, towards the satellite; negative = seen as motion "
+        "away), with the cube's look direction.",
+    }
 
 
 class PointIn(BaseModel):
@@ -543,6 +648,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
         read_only: bool = False,
         mcp: bool = True,
         quiet: bool = False,
+        open_world: bool = False,
         status: str = "",
     ):
         """Register a tool that runs on the page (see :data:`PAGE_COMMANDS`)."""
@@ -556,6 +662,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
                     read_only,
                     page=True,
                     mcp=mcp,
+                    open_world=open_world,
                     quiet=quiet or read_only,
                     status=status,
                 )
@@ -1505,6 +1612,533 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
             "north]." + ("" if res.get("results") else " Nothing was found."),
         }
 
+    # --- tools: what is on the ground (context and infrastructure) -------------------
+
+    async def drawn(
+        result_id: str, name: str, color: str | None, show: bool, n: int = 1
+    ) -> dict:
+        """Draw a kept result on the page when asked and a page is connected."""
+        if not show:
+            return {"on_map": False, "note": "show_on_map was false."}
+        if not n:
+            return {"on_map": False, "note": "Nothing found, so nothing drawn."}
+        try:
+            res = await api.page(
+                "draw_highlight",
+                {
+                    k: v
+                    for k, v in (
+                        ("result_id", result_id),
+                        ("name", name),
+                        ("color", color),
+                    )
+                    if v is not None
+                },
+            )
+        except BowserError as e:
+            return {
+                "on_map": False,
+                "note": f"Not drawn: {e} Without a connected page, describe the "
+                "result instead.",
+            }
+        return {
+            "on_map": True,
+            "layer": res.get("name") or name,
+            "note": "Drawn as a highlight layer (Overlays › Layers); "
+            "clear_highlights removes it.",
+        }
+
+    async def infra_query(body: dict[str, Any], kinds_given: bool) -> dict:
+        """Ask POST /infrastructure, without buildings if they make it too large.
+
+        Only when the kinds were the default; the answer says so.
+        """
+        try:
+            return await api.post("/infrastructure", body)
+        except BowserError as e:
+            if kinds_given or "too large for buildings" not in str(e):
+                raise
+            body = {**body, "kinds": [k for k in body["kinds"] if k != "buildings"]}
+            res = await api.post("/infrastructure", body)
+            res["note"] = (
+                "Buildings were left out: the area is too large for them (their box "
+                "must be at most 60 km²); ask for a smaller area. " + res["note"]
+            )
+            return res
+
+    def infra_answer(res: dict, drawn_note: dict) -> dict:
+        return {
+            "where": res["where"],
+            "area_m2": res["area_m2"],
+            "kinds": res["kinds"],
+            "summary": res["summary"],
+            "text": res["text"],
+            "result_id": res["result_id"],
+            "map": drawn_note,
+            "attribution": res["attribution"],
+            "note": res["note"] + " " + EXPOSURE_NOTE,
+        }
+
+    @page_tool(read_only=True, status="Listing the context layers")
+    async def list_context_layers() -> dict[str, Any]:
+        """List the context layers of Overlays › Services, and which are on.
+
+        Each with its id (for add_context_layer / remove_context_layer), label,
+        what it shows and its source: roads and railways, admin boundaries,
+        buildings (3D), land cover, geology, soils and GNSS stations. Also lists
+        the highlight layers the tools drew (clear_highlights removes them).
+        """
+        return await on_page("list_context_layers")
+
+    @page_tool(status="Adding the context layer")
+    async def add_context_layer(
+        id: ContextLayerId,  # noqa: A002  (the layer's id, as the model sees it)
+        opacity: Annotated[
+            float | None,
+            Field(ge=0, le=1, description="0-1; omit for the toggle's default."),
+        ] = None,
+        year: Annotated[
+            int | None,
+            Field(
+                ge=2017,
+                le=2025,
+                description="Land cover only: the year (default the latest).",
+            ),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Turn on a context layer of Overlays › Services, as its toggle does.
+
+        Roads (with railways), boundaries, buildings (from zoom 13; tilt the map
+        for heights), land cover (a year), geology, soils (loaded for the view:
+        zoom in first) or GNSS stations (found in the view). Already on: only
+        the opacity changes. Returns the layer and the page's message.
+        """
+        return await on_page("add_context_layer", id=id, opacity=opacity, year=year)
+
+    @page_tool(status="Removing the context layer")
+    async def remove_context_layer(
+        id: ContextLayerId,  # noqa: A002  (the layer's id, as the model sees it)
+    ) -> dict[str, Any]:
+        """Turn off a context layer of Overlays › Services, as its toggle does."""
+        return await on_page("remove_context_layer", id=id)
+
+    @tool(open_world=True, status="Looking up OpenStreetMap")
+    async def infrastructure_at(
+        lon: Lon,
+        lat: Lat,
+        radius_m: Annotated[
+            float,
+            Field(gt=0, le=5000, description="Radius of the circle (m)."),
+        ] = 500.0,
+        kinds: Kinds = None,
+        show_on_map: ShowOnMap = True,
+    ) -> dict[str, Any]:
+        """Find the infrastructure within a radius of a point (OpenStreetMap).
+
+        Per kind (roads, buildings, rail, bridges, pipelines, dams, levees): the
+        count, the length inside by class, building count, footprint and types,
+        and the named features. Draws them on the page as a highlight layer
+        when a page is connected (show_on_map). Being near moving ground says
+        nothing about the condition of any feature.
+        """
+        body = {
+            "point": [lon, lat],
+            "radius_m": radius_m,
+            "kinds": list(kinds or KIND_NAMES),
+        }
+        res = await infra_query(body, kinds is not None)
+        note = await drawn(
+            res["result_id"],
+            f"Infrastructure within {radius_m:g} m",
+            None,
+            show_on_map,
+            res["n_features"],
+        )
+        return infra_answer(res, note)
+
+    @tool(open_world=True, status="Looking up OpenStreetMap")
+    async def infrastructure_in_area(
+        geometry: AreaGeometry = None,
+        bbox: AreaBbox = None,
+        area: AreaName = None,
+        zone: ZoneId = None,
+        kinds: Kinds = None,
+        show_on_map: ShowOnMap = True,
+        list_limit: Annotated[
+            int, Field(ge=0, le=50, description="Named features listed per kind.")
+        ] = 10,
+    ) -> dict[str, Any]:
+        """Find the infrastructure in an area (OpenStreetMap), and draw it.
+
+        Give one area: a GeoJSON polygon, a bbox, the name of a shape drawn on
+        the page or of a chart area (area; see get_areas), or a deformation zone
+        (zone: "Z1" from deformation_zones). Per kind: count, length inside by
+        class (lines are clipped to the area), building count, footprint and
+        types, named features. Buildings need a small area (box up to 60 km²).
+        Draws them when a page is connected (show_on_map). Never say a feature
+        is damaged or at risk from this.
+        """
+        given = [
+            k
+            for k, v in (
+                ("geometry", geometry),
+                ("bbox", bbox),
+                ("area", area),
+                ("zone", zone),
+            )
+            if v is not None
+        ]
+        if len(given) != 1:
+            raise BowserError("Give one of geometry, bbox, area or zone.")
+        body: dict[str, Any] = {
+            "kinds": list(kinds or KIND_NAMES),
+            "list_limit": list_limit,
+        }
+        label = "Infrastructure in the area"
+        if area is not None:
+            found = await on_page("get_areas", name=area)
+            body["geometry"] = found["geometry"]
+            label = f"Infrastructure in {found.get('name') or area}"
+        elif zone is not None:
+            body["zone"] = zone
+            label = f"Infrastructure in zone {zone}"
+        elif bbox is not None:
+            body["bbox"] = bbox
+        else:
+            body["geometry"] = geometry
+        res = await infra_query(body, kinds is not None)
+        note = await drawn(
+            res["result_id"], label, None, show_on_map, res["n_features"]
+        )
+        return infra_answer(res, note)
+
+    @page_tool(open_world=True, status="Drawing the infrastructure")
+    async def highlight_infrastructure(
+        kinds: Annotated[
+            list[InfraKind],
+            Field(min_length=1, description="What to draw, e.g. ['roads']."),
+        ],
+        geometry: AreaGeometry = None,
+        bbox: AreaBbox = None,
+        area: AreaName = None,
+        zone: ZoneId = None,
+        color: Annotated[
+            str | None,
+            Field(
+                pattern=r"^#[0-9A-Fa-f]{6}$",
+                description="Line and fill colour, #rrggbb; omit for orange.",
+            ),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Draw the infrastructure of an area on the page, in a highlight layer.
+
+        The area as for infrastructure_in_area (one of geometry, bbox, area or
+        zone). The layer is named for what it shows and listed in Overlays ›
+        Layers; clear_highlights removes it (or every highlight). Returns how
+        many features were drawn, per kind.
+        """
+        given = [v for v in (geometry, bbox, area, zone) if v is not None]
+        if len(given) != 1:
+            raise BowserError("Give one of geometry, bbox, area or zone.")
+        return await on_page(
+            "highlight_infrastructure",
+            kinds=kinds,
+            geometry=geometry,
+            bbox=bbox,
+            area=area,
+            zone=zone,
+            color=color,
+        )
+
+    @page_tool(status="Clearing the highlights")
+    async def clear_highlights(
+        name: Annotated[
+            str | None,
+            Field(
+                max_length=120,
+                description="One highlight layer's name; omit to remove them all.",
+            ),
+        ] = None,
+    ) -> dict[str, Any]:
+        """Remove the highlight layers the tools drew (all, or one by name)."""
+        return await on_page("clear_highlights", name=name)
+
+    @page_tool(read_only=True, status="Reading the drawn areas")
+    async def get_areas(
+        name: Annotated[
+            str | None,
+            Field(
+                max_length=120,
+                description="A shape's or chart area's name; omit to list them.",
+            ),
+        ] = None,
+    ) -> dict[str, Any]:
+        """List the shapes drawn on the page and the chart's areas, or get one.
+
+        Without name: their names and kinds. With name: that one's GeoJSON
+        geometry (lon/lat), to pass to the area tools.
+        """
+        return await on_page("get_areas", name=name)
+
+    @tool(status="Finding moving zones")
+    async def deformation_zones(
+        threshold_mm_yr: Annotated[
+            float,
+            Field(
+                gt=0,
+                description="Rate |mm/yr| a zone's cells must reach; check the "
+                "layer's spread first (layer_statistics on velocity).",
+            ),
+        ],
+        min_area_m2: Annotated[
+            float, Field(ge=0, description="Leave out zones smaller than this (m²).")
+        ] = 0.0,
+        bbox: AreaBbox = None,
+        sign: Annotated[
+            Literal["both", "negative", "positive"],
+            Field(
+                description="negative: away from the satellite (subsidence on most "
+                "passes); positive: towards it; both."
+            ),
+        ] = "both",
+        layer: Annotated[
+            str | None,
+            Field(
+                description="Rate layer; omit for velocity, or a straight-line rate "
+                "fitted to displacement when the cube has no velocity."
+            ),
+        ] = None,
+        coherence_min: Annotated[
+            float | None,
+            Field(
+                ge=0,
+                le=1,
+                description="Leave out cells whose median temporal coherence is "
+                "below this (e.g. 0.5).",
+            ),
+        ] = None,
+        max_zones: Annotated[
+            int, Field(ge=1, le=200, description="The largest zones kept.")
+        ] = 20,
+        include_geometry: Annotated[
+            bool,
+            Field(
+                description="Return each zone's polygon (long); ids are enough "
+                "for the area tools."
+            ),
+        ] = False,
+        show_on_map: ShowOnMap = True,
+        dataset: Dataset = None,
+    ) -> dict[str, Any]:
+        """Find the connected areas where the cube's rate passes a threshold.
+
+        From the cube's velocity layer, or a rate fitted to its displacement
+        (`source` says which). Each zone: id (Z1 = largest), direction
+        (negative = away from the satellite), area, mean, median and peak rate
+        (mm/yr), centroid and box. Pass a zone id to infrastructure_in_area or
+        highlight_infrastructure. Draws the zones when a page is connected.
+        Rates are relative to the producer's reference; a noisy or incoherent
+        area can form zones too, so use coherence_min and look at the series.
+        """
+        res = await api.get(
+            "/deformation_zones",
+            threshold_mm_yr=threshold_mm_yr,
+            min_area_m2=min_area_m2,
+            bbox=",".join(f"{v:g}" for v in bbox) if bbox else None,
+            sign=sign,
+            layer=layer,
+            coherence_min=coherence_min,
+            max_zones=max_zones,
+            dataset=dataset,
+        )
+        zones_out = []
+        for f in res["zones"]["features"]:
+            z = dict(f["properties"])
+            if include_geometry:
+                z["geometry"] = f["geometry"]
+            zones_out.append(z)
+        note = await drawn(
+            res["result_id"],
+            f"Zones |rate| >= {threshold_mm_yr:g} {res['unit']}",
+            None,
+            show_on_map,
+            len(zones_out),
+        )
+        biggest = zones_out[0] if zones_out else None
+        return {
+            "source": res["source"],
+            "threshold": threshold_mm_yr,
+            "unit": res["unit"],
+            "sign": sign,
+            "n_zones": res["n_zones"],
+            "n_found": res["n_found"],
+            "truncated": res["truncated"],
+            "total_area_m2": res["total_area_m2"],
+            "cell_m": res["cell_m"],
+            "quality_mask": res["quality_mask"],
+            "zones": zones_out,
+            "zones_id": res["result_id"],
+            "map": note,
+            "summary": (
+                f"{res['n_zones']} zone(s) with |rate| >= {threshold_mm_yr:g} "
+                f"{res['unit']}, {res['total_area_m2'] / 1e6:.2f} km² in all"
+                + (
+                    f"; largest {biggest['zone']}: {biggest['area_km2']} km², mean "
+                    f"{biggest['mean_rate']} {res['unit']}"
+                    if biggest
+                    else ""
+                )
+            ),
+            "note": "Rates are relative to the producer's reference point. Zone "
+            "edges follow the grid (cells of about cell_m). A zone is a screening "
+            "result: check its time series, coherence and what is on the ground. "
+            + EXPOSURE_NOTE,
+        }
+
+    async def _quality_at(all_layers: dict, lon: float, lat: float, dataset):
+        """Read the cube's median temporal coherence and phase similarity at a point."""
+        found: dict[str, Any] = {}
+        for name in ("temporal_coherence", "phase_similarity"):
+            for cand in (f"median_{name}", f"average_{name}", name):
+                info = all_layers.get(cand)
+                if info is None:
+                    continue
+                try:
+                    vals = await api.get(
+                        "/point",
+                        dataset_name=cand,
+                        lon=lon,
+                        lat=lat,
+                        dataset=dataset,
+                    )
+                except BowserError:
+                    break
+                arr = [v for v in vals if v is not None and math.isfinite(v)]
+                if arr:
+                    found[name] = {
+                        "value": round(float(sorted(arr)[len(arr) // 2]), 3),
+                        "layer": cand,
+                        "how": "median over the dates"
+                        if len(vals) > 1
+                        else "as stored",
+                    }
+                break
+        if not found:
+            return {
+                "factor": "quality",
+                "status": "no_data",
+                "finding": "The cube has no coherence or phase similarity at this "
+                "point (no such layer, or nodata).",
+                "caution": "Blank or masked does not mean stable.",
+            }
+        coh = (found.get("temporal_coherence") or {}).get("value")
+        sim = (found.get("phase_similarity") or {}).get("value")
+        low = (coh is not None and coh < 0.5) or (sim is not None and sim < 0.5)
+        parts = [
+            f"{k.replace('_', ' ')} {v['value']} ({v['layer']}, {v['how']})"
+            for k, v in found.items()
+        ]
+        return {
+            "factor": "quality",
+            "status": "flagged" if low else "clear",
+            "finding": "Cube quality here: " + "; ".join(parts) + ".",
+            "caution": "Low coherence or phase similarity: the series is noisy and "
+            "unwrapping errors are more likely; do not read small trends."
+            if low
+            else None,
+            **found,
+        }
+
+    @tool(open_world=True, status="Reading the ground at the point")
+    async def site_context(
+        lon: Lon,
+        lat: Lat,
+        radius_m: Annotated[
+            float,
+            Field(gt=0, le=2000, description="Radius for nearby infrastructure (m)."),
+        ] = 300.0,
+        dataset: Dataset = None,
+    ) -> dict[str, Any]:
+        """Say what is on the ground at a point: call it before reading a time series.
+
+        Land cover, geology (sediment or bedrock), mapped wetlands, soil (peat,
+        expansive clay, fill), terrain slope and how much of a downslope motion
+        the radar sees, nearby infrastructure, and the cube's quality there
+        (median temporal coherence and phase similarity). Each factor says what
+        it means for the interpretation; a service that cannot be reached says
+        "could not be looked up", which is not the same as nothing there.
+        Context suggests explanations; it does not prove them.
+        """
+        all_layers = await layers(dataset)
+        info = next(iter(all_layers.values()), {})
+        check_point(info, lon, lat)
+        try:
+            ground = await api.get("/site_context", lon=lon, lat=lat)
+            factors = ground["factors"]
+        except BowserError as e:
+            factors = [
+                {
+                    "factor": "ground",
+                    "status": "unavailable",
+                    "finding": f"Could not be looked up ({e}).",
+                    "caution": None,
+                }
+            ]
+        los = None
+        for i in all_layers.values():
+            m = i.get("los_metadata") or {}
+            if m.get("los_enu_ground_to_sat"):
+                los = m["los_enu_ground_to_sat"]
+                break
+        for f in factors:
+            if f.get("factor") == "terrain" and f.get("slope_deg") is not None:
+                f.update(_downslope_in_los(f, los))
+        factors.append(await _quality_at(all_layers, lon, lat, dataset))
+        try:
+            infra = await api.post(
+                "/infrastructure",
+                {
+                    "point": [lon, lat],
+                    "radius_m": radius_m,
+                    "kinds": list(KIND_NAMES),
+                    "list_limit": 3,
+                },
+            )
+            factors.append(
+                {
+                    "factor": "infrastructure",
+                    "status": "clear",
+                    "finding": f"Within {radius_m:g} m: {infra['text']}.",
+                    "caution": None,
+                    "summary": infra["summary"],
+                    "source": infra["attribution"],
+                }
+            )
+        except BowserError as e:
+            factors.append(
+                {
+                    "factor": "infrastructure",
+                    "status": "unavailable",
+                    "finding": f"Could not be looked up ({e}).",
+                    "caution": None,
+                }
+            )
+        flagged = [f["factor"] for f in factors if f["status"] == "flagged"]
+        missing = [
+            f["factor"] for f in factors if f["status"] in ("unavailable", "off")
+        ]
+        text = f"Flagged: {', '.join(flagged) or 'nothing'}"
+        if missing:
+            text += f"; could not be looked up: {', '.join(missing)}"
+        return {
+            "point": [lon, lat],
+            "factors": factors,
+            "summary": text,
+            "note": "Say which factors could explain the signal and how sure you "
+            "are; name what could not be looked up. Context suggests explanations, "
+            "it does not prove them.",
+        }
+
     # --- tools: the page's map -------------------------------------------------------
 
     @page_tool(read_only=True, status="Reading the view")
@@ -2071,6 +2705,14 @@ PAGE_COMMANDS = frozenset(
         "set_opacity",
         "list_commands",
         "run_command",
+        "list_context_layers",
+        "add_context_layer",
+        "remove_context_layer",
+        "highlight_infrastructure",
+        "clear_highlights",
+        "get_areas",
+        # Not a tool: how the data tools draw what they found (show_on_map).
+        "draw_highlight",
     }
 )
 PAGE_COMMANDS |= CHART_COMMANDS

@@ -14,6 +14,10 @@ import { fetchHistogram, presetRange, RANGE_PRESETS, type RangePreset } from '..
 import { defaultMasks } from '../utils/defaultMasks';
 import type { AppAction, AppState, Overlay } from '../types';
 import { listCommands, runCommand, type CommandEnv } from './commands';
+import {
+  addService, clearHighlights, drawResult, isHighlight, listServices, removeService,
+} from '../map/contextServices';
+import { DRAWINGS_ID, drawingName } from '../map/overlays';
 import { runChartTool } from './chartTools';
 import { CHART_TOOL_NAMES } from './chartView';
 
@@ -47,6 +51,8 @@ export const PAGE_TOOL_NAMES = new Set([
   'get_masks', 'set_masks', 'clear_masks', 'set_recommended_mask',
   'get_display', 'set_colormap', 'set_color_range', 'set_opacity',
   'list_commands', 'run_command',
+  'list_context_layers', 'add_context_layer', 'remove_context_layer',
+  'highlight_infrastructure', 'clear_highlights', 'get_areas', 'draw_highlight',
   ...CHART_TOOL_NAMES,
 ]);
 
@@ -578,6 +584,28 @@ export async function runPageTool(name: string, input: Record<string, unknown>, 
       const args = (input.args ?? {}) as Record<string, unknown>;
       return runCommand(commandEnv(ctx), String(input.id ?? ''), args);
     }
+    case 'list_context_layers':
+      return {
+        layers: listServices(state),
+        highlights: state.overlays.filter(isHighlight).map(o => ({ name: o.name, features: o.data?.features.length ?? 0 })),
+        note: 'add_context_layer / remove_context_layer switch these as the toggles in Overlays › Services do.',
+      };
+    case 'add_context_layer': {
+      const opacity = isNum(input.opacity) ? input.opacity : undefined;
+      const year = isNum(input.year) ? input.year : undefined;
+      return { ok: true, ...(await addService(commandEnv(ctx), input.id, { opacity, year })) };
+    }
+    case 'remove_context_layer':
+      return { ok: true, ...removeService(commandEnv(ctx), input.id) };
+    case 'draw_highlight':
+      return drawResult(commandEnv(ctx), String(input.result_id ?? ''),
+        typeof input.name === 'string' ? input.name : undefined, typeof input.color === 'string' ? input.color : undefined);
+    case 'highlight_infrastructure':
+      return highlightInfrastructure(ctx, input);
+    case 'clear_highlights':
+      return clearHighlights(commandEnv(ctx), typeof input.name === 'string' && input.name ? input.name : undefined);
+    case 'get_areas':
+      return getAreas(state, typeof input.name === 'string' && input.name ? input.name : undefined);
     default:
       if (CHART_TOOL_NAMES.has(name)) return runChartTool(name, input, ctx);
       throw new Error(`No page tool ${name}.`);
@@ -585,6 +613,72 @@ export async function runPageTool(name: string, input: Record<string, unknown>, 
 }
 
 const commandEnv = (ctx: PageContext): CommandEnv => ({ getState: ctx.getState, dispatch: ctx.dispatch });
+
+// ── areas and highlights ─────────────────────────────────────────────────────────────
+
+type Geometry = { type: string; coordinates: unknown };
+
+/** The shapes drawn on the map (Overlays › Draw) and the chart's areas, by name. */
+function areasOf(state: AppState): { name: string; kind: string; geometry: Geometry }[] {
+  const out: { name: string; kind: string; geometry: Geometry }[] = [];
+  const drawings = state.overlays.find(o => o.id === DRAWINGS_ID);
+  (drawings?.data?.features as { geometry?: Geometry | null }[] | undefined ?? []).forEach((f, i) => {
+    if (f?.geometry) out.push({ name: drawingName(f) || `${f.geometry.type} ${i + 1}`, kind: `drawn ${f.geometry.type}`, geometry: f.geometry });
+  });
+  for (const a of state.chartAreas ?? []) out.push({ name: a.name, kind: 'chart area', geometry: a.geometry });
+  return out;
+}
+
+function getAreas(state: AppState, name?: string) {
+  const all = areasOf(state);
+  if (!name) return { areas: all.map(a => ({ name: a.name, kind: a.kind })), note: 'Give a name to get its geometry.' };
+  const hit = all.find(a => a.name === name) ?? all.find(a => a.name.toLowerCase() === name.toLowerCase());
+  if (!hit) {
+    const close = closeMatches(name, all.map(a => a.name));
+    throw new Error(`No drawn shape or chart area ${JSON.stringify(name)}${close.length ? ` (did you mean ${close.join(', ')}?)` : ''}. `
+      + `Areas: ${all.map(a => a.name).join(', ') || 'none'}.`);
+  }
+  if (!['Polygon', 'MultiPolygon'].includes(hit.geometry.type)) throw new Error(`${hit.name} is a ${hit.geometry.type}, not an area.`);
+  return hit;
+}
+
+/** Look up the infrastructure of an area on the server (POST /infrastructure), then draw it. */
+async function highlightInfrastructure(ctx: PageContext, input: Record<string, unknown>) {
+  const kinds = Array.isArray(input.kinds) && input.kinds.length ? input.kinds : ['roads'];
+  const body: Record<string, unknown> = { kinds };
+  let label = '';
+  if (typeof input.area === 'string' && input.area) {
+    const a = getAreas(ctx.getState(), input.area) as { name: string; geometry: Geometry };
+    body.geometry = a.geometry;
+    label = a.name;
+  } else if (typeof input.zone === 'string' && input.zone) {
+    body.zone = input.zone;
+    label = `zone ${input.zone}`;
+  } else if (Array.isArray(input.bbox)) {
+    body.bbox = input.bbox;
+    label = 'the box';
+  } else if (input.geometry && typeof input.geometry === 'object') {
+    body.geometry = input.geometry;
+    label = 'the area';
+  } else {
+    throw new Error('Give one of geometry, bbox, area or zone.');
+  }
+  const res = await fetch('/infrastructure', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  const found = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(String(found.detail ?? `The server answered HTTP ${res.status}.`));
+  const name = `${(kinds as string[]).join(', ')} in ${label}`.replace(/^./, c => c.toUpperCase());
+  const color = typeof input.color === 'string' && /^#[0-9a-f]{6}$/i.test(input.color) ? input.color : undefined;
+  const counts = Object.fromEntries(Object.entries(found.summary ?? {}).map(([k, v]) => [k, (v as { count: number }).count]));
+  const about = { counts, text: found.text, attribution: found.attribution };
+  if (!found.n_features) {
+    return { ok: true, name, n_features: 0, ...about, note: 'Nothing found in OpenStreetMap there, so nothing was drawn.' };
+  }
+  const drawn = await drawResult(commandEnv(ctx), found.result_id, name, color);
+  return { ...drawn, ...about, note: `On the map as "${name}" (Overlays › Layers); clear_highlights removes it.` };
+}
+
 
 /** A GeoTIFF on the server's disk as an overlay: only where the page may open server paths. */
 async function addOverlay(path: string, name: string | undefined, ctx: PageContext): Promise<unknown> {

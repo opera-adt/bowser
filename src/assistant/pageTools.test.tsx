@@ -221,7 +221,9 @@ it('every page tool the server defines has an implementation here', () => {
   const server = ['get_view', 'fly_to', 'fit_bounds', 'pan', 'zoom', 'go_to', 'set_terrain', 'set_split_screen', 'add_point',
     'get_reference', 'set_reference_point', 'reset_reference', 'set_reference_date', 'switch_layer', 'open_chart', 'get_masks',
     'set_masks', 'clear_masks', 'set_recommended_mask', 'get_display', 'set_colormap', 'set_color_range', 'set_opacity',
-    'list_commands', 'run_command', 'add_overlay'];
+    'list_commands', 'run_command', 'add_overlay',
+    'list_context_layers', 'add_context_layer', 'remove_context_layer', 'highlight_infrastructure', 'clear_highlights',
+    'get_areas', 'draw_highlight'];
   // src/bowser/chart_tools.py CHART_COMMANDS (src/assistant/chartTools.ts).
   const chart = ['get_chart_data', 'get_fit_results', 'set_fit', 'add_step', 'remove_step', 'set_residuals', 'list_points',
     'rename_point', 'remove_point', 'set_point_style', 'list_areas', 'rename_area', 'set_area_style', 'set_area_band',

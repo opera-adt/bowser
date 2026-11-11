@@ -157,6 +157,27 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   badges the Assistant's rail icon; it waits 10 minutes
   (`BOWSER_ASSISTANT_PERMISSION_SECONDS`) instead of 2, and after a timeout
   Retry asks the question again.
+- Context and infrastructure tools for the AI, on every path (the Assistant,
+  Sign in with Claude, `bowser mcp`):
+  - `deformation_zones` and `GET /deformation_zones` (full and lite, the same
+    zones): connected areas where |velocity| (or a rate fitted to the
+    displacement) reaches a threshold, with outlines, area, mean, median and
+    peak rate, and ids to pass on;
+  - `infrastructure_at`, `infrastructure_in_area` and `POST /infrastructure`:
+    roads, buildings, rail, bridges, pipelines, dams and levees at a point or
+    in an area, a drawn shape, a chart area or a zone, from OpenStreetMap
+    through the Overpass API (one request per second, one at a time, cached,
+    with a User-Agent naming Bowser; `BOWSER_OVERPASS_URL` moves or turns it
+    off);
+  - `site_context` and `GET /site_context`: land cover, geology, wetlands,
+    soil, slope (and how much of a downslope motion the radar sees), nearby
+    infrastructure and the cube's coherence at a point, to read before a time
+    series; each service that cannot be reached says so
+    (`BOWSER_CONTEXT_SERVICES=off` turns them all off);
+  - page tools `list_context_layers`, `add_context_layer`,
+    `remove_context_layer` (the Overlays › Services toggles),
+    `highlight_infrastructure`, `clear_highlights` and `get_areas`; the tools
+    above draw what they find as highlight layers when a page is connected.
 
 ### Changed
 

@@ -273,6 +273,37 @@ PARAMS: dict[str, dict[str, Any]] = {
         "time_idx minus the value at ref_time_idx, per pixel.",
         "examples": [0],
     },
+    "threshold_mm_yr": {
+        "description": "Rate (mm/yr for layers in metres) that |rate| must reach.",
+        "examples": [5.0],
+    },
+    "zone_sign": {
+        "description": "negative: away from the satellite; positive: towards it; "
+        "both: either (a zone never mixes the two).",
+        "examples": ["both"],
+    },
+    "min_area_m2": {
+        "description": "Leave out zones smaller than this (m²).",
+        "examples": [0],
+    },
+    "zone_bbox": {
+        "description": "Search only in [west, south, east, north] (lon/lat, comma "
+        "separated); omit for the whole cube.",
+        "examples": ["-117.68,33.95,-117.66,33.97"],
+    },
+    "rate_layer": {
+        "description": "A 2-D rate layer, or a layer with dates whose straight-line "
+        "rate is fitted per pixel. Default: velocity if the cube has it, else "
+        "displacement.",
+        "examples": ["velocity"],
+    },
+    "zones_coherence_min": {
+        "description": "Keep only cells whose coherence (median_temporal_coherence, "
+        "average_temporal_coherence, or the median of temporal_coherence) is at "
+        "least this.",
+        "examples": [0.5],
+    },
+    "max_zones": {"description": "The largest zones kept.", "examples": [50]},
 }
 
 _LITE_501 = (
@@ -707,6 +738,51 @@ ROUTES: dict[str, dict[str, Any]] = {
         "when the Assistant is off, 503 when geocoding is off.",
         "tags": [ASSISTANT],
     },
+    "GET /deformation_zones": {
+        "summary": "Find areas moving faster than a threshold",
+        "description": "Connected areas (4-connected cells) where |rate| reaches "
+        "`threshold_mm_yr`, from the cube's 2-D velocity layer, or a straight line "
+        "fitted to its displacement when it has none (`source` says which). Each "
+        "zone (a GeoJSON Polygon in lon/lat, outlines simplified to half a cell) "
+        "has its area, mean, median and peak rate, centroid and box; the largest "
+        "come first, with ids Z1, Z2... The result is kept (`result_id`) so the "
+        "page can draw it and POST /infrastructure can take a zone. The full "
+        "server and bowser-lite give the same zones (numpy only). Values are "
+        "relative to the producer's reference unless `ref_lon`/`ref_lat` is given.",
+        "tags": [STATS],
+    },
+    "POST /infrastructure": {
+        "summary": "Infrastructure in an area (OpenStreetMap)",
+        "description": "Roads, buildings, rail, bridges, pipelines, dams and levees "
+        "in an area (a GeoJSON polygon, a bbox, a circle around a point or a "
+        "deformation zone), from OpenStreetMap through the Overpass API: per kind, "
+        "the count, the length inside (lines are clipped to the area) by class, "
+        "the building footprint and types, and the named features. The features "
+        "are kept for the page to draw (`result_id`). One Overpass request per "
+        "second leaves the server, one at a time; answers are cached for a day. "
+        "`BOWSER_OVERPASS_URL` changes or (off) disables the service. 403 when "
+        "the Assistant is off.",
+        "tags": [CONTEXT],
+    },
+    "GET /site_context": {
+        "summary": "What is on the ground at a point",
+        "description": "Land cover (Sentinel-2 10 m), geology (Macrostrat), mapped "
+        "wetlands (USFWS NWI), soil (USDA SSURGO) and terrain slope (AWS Terrain "
+        "Tiles) at a point, each with what it means for reading a time series and "
+        "a status: flagged, clear, no_data, or unavailable / off (could not be "
+        "looked up). Requests are spaced per service and cached for a day; "
+        "`BOWSER_CONTEXT_SERVICES=off` turns them all off. 403 when the "
+        "Assistant is off.",
+        "tags": [CONTEXT],
+    },
+    "GET /context/results/{result_id}": {
+        "summary": "A kept result's features",
+        "description": "The features of a POST /infrastructure or GET "
+        "/deformation_zones result, as a GeoJSON FeatureCollection, for the page "
+        "to draw. Results are kept for 4 hours (the latest 64). 403 when the "
+        "Assistant is off; 404 when the result is unknown or too old.",
+        "tags": [CONTEXT],
+    },
 }
 
 #: Routes that bowser-lite answers with 501 (they need GDAL).
@@ -967,6 +1043,102 @@ class GeocodeAnswer(_Fixed):
     results: list[GeocodeResult]
     cached: bool = Field(description="Whether the answer came from the cache.")
     attribution: str = Field(description="Credit to show with the results.")
+
+
+class ZoneProperties(_Fixed):
+    """What GET /deformation_zones says of one zone."""
+
+    zone: str = Field(description="Z1, Z2... (largest first).")
+    direction: Literal["negative", "positive"]
+    area_m2: int
+    area_km2: float
+    n_cells: int
+    mean_rate: float
+    median_rate: float
+    peak_rate: float = Field(description="The rate of largest magnitude.")
+    centroid: list[float] = Field(description="[lon, lat] of the cells' centre.")
+    bbox: list[float] = Field(description="[west, south, east, north].")
+
+
+class ZoneFeature(_Fixed):
+    """One zone, a GeoJSON Feature."""
+
+    type: Literal["Feature"]
+    id: str
+    geometry: dict[str, Any] = Field(description="GeoJSON Polygon, lon/lat.")
+    properties: ZoneProperties
+
+
+class ZoneCollection(_Fixed):
+    """The zones, a GeoJSON FeatureCollection."""
+
+    type: Literal["FeatureCollection"]
+    features: list[ZoneFeature]
+
+
+class DeformationZones(_Fixed):
+    """``GET /deformation_zones``."""
+
+    zones: ZoneCollection
+    n_zones: int
+    n_found: int = Field(description="Zones found before min area and max_zones.")
+    truncated: bool
+    total_area_m2: int
+    threshold: float
+    sign: Literal["both", "negative", "positive"]
+    unit: str = Field(description="Unit of the rates (mm/yr for metres).")
+    source: str = Field(description="Where the rate comes from.")
+    quality_mask: Optional[dict[str, Any]]
+    cell_m: float = Field(description="Size of a grid cell, metres.")
+    grid_shape: list[int]
+    valid_cells: int
+    reference: Optional[dict[str, Any]]
+    bbox: Optional[list[float]]
+    result_id: str = Field(description="Id for GET /context/results/{result_id}.")
+
+
+class InfrastructureAnswer(_Fixed):
+    """``POST /infrastructure``."""
+
+    where: str
+    kinds: list[str]
+    area_m2: int
+    summary: dict[str, dict[str, Any]] = Field(description="Per kind.")
+    text: str
+    result_id: str
+    n_features: int
+    zones_id: Optional[str]
+    cached: bool
+    attribution: str
+    note: str
+
+
+class SiteFactor(BaseModel):
+    """One factor of GET /site_context (with extra fields per factor)."""
+
+    model_config = ConfigDict(extra="allow")
+
+    factor: str
+    status: Literal["flagged", "clear", "no_data", "unavailable", "off"]
+    finding: str
+    caution: Optional[str] = None
+
+
+class SiteContextAnswer(_Fixed):
+    """``GET /site_context``."""
+
+    lon: float
+    lat: float
+    factors: list[SiteFactor]
+    summary: str
+
+
+class ContextResult(_Fixed):
+    """``GET /context/results/{result_id}``."""
+
+    id: str
+    kind: Literal["infrastructure", "zones"]
+    features: dict[str, Any] = Field(description="A GeoJSON FeatureCollection.")
 
 
 class ModeInfo(_Fixed):
