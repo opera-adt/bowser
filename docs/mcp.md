@@ -187,6 +187,54 @@ server itself. For an unusual setup (another user, a container) pass it with
 the page tools say to start `bowser mcp` on the same computer as the server.
 The token is never sent to the page, logged, or put in an answer.
 
+## The chart
+
+The chart tools read and change the page's time-series chart. They are page
+tools like those above (the chart opens if it is closed), so they need an open
+page, and they work on the chart's own state: what they return is what the
+chart draws, and what they set is what its controls set.
+
+| Tool | What it does | As the page's |
+| --- | --- | --- |
+| `get_chart_data` | Each series (point × layer, area × layer): name, layer, unit, dates and values exactly as drawn, with the reference point and date, masks, date range and units applied; for an area its mean and band too; the model line as drawn with `include_model`. Also the layers (one y axis each), the date range, reference and masks. At most 2000 values per series and 4000 in all (thinned, with a note). Read-only. | chart |
+| `get_fit_results` | Per point series: the rate (or a rate per segment), mean rate and acceleration (quadratic, cubic), annual and semi-annual amplitude and peak day of year, each step's size at its date, the RMS of the residuals, each with a 1-sigma error; in mm and mm/yr (inches in imperial units). Read-only. | model summary |
+| `set_fit` | `polynomial_order` (0–3), `annual`, `semiannual`, `steps` and `segments` (dates), `reject_outliers`; turns the model on and returns the fit results. Terms not given are kept. | Model card |
+| `add_step`, `remove_step` | One step at a date; returns the step's size ± its error after the refit | Model card's Steps |
+| `set_residuals` | The model's residuals on or off | residuals button |
+| `list_points`, `rename_point`, `remove_point` | Points by id or name: id, name, lon, lat, colour, marker, line, shown. `remove_point` is destructive and the model is told to ask first. | Points panel |
+| `set_point_style` | `color`, `marker` (circle, square, triangle, diamond, star, cross, none), `line` (solid, dashed, none), `size` (the chart's marker size, 1–12 px); the colour is the map marker's too | Style button |
+| `list_areas`, `rename_area`, `set_area_style`, `set_area_band` | An area's colour, median line, line width (1, 1.5, 2, 3, 4 px), mean and band on or off, band opacity (0–0.8); the band of all areas (`std` or `p10p90`) | Style button, Band menu |
+| `set_chart_layers` | The layers in the chart, each on its own y axis (`[]` follows the map's layer) | layer chips |
+| `set_layer_display` | A layer's `offset`, `ymin`, `ymax` (in its axis unit) and `color`, or `reset` | Display options |
+| `set_date_range` | `start` and `end` (YYYY-MM-DD), or `reset`; the model fits only these dates | Display options |
+| `export_chart` | `csv` or `png`, saved by the user's browser | Export CSV, Save as PNG |
+| `check_series` | Per series (or one `point`): likely steps with their size and the date a model step goes at (`step_date`), one-date outliers, and which of them are about 1–3 half radar wavelengths (an unwrapping error); gaps, thin months, scatter, trend against noise. Read-only. | — |
+
+The fit is the chart's own least squares (src/map/fit.ts): a polynomial
+(per segment when there are breaks), annual and semi-annual sines and cosines,
+and a Heaviside step per date, over the date range shown. Each ± is the formal
+1-sigma error from the covariance σ² (AᵀA)⁻¹, with σ² the residual variance;
+the amplitude and peak day of a seasonal term are propagated from its sine and
+cosine. They assume independent noise from date to date, so with correlated
+noise (atmosphere, unmodelled seasonal effects) the real uncertainty is larger.
+
+Step and segment dates must lie inside the series shown; a date between two
+acquisitions gets a note with the nearest one (a step in a long gap takes all
+the motion in that gap). Dates are checked as real YYYY-MM-DD dates before the
+page sees them.
+
+`check_series` uses the checks of the OPERA DISP Portal, tested on the same
+real series (tests/data/series_checks_cases.json): a lasting jump is at least
+10 mm and six times the date-to-date scatter between the medians of five dates
+on each side; an outlier is a single date at least 10 mm and five scatters from
+the three dates on each side, with both neighbours agreeing. A jump or outlier
+within 20% of one to three half wavelengths is flagged as a possible
+unwrapping error. The wavelength is the cube's (`radar_wavelength_m` of
+`GET /datasets`, from attributes such as `wavelength_m`), else the sensor the
+layers name (Sentinel-1 C band 5.55 cm, so 27.7 mm; NISAR L band 23.8 cm), else
+the `wavelength_m` argument. The model is told to suggest `add_step` at a
+flagged `step_date` and to ask the user before adding it.
+
 ## Places
 
 `geocode` and `go_to` use OpenStreetMap's

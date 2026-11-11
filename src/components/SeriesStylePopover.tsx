@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAppContext } from '../context/AppContext';
-import { areaStyle, LINES, MARKERS, type LineStyle, type MarkerShape } from '../map/seriesStyle';
+import { AREA_WIDTHS, areaStyle, LINES, MARKERS, type LineStyle, type MarkerShape } from '../map/seriesStyle';
 import type { ChartArea, TimeSeriesPoint } from '../types';
 
 const MARKER_LABEL: Record<MarkerShape, string> = {
   circle: '● circle', square: '■ square', triangle: '▲ triangle', diamond: '◆ diamond', star: '★ star', cross: '✕ cross', none: 'no marker',
 };
 const LINE_LABEL: Record<LineStyle, string> = { solid: 'line', dashed: 'dashed', none: 'no line' };
-const AREA_WIDTHS = [1, 1.5, 2, 3, 4] as const;
 
 /**
  * The chart header's Style button: colour, marker and line for each point, the marker size, and

@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from ..layer_info import describe_layer
+from ..layer_info import describe_layer, radar_wavelength
 from ..utils import _uses_spatial_reference
 from . import geo
 from .cube import Cube, spatial_ref_attrs
@@ -179,6 +179,7 @@ def dataset_info(cube: Cube, use_spatial_reference: bool) -> dict:
     ll_bounds = list(latlon_bounds(cube))
     los = los_metadata(dict(ds.attrs))
     ref_ll = reference_lonlat(ds)
+    wavelength = radar_wavelength(ds.attrs, *(v.attrs for v in ds.data_vars.values()))
     available_masks = [v for v in MASK_VARS if v in ds.data_vars]
     info = {}
     for name, var in ds.data_vars.items():
@@ -204,6 +205,7 @@ def dataset_info(cube: Cube, use_spatial_reference: bool) -> dict:
             "label": attrs.get("long_name", name),
             "los_metadata": los,
             "reference_lonlat": ref_ll,
+            **({"radar_wavelength_m": wavelength} if wavelength else {}),
             **describe_layer(str(name), attrs),
         }
     return info

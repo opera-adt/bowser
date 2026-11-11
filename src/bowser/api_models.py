@@ -1203,6 +1203,11 @@ class DatasetInfo(_Fixed):
     available_mask_vars: Optional[list[str]] = None
     label: Optional[str] = None
     reference_lonlat: Optional[list[float]] = None
+    radar_wavelength_m: Optional[float] = Field(
+        default=None,
+        description="GeoZarr mode only, when the cube records it: the radar "
+        "wavelength in metres (unwrapping errors are multiples of half of it).",
+    )
     description: str
     description_source: Literal["bowser", "source", "unknown"]
     source_description: Optional[str]

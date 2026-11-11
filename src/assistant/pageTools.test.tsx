@@ -224,7 +224,11 @@ it('every page tool the server defines has an implementation here', () => {
     'list_commands', 'run_command', 'add_overlay',
     'list_context_layers', 'add_context_layer', 'remove_context_layer', 'highlight_infrastructure', 'clear_highlights',
     'get_areas', 'draw_highlight'];
-  expect([...PAGE_TOOL_NAMES].sort()).toEqual(server.sort());
+  // src/bowser/chart_tools.py CHART_COMMANDS (src/assistant/chartTools.ts).
+  const chart = ['get_chart_data', 'get_fit_results', 'set_fit', 'add_step', 'remove_step', 'set_residuals', 'list_points',
+    'rename_point', 'remove_point', 'set_point_style', 'list_areas', 'rename_area', 'set_area_style', 'set_area_band',
+    'set_chart_layers', 'set_layer_display', 'set_date_range', 'export_chart', 'check_series'];
+  expect([...PAGE_TOOL_NAMES].sort()).toEqual([...server, ...chart].sort());
 });
 
 it("the status line uses the label the server sends, else the tool's name in words", () => {

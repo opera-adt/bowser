@@ -18,6 +18,8 @@ import {
   addService, clearHighlights, drawResult, isHighlight, listServices, removeService,
 } from '../map/contextServices';
 import { DRAWINGS_ID, drawingName } from '../map/overlays';
+import { runChartTool } from './chartTools';
+import { CHART_TOOL_NAMES } from './chartView';
 
 export interface PageContext {
   /** The latest rendered state (the loop runs across renders). */
@@ -51,6 +53,7 @@ export const PAGE_TOOL_NAMES = new Set([
   'list_commands', 'run_command',
   'list_context_layers', 'add_context_layer', 'remove_context_layer',
   'highlight_infrastructure', 'clear_highlights', 'get_areas', 'draw_highlight',
+  ...CHART_TOOL_NAMES,
 ]);
 
 /**
@@ -604,6 +607,7 @@ export async function runPageTool(name: string, input: Record<string, unknown>, 
     case 'get_areas':
       return getAreas(state, typeof input.name === 'string' && input.name ? input.name : undefined);
     default:
+      if (CHART_TOOL_NAMES.has(name)) return runChartTool(name, input, ctx);
       throw new Error(`No page tool ${name}.`);
   }
 }

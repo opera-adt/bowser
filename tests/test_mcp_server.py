@@ -31,6 +31,7 @@ pytest.importorskip("rioxarray")
 
 from mcp import Client  # noqa: E402
 
+from bowser.chart_tools import CHART_COMMANDS  # noqa: E402
 from bowser.mcp_server import INSTRUCTIONS, build_server  # noqa: E402
 
 REGRESSION = Path(__file__).resolve().parent / "regression"
@@ -262,7 +263,7 @@ def test_tools_have_descriptions_and_schemas():
             return (await client.list_tools()).tools
 
     tools = asyncio.run(listing())
-    assert {t.name for t in tools} == TOOLS | PAGE_TOOLS
+    assert {t.name for t in tools} == TOOLS | PAGE_TOOLS | CHART_COMMANDS
     for t in tools:
         assert len(t.description or "") > 40, t.name
         schema = t.input_schema
