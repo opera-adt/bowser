@@ -11,6 +11,10 @@ at the centre of every cube pixel in the view:
   server's ``/point`` series (date minus reference date, the mask, minus the
   reference point's shift), in float32 as the shader does; masked and nodata
   pixels show the map underneath (the same screenshot with the layer at opacity 0);
+- displacement (metres) is drawn from float16 textures and the mask from float32
+  ones (src/map/gpu/half.ts), so the expected value rounds the date's and the
+  reference date's ``/point`` values to float16 first; that rounding stays within
+  0.1 mm of the float32 values;
 - the server's tiles (``?render=tiles``, same state) agree on almost every pixel.
 
 Also ``?render=auto`` picks tiles under SwiftShader (a software renderer).
@@ -257,8 +261,21 @@ CENTER = (-117.67462, 33.95859)
 REF_PIXEL = (10, 34)
 
 
+# The largest float16 rounding the GPU path allows for metres (half.ts).
+HALF_TOLERANCE_M = 1e-4
+
+
+def _half(v) -> np.float32:
+    """``v`` as the GPU reads it from a float16 texture."""
+    return np.float32(np.float16(np.float32(v)))
+
+
 def _expected(server, points, ref_series):
-    """The shader's arithmetic in float32 on /point values; None where masked/nodata."""
+    """The shader's arithmetic in float32 on /point values; None where masked/nodata.
+
+    The displacement values are rounded to float16 as the textures hold them; the
+    result also carries the value without that rounding (for the error summary).
+    """
     f = np.float32
     shift_t = ref_series[T] if ref_series[T] is not None else 0.0
     shift = f(f(shift_t) - f(ref_series[REF_T] or 0.0))
@@ -274,9 +291,11 @@ def _expected(server, points, ref_series):
         if v_t is None or v_r is None or m is None or not f(m) >= f(MASK["threshold"]):
             out[(row, col)] = None
             continue
-        v = f(f(f(v_t) - f(v_r)) - shift)
+        v = f(f(_half(v_t) - _half(v_r)) - shift)
+        v32 = f(f(f(v_t) - f(v_r)) - shift)
         t = f(f(min(max(v, f(VMIN)), f(VMAX)) - f(VMIN)) / f(f(VMAX) - f(VMIN)))
-        out[(row, col)] = (min(255, max(0, math.floor(f(t * f(255))))), float(t * 255))
+        idx = min(255, max(0, math.floor(f(t * f(255)))))
+        out[(row, col)] = (idx, float(t * 255), abs(float(v) - float(v32)))
     return out
 
 
@@ -312,6 +331,10 @@ def test_gpu_draws_the_values_of_point(browser, server):
         )
         shots[render] = _settled(page)
         if render == "gpu":
+            stats = json.loads(
+                page.get_attribute("[data-testid=render-label]", "data-gpu-stats")
+                or "{}"
+            )
             _command(server, "set_opacity", opacity=0)
             shots["under"] = _settled(page)
             info = [m for m in logs if "[bowser] data layer" in m]
@@ -322,6 +345,9 @@ def test_gpu_draws_the_values_of_point(browser, server):
             requests = [m for m in logs if m.startswith("request: ")]
             assert any("/zarr/displacement/c/" in m for m in requests), requests
             assert not [m for m in requests if "/md/tiles/" in m], requests
+            # The chunks are fetched and decoded in the decoder workers.
+            workers = [w.url for w in page.workers]
+            assert any("decode.worker" in u for u in workers), workers
         ctx.close()
 
     if os.environ.get("BOWSER_TEST_SHOTS"):
@@ -348,6 +374,7 @@ def test_gpu_draws_the_values_of_point(browser, server):
 
     drawn = masked = near_edge = 0
     tile_agree = 0
+    max_half_err = 0.0
     bad = []
     for row, col, _, _, x, y in samples:
         exp = expected[(row, col)]
@@ -359,7 +386,8 @@ def test_gpu_draws_the_values_of_point(browser, server):
                 bad.append(("masked", row, col, got.tolist(), under[y, x].tolist()))
             continue
         drawn += 1
-        idx, exact = exp
+        idx, exact, half_err = exp
+        max_half_err = max(max_half_err, half_err)
         want = lut[idx, :3].astype(int)
         if np.abs(got - want).max() <= 1:
             continue
@@ -378,12 +406,18 @@ def test_gpu_draws_the_values_of_point(browser, server):
         "masked_or_nodata": masked,
         "boundary": near_edge,
         "gpu_eq_tiles": tile_agree,
+        "max_float16_error_m": max_half_err,
+        "gpu_stats": stats,
         "bad": bad[:10],
     }
     print(json.dumps(summary))
     assert drawn > 500 and masked > 100, summary  # both kinds are really tested
     assert not bad, summary
     assert tile_agree >= 0.97 * len(samples), summary
+    # Displacement in float16 (half the memory), the coherence mask in float32.
+    assert stats.get("f16", 0) > 0 and stats.get("f32", 0) > 0, summary
+    assert 0 < stats["maxHalfError"] <= HALF_TOLERANCE_M, summary
+    assert 0 < max_half_err <= 2 * HALF_TOLERANCE_M, summary
 
 
 def test_auto_picks_tiles_under_swiftshader(browser, server):
