@@ -69,6 +69,10 @@ writer = ["geozarr-toolkit>=0.1.1", "rasterio>=1.5.0"]
 # MCP server (`bowser mcp`, src/bowser/mcp_server.py): tools for AI assistants
 # that call a running Bowser server over HTTP. Imported only by that command.
 mcp = ["mcp==2.2.0", "httpx"]
+# The page's Assistant tab (src/bowser/assistant): the official Anthropic SDK for
+# Claude, httpx for the other providers (OpenAI, Gemini, OpenRouter, Ollama) and
+# keyring for the system keychain. Imported only when the tab is used.
+assistant = ["anthropic>=2.8,<3", "httpx", "keyring"]
 
 # [project.urls]
 # Homepage = "https://github.com/opera-adt/bowser"
@@ -144,8 +148,9 @@ idna = ">=3.18"
 default = { solve-group = "default" }
 test = { features = ["test"], solve-group = "test" }
 writer = { features = ["writer"], solve-group = "writer" }
-# CI tests in `all`, so it carries the MCP extra too (tests/test_mcp_server.py).
-all = { features = ["writer", "test", "mcp"], solve-group = "all" }
+# CI tests in `all`, so it carries the MCP and Assistant extras too
+# (tests/test_mcp_server.py, tests/test_assistant.py).
+all = { features = ["writer", "test", "mcp", "assistant"], solve-group = "all" }
 
 [tool.pixi.tasks]
 
