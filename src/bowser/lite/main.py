@@ -49,6 +49,7 @@ from ..reference_candidates import (
 from ..reference_candidates import status as candidates_status
 from ..refstats import Source, track_activity, warm_up_enabled
 from ..utils import calculate_trend
+from ..zarr_files import make_router as make_zarr_router
 from . import colormaps, geo, meta, sampling, tiles
 from .auth import BasicAuthMiddleware
 from .cube import Cube, Registry, load_default, open_cube
@@ -1327,6 +1328,16 @@ app.add_middleware(
 async def _server_error(request: Request, exc: Exception):  # noqa: ARG001
     return JSONResponse({"detail": str(exc)}, status_code=500)
 
+
+def _routed_uri() -> str | None:
+    """Return the path or URL of the cube this request is routed to, if any."""
+    cube = _request_cube.get() or _default_cube
+    return cube.uri if cube is not None else None
+
+
+# The cube's zarr files for the page's GPU renderer (?render=gpu|auto), as the full
+# server (zarr_files.py).
+app.include_router(make_zarr_router(_routed_uri, lambda: settings.BOWSER_ZARR_FILES))
 
 _PACKAGE = Path(__file__).resolve().parents[1]
 static_path = _PACKAGE / "static"

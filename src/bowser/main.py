@@ -65,6 +65,7 @@ from .utils import (
     generate_colorbar,
     register_custom_colormaps,
 )
+from .zarr_files import make_router as make_zarr_router
 
 # Register custom colormaps in rio_tiler BEFORE titiler.core.dependencies is
 # imported.  titiler captures cmap.list() into a Literal type annotation at
@@ -3235,6 +3236,12 @@ md_endpoints = TilerFactory(
 app.include_router(md_endpoints.router, prefix="/md", tags=[api.TILES])
 api.describe_tiler_routes(md_endpoints.router)
 logger.info("Configured MD endpoints at /md/*")
+
+# The cube's zarr files for the page's GPU renderer (?render=gpu|auto); ``state``
+# is the cube this request is routed to (``?dataset=``), see zarr_files.py.
+app.include_router(
+    make_zarr_router(lambda: state.uri, lambda: settings.BOWSER_ZARR_FILES)
+)
 
 # Add exception handlers
 add_exception_handlers(app, DEFAULT_STATUS_CODES)

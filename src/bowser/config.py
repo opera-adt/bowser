@@ -79,6 +79,11 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: SecretStr = SecretStr("")
     OPENROUTER_API_KEY: SecretStr = SecretStr("")
 
+    # Serve the open cube's zarr files at /zarr/ (read-only, local zarr v3 stores
+    # only) for the page's experimental GPU renderer (?render=gpu|auto). Set false
+    # on a server that should send rendered tiles only; the page then uses tiles.
+    BOWSER_ZARR_FILES: bool = True
+
     # --- runtime behaviour flags (previously read via os.getenv "YES"/"NO") ---
     BOWSER_USE_SPATIAL_REFERENCE_DISP: bool = True
 

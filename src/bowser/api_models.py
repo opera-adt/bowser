@@ -47,7 +47,11 @@ API_TAGS: list[dict[str, Any]] = [
         "name": STATS,
         "description": "Value ranges, histograms, polygon statistics and profiles.",
     },
-    {"name": TILES, "description": "Map tiles, TileJSON and colorbars."},
+    {
+        "name": TILES,
+        "description": "Map tiles, TileJSON, colorbars, and the cube's own files for "
+        "the page's GPU renderer.",
+    },
     {
         "name": COG_TILES,
         "description": "TiTiler endpoints for GeoTIFF stacks (COG mode, full only).",
@@ -90,6 +94,11 @@ PARAMS: dict[str, dict[str, Any]] = {
     "dataset": {
         "description": DATASET_QUERY["description"],
         "examples": ["regression"],
+    },
+    "zarr_path": {
+        "description": "Path of the file inside the store: `zarr.json`, or a "
+        "chunk such as `displacement/c/0/0/0`.",
+        "examples": ["zarr.json"],
     },
     "dataset_name": {
         "description": "Layer name, a key of GET /datasets.",
@@ -475,6 +484,17 @@ ROUTES: dict[str, dict[str, Any]] = {
         "description": "A horizontal gradient of a colormap. The full server sends "
         "a matplotlib WEBP, bowser-lite a PNG.",
         "tags": [TILES],
+    },
+    "GET /zarr/{path}": {
+        "summary": "A file of the cube's zarr store",
+        "description": "Experimental, for the page's GPU renderer (`?render=gpu` "
+        "or `?render=auto`): one file of the cube's zarr v3 store, read-only, with "
+        "HTTP Range and HEAD. Only `zarr.json` metadata and chunk files (`c/...`) "
+        "of a store on this computer's disk are served: a remote store, any other "
+        "file and any path outside the store answer 404, a request from another "
+        "web site 403. `BOWSER_ZARR_FILES=false` turns the route off.",
+        "tags": [TILES],
+        **_DATASET_EXTRA,
     },
     "GET /md/{tileMatrixSetId}/tilejson.json": {
         "summary": "TileJSON for a layer",
@@ -1775,6 +1795,24 @@ def image_response(media_type: str, description: str) -> dict[int | str, Any]:
         }
     }
 
+
+#: ``GET /zarr/{path}``: a metadata document or a chunk's bytes.
+ZARR_FILE_RESPONSES: dict[int | str, Any] = {
+    200: {
+        "description": "The file: `zarr.json` as JSON, a chunk as bytes.",
+        "content": {
+            "application/json": {
+                "schema": {"type": "object", "description": "zarr v3 metadata"}
+            },
+            "application/octet-stream": {
+                "schema": {"type": "string", "format": "binary"}
+            },
+        },
+    },
+    206: {"description": "The byte range asked for with `Range`."},
+    403: {"description": "A request from another web site."},
+    404: {"description": "No such file, not a zarr file, or no local cube."},
+}
 
 #: ``responses`` for the routes bowser-lite answers with 501.
 #: ``GET /data/{data_id}.{fmt}``: the whole file, or the byte range asked for.
