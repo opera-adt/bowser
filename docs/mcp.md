@@ -97,8 +97,8 @@ a point outside the cube is refused rather than read at the nearest edge pixel.
 
 | Tool | What it returns | HTTP API |
 | --- | --- | --- |
-| `server_info` | Title, full or lite, data mode, whether polygon statistics and GeoTIFF export work, the catalog | `GET /config`, `/mode`, `/catalog` |
-| `list_layers` | Each layer's label, unit, number of dates, first and last date, whether it is re-referenced to a point, description; the cube's area, reference point and date, and look geometry | `GET /datasets` |
+| `server_info` | Title, full or lite, data mode, whether polygon statistics and GeoTIFF export work, the catalog, and `measurement`: what the values measure (line of sight, vertical...), their sign, their sensitivity to east, north and up motion and half the radar wavelength, from the cube's metadata ([rest-api.md](rest-api.md#what-a-layer-measures)); unknown when the cube does not say | `GET /config`, `/mode`, `/catalog`, `/datasets` |
+| `list_layers` | Each layer's label, unit, number of dates, first and last date, whether it is re-referenced to a point, description, what it measures; the cube's area, reference point and date, and look geometry | `GET /datasets` |
 | `point_timeseries` | Dates and values at a point, relative to a reference point (yours, or the cube's) and date; optional median reference circle | `GET /chart_point`, `POST /multi_point` |
 | `multi_point_timeseries` | Several points on shared dates against one reference, each with a linear rate; optional layer masks | `POST /multi_point` |
 | `trend_at_point` | Linear rate per year at a point, its standard error and R² | `GET /trend_analysis/{layer}`, `POST /multi_point` |
