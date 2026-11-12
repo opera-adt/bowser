@@ -92,7 +92,7 @@ describe('useGpuRender', () => {
   it('keeps server tiles by default and never loads the GPU runtime', async () => {
     const { map } = start('/');
     await act(async () => {});
-    expect(status).toMatchObject({ active: false, renderer: 'tiles', showLabel: false });
+    expect(status).toMatchObject({ active: false, chosen: false, renderer: 'tiles', showLabel: false });
     expect(rt.loaded).toBe(0);
     expect(map.addLayer).not.toHaveBeenCalled();
     expect(info).not.toHaveBeenCalled();   // nothing in the console either
@@ -140,6 +140,8 @@ describe('useGpuRender', () => {
     // Rewrap (as any view params.ts refuses): tiles; the GPU layer stays, drawing nothing.
     act(() => { dispatch({ type: 'TOGGLE_WRAP' }); });
     expect(status).toMatchObject({ active: false, renderer: 'tiles' });
+    // Still chosen: the map uses this to keep tilting from turning 3D terrain on.
+    expect(status.chosen).toBe(true);
     expect(status.reason).toMatch(/rewrap.*not on the GPU path yet/);
     await waitFor(() => expect(gl.setParams.mock.lastCall![0]).toBeNull());
     expect(map.removeLayer).not.toHaveBeenCalled();
@@ -179,8 +181,8 @@ describe('useGpuRender', () => {
     start('/?render=gpu');
     await waitFor(() => expect(status.stats).not.toBeNull());
     expect(status.stats).toMatchObject({ f16: 3, f32: 1, budgetBytes: 384 * 1048576 });
-    expect(statsText(status.stats!)).toBe('3.0/384 MB · 3 f16, 1 f32 · 2 evicted');
-    expect(statsText({ ...status.stats!, evicted: 0, drawMs: 120 })).toBe('3.0/384 MB · 3 f16, 1 f32 · drawn in 120 ms');
+    expect(statsText(status.stats!)).toBe('GPU memory 3.0/384 MB · 3 f16, 1 f32 · 2 evicted');
+    expect(statsText({ ...status.stats!, evicted: 0, drawMs: 120 })).toBe('GPU memory 3.0/384 MB · 3 f16, 1 f32 · drawn in 120 ms');
   });
 
   it('falls back to tiles when the cube cannot be opened at /zarr/', async () => {

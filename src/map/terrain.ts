@@ -36,7 +36,11 @@ export function terrainSpec(enabled: boolean, exaggeration: number): { source: s
 /** Tilting past this (degrees) counts as going 3D. */
 export const TILT_ON = 10;
 
-/** Turn terrain on when a flat map is tilted, unless it is already on. */
-export function terrainOnTilt(wasFlat: boolean, pitch: number, enabled: boolean): boolean {
-  return wasFlat && pitch >= TILT_ON && !enabled;
+/**
+ * Turn terrain on when a flat map is tilted, unless it is already on, or the GPU
+ * renderer is chosen (its layer draws a tilted map but not terrain, so terrain would
+ * send the data back to tiles; the terrain button still turns it on).
+ */
+export function terrainOnTilt(wasFlat: boolean, pitch: number, enabled: boolean, gpuChosen = false): boolean {
+  return wasFlat && pitch >= TILT_ON && !enabled && !gpuChosen;
 }

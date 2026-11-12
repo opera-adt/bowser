@@ -33,4 +33,8 @@ describe('terrainOnTilt', () => {
     expect(terrainOnTilt(false, 45, false)).toBe(false);
     expect(terrainOnTilt(true, 45, true)).toBe(false);
   });
+  it('leaves it off while the GPU renderer is chosen (its layer is flat; tiles would take over)', () => {
+    expect(terrainOnTilt(true, 45, false, true)).toBe(false);
+    expect(terrainOnTilt(true, 45, false, false)).toBe(true);
+  });
 });
