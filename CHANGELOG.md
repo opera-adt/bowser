@@ -240,6 +240,11 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- bowser-lite: a tile shown relative to another date (`ref_time_idx`) read both
+  whole layers before cutting the tile out, since its arrays are not dask's:
+  about 1 s per full-resolution tile on a DISP-S1 frame, and twice the layer
+  in memory. The two steps are now subtracted on the tile's window (46 ms);
+  the tiles are the same.
 - `GET /histogram` no longer holds the server up. Without a stored histogram
   it read the date at full resolution: on a DISP-S1 frame 5 s of CPU on the full
   server, on its event loop, so `/config` and `/datasets` waited up to 20 s
