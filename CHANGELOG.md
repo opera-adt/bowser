@@ -240,6 +240,10 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Data tiles (`/md/tiles`, `/cog/tiles`, and bowser-lite's) are sent with
+  `Cache-Control: private, max-age=600`, like the cube's zarr files, so going
+  back to a date or view already seen is drawn from the browser's cache
+  instead of rendered again. The tilers' metadata routes are not cached.
 - `GET /histogram` no longer holds the server up. Without a stored histogram
   it read the date at full resolution: on a DISP-S1 frame 5 s of CPU on the full
   server, on its event loop, so `/config` and `/datasets` waited up to 20 s

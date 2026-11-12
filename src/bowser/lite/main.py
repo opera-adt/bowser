@@ -39,6 +39,7 @@ from ..assistant.relay import assistant_config
 from ..assistant.relay import router as assistant_router
 from ..catalog import CatalogEntry, load_catalog, save_catalog
 from ..config import settings
+from ..constants import TILE_CACHE_CONTROL
 from ..context import router as context_router
 from ..context import zones_answer
 from ..gnss_custom import router as gnss_custom_router
@@ -1032,7 +1033,11 @@ def _tile(
         content = tiles.render_tile(cube, q, x, y, z, tilesize=size)
     except tiles.TileOutsideBoundsError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
-    return Response(content, media_type="image/png")
+    return Response(
+        content,
+        media_type="image/png",
+        headers={"Cache-Control": TILE_CACHE_CONTROL},
+    )
 
 
 _TILE_QUERY = {
