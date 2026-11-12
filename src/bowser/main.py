@@ -41,6 +41,7 @@ from .assistant.relay import router as assistant_router
 from .config import settings
 from .context import router as context_router
 from .context import zones_answer
+from .gnss_custom import router as gnss_custom_router
 from .polygon import PolygonRequest, summarize_rasters, summarize_xarray
 from .reference import (
     PointMethod,
@@ -638,6 +639,7 @@ app.include_router(assistant_router, tags=[api.ASSISTANT])
 app.include_router(page_router, tags=[api.ASSISTANT])
 # What is on the ground: OpenStreetMap infrastructure and site context (the AI tools).
 app.include_router(context_router)
+app.include_router(gnss_custom_router)
 
 
 @app.get(
@@ -2173,7 +2175,7 @@ def _data_response(job: dict[str, Any]) -> dict[str, Any]:
         dem = info["band_count"] == 1 and looks_like_dem(job["cog"], job["name"])
     except Exception as exc:  # noqa: BLE001
         return {**out, "status": "failed", "error": f"Could not read it: {exc}"}
-    return {**out, **info, "dem": dem}
+    return {**out, **info, "dem": dem, "cog_bytes": Path(job["cog"]).stat().st_size}
 
 
 @app.post(

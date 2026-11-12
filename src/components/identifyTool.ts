@@ -6,7 +6,7 @@
 import { useEffect, useRef } from 'react';
 import type * as maplibregl from 'maplibre-gl';
 import { useAppContext } from '../context/AppContext';
-import { GNSS_LAYER_ID, type GnssStation } from '../map/gnss';
+import { GNSS_CUSTOM_LAYER_ID, GNSS_LAYER_ID, type GnssStation } from '../map/gnss';
 import {
   attributeRows, geologyItem, landCoverClass, landCoverIdentifyUrl, MACROSTRAT_POINT, overlayIdOfLayer,
   type IdentifyItem, type IdentifyResult,
@@ -34,8 +34,9 @@ export function useIdentify(map: maplibregl.Map | null, ready: boolean) {
         const overlay = id ? s.overlays.find(o => o.id === id) : null;
         if (!overlay || !(overlay.type === 'vector' || overlay.pmtilesKind === 'vector') || seen.has(overlay.id)) continue;
         seen.add(overlay.id);
-        if (overlay.id === GNSS_LAYER_ID) {
-          dispatch({ type: 'OPEN_GNSS_CHART', payload: f.properties as unknown as GnssStation });
+        if (overlay.id === GNSS_LAYER_ID || overlay.id === GNSS_CUSTOM_LAYER_ID) {
+          const custom = overlay.id === GNSS_CUSTOM_LAYER_ID;
+          dispatch({ type: 'OPEN_GNSS_CHART', payload: { ...f.properties, custom } as unknown as GnssStation });
           items.push({ title: `GNSS station ${f.properties?.id}`, rows: [['Chart', 'opened (east, north, up)']] });
           continue;
         }
