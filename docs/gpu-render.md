@@ -98,13 +98,19 @@ more by the map; the value drawn at a cube pixel is the same.
 
 ## Which renderer is drawing
 
-- **Label**: with `?render=` in the address, a small label at the bottom of
-  the map says *GPU render* or *Server tiles*, and why (for example
-  `auto: software renderer (...)` or `fell back to tiles: WebGL context lost`).
-  For the GPU it adds the chunk memory in use and the budget, how many
-  chunks are 16-bit and 32-bit, and how long the last change (a date, the
-  colours) took until everything in view was drawn
-  (`42/768 MB · 30 f16, 2 f32 · drawn in 120 ms`).
+- **Label** (a diagnostic, off by default): turn on *Diagnostics* with the bug
+  icon in the Project tab's *Appearance* header (kept in this browser), or add
+  `?debug=1` to the address. A small label at the bottom of the map then says
+  *GPU render* or *Server tiles*, and why (for example
+  `auto: software renderer (...)`, `fell back to tiles: WebGL context lost` or
+  `3D terrain not on the GPU path yet`). For the GPU it adds the GPU memory in
+  use and the budget, how many chunks are 16-bit and 32-bit, and how long the
+  last change (a date, the colours) took until everything in view was drawn
+  (`GPU memory 42/768 MB · 30 f16, 2 f32 · drawn in 120 ms`).
+- **3D terrain**: the GPU layer draws a flat (or rotated) map. With 3D terrain
+  on, which tilting the map turns on, the data is drawn with server tiles,
+  draped over the terrain. Opening the page with the GPU renderer starts flat:
+  a terrain left on from an earlier visit is turned off.
 - **Console**: one line, `[bowser] data layer: GPU — render=gpu (forced)` or
   `[bowser] data layer: tiles — ...`, and a warning when it falls back.
 - **Network tab**: the GPU path reads `/zarr/...` (`zarr.json` and chunk

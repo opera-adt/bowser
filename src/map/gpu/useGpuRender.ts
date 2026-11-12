@@ -10,6 +10,7 @@
  * tiles while it lasts; the GPU layer stays, empty, and draws again afterwards.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useDebug } from '../../utils/debug';
 import type * as maplibregl from 'maplibre-gl';
 import { useAppContext } from '../../context/AppContext';
 import { buildTileRequest } from '../../utils/tileParams';
@@ -27,7 +28,7 @@ export interface GpuRenderStatus {
   chosen: boolean;
   renderer: 'tiles' | 'gpu';
   reason: string;
-  /** Show the debug label (only when ``?render=`` is in the address). */
+  /** Show the diagnostic label (only with diagnostics on: Project tab, or ``?debug=1``). */
   showLabel: boolean;
   /** The GPU layer's memory and texture counts (with the label only), or null. */
   stats: GpuLayerStats | null;
@@ -87,7 +88,8 @@ export function useGpuRender(
   // Waiting for the state to settle keeps the GPU (drawing nothing), not tiles.
   const active = wantGpu && (params.ok || !!params.wait);
 
-  const showLabel = new URLSearchParams(search).has('render');
+  // The label is a diagnostic: shown only with diagnostics on (Project tab, or ?debug=1).
+  const showLabel = useDebug();
   useEffect(() => {
     if (mode === 'tiles' && !showLabel) return;   // the default: nothing to say
     if (!wantGpu) logOnce(`tiles — ${decision.reason}`, decision.reason.startsWith('fell back'));

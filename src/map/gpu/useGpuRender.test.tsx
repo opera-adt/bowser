@@ -6,6 +6,7 @@ import { AppProvider, useAppContext } from '../../context/AppContext';
 import type { RasterGroup } from '../../types';
 import { resetGpuCapsCache } from './capability';
 import { statsText, useGpuRender, type GpuRenderStatus } from './useGpuRender';
+import { DEBUG_KEY, setDebug } from '../../utils/debug';
 
 // The GPU runtime (zarrita, colormap tables, the custom layer), as the hook loads it.
 const rt = vi.hoisted(() => {
@@ -86,7 +87,7 @@ beforeEach(() => {
   sessionStorage.clear();
   resetGpuCapsCache();
 });
-afterEach(() => { cleanup(); window.history.replaceState({}, '', '/'); });
+afterEach(() => { cleanup(); window.history.replaceState({}, '', '/'); localStorage.removeItem(DEBUG_KEY); });
 
 describe('useGpuRender', () => {
   it('keeps server tiles by default and never loads the GPU runtime', async () => {
@@ -103,6 +104,9 @@ describe('useGpuRender', () => {
     await act(async () => {});
     expect(status.renderer).toBe('tiles');
     expect(status.reason).toBe('auto: no WebGL2');
+    // The label is a diagnostic: off by default, on with the Project tab's toggle.
+    expect(status.showLabel).toBe(false);
+    act(() => setDebug(true));
     expect(status.showLabel).toBe(true);
     expect(rt.loaded).toBe(0);
     expect(info).toHaveBeenCalledWith('[bowser] data layer: tiles — auto: no WebGL2');
@@ -178,6 +182,7 @@ describe('useGpuRender', () => {
   });
 
   it("shows the GPU layer's texture memory with the label", async () => {
+    localStorage.setItem(DEBUG_KEY, '1');
     start('/?render=gpu');
     await waitFor(() => expect(status.stats).not.toBeNull());
     expect(status.stats).toMatchObject({ f16: 3, f32: 1, budgetBytes: 384 * 1048576 });

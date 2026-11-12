@@ -183,8 +183,13 @@ def browser():
         b.close()
 
 
+# The renderer label is a diagnostic, shown only with diagnostics on.
+DEBUG_ON = "localStorage.setItem('bowser.debug', '1')"
+
+
 def _open(browser, server, render: str):
     ctx = browser.new_context(viewport={"width": 1100, "height": 800})
+    ctx.add_init_script(DEBUG_ON)
     page = ctx.new_page()
     logs: list[str] = []
     page.on("console", lambda m: logs.append(f"{m.type}: {m.text}"))
@@ -435,6 +440,7 @@ def test_auto_picks_tiles_under_swiftshader(browser, server):
 
 def test_tiles_when_the_decoder_worker_cannot_load(browser, server):
     ctx = browser.new_context(viewport={"width": 1100, "height": 800})
+    ctx.add_init_script(DEBUG_ON)
     ctx.route("**/decode.worker*", lambda route: route.abort())
     page = ctx.new_page()
     logs: list[str] = []

@@ -1,7 +1,7 @@
 import { statsText, type GpuRenderStatus } from './useGpuRender';
 
 /**
- * The small debug label (with ``?render=``): which renderer draws the data, and why;
+ * The small diagnostic label (with diagnostics on: Project tab or ``?debug=1``): which renderer draws the data, and why;
  * for the GPU, its texture memory (``data-gpu-stats`` holds the numbers as JSON).
  */
 export function RenderLabel({ status }: { status: GpuRenderStatus }) {
