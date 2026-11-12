@@ -534,3 +534,27 @@ def test_cli_stores_histograms_and_servers_serve_them(tmp_path):
     assert ro.exit_code != 0 and "not writable" in ro.output and "cache" in ro.output
     remote = CliRunner().invoke(cli_app, ["add-histograms", "s3://bucket/cube.zarr"])
     assert remote.exit_code != 0 and "cannot be written in place" in remote.output
+
+
+def test_full_server_keeps_stored_histograms_out_of_layer_attributes(tmp_path):
+    """rioxarray deep-copies a layer's attributes for every tile it renders."""
+    pytest.importorskip("rioxarray")
+    from bowser.state import _open_md
+
+    store = _pyramid(tmp_path / "stored.zarr")
+    H.add_to_store(str(store), echo=lambda _: None)
+    as_stored = _levels(store)[0]
+    entries = as_stored["displacement"].attrs[H.STORED_ATTR]
+    assert len(entries) == NT
+    # Not detached: read from the attribute.
+    assert H.stored(as_stored, "displacement", 7) == entries[7]
+
+    ds, _, levels = _open_md(str(store))
+    assert levels[0].dataset is ds
+    for lv in levels:
+        for name, var in lv.dataset.variables.items():
+            assert H.STORED_ATTR not in var.attrs, (lv.asset, name)
+    assert H.STORED_ATTR not in ds["displacement"].isel(time=7).attrs
+    assert H.stored(ds, "displacement", 7) == entries[7]
+    assert H.stored(ds, "velocity", 0) == as_stored["velocity"].attrs[H.STORED_ATTR][0]
+    assert H.stored(ds, "displacement", NT) is None
