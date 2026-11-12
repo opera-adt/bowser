@@ -8,7 +8,7 @@ import react from "@vitejs/plugin-react"
 const API_ROUTES = [
 	'buffer_timeseries', 'catalog', 'chart_point', 'colorbar', 'config',
 	'dataset_range', 'datasets', 'histogram', 'mode', 'multi_point',
-	'picker', 'point', 'profile', 'trend_analysis', 'upload_mask',
+	'picker', 'point', 'polygon_timeseries', 'profile', 'trend_analysis', 'upload_mask',
 	'variables',
 	// tile endpoints, overlays, and the newer routes
 	'md', 'cog', 'overlay', 'export', 'upload_raster', 'wms_capabilities',
@@ -49,7 +49,7 @@ export default defineConfig({
 	},
 	test: {
 		environment: 'jsdom',
-		include: ['src/**/*.test.{ts,tsx}'],
+		include: ['src/**/*.test.{js,ts,tsx}'],
 		setupFiles: ['src/test/setup.ts'],
 	},
 })
