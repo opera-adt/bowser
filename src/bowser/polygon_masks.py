@@ -22,8 +22,9 @@ if TYPE_CHECKING:
 
 Reader = Callable[[int, slice, slice], np.ndarray]
 
-#: Values of a dynamic mask read at once (whole time chunks when they fit).
-_READ_BLOCK = 16_000_000
+#: Values of a dynamic mask read at once (whole time chunks when they fit): about
+#: 32 MB as float64 per mask, and a request has at most ten masks.
+_READ_BLOCK = 4_000_000
 MASKED_WARNING = "Explicit quality masks applied; stored spatial reference retained."
 
 

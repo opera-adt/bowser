@@ -144,7 +144,10 @@ unclosed rings and antimeridian-spanning polygons are rejected.
 To bound memory and work, requests allow at most 10,000 vertices, a bounding
 window of 2,000,000 native pixels, and 50,000,000 bounding-window pixel-epochs.
 The pixel-epoch budget includes the source plus each requested mask and is
-checked before reading raster values. Two spatially bounded
+checked before reading raster values: a mask along the dates counts one frame
+per date, a static mask one frame, since its window is read once and kept.
+Masks along the dates are read in blocks of their time chunks (at most
+4,000,000 values per mask at a time). Two spatially bounded
 passes determine common support and then exact summaries, retaining one frame
 at a time. Percentiles use all eligible pixels rather than a sampled preview.
 The budget covers each pass; two passes can read the same source window twice.
