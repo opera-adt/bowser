@@ -7,8 +7,8 @@ cube) and/or ``BOWSER_CATALOG_FILE`` (``?dataset=<id>`` routing),
 ``BOWSER_ALLOW_OPEN``, ``BOWSER_REMEMBER_OPENED``.
 
 Not in lite (HTTP 501): GeoTIFF uploads (``/upload_raster``, ``/upload_mask``),
-added-file conversion (``/upload_data``, ``/data``, ``/files``),
-``/export/geotiff``, COG mode and the ``/cog`` and ``/overlay`` tilers.
+added-file conversion (``/upload_data``, ``/data``, ``/files``), COG mode and
+the ``/cog`` and ``/overlay`` tilers.
 """
 
 from __future__ import annotations
@@ -29,7 +29,12 @@ import numpy as np
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi import Path as PathParam
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.responses import FileResponse, JSONResponse, RedirectResponse
+from starlette.responses import (
+    FileResponse,
+    JSONResponse,
+    RedirectResponse,
+    StreamingResponse,
+)
 from starlette.staticfiles import StaticFiles
 
 from .. import api_models as api
@@ -55,6 +60,7 @@ from ..zarr_files import make_router as make_zarr_router
 from . import colormaps, geo, meta, sampling, tiles
 from .auth import BasicAuthMiddleware
 from .cube import Cube, Registry, load_default, open_cube
+from .export import export_layer
 from .png import encode_rgba
 from .polygon import PolygonRequest, summarize_cube
 from .profile import Line, binned_profile, point_profile
@@ -208,8 +214,8 @@ def get_config(
     """Page title, logo flag, and what this server can do.
 
     The title is the catalog entry's name, from ``?dataset=`` or the Referer.
-    ``geotiff_export`` is False: exports need the full server (``bowser run``),
-    so the page turns its GeoTIFF button off instead of failing with a 501.
+    ``geotiff_export`` is True: lite writes GeoTIFFs itself (no GDAL), so the
+    page's GeoTIFF button is on.
     ``polygon_stats`` is True: ``/polygon_timeseries`` works here (numpy), so
     the chart's "+ Area" button is on. ``geotiff_upload``
     is False: ``/upload_mask`` and ``/upload_raster`` answer 501, so the
@@ -224,7 +230,7 @@ def get_config(
     return {
         "title": entry.name if entry is not None else settings.BOWSER_TITLE,
         "opera_logo": settings.BOWSER_OPERA_LOGO,
-        "geotiff_export": False,
+        "geotiff_export": True,
         "polygon_stats": True,
         "assistant": assistant_config(settings),
         "geotiff_upload": False,
@@ -650,6 +656,63 @@ def polygon_timeseries(
             status_code=422, detail="Could not read polygon-analysis source"
         ) from exc
     return JSONResponse(result)
+
+
+@app.get(
+    "/export/geotiff",
+    response_class=Response,
+    responses=api.image_response(
+        "image/tiff", "The active layer as a GeoTIFF download"
+    ),
+    **api.route_doc("GET /export/geotiff"),
+)
+def export_geotiff(
+    variable: str = Query(..., **api.PARAMS["variable"]),
+    dataset: Optional[str] = Query(None, **api.PARAMS["dataset"]),
+    time_idx: Optional[int] = Query(None, ge=0, **api.PARAMS["time_idx"]),
+    mask_variable: Optional[str] = Query(None, **api.PARAMS["mask_variable"]),
+    mask_min_value: Optional[float] = Query(
+        None, **api.PARAMS["export_mask_min_value"]
+    ),
+    layer_masks: Optional[str] = Query(None, **api.PARAMS["layer_masks_json"]),
+    custom_mask_path: Optional[str] = Query(None, **api.PARAMS["custom_mask_path"]),
+    ref_lon: Optional[float] = Query(None, **api.PARAMS["ref_lon"]),
+    ref_lat: Optional[float] = Query(None, **api.PARAMS["ref_lat"]),
+    ref_buffer_m: float = Query(0.0, **api.PARAMS["ref_buffer_m"]),
+    ref_time_idx: Optional[int] = Query(None, ge=0, **api.PARAMS["ref_time_idx"]),
+):
+    """Export the active layer as a (optionally masked) GeoTIFF.
+
+    The full server's parameters, values, nodata, provenance tags and filename
+    (``bowser.lite.export``), written without GDAL (``bowser.lite.geotiff``):
+    one 2-D slice at native resolution, masked pixels NaN, optionally relative
+    to a reference point and to another date. A custom mask GeoTIFF is the one
+    thing lite cannot apply (501). Runs in a worker thread and streams the
+    file block by block.
+    """
+    if custom_mask_path:
+        return _not_in_lite("Applying a custom mask GeoTIFF to an export")
+    parts, filename = export_layer(
+        resolve(dataset),
+        variable=variable,
+        time_idx=time_idx,
+        mask_variable=mask_variable,
+        mask_min_value=mask_min_value,
+        layer_masks=layer_masks,
+        ref_lon=ref_lon,
+        ref_lat=ref_lat,
+        ref_buffer_m=ref_buffer_m,
+        ref_time_idx=ref_time_idx,
+        use_spatial_reference=settings.BOWSER_USE_SPATIAL_REFERENCE_DISP,
+    )
+    return StreamingResponse(
+        iter(parts),
+        media_type="image/tiff",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(sum(len(part) for part in parts)),
+        },
+    )
 
 
 @app.get(
@@ -1217,16 +1280,6 @@ def data_status(data_id: str):  # noqa: ARG001
 def list_files():
     """501: lite cannot add server files, so it does not list them."""
     return _not_in_lite("Browsing server folders for files to add")
-
-
-@app.get(
-    "/export/geotiff",
-    responses=api.NOT_IN_LITE,
-    **api.route_doc("GET /export/geotiff", lite_stub=True),
-)
-def export_geotiff():
-    """501: writing GeoTIFFs needs GDAL."""
-    return _not_in_lite("Exporting a GeoTIFF")
 
 
 @app.api_route("/cog/{path:path}", methods=["GET", "POST"], include_in_schema=False)

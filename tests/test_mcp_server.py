@@ -4,8 +4,8 @@
 - each data tool, called through an MCP client session in memory, returns the
   numbers the HTTP API gives for the same request, on the full server and on
   bowser-lite (each app called in-process through an ASGI transport);
-- lite reports the tool it cannot serve (GeoTIFF export) as a tool error that
-  says so;
+- lite serves polygon statistics and GeoTIFF export too, and lists the one tool
+  it cannot serve (``convert_to_cog``);
 - ``bowser mcp --stack-file`` talks MCP over stdio without other output.
 
 Each app reads its settings at import, so the API calls run in a fresh
@@ -203,10 +203,9 @@ SCRIPT = textwrap.dedent(
             "radius": 60, "sampling_interval": 300, "n_random": 0})["body"],
         "histogram": get("/histogram/displacement", time_index=2, nbins=8),
     }
-    if which == "full":
-        tif = http.get("/export/geotiff",
-                       params={"variable": "displacement", "time_idx": 2})
-        api["export_size"] = len(tif.content)
+    tif = http.get("/export/geotiff",
+                   params={"variable": "displacement", "time_idx": 2})
+    api["export_size"] = len(tif.content)
 
     out.write_text(json.dumps({"mcp": asyncio.run(via_mcp()), "api": api}))
     """
@@ -321,7 +320,7 @@ def test_server_info_and_layers(answers):
     assert info["server"] == which
     assert info["polygon_stats"] == api["config"]["polygon_stats"]
     assert info["geotiff_export"] == api["config"]["geotiff_export"]
-    expected = [] if which == "full" else ["export_geotiff", "convert_to_cog"]
+    expected = [] if which == "full" else ["convert_to_cog"]
     assert info["unsupported_tools"] == expected
     # What the values measure, from the cube (the same on both servers): the
     # layer's long_name says LOS, the look vector gives the sensitivity, and the
@@ -470,9 +469,6 @@ def test_polygon_and_export(answers):
     assert stats["count"] == [s["count"] for s in body["statistics"]]
     _close(stats["median"], _mm([s["median"] for s in body["statistics"]]))
     _close(stats["p90"], _mm([s["percentiles"]["90"] for s in body["statistics"]]))
-    if which == "lite":
-        assert "bowser run" in mcp["export"]["error"]
-        return
 
     export = mcp["export"]
     path = Path(export["path"])
