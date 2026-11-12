@@ -224,6 +224,8 @@ class Registry:
     maxsize: int = 4
     _cache: "OrderedDict[str, Cube]" = field(default_factory=OrderedDict)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    # One lock per id being opened: a burst of first requests opens it once.
+    _opening: dict[str, threading.Lock] = field(default_factory=dict, repr=False)
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "Registry":
@@ -240,18 +242,27 @@ class Registry:
             raise KeyError(
                 f"unknown dataset id {dataset_id!r}; catalog has {sorted(self.catalog)}"
             )
+        cached = self.cached(dataset_id)
+        if cached is not None:
+            return cached
+        with self._lock:
+            opening = self._opening.setdefault(dataset_id, threading.Lock())
+        with opening:  # outside the registry lock: other cubes are not held up
+            cached = self.cached(dataset_id)
+            if cached is not None:
+                return cached
+            cube = open_cube(self.catalog[dataset_id].uri)
+            with self._lock:
+                self._insert(dataset_id, cube)
+        return cube
+
+    def cached(self, dataset_id: str) -> Cube | None:
+        """Return the cube for ``dataset_id`` if it is open, without opening it."""
         with self._lock:
             cached = self._cache.get(dataset_id)
             if cached is not None:
                 self._cache.move_to_end(dataset_id)
-                return cached
-        cube = open_cube(self.catalog[dataset_id].uri)
-        with self._lock:
-            if dataset_id in self._cache:
-                self._cache.move_to_end(dataset_id)
-                return self._cache[dataset_id]
-            self._insert(dataset_id, cube)
-        return cube
+            return cached
 
     def register(self, entry: CatalogEntry, cube: Cube | None = None) -> None:
         """Add (or replace) an entry at runtime, with its cube if already open."""

@@ -256,6 +256,10 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The first request for a catalog entry (`?dataset=`) no longer holds up every
+  other request while its cube opens (seconds for a cube on S3, on the server's
+  event loop). Both servers open it in a worker thread, and once: a page
+  load's burst of first requests used to open the same cube several times.
 - `GET /deformation_zones` (and the Assistant's and MCP's zones tool) reads its
   layers in bands of rows instead of all at once, on both servers. Fitting a
   rate to a 419-date displacement stack over 800 x 600 pixels peaked at 5.2 GB
