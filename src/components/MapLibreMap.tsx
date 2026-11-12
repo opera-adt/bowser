@@ -35,7 +35,7 @@ import {
   pointClickActions, pointDoubleClickActions, pointDragEndActions, refDragEnd, viewBoundsAction,
 } from '../map/interactions';
 import {
-  EXAGGERATION_DEFAULT, EXAGGERATION_MAX, EXAGGERATION_MIN, TERRAIN_PITCH, clampExaggeration, TILT_ON, terrainOnTilt } from '../map/terrain';
+  EXAGGERATION_DEFAULT, EXAGGERATION_MAX, EXAGGERATION_MIN, TERRAIN_PITCH, clampExaggeration, TILT_ON, terrainOnTilt, terrainOffForGpu } from '../map/terrain';
 import { applyTerrain, firstAboveDataId, useBasemapLayers, useBufferCircles, useDataRaster, useOverlayLayers } from './maplibreLayers';
 import { useGpuRender } from '../map/gpu/useGpuRender';
 import { RenderLabel } from '../map/gpu/RenderLabel';
@@ -338,6 +338,13 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
   const gpuRender = useGpuRender(mapRef.current, ready,
     () => (mapRef.current ? firstAboveDataId(mapRef.current) : undefined), terrain.enabled ? '3D terrain' : null);
   gpuChosenRef.current = gpuRender.chosen;
+  // Once, when the GPU renderer is chosen: a terrain remembered from an earlier visit
+  // goes off, so the GPU draws (only this change of `chosen` runs it, not later clicks).
+  useEffect(() => {
+    if (terrainOffForGpu(gpuRender.chosen, terrainRef.current.enabled, !!terrainDemId)) {
+      setTerrainState(false, terrainRef.current.exaggeration);
+    }
+  }, [gpuRender.chosen]);  // eslint-disable-line react-hooks/exhaustive-deps
   const tileUrl = useRasterTileUrl({ disabled: gpuRender.active });
   useDataRaster(mapRef.current, ready, gpuRender.active ? null : tileUrl, state.opacity, datasetBounds(state));
 

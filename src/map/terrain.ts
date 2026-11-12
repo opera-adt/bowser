@@ -41,6 +41,15 @@ export const TILT_ON = 10;
  * renderer is chosen (its layer draws a tilted map but not terrain, so terrain would
  * send the data back to tiles; the terrain button still turns it on).
  */
+/**
+ * When the GPU renderer gets chosen, turn off a 3D terrain left on from an earlier visit
+ * (remembered, often from a tilt): it would keep the data on tiles. A DEM overlay used
+ * for terrain keeps it; the terrain button turns it on again in this visit.
+ */
+export function terrainOffForGpu(gpuChosen: boolean, enabled: boolean, demTerrain: boolean): boolean {
+  return gpuChosen && enabled && !demTerrain;
+}
+
 export function terrainOnTilt(wasFlat: boolean, pitch: number, enabled: boolean, gpuChosen = false): boolean {
   return wasFlat && pitch >= TILT_ON && !enabled && !gpuChosen;
 }
