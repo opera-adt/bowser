@@ -209,7 +209,8 @@ def masked_slice(
         full = da
         da = da.isel({dim: _clamp(time_idx, da.sizes[dim])})
         if time_idx is not None and ref_time_idx is not None:
-            da = minus_reference_step(da, full, dim, ref_time_idx)
+            ref = full.isel({dim: _clamp(ref_time_idx, full.sizes[dim])}, drop=True)
+            da = minus_reference_step(da, ref)
     if mask_variable is not None:
         mask = ds[mask_variable]
         mdim = non_spatial_dim(mask)
