@@ -2542,31 +2542,34 @@ def InputDependency(
     ] = 0,
 ) -> dict:
     """Create dataset path from args."""
-    extra_masks: list[tuple[str, float]] = []
+    extra_masks: list[tuple[str, float] | tuple[str, float, str]] = []
     if custom_mask and Path(custom_mask).exists():
         extra_masks.append((custom_mask, 0.5))
 
     if layer_masks:
         try:
             masks = json.loads(layer_masks)
+            if not isinstance(masks, list):
+                raise ValueError("layer_masks must be a JSON list")
             for m in masks:
+                if not isinstance(m, dict):
+                    raise ValueError("Each layer mask must be an object")
                 dataset = m.get("dataset")
                 threshold = float(m.get("threshold", 0.5))
                 mode = m.get("mode", "min")
+                if mode not in ("min", "max") or not np.isfinite(threshold):
+                    raise ValueError(
+                        "Mask requires min/max mode and a finite threshold"
+                    )
                 if not dataset or dataset not in state.raster_groups:
-                    continue
+                    raise ValueError(f"Unknown mask layer: {dataset}")
                 fl = state.raster_groups[dataset].file_list
                 if not fl:
-                    continue
+                    raise ValueError(f"No files for mask layer: {dataset}")
                 f = fl[min(time_idx, len(fl) - 1)]
-                # Threshold is now an absolute value — pass it directly.
-                # CustomReader extra_masks keeps pixels where value > min_value
-                # ('min' mode only).
-                if mode == "min":
-                    extra_masks.append((f, threshold))
-                # 'max' mode not supported for COG tiles (CustomReader has no inversion)
-        except json.JSONDecodeError as e:
-            logger.warning(f"Failed to parse layer_masks JSON: {e}")
+                extra_masks.append((f, threshold, mode))
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     return {
         "data": url,
@@ -2756,7 +2759,8 @@ def _build_masked_cog_dataarray(
     Mirrors ``CustomReader``/``InputDependency``: the active group's GeoTIFF for
     that time step, with the primary (recommended) mask kept where
     ``value >= mask_min_value``, each ``min``-mode layer mask kept where
-    ``value > threshold``, and the custom mask kept where ``value > 0.5``. Masks
+    ``value > threshold``, each ``max`` mask where ``value <= threshold``, and
+    the custom mask kept where ``value > 0.5``. Masks
     are reprojected to the data grid when they don't already align.
     """
     import rioxarray as rxr  # noqa: PLC0415
@@ -2770,11 +2774,18 @@ def _build_masked_cog_dataarray(
 
     da = rxr.open_rasterio(rg.file_list[idx], masked=True).squeeze("band", drop=True)
 
-    def _keep(da_, path, thr, inclusive=False):
+    def _keep(da_, path, thr, inclusive=False, mode="min"):
         m = rxr.open_rasterio(path, masked=True).squeeze("band", drop=True)
-        if m.rio.crs != da_.rio.crs or m.shape != da_.shape:
+        if (
+            m.rio.crs != da_.rio.crs
+            or m.shape != da_.shape
+            or m.rio.transform() != da_.rio.transform()
+        ):
             m = m.rio.reproject_match(da_)
-        return da_.where(m >= thr) if inclusive else da_.where(m > thr)
+        if inclusive:
+            return da_.where(m >= thr)
+        keep = m <= thr if mode == "max" else m > thr
+        return da_.where(np.isfinite(m) & keep)
 
     # Primary (recommended) mask, as the COG tile path applies it.
     mmv = rg.mask_min_value if mask_min_value is None else mask_min_value
@@ -2783,20 +2794,30 @@ def _build_masked_cog_dataarray(
         if mfile:
             da = _keep(da, mfile, mmv, inclusive=True)
 
-    # Layer masks — only ``min`` mode is defined for COG (CustomReader can't invert).
+    # Preserve strict layer-min and inclusive layer-max comparisons.
     if layer_masks:
         try:
-            for m in json.loads(layer_masks):
+            masks = json.loads(layer_masks)
+            if not isinstance(masks, list):
+                raise ValueError("layer_masks must be a JSON list")
+            for m in masks:
+                if not isinstance(m, dict):
+                    raise ValueError("Each layer mask must be an object")
                 name = m.get("dataset")
-                if m.get("mode", "min") != "min" or name not in target.raster_groups:
-                    continue
-                fl = target.raster_groups[name].file_list
-                if fl:
-                    da = _keep(
-                        da, fl[min(idx, len(fl) - 1)], float(m.get("threshold", 0.5))
+                mode = m.get("mode", "min")
+                threshold = float(m.get("threshold", 0.5))
+                if mode not in ("min", "max") or not np.isfinite(threshold):
+                    raise ValueError(
+                        "Mask requires min/max mode and a finite threshold"
                     )
-        except json.JSONDecodeError as e:
-            logger.warning(f"Failed to parse layer_masks JSON: {e}")
+                if not name or name not in target.raster_groups:
+                    raise ValueError(f"Unknown mask layer: {name}")
+                fl = target.raster_groups[name].file_list
+                if not fl:
+                    raise ValueError(f"No files for mask layer: {name}")
+                da = _keep(da, fl[min(idx, len(fl) - 1)], threshold, mode=mode)
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     # Custom uploaded mask (binary, kept where > 0.5 — matches CustomReader).
     if custom_mask_path and (strict_masks or Path(custom_mask_path).exists()):
@@ -3000,17 +3021,13 @@ def _export_mask_provenance(
             mode = mask.get("mode", "min")
             if mode not in ("min", "max"):
                 raise ValueError("Mask mode must be min or max")
-            if target.mode == "cog" and mode != "min":
-                raise ValueError(
-                    "Direct GeoTIFF exports currently support only min layer masks"
-                )
             name = mask.get("dataset")
             if not isinstance(name, str) or not name:
                 raise ValueError("Each layer mask needs a dataset name")
             add(
                 name,
                 float(mask.get("threshold", 0.5)),
-                (">=" if mode == "min" else "<=") if target.mode == "md" else ">",
+                "<=" if mode == "max" else ">=" if target.mode == "md" else ">",
                 "layer",
             )
         if custom_mask_path:
