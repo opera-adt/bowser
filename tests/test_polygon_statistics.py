@@ -193,7 +193,7 @@ def test_geotiff_reads_only_the_window(source, tmp_path, monkeypatch):
             reads.append(kwargs.get("window"))
             return self.source.read(*args, **kwargs)
 
-    monkeypatch.setattr(polygon.rasterio, "open", RecordingReader)
+    monkeypatch.setattr(rasterio, "open", RecordingReader)
     summarize_rasters(
         group,
         PolygonRequest(variable="field", geometry=geometry()),

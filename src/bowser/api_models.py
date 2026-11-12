@@ -863,7 +863,6 @@ LITE_501 = (
     "GET /data/{data_id}.{fmt}",
     "GET /files",
     "GET /export/geotiff",
-    "POST /polygon_timeseries",
 )
 
 
