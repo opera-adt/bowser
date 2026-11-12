@@ -473,7 +473,8 @@ ROUTES: dict[str, dict[str, Any]] = {
         "summary": "Statistics inside a polygon",
         "description": "Per-date statistics (count, mean, median, spread, "
         "percentiles) of the stored pixels inside a WGS84 GeoJSON Polygon or "
-        "MultiPolygon, on the native grid. No reference or mask is applied. See "
+        "MultiPolygon, on the native grid. Named quality masks are opt-in; "
+        "the stored reference is retained. See "
         "docs/polygon-statistics.md.",
         "tags": [STATS],
     },
@@ -1704,6 +1705,15 @@ class PolygonGrid(_Fixed):
     shape: list[int]
 
 
+class AppliedPolygonMask(_Fixed):
+    """Native-unit threshold and support of a mask applied to polygon pixels."""
+
+    dataset: str
+    threshold: float
+    operator: Literal[">", ">=", "<="]
+    temporal_support: Literal["static", "matching_axis"]
+
+
 class PolygonStatistics(_Fixed):
     """``POST /polygon_timeseries``."""
 
@@ -1718,6 +1728,7 @@ class PolygonStatistics(_Fixed):
     statistics: list[PolygonRow]
     reference: Literal["stored"]
     optional_masks_applied: bool
+    masks: list[AppliedPolygonMask] = Field(default_factory=list)
     component_compatibility: str
     warnings: list[str]
     grid: PolygonGrid

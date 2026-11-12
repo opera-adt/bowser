@@ -635,8 +635,9 @@ def polygon_timeseries(
 
     The full server's request, statistics and response (``bowser.polygon``);
     the pixels are selected with numpy (``bowser.lite.polygon``). Stored
-    values: no reference, mask or component screening is applied. Runs in a
-    worker thread, so other requests are answered meanwhile.
+    values retain their reference; only explicitly requested named quality masks
+    are applied. Component screening is not inferred. Runs in a worker thread,
+    so other requests are answered meanwhile.
     """
     cube = resolve(dataset)
     if body.variable not in cube.dataset.data_vars:
@@ -647,7 +648,9 @@ def polygon_timeseries(
         if len(extra) > 1:
             raise ValueError("Source supports at most one non-spatial axis")
         labels = meta.dim_labels(source, extra[0]) if extra else ["Stored layer"]
-        result = summarize_cube(source, cube.crs, body, labels)
+        result = summarize_cube(
+            source, cube.crs, body, labels, mask_dataset=cube.dataset
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except OSError as exc:

@@ -316,7 +316,7 @@ def test_raster_group_incompatibility_rejected(source, tmp_path, change):
         {"percentiles": [float("nan")]},
         {"percentiles": [101]},
         {"ref_lon": 10},
-        {"layer_masks": []},
+        {"layer_masks": [{}]},
         {"custom_mask_path": "mask.tif"},
         {"geometry": {"type": "Point", "coordinates": [10, 45]}},
         {"geometry": {"type": "Polygon", "coordinates": []}},

@@ -1328,9 +1328,9 @@ def polygon_timeseries(
 ):
     """Summarize stored native pixels inside a WGS84 polygon.
 
-    This first endpoint provides bounded stored-value summaries, independent
-    of map zoom. Interactive references, optional quality masks and component
-    screening are not implicitly applied. Unknown request fields are rejected.
+    Named quality masks are opt-in and checked on the exact native grid/axis.
+    The stored reference is retained: the chart applies its reference separately.
+    Component screening is not inferred. Unknown request fields are rejected.
     """
     available = (
         target.dataset.data_vars
@@ -1347,9 +1347,13 @@ def polygon_timeseries(
                 raise ValueError("Source supports at most one non-spatial axis")
             dim = extra[0] if extra else None
             labels = _dim_labels(source, dim) if dim else ["Stored layer"]
-            result = summarize_xarray(source, body, labels)
+            result = summarize_xarray(source, body, labels, mask_dataset=target.dataset)
         else:
-            result = summarize_rasters(target.raster_groups[body.variable], body)
+            result = summarize_rasters(
+                target.raster_groups[body.variable],
+                body,
+                mask_groups=target.raster_groups,
+            )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except (OSError, rasterio.errors.RasterioError) as exc:
