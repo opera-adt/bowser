@@ -2,7 +2,7 @@
 
 Map-based viewer for InSAR time-series outputs — GeoZarr cubes, dolphin workflow directories, or loose GeoTIFFs — served through a local FastAPI server and rendered by titiler in the browser.
 
-![Bowser: a DISP-S1 cube re-referenced to 2016-09-24, with two points in the time-series chart](docs/images/viewer.jpg)
+![Bowser: OPERA DISP-S1 velocity over the Island of Hawaiʻi, with five points in the time-series chart: Kīlauea's 2018 collapse and recovery, its south flank and east rift, and Mauna Loa's 2022 eruption](docs/images/viewer.jpg)
 
 ## What you can do
 
