@@ -240,6 +240,10 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Tiles with an uploaded custom mask no longer warp the mask file to the whole
+  pyramid level for every tile: the warped mask is kept per file and level
+  (up to 256 MB). A full-resolution tile of a DISP-S1 cube with a custom mask
+  went from 836 ms to 196 ms; the tiles are the same.
 - `GET /histogram` no longer holds the server up. Without a stored histogram
   it read the date at full resolution: on a DISP-S1 frame 5 s of CPU on the full
   server, on its event loop, so `/config` and `/datasets` waited up to 20 s
