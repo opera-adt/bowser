@@ -6,6 +6,14 @@ same statistics (numbers within a relative 1e-9; they are computed by the same
 code from the same pixels) for every shape of ``parity.polygon_bodies``, and the
 same error for the ones that are refused.
 
+The shapes with a pixel centre exactly on an edge (``tie_*``) are not compared
+pixel for pixel: GDAL decides such a centre differently on Linux x86-64 and on
+arm64 macOS (its pixel coordinates round differently there), while lite's
+numpy arithmetic gives one answer everywhere. For those, both servers must
+select every pixel strictly inside and none beyond the ones on the edges. The
+exact rule lite applies to a tie is pinned by hand-computed masks in
+``test_lite_polygon``.
+
 The cubes: the regression cube (UTM), and a lon/lat cube with a pyramid, time
 chunks, a 2-D layer and an integer layer. The real-cube test runs when
 ``BOWSER_LITE_REAL_CUBE`` points at a DISP GeoZarr; it only reads it.
@@ -82,11 +90,28 @@ def _both(cube: Path, bodies: dict, work: Path) -> tuple[dict, dict]:
     return full, lite
 
 
-def _assert_equal(full: dict, lite: dict) -> None:
+def _assert_equal(full: dict, lite: dict, ties: dict[str, tuple[int, int]]) -> None:
+    """Both servers agree; on the tie shapes, within the pixels that are ties."""
     assert full.keys() == lite.keys()
     for name in full:
         a, b = full[name], lite[name]
         assert a["status"] == b["status"], (name, a["body"], b["body"])
+        if name in ties:
+            # A centre on an edge may go either way (GDAL's own answer differs
+            # between platforms), but nothing else may: every pixel strictly
+            # inside is selected and none beyond the ones on the edges.
+            certain, on_edge = ties[name]
+            for which, answer in (("full", a), ("lite", b)):
+                assert answer["status"] == 200, (name, which, answer["body"])
+                body = answer["body"]
+                assert certain <= body["polygon_pixels"] <= certain + on_edge, (
+                    name,
+                    which,
+                    body["polygon_pixels"],
+                )
+                assert max(body["valid_per_date"]) <= body["polygon_pixels"]
+                assert len(body["statistics"]) == len(body["labels"])
+            continue
         diffs = parity.json_diffs(a["body"], b["body"], name, rel=1e-9)
         assert not diffs, diffs[:10]
 
@@ -131,7 +156,9 @@ def test_regression_cube(tmp_path):
     bodies["velocity"] = {**bodies["concave"], "variable": "velocity"}
     bodies["unknown"] = {**bodies["convex"], "variable": "missing"}
     full, lite = _both(cube, bodies, tmp_path / "run")
-    _assert_equal(full, lite)
+    _assert_equal(full, lite, parity.polygon_ties(NX, NY))
+    assert full["edge"]["body"]["polygon_pixels"] == 3 * NX
+    assert full["edge_right"]["body"]["polygon_pixels"] == 2 * (NY - 5)
     ok = {k for k, v in full.items() if v["status"] == 200}
     assert ok == set(bodies) - {"tiny_miss", "outside", "bowtie", "unknown"}
     assert full["unknown"]["status"] == 404
@@ -152,7 +179,8 @@ def test_lonlat_pyramid_cube(tmp_path):
         bodies[f"velocity_{name}"] = {**bodies[name], "variable": "velocity"}
         bodies[f"count_{name}"] = {**bodies[name], "variable": "count"}
     full, lite = _both(cube, bodies, tmp_path / "run")
-    _assert_equal(full, lite)
+    _assert_equal(full, lite, parity.polygon_ties(80, 64))
+    assert full["edge"]["body"]["polygon_pixels"] == 3 * 80
     assert full["hole"]["status"] == full["count_multi"]["status"] == 200
     assert full["hole"]["body"]["grid"]["crs"] == "EPSG:4326"
     assert full["hole"]["body"]["grid"]["shape"] == [64, 80]  # level 0, not the pyramid
@@ -178,5 +206,5 @@ def test_real_cube(tmp_path):
     epsg = int(str(code).split(":")[-1])
     bodies = parity.polygon_bodies(name, x0, y0, dx, nx, ny, epsg)
     full, lite = _both(Path(REAL_CUBE), bodies, tmp_path / "run")
-    _assert_equal(full, lite)
+    _assert_equal(full, lite, parity.polygon_ties(nx, ny))
     assert full["hole"]["status"] == 200

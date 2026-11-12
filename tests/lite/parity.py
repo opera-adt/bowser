@@ -366,8 +366,12 @@ def polygon_bodies(
     ``EPSG:epsg``; shapes are given in cell units and sent in lon/lat. Convex,
     concave, with a hole, two parts (one with a hole), partly and wholly
     outside, larger than the grid, inside one cell (with and without its
-    centre), along the grid's edges, with edges through cell centres, and one
-    that crosses itself.
+    centre), over the grid's edges, and one that crosses itself. None of these
+    has a cell centre on an edge when the cells are the grid's pixels.
+
+    The ``tie_*`` shapes do: edges through cell centres or along the grid's own
+    edges (:func:`polygon_ties`). Which side such a centre falls on depends on
+    the last bit of the arithmetic, and GDAL's differs between platforms.
     """
     from pyproj import Transformer
 
@@ -426,9 +430,15 @@ def polygon_bodies(
         "tiny_miss": poly(
             [(cx + 0.05, cy + 0.05), (cx + 0.3, cy + 0.07), (cx + 0.2, cy + 0.3)]
         ),
-        "edge": poly([(0, 0), (nx, 0), (nx, 3.5), (0, 3.5)]),
-        "edge_right": poly([(nx - 2.5, 5), (nx, 5), (nx, ny), (nx - 2.5, ny)]),
-        "on_centres": poly([(5.5, 5.5), (15.5, 5.5), (15.5, 12.5), (5.5, 12.5)]),
+        "edge": poly([(-0.4, -0.4), (nx + 0.4, -0.4), (nx + 0.4, 3.3), (-0.4, 3.3)]),
+        "edge_right": poly(
+            [(nx - 2.3, 5.2), (nx + 0.6, 5.2), (nx + 0.6, ny + 0.7)]
+            + [(nx - 2.3, ny + 0.7)]
+        ),
+        # Ties: edges through cell centres and along the grid's own edges.
+        "tie_edge": poly([(0, 0), (nx, 0), (nx, 3.5), (0, 3.5)]),
+        "tie_right": poly([(nx - 2.5, 5), (nx, 5), (nx, ny), (nx - 2.5, ny)]),
+        "tie_centres": poly([(5.5, 5.5), (15.5, 5.5), (15.5, 12.5), (5.5, 12.5)]),
         "outside": poly([(nx + 5, 2), (nx + 9, 2), (nx + 9, 7), (nx + 5, 7)]),
         "bowtie": poly([(5, 5), (15, 15), (15, 5), (5, 15)]),
     }
@@ -439,3 +449,22 @@ def polygon_bodies(
         "percentiles": [5, 50, 97.5],
     }
     return bodies
+
+
+def polygon_ties(nx: int, ny: int) -> dict[str, tuple[int, int]]:
+    """Pixel counts of the ``tie_*`` shapes of :func:`polygon_bodies`.
+
+    ``{name: (certain, ties)}`` when the cells are the grid's pixels: the
+    pixels whose centre is strictly inside, and those whose centre is on an
+    edge. Any correct fill selects the certain ones and no pixel beyond the
+    ties.
+    """
+    return {
+        # Rows 0..2 are inside; the centres of row 3 are on the lower edge.
+        "tie_edge": (3 * nx, nx),
+        # The last two columns from row 5 down; the third-last is on the edge.
+        "tie_right": (2 * (ny - 5), ny - 5),
+        # Centres 6.5..14.5 x 6.5..11.5 inside; the frame of the 11 x 8 block
+        # of centres 5.5..15.5 x 5.5..12.5 is on the edges.
+        "tie_centres": (9 * 6, 11 * 8 - 9 * 6),
+    }

@@ -133,9 +133,14 @@ pyproj and numpy:
   by a chain of three or more touching rings;
 - the pixels are selected by a scanline fill that follows GDAL's
   (`all_touched=False`): a pixel is in when its centre is inside, even-odd over
-  all rings. Centres exactly on an edge are decided as GDAL decides them: on a
-  north-up grid a centre on a left edge is out and one on a right edge is in,
-  and rows of centres on a horizontal edge are in.
+  all rings. Centres exactly on an edge follow GDAL's rule as built for Linux
+  x86-64: on a north-up grid a centre on a left edge is out and one on a right
+  edge is in, and rows of centres on a horizontal edge are in. Lite computes
+  this with plain double arithmetic, so its answer for given vertices is the
+  same on every platform (the desktop app on a Mac included). GDAL's own answer
+  for such ties can differ by platform and build (its arm64 builds round the
+  pixel coordinates differently), so on those the full server may differ from
+  lite in pixels whose centre lies on an edge, and only in those.
 
 Only the polygon's window is read, in blocks of time steps that follow the
 cube's time chunks (at most 16 million values at once), each block once per

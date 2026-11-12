@@ -7,8 +7,14 @@ the response are the full server's own code.
 
 A pixel is selected when its centre is inside the polygon (even-odd over all
 rings, so holes are excluded). :func:`rasterize` follows GDAL's scanline fill
-(``GDALdllImageFilledPolygon``) to the rounding, so a centre exactly on an edge
-is decided the same way.
+(``GDALdllImageFilledPolygon``), so both servers select the same pixels.
+
+A centre exactly on an edge (a tie) is decided by GDAL's rule with the rounding
+of GDAL built for Linux x86-64. The arithmetic here is plain IEEE double
+operations in numpy, one at a time, so the answer for given vertices is the
+same on every platform. GDAL's own answer for a tie is not: its arm64 builds
+(macOS) round the pixel coordinates differently (fused multiply-add), so there
+the full server can differ from lite, in tie pixels only.
 """
 
 from __future__ import annotations
@@ -308,14 +314,10 @@ def _window(
     points = np.concatenate([ring for polygon in polygons for ring in polygon])
     left, bottom = points.min(axis=0)
     right, top = points.max(axis=0)
-    # Pixel coordinates of the box's corners, solved as rasterio's ``rowcol``
-    # does, so a polygon ending on the grid's edge rounds the same way.
-    corners = np.array(
-        [[left, right, right, left], [top, top, bottom, bottom], [1.0] * 4]
-    )
-    cols, rows = np.linalg.solve(
-        np.array([[a, 0.0, c], [0.0, e, f], [0.0, 0.0, 1.0]]), corners
-    )[:2].tolist()
+    # Pixel coordinates of the box's corners, with the arithmetic of
+    # :func:`rasterize` (plain IEEE operations, the same on every platform).
+    cols = [-c / a + x * (1.0 / a) for x in (left, right)]
+    rows = [-f / e + y * (1.0 / e) for y in (top, bottom)]
     col_start, row_start = min(cols), min(rows)
     col_off, row_off = math.floor(col_start), math.floor(row_start)
     col_stop = math.ceil(col_start + max(max(cols) - col_start, 0.0))
