@@ -534,3 +534,58 @@ def test_cli_stores_histograms_and_servers_serve_them(tmp_path):
     assert ro.exit_code != 0 and "not writable" in ro.output and "cache" in ro.output
     remote = CliRunner().invoke(cli_app, ["add-histograms", "s3://bucket/cube.zarr"])
     assert remote.exit_code != 0 and "cannot be written in place" in remote.output
+
+
+DETACHED = textwrap.dedent(
+    """
+    import json, sys
+    import bowser.histograms as H
+    from bowser.state import _open_md
+    ds, _, levels = _open_md(sys.argv[1])
+    left = [
+        f"{lv.asset}/{name}"
+        for lv in levels
+        for name, var in lv.dataset.variables.items()
+        if H.STORED_ATTR in var.attrs
+    ]
+    print("RESULT" + json.dumps({
+        "level0_is_ds": levels[0].dataset is ds,
+        "left": left,
+        "on_step": H.STORED_ATTR in ds["displacement"].isel(time=7).attrs,
+        "t7": H.stored(ds, "displacement", 7),
+        "velocity": H.stored(ds, "velocity", 0),
+        "past_end": H.stored(ds, "displacement", int(sys.argv[2])),
+    }))
+    """
+)
+
+
+def test_full_server_keeps_stored_histograms_out_of_layer_attributes(tmp_path):
+    """rioxarray deep-copies a layer's attributes for every tile it renders."""
+    pytest.importorskip("rioxarray")
+    store = _pyramid(tmp_path / "stored.zarr")
+    H.add_to_store(str(store), echo=lambda _: None)
+    as_stored = _levels(store)[0]
+    entries = as_stored["displacement"].attrs[H.STORED_ATTR]
+    assert len(entries) == NT
+    # Not detached: read from the attribute.
+    assert H.stored(as_stored, "displacement", 7) == entries[7]
+
+    # bowser.state reads the settings at import, so it gets its own interpreter.
+    r = subprocess.run(
+        [sys.executable, "-c", DETACHED, str(store), str(NT)],
+        env=_env(),
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert r.returncode == 0, r.stdout[-2000:] + r.stderr[-4000:]
+    line = next(x for x in r.stdout.splitlines() if x.startswith("RESULT"))
+    assert json.loads(line[len("RESULT") :]) == {
+        "level0_is_ds": True,
+        "left": [],
+        "on_step": False,
+        "t7": entries[7],
+        "velocity": as_stored["velocity"].attrs[H.STORED_ATTR][0],
+        "past_end": None,
+    }

@@ -256,6 +256,12 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Full-resolution tiles of a cube with stored histograms render about twice as
+  fast on the full server (135 ms to 65 ms for a 419-date DISP-S1 layer). The
+  layer's `bowser_histogram` attribute, about 1 MB for that many dates, was
+  deep-copied by rioxarray for every tile; the server now keeps it beside the
+  dataset. `GET /variables` no longer lists it among a layer's `attrs` (5 MB
+  of that response).
 - `GET /histogram` no longer holds the server up. Without a stored histogram
   it read the date at full resolution: on a DISP-S1 frame 5 s of CPU on the full
   server, on its event loop, so `/config` and `/datasets` waited up to 20 s

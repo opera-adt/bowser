@@ -62,6 +62,7 @@ def _open_md(uri: str) -> tuple[xr.Dataset, Transformer, list["PyramidLevel"]]:
         resolve_crs,
         storage_options_for,
     )
+    from .histograms import detach_stored  # noqa: PLC0415
 
     logger.info(f"Loading MD dataset from {uri}")
     so = storage_options_for(uri)
@@ -102,6 +103,10 @@ def _open_md(uri: str) -> tuple[xr.Dataset, Transformer, list["PyramidLevel"]]:
         for i in range(1, len(levels)):
             levels[i].dataset = _spatial_ref_as_coord(levels[i].dataset)
             levels[i].dataset.rio.write_crs(crs, inplace=True)
+    # Last, on the datasets that are served: a megabyte of per-date histograms in
+    # a layer's attributes is deep-copied by rioxarray for every tile.
+    for lv in levels:
+        detach_stored(lv.dataset)
     return ds, tr, levels
 
 
