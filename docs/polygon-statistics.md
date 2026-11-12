@@ -41,10 +41,26 @@ deviation would be. It is spatial spread, not measurement uncertainty.
 When the viewer's reference is on for the layer, the chart subtracts the same
 reference value per date that the map and the point series use, so areas and
 points can be compared ("relative to the reference" in the tooltip). The
-optional masks are not applied to areas; the chart says so when masks are on.
-The API now accepts explicit named layer masks, described below; forwarding the
-chart's mask controls and invalidating its cached area summaries is separate
-UI work. Merely enabling a map mask does not yet change an area chart.
+named quality masks from Main > Masking are sent explicitly to the polygon API.
+The chart and Stats tab share each native summary. Changing a layer mask, its
+threshold or comparison clears the old summaries immediately and requests new
+ones; clearing masks restores the unmasked stored support. The Stats tab's
+**Usable pixels** reports the pixels contributing to the current summary.
+
+Superseded requests are aborted and late responses cannot restore an older
+curve or a removed area. Queued work for superseded settings is not started.
+Changing the source, loading a project or editing the area's geometry also
+invalidates the summaries. Reference, reference-date, styling and date-slider
+changes reuse the native summary; the existing reference calculation is applied
+once in the chart, not again in the API.
+
+The server must confirm that requested quality masks were applied. A failed,
+empty or unconfirmed mask response clears the old curve and displays an error;
+there is no fallback to unmasked data. Uploaded external masks, configured
+GeoTIFF masks and GeoTIFF maximum comparisons are not yet supported by this
+polygon workflow. If active, they give an explicit area error rather than a
+misleading unmasked curve. Clear an unsupported mask to recover a supported
+area chart. These limits do not claim to change point-chart or map behavior.
 Bowser-lite has the same button and gives the same numbers (see
 [Bowser-lite](#bowser-lite)).
 
@@ -126,8 +142,8 @@ It therefore does not claim to reproduce a dynamically referenced/masked map.
 Reference coordinates, primary/configured mask options and external uploaded
 mask paths remain unsupported request fields and are rejected. The chart
 already subtracts its reference from stored summaries; no second reference
-subtraction is introduced here. Future chart mask wiring must send its options
-explicitly and invalidate old summaries when they change. Disconnected offsets can be
+subtraction is introduced here. The chart sends supported named masks explicitly
+and invalidates old summaries when they change. Disconnected offsets can be
 ambiguous; component numbers are never assumed comparable between pairs or
 dates. Spatial spread is not measurement uncertainty, and an apparent history
 does not establish reference stability or ground motion.

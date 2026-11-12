@@ -7,7 +7,7 @@
  * subtracted here, so an area and a point are on the same footing. Subtracting one number per
  * date shifts the median, mean and every percentile by that number; the spread is unchanged.
  */
-import type { ChartArea, Overlay } from '../types';
+import type { ChartArea, LayerMask, Overlay } from '../types';
 
 import { AREA_PERCENTILES, areaRows, type AreaRow } from './areaStats';
 import { areaStyle, withOpacity, type AreaStyle } from '../map/seriesStyle';
@@ -44,6 +44,7 @@ export interface PolygonStatistics {
 }
 
 export interface PolygonTimeSeries {
+  optional_masks_applied?: boolean;
   labels: string[];
   units: string | null;
   statistics: PolygonStatistics[];
@@ -136,8 +137,18 @@ export function zonalKinds(o: Overlay): { polygons: number; points: number } {
 export const areaStatsKey = (dataset: string, areaId: string) => `${dataset}::${areaId}`;
 
 /** The request body: the cube's own values on the dates' common pixels. */
-export function polygonRequestBody(variable: string, geometry: ChartArea['geometry']) {
-  return { variable, geometry, support: 'common' as const, percentiles: [...AREA_PERCENTILES] };
+export function polygonRequestBody(variable: string, geometry: ChartArea['geometry'], layerMasks: LayerMask[] = []) {
+  // KML/GeoJSON may retain altitude. Raster selection needs XY, preserving rings/parts.
+  const xy = (coordinates: unknown): unknown => {
+    if (!Array.isArray(coordinates)) return coordinates;
+    return typeof coordinates[0] === 'number' && typeof coordinates[1] === 'number'
+      ? coordinates.slice(0, 2) : coordinates.map(xy);
+  };
+  return {
+    variable, geometry: { ...geometry, coordinates: xy(geometry.coordinates) },
+    support: 'common' as const, percentiles: [...AREA_PERCENTILES],
+    ...(layerMasks.length ? { layer_masks: layerMasks.map(({ dataset, threshold, mode }) => ({ dataset, threshold, mode })) } : {}),
+  };
 }
 
 /** A short message for a failed request (422 bad or too-large polygon, 501 without the route). */

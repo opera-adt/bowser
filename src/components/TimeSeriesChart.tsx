@@ -312,7 +312,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     fetchBufferTimeSeries,
   ]);
 
-  // ── Areas (+ Area): statistics per area × layer, fetched once (an area's polygon never changes) ──
+  // ── Areas (+ Area): native summaries shared with Stats, refreshed when masks change ──
   const visibleAreas = state.chartAreas.filter(a => a.visible);
   // Kept in AppState (the Stats tab lists them too); Zonal stats may have asked already.
   const areaResults = state.areaStats;
@@ -828,6 +828,8 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
         <div className="chart-placeholder">
           {activeDatasetsForChart.length === 0
             ? <p>No layer here has a time dimension.</p>
+            : areaErrors.length > 0 && visibleAreas.length > 0
+              ? <p>No valid area summary is available. See the area message above.</p>
             : state.layerMasks.length > 0
               ? (
                 <>
@@ -1119,7 +1121,8 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
       <div className="chart-help">
         <small>
           {picking ? `Click the chart where the ${picking} goes · ` : ''}Scroll to zoom · Drag to pan · Click points to sync map time
-          {visibleAreas.length > 0 && state.layerMasks.length > 0 && <> · Areas: masks not applied</>}
+          {visibleAreas.length > 0 && <> · Areas use common valid pixels</>}
+          {visibleAreas.some(a => activeDatasetsForChart.some(ds => areaResults[areaStatsKey(ds, a.id)]?.data?.optional_masks_applied)) && <> · Area quality masks applied</>}
           {state.bufferEnabled && Object.keys(bufferData).length > 0 && (
             <> · Buffer: {Object.values(bufferData).map((b: any) => b.n_pixels).join(', ')} px</>
           )}
