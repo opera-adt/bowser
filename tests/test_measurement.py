@@ -142,3 +142,31 @@ def test_ambiguous_text_is_not_classified():
         {"units": "m", "description": "Vertical motion derived from line-of-sight"},
     )
     assert m["kind"] == "unknown"
+
+
+@pytest.mark.parametrize(
+    "cube",
+    [
+        {"title": "OPERA VLM"},
+        {"product": "Vertical Land Motion, North America"},
+        {"short_name": "OPERA_L3_VLM-S1"},
+    ],
+)
+def test_a_product_named_for_vertical_land_motion_is_vertical(cube):
+    m = describe_measurement("velocity", {"units": "m/yr"}, cube, _los(349.6, 39.0))
+    assert m["kind"] == "vertical"
+    assert m["kind_source"].startswith("cube attribute")
+    assert m["sensitivity"] == {"east": 0.0, "north": 0.0, "up": 1.0}
+    # A derived vertical product: no line about one radar's wavelength.
+    assert "wavelength" not in m["summary"]
+    assert m["positive_direction"] is None  # the name says vertical, not the sign
+
+
+def test_names_that_only_contain_vlm_letters_are_not_vertical():
+    m = describe_measurement("velocity", {"units": "m/yr"}, {"title": "ovlmx stack"})
+    assert m["kind"] == "unknown"
+
+
+def test_a_line_of_sight_layer_in_a_vlm_named_cube_keeps_its_own_words():
+    m = describe_measurement("displacement", LOS_LAYER, {"title": "OPERA VLM inputs"})
+    assert m["kind"] == "line_of_sight"

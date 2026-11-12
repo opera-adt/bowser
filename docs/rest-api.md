@@ -308,8 +308,14 @@ when they name one direction, or say "positive ... towards the satellite"), then
 the cube's (`displacement_convention`, `ceos_product_measurement_projection`,
 ...), then a short table of facts producers document (`KNOWN_PRODUCTS` in
 `src/bowser/measurement.py`, matched on the cube's `title`, `product` or
-`source`; today only OPERA DISP-S1). The file always wins over the table. The
-look geometry and the wavelength are the cube's, the same for every layer.
+`source`; today only OPERA DISP-S1). A cube whose product name says vertical
+land motion (`title`, `product`, `short_name`... containing "VLM" or "vertical
+land motion") is vertical. The file always wins over the table. The look
+geometry and the wavelength are the cube's, the same for every layer. The
+wavelength is read from `radar_wavelength` (or `wavelength`, metres), or
+computed from a centre frequency in hertz (`centerFrequency`, as NISAR
+products record it, or `center_frequency`, `radar_frequency`). A vertical or
+east-west product, derived from several tracks, gets no wavelength sentence.
 
 ## What bowser-lite does not do
 

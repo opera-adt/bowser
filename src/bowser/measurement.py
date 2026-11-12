@@ -91,6 +91,7 @@ _KIND_PATTERNS: dict[Kind, str] = {
     "east_west": r"east[- ]west|\beastward\b",
     "north_south": r"north[- ]south|\bnorthward\b",
 }
+_VERTICAL_PRODUCT = r"vertical land motion|(?<![a-z0-9])vlm(?![a-z0-9])"
 _TARGET = r"(?:the )?(?:satellite|platform|sensor|radar|spacecraft)"
 _SIGN_PATTERNS: tuple[tuple[str, str], ...] = (
     (rf"\baway from {_TARGET}", "away from the satellite"),
@@ -180,6 +181,12 @@ def _find_kind(layer: Mapping, cube: Mapping) -> tuple[Kind | None, str | None]:
         for key in keys:
             if (text := _text(attrs.get(key))) and (kind := _kind_in(text)):
                 return kind, f"{where} attribute {key!r}"
+    # A product named for vertical land motion ("OPERA VLM", "... vertical land
+    # motion") measures vertical motion; product names say nothing else this sure.
+    for key in _PRODUCT_KEYS:
+        text = _text(cube.get(key))
+        if text and re.search(_VERTICAL_PRODUCT, text.casefold()):
+            return "vertical", f"cube attribute {key!r}"
     return None, None
 
 
@@ -326,7 +333,9 @@ def describe_measurement(
         summary += " " + note.split(" A sensitivity")[0]
     if half_mm:
         summary += f" Half the radar wavelength is {half_mm} mm."
-    else:
+    elif kind in ("line_of_sight", "unknown"):
+        # A vertical or east-west product is derived (often from several tracks):
+        # one radar's wavelength is not part of what its values mean.
         summary += " The radar wavelength is not recorded."
     return {
         "kind": kind,
