@@ -912,6 +912,44 @@ def _get_ref_median(
     return reference_median(pool(*circle))
 
 
+def _point_values_direct(
+    ds: "xr.Dataset",
+    name: str,
+    x: float,
+    y: float,
+    layer_masks: list[dict],
+    time_idx: int | None,
+) -> np.ndarray:
+    """Return a layer's values at one pixel of ``ds``, opened without dask.
+
+    The values ``_apply_layer_masks_md`` and ``select_point`` give on the dask
+    dataset, but the pixel is picked first and the masks are applied to it:
+    these arrays read whole when masked as layers. A mask is always one value
+    at a pixel (its step ``time_idx``, or its first without one).
+    """
+    da = ds[name]
+    if time_idx is not None:
+        dim = _non_spatial_dim(da)
+        if dim is not None:
+            da = da.isel({dim: max(0, min(time_idx, da.sizes[dim] - 1))})
+    values = np.atleast_1d(select_point(da, x, y, "nearest").values[..., 0, 0])
+    for m in layer_masks:
+        var = m.get("dataset")
+        if not var or var not in ds.data_vars:
+            continue
+        threshold = float(m.get("threshold", 0.5))
+        mask_da = ds[var]
+        mdim = _non_spatial_dim(mask_da)
+        if mdim is not None:
+            step = 0 if time_idx is None else min(time_idx, mask_da.sizes[mdim] - 1)
+            mask_da = mask_da.isel({mdim: step})
+        at = select_point(mask_da, x, y, "nearest").values[..., 0, 0]
+        keep = at <= threshold if m.get("mode", "min") == "max" else at >= threshold
+        # As ``DataArray.where``: NaN where the mask fails, integers become float.
+        values = xr.DataArray(values).where(bool(np.all(keep))).values
+    return values
+
+
 def _get_point_values(
     dataset_name: str,
     lon: float,
@@ -931,6 +969,12 @@ def _get_point_values(
             raise HTTPException(
                 status_code=404, detail=f"Variable {dataset_name} not found"
             )
+        x, y = state.transformer_from_lonlat.transform(lon, lat)
+        direct = state.point_dataset()
+        if direct is not None and dataset_name in direct.data_vars:
+            return _point_values_direct(
+                direct, dataset_name, x, y, layer_masks or [], time_idx
+            )
         da = state.dataset[dataset_name]
         # Select the single time step before reading so only its chunk is fetched.
         if time_idx is not None:
@@ -938,7 +982,6 @@ def _get_point_values(
             if dim is not None:
                 da = da.isel({dim: max(0, min(time_idx, da.sizes[dim] - 1))})
         da = _apply_layer_masks_md(da, layer_masks or [], time_idx=time_idx)
-        x, y = state.transformer_from_lonlat.transform(lon, lat)
         return np.atleast_1d(select_point(da, x, y, "nearest").values[..., 0, 0])
     else:  # cog mode
         if dataset_name not in state.raster_groups:

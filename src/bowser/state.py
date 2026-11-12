@@ -149,6 +149,47 @@ class BowserState:
     levels: Any = None
     # Path or URL of the MD store, None in COG mode.
     uri: Any = None
+    # Level 0 opened without dask (see ``point_dataset``); False: there is none.
+    _point_dataset: Any = field(default=None, repr=False, compare=False)
+    _point_lock: threading.Lock = field(
+        default_factory=threading.Lock, repr=False, compare=False
+    )
+
+    def point_dataset(self) -> xr.Dataset | None:
+        """Return level 0 of a zarr cube opened without dask, for reads at a point.
+
+        A pixel's time series crosses one chunk per time block. Through dask
+        that is a task graph and a thread pool for a few kilobytes: more than
+        twice the time of reading the chunks directly, which xarray does for a
+        store opened with ``chunks=None``. Only for picking pixels: arithmetic
+        on these arrays (``where``, ``-``) reads them whole. Opened on first
+        use; ``None`` when the source is not a zarr store.
+        """
+        if self._point_dataset is None:
+            with self._point_lock:
+                if self._point_dataset is None:
+                    self._point_dataset = self._open_point_dataset()
+        return None if self._point_dataset is False else self._point_dataset
+
+    def _open_point_dataset(self) -> Any:
+        from .geozarr import storage_options_for  # noqa: PLC0415 — avoid cycle
+
+        uri = self.uri
+        if self.mode != "md" or not uri or not self.levels:
+            return False
+        if not (str(uri).endswith(".zarr") or "://" in str(uri)):
+            return False
+        try:
+            return xr.open_zarr(
+                uri,
+                group=self.levels[0].asset or None,
+                consolidated=False,
+                chunks=None,
+                storage_options=storage_options_for(uri),
+            )
+        except Exception:  # noqa: BLE001 — the dask dataset still answers
+            logger.warning("No dask-less reader for %s", uri, exc_info=True)
+            return False
 
     def dataset_for_tile_zoom(self, z: int, tile_size: int = TILE_SIZE) -> xr.Dataset:
         """Return the pyramid level dataset appropriate for a given tile zoom.

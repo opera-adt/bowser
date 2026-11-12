@@ -240,6 +240,11 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Time series at a point are read without dask on the full server (`/point`,
+  `/chart_point`, `/multi_point`, `/trend_analysis`), as bowser-lite reads
+  them. For a 419-date DISP-S1 cube: one series 149 ms to 54 ms, five points
+  and a reference 890 ms to 341 ms, the same with a layer mask 2.1 s to
+  0.3 s (the mask is now applied to the pixel, not to the layer). Same values.
 - `GET /histogram` no longer holds the server up. Without a stored histogram
   it read the date at full resolution: on a DISP-S1 frame 5 s of CPU on the full
   server, on its event loop, so `/config` and `/datasets` waited up to 20 s
