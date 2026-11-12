@@ -6,6 +6,7 @@
  * URL per subdomain. Pinned by basemapStyle.test.ts.
  */
 import type { BaseMapItem } from '../types';
+import { esriTileUrl } from './esriTiles';
 
 const SUBDOMAINS = ['a', 'b', 'c'];
 
@@ -30,10 +31,14 @@ export interface RasterSource {
   maxzoom: number;
 }
 
-/** ``maxzoom`` is the provider's native max, so MapLibre overzooms past it. */
+/**
+ * ``maxzoom`` is the provider's native max, so MapLibre overzooms past it. Esri's
+ * tiles go through ``esritiles://`` (esriTiles.ts), so a place where they end
+ * sooner shows the last real tiles, not Esri's "Map data not yet available" image.
+ */
 export function basemapSource(item: BaseMapItem): RasterSource {
   return {
-    type: 'raster', tiles: basemapTiles(item.url), tileSize: 256, attribution: item.attribution,
+    type: 'raster', tiles: basemapTiles(item.url).map(esriTileUrl), tileSize: 256, attribution: item.attribution,
     maxzoom: basemapNativeZoom(item),
   };
 }
