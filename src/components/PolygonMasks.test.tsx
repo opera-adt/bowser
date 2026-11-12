@@ -191,19 +191,30 @@ describe('polygon masking controls', () => {
     expect(current.areaStats['displacement::area']).toBeUndefined();
   });
 
-  it.each(['configured', 'maximum'])(
-    'rejects an unsupported GeoTIFF %s mask without requesting unmasked statistics', async kind => {
-      show([
-        { type: 'SET_DATA_MODE', payload: 'cog' },
-        ...(kind === 'configured'
-          ? [{ type: 'SET_DATASETS' as const, payload: { displacement: { ...layer, mask_file_list: ['mask.tif'] } } }]
-          : [{ type: 'ADD_LAYER_MASK' as const, payload: { ...mask, mode: 'max' as const } }]),
-      ]);
-      await waitFor(() => expect(current.areaStats['displacement::area']?.error).toMatch(/configured GeoTIFF|minimum thresholds/));
-      expect(posted).toHaveLength(0);
-      expect(screen.queryByText(/Masking hides every date/)).toBeNull();
-    },
-  );
+  it('rejects an unsupported configured GeoTIFF mask without requesting unmasked statistics', async () => {
+    show([
+      { type: 'SET_DATA_MODE', payload: 'cog' },
+      { type: 'SET_DATASETS', payload: { displacement: { ...layer, mask_file_list: ['mask.tif'] } } },
+    ]);
+    await waitFor(() => expect(current.areaStats['displacement::area']?.error).toContain('configured GeoTIFF'));
+    expect(posted).toHaveLength(0);
+    expect(screen.queryByText(/Masking hides every date/)).toBeNull();
+  });
+
+  it('sends a GeoTIFF upper bound and applies the spatial reference once', async () => {
+    show([
+      { type: 'SET_DATA_MODE', payload: 'cog' },
+      { type: 'ADD_LAYER_MASK', payload: { ...mask, mode: 'max' } },
+    ], true);
+    await waitFor(() => expect(medians()).toEqual([0, 5, 10]));
+    expect(posted).toHaveLength(1);
+    expect(posted[0].body.layer_masks).toEqual([
+      { dataset: 'quality', threshold: 0.5, mode: 'max' },
+    ]);
+    expect(current.areaStats['displacement::area']?.error).toBeUndefined();
+    change({ type: 'REMOVE_LAYER_MASK', payload: 'q' });
+    await waitFor(() => expect(medians()).toEqual([0, 9, 18]));
+  });
 
   it.each(['source', 'project'])(
     'invalidates a pending response after changing the %s', async kind => {

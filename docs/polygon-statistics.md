@@ -56,9 +56,8 @@ once in the chart, not again in the API.
 
 The server must confirm that requested quality masks were applied. A failed,
 empty or unconfirmed mask response clears the old curve and displays an error;
-there is no fallback to unmasked data. Uploaded external masks, configured
-GeoTIFF masks and GeoTIFF maximum comparisons are not yet supported by this
-polygon workflow. If active, they give an explicit area error rather than a
+there is no fallback to unmasked data. Uploaded external masks and configured
+GeoTIFF masks are not yet supported by this polygon workflow. If active, they give an explicit area error rather than a
 misleading unmasked curve. Clear an unsupported mask to recover a supported
 area chart. These limits do not claim to change point-chart or map behavior.
 Bowser-lite has the same button and gives the same numbers (see
@@ -104,8 +103,8 @@ pixels, for example:
 The threshold is in the named layer's stored units. Up to ten masks are combined
 with AND, in addition to intrinsic source validity. GeoZarr (full and lite)
 supports inclusive `min` (`>=`) and `max` (`<=`). Direct GeoTIFF masks preserve
-the map reader's strict `min` (`>`) convention. GeoTIFF `max` is rejected until
-the map/export upper-bound support is repaired; it is never silently ignored.
+the map reader's strict `min` (`>`) convention and support inclusive `max` (`<=`).
+These are signed comparisons, not absolute-value bounds.
 Mask nodata, undecoded fill sentinels and nonfinite values are always excluded,
 even when a sentinel would satisfy the threshold. A legitimate displacement of
 zero remains valid if it passes the masks.

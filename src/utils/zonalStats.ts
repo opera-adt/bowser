@@ -49,9 +49,6 @@ function maskError(dataset: string, options: AreaFetchOptions): string | null {
   if (options.dataMode === 'cog' && options.datasetInfo[dataset]?.mask_file_list?.some(Boolean)) {
     return 'Area statistics do not yet support configured GeoTIFF masks. No unmasked curve is shown.';
   }
-  if (options.dataMode === 'cog' && options.layerMasks.some(m => m.mode === 'max')) {
-    return 'GeoTIFF area masks currently support minimum thresholds only. No unmasked curve is shown.';
-  }
   if (options.layerMasks.some(m => !Number.isFinite(m.threshold))) return 'Area mask thresholds must be finite numbers.';
   return null;
 }
