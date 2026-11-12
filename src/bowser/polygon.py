@@ -21,6 +21,10 @@ MAX_VERTICES = 10_000
 MAX_WINDOW_PIXELS = 2_000_000
 MAX_PIXEL_EPOCHS = 50_000_000
 _ANGULAR_UNITS = {"degree", "degrees", "deg", "radian", "radians", "rad"}
+#: The first warning of a summary without masks (replaced when masks are applied).
+STORED_WARNING = (
+    "Stored values: interactive referencing and optional quality masks are not applied."
+)
 
 
 class PolygonMask(BaseModel):
@@ -283,9 +287,7 @@ def summarize_xarray(
     if grid.transform.b != 0 or grid.transform.d != 0:
         raise ValueError("GeoZarr statistics require a rectilinear x/y grid")
     masks = xarray_masks(source, mask_dataset, request, grid.crs)
-    window, inside, clipped = _selection(
-        grid, request.geometry, count * (1 + len(request.layer_masks))
-    )
+    window, inside, clipped = _selection(grid, request.geometry, masks.work(count))
     rows = slice(int(window.row_off), int(window.row_off + window.height))
     cols = slice(int(window.col_off), int(window.col_off + window.width))
     subset = source.isel(
@@ -321,7 +323,7 @@ def summarize_rasters(
     labels = [str(v) for v in group.x_values]
     masks = raster_masks(mask_groups, request, labels, grid)
     window, inside, clipped = _selection(
-        grid, request.geometry, len(group.file_list) * (1 + len(request.layer_masks))
+        grid, request.geometry, masks.work(len(group.file_list))
     )
     rows = slice(int(window.row_off), int(window.row_off + window.height))
     cols = slice(int(window.col_off), int(window.col_off + window.width))
@@ -389,10 +391,7 @@ def _result(
     if raster_units:
         units = raster_units[0]
     warnings = [
-        (
-            "Stored values: interactive referencing and optional quality masks "
-            "are not applied."
-        ),
+        STORED_WARNING,
         (
             "Connected-component compatibility is unverified; disconnected offsets "
             "may be ambiguous."

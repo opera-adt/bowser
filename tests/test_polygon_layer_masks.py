@@ -334,3 +334,99 @@ def test_mask_parameters_reject_nonfinite_thresholds_and_excessive_work(inputs):
             )
     with pytest.raises(ValidationError):
         PolygonRequest(**body, layer_masks=[{"dataset": "quality"}] * 11)
+
+
+def _counting(array: np.ndarray, calls: list):
+    """Return ``array`` as a lazy dask array that records each read in ``calls``."""
+    import dask.array as da
+    from dask import delayed
+
+    def read():
+        calls.append(1)
+        return array
+
+    return da.from_delayed(delayed(read)(), array.shape, array.dtype)
+
+
+@pytest.mark.parametrize("storage", ["md", "lite"])
+def test_a_static_mask_is_read_once_for_all_dates(inputs, storage):
+    ds, groups, body = inputs
+    plain = run(
+        storage, ds, groups, {**body, "layer_masks": [{"dataset": "static_quality"}]}
+    )
+    calls: list = []
+    ds["static_quality"].data = _counting(ds["static_quality"].values, calls)
+    result = run(
+        storage, ds, groups, {**body, "layer_masks": [{"dataset": "static_quality"}]}
+    )
+    assert len(calls) == 1  # three dates, one read
+    assert result["statistics"] == plain["statistics"]
+
+
+def test_a_static_geotiff_mask_is_opened_once(inputs, monkeypatch):
+    import rasterio
+
+    ds, groups, body = inputs
+    opened: list = []
+    real = rasterio.open
+    monkeypatch.setattr(
+        rasterio,
+        "open",
+        lambda path, *a, **k: (opened.append(str(path)), real(path, *a, **k))[1],
+    )
+    run("cog", ds, groups, {**body, "layer_masks": [{"dataset": "static_quality"}]})
+    assert sum("static_quality" in p for p in opened) == 1
+
+
+@pytest.mark.parametrize("storage", ["md", "lite"])
+def test_a_dynamic_mask_is_read_in_blocks_of_its_time_chunks(inputs, storage):
+    ds, groups, body = inputs
+    request = {**body, "layer_masks": [{"dataset": "quality"}]}
+    plain = run(storage, ds, groups, request)
+    calls: list = []
+    ds["quality"].data = _counting(ds["quality"].values, calls)
+    ds["quality"].encoding["preferred_chunks"] = {"time": 3, "y": 4, "x": 4}
+    result = run(storage, ds, groups, request)
+    assert len(calls) == 1  # one chunk of three dates, read once
+    assert result["statistics"] == plain["statistics"]
+    assert result["valid_per_date"] == plain["valid_per_date"]
+
+
+@pytest.mark.parametrize("storage", ["md", "lite", "cog"])
+def test_static_masks_cost_one_frame_each_in_the_budget(inputs, storage, monkeypatch):
+    from bowser import polygon
+    from bowser.lite import polygon as lite_polygon
+
+    ds, groups, body = inputs
+    # 16 pixels x 3 dates = 48 for the data; two static masks add 2 x 16 = 32.
+    for module in (polygon, lite_polygon):
+        monkeypatch.setattr(module, "MAX_PIXEL_EPOCHS", 16 * 5)
+    two_static = [
+        {"dataset": "static_quality"},
+        {"dataset": "static_quality", "threshold": 0.9},
+    ]
+    result = run(storage, ds, groups, {**body, "layer_masks": two_static})
+    assert result["optional_masks_applied"] is True
+    # A mask along the dates still costs a frame per date: 16 x 3 x 2 = 96 > 80.
+    with pytest.raises(ValueError, match="budget"):
+        run(storage, ds, groups, {**body, "layer_masks": [{"dataset": "quality"}]})
+
+
+@pytest.mark.parametrize("storage", ["md", "lite", "cog"])
+def test_the_masked_warning_replaces_the_stored_one_wherever_it_is(inputs, storage):
+    from bowser import polygon, polygon_masks
+
+    ds, groups, body = inputs
+    masked = run(
+        storage, ds, groups, {**body, "layer_masks": [{"dataset": "static_quality"}]}
+    )
+    assert polygon_masks.MASKED_WARNING in masked["warnings"]
+    assert polygon.STORED_WARNING not in masked["warnings"]
+    plain = run(storage, ds, groups, body)
+    assert len(masked["warnings"]) == len(plain["warnings"])
+    # Not by position: with the stored warning elsewhere, the others are kept.
+    result = {"warnings": ["first", polygon.STORED_WARNING]}
+    done = polygon_masks.PolygonMasks(records=[{"temporal_support": "static"}]).finish(
+        result
+    )
+    assert done["warnings"] == ["first", polygon_masks.MASKED_WARNING]
