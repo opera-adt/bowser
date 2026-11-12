@@ -256,6 +256,11 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `GET /deformation_zones` (and the Assistant's and MCP's zones tool) reads its
+  layers in bands of rows instead of all at once, on both servers. Fitting a
+  rate to a 419-date displacement stack over 800 x 600 pixels peaked at 5.2 GB
+  and now at 1.0 GB, however large the area; without a velocity layer and a
+  bbox it tried to hold the whole stack. The zones are the same.
 - bowser-lite: a tile shown relative to another date (`ref_time_idx`) read both
   whole layers before cutting the tile out, since its arrays are not dask's:
   about 1 s per full-resolution tile on a DISP-S1 frame, and twice the layer
