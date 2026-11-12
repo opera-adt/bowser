@@ -203,8 +203,8 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   within a memory budget (128–768 MB from the device's memory, 768 MB with
   8 GB or more, or `?gpu_mb=`), dropping chunks away from the view first;
   dates played past are no longer fetched. The `?render=` label shows the
-  memory in use. A worker that can't start switches to tiles, as other
-  failures do.
+  memory in use and how long the last date took to draw. A worker that can't
+  start switches to tiles, as other failures do.
 
 ### Changed
 

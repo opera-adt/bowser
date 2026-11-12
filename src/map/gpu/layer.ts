@@ -107,6 +107,11 @@ export interface GpuLayerStats {
   dropped: number;
   /** Largest float16 rounding error of the uploaded chunks (data units). */
   maxHalfError: number;
+  /**
+   * Milliseconds from the last change of what to draw (a date, a colour range, ...)
+   * to the first frame that drew all of it in view, or null before one.
+   */
+  drawMs: number | null;
 }
 
 const MAX_INFLIGHT = 6;
@@ -139,6 +144,8 @@ export class GpuCubeLayer implements maplibregl.CustomLayerInterface {
   private textureBytes = 0;
   private counts = { peak: 0, f16: 0, f32: 0, evicted: 0, dropped: 0, maxHalfError: 0 };
   private readonly budget: number;
+  private changedAt: number | null = null;
+  private drawMs: number | null = null;
 
   constructor(readonly cube: GpuCube, private opts: GpuLayerOptions) {
     this.budget = opts.budgetBytes ?? textureBudgetBytes(
@@ -153,6 +160,7 @@ export class GpuCubeLayer implements maplibregl.CustomLayerInterface {
     return {
       textureBytes: this.textureBytes, peakTextureBytes: c.peak, budgetBytes: this.budget, f16: c.f16, f32: c.f32,
       evicted: c.evicted, dropped: c.dropped, maxHalfError: c.maxHalfError,
+      drawMs: this.drawMs === null ? null : Math.round(this.drawMs),
     };
   }
 
@@ -162,6 +170,7 @@ export class GpuCubeLayer implements maplibregl.CustomLayerInterface {
   /** What to draw (null: nothing, while the map shows tiles for a view the GPU can't draw). */
   setParams(p: GpuParams | null, opacity: number) {
     this.params = p;
+    this.changedAt = performance.now();
     this.opacity = opacity;
     this.map?.triggerRepaint();
   }
@@ -459,6 +468,7 @@ export class GpuCubeLayer implements maplibregl.CustomLayerInterface {
         if (prev && ready(prev.data) && ready(prev.ref) && ready(prev.mask)) items.push(prev);   // stale until new
       }
     }
+    if (complete && this.changedAt !== null) { this.drawMs = performance.now() - this.changedAt; this.changedAt = null; }
     // Other levels' chunks stay underneath until this level has fully drawn.
     const under: DrawItem[] = [];
     for (const [pos, it] of this.displayed) {

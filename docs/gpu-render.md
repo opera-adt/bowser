@@ -101,8 +101,10 @@ more by the map; the value drawn at a cube pixel is the same.
 - **Label**: with `?render=` in the address, a small label at the bottom of
   the map says *GPU render* or *Server tiles*, and why (for example
   `auto: software renderer (...)` or `fell back to tiles: WebGL context lost`).
-  For the GPU it adds the chunk memory in use and the budget, and how many
-  chunks are 16-bit and 32-bit (`42/384 MB · 30 f16, 2 f32`).
+  For the GPU it adds the chunk memory in use and the budget, how many
+  chunks are 16-bit and 32-bit, and how long the last change (a date, the
+  colours) took until everything in view was drawn
+  (`42/768 MB · 30 f16, 2 f32 · drawn in 120 ms`).
 - **Console**: one line, `[bowser] data layer: GPU — render=gpu (forced)` or
   `[bowser] data layer: tiles — ...`, and a warning when it falls back.
 - **Network tab**: the GPU path reads `/zarr/...` (`zarr.json` and chunk

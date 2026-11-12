@@ -29,7 +29,7 @@ vi.mock('./runtime', () => {
       setParams = vi.fn();
       close = vi.fn();
       stats = () => ({ textureBytes: 3 * 1048576, peakTextureBytes: 4 * 1048576, budgetBytes: 384 * 1048576,
-        f16: 3, f32: 1, evicted: 2, dropped: 0, maxHalfError: 1e-5 });
+        f16: 3, f32: 1, evicted: 2, dropped: 0, maxHalfError: 1e-5, drawMs: null });
       constructor(_cube: unknown, public opts: { onFailure: (r: string) => void; watchSlowFrames: boolean }) {
         rt.layers.push(this as never);
       }
@@ -180,6 +180,7 @@ describe('useGpuRender', () => {
     await waitFor(() => expect(status.stats).not.toBeNull());
     expect(status.stats).toMatchObject({ f16: 3, f32: 1, budgetBytes: 384 * 1048576 });
     expect(statsText(status.stats!)).toBe('3.0/384 MB · 3 f16, 1 f32 · 2 evicted');
+    expect(statsText({ ...status.stats!, evicted: 0, drawMs: 120 })).toBe('3.0/384 MB · 3 f16, 1 f32 · drawn in 120 ms');
   });
 
   it('falls back to tiles when the cube cannot be opened at /zarr/', async () => {

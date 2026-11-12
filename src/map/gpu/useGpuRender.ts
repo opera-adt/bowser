@@ -30,10 +30,14 @@ export interface GpuRenderStatus {
   stats: GpuLayerStats | null;
 }
 
-/** The label's summary of the layer's textures, e.g. ``42/384 MB · 30 f16, 2 f32``. */
+/**
+ * The label's summary of the layer's textures and how long the last change took to
+ * draw, e.g. ``42/768 MB · 30 f16, 2 f32 · drawn in 120 ms``.
+ */
 export function statsText(s: GpuLayerStats): string {
   const mb = (b: number) => (b / 1048576).toFixed(b < 10 * 1048576 ? 1 : 0);
-  return `${mb(s.textureBytes)}/${mb(s.budgetBytes)} MB · ${s.f16} f16, ${s.f32} f32${s.evicted ? ` · ${s.evicted} evicted` : ''}`;
+  return `${mb(s.textureBytes)}/${mb(s.budgetBytes)} MB · ${s.f16} f16, ${s.f32} f32${s.evicted ? ` · ${s.evicted} evicted` : ''}`
+    + `${s.drawMs != null ? ` · drawn in ${s.drawMs} ms` : ''}`;
 }
 
 let logged = '';

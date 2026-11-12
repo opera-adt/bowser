@@ -194,6 +194,14 @@ describe('GpuCubeLayer', () => {
     expect(new Set(block0.map(c => `${c.cy}|${c.cx}`)).size).toBe(block0.length);
   });
 
+  it('says how long a new date took to draw', async () => {
+    const { gl, layer } = setup(512 * MB);
+    expect(layer.stats().drawMs).toBeNull();
+    layer.setParams(params({ timeIdx: 0 }), 1);
+    await frames(layer, gl);
+    expect(layer.stats().drawMs).toBeGreaterThanOrEqual(0);
+  });
+
   it('falls back when the decoder workers fail, and stops them when closed', async () => {
     const { layer, onFailure, workerDies, cube } = setup(512 * MB);
     workerDies('decoder worker failed: boom');
