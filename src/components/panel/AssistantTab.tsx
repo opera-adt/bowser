@@ -171,6 +171,9 @@ export default function AssistantTab() {
 
   // While a sign-in waits for the provider's page, ask the server until it is done.
   const methods = status?.sign_in?.methods ?? [];
+  // One "Sign in" for every service: the drop-down picks which. It starts on the
+  // account in use, else one already signed in, else the first.
+  const [pickedId, setPickedId] = useState<string | null>(null);
   const pending = methods.some(m => m.state === 'pending');
   useEffect(() => {
     if (!pending) return;
@@ -194,6 +197,10 @@ export default function AssistantTab() {
     : signedIn[0]?.id ?? status?.default_provider ?? providers.find(p => p.available && p.configured)?.id ?? providers.find(p => p.available)?.id ?? '';
   const account: SignInMethod | undefined = signedIn.find(m => m.id === chosenId);
   const provider: ProviderInfo | undefined = account ? undefined : providers.find(p => p.id === chosenId);
+  const picked = methods.find(m => m.id === pickedId)
+    ?? methods.find(m => m.id === account?.id)
+    ?? methods.find(m => m.state === 'signed_in' || m.state === 'pending')
+    ?? methods[0];
   const model = account
     ? (prefs.models?.[account.id] ?? account.model)
     : (provider && prefs.models?.[provider.id]) ?? provider?.model ?? '';
@@ -557,11 +564,18 @@ export default function AssistantTab() {
           <>
             {status.sign_in?.allowed ? (
               <div className="ai-signins">
-                {methods.map(m => (
-                  <SignInRow key={m.id} m={m} inUse={account?.id === m.id} url={starting.current === m.id ? signUrl : null}
-                    onSignIn={() => void startSignIn(m)} onConsent={() => void startSignIn(m, true)}
-                    onSignOut={() => void endSignIn(m)} onUse={() => choose(m.id)} />
-                ))}
+                {picked && (
+                  <SignInRow m={picked} inUse={account?.id === picked.id} url={starting.current === picked.id ? signUrl : null}
+                    picker={methods.length > 1 && picked.state !== 'pending' ? (
+                      <select aria-label="Sign in with" className="sidebar-select" value={picked.id} onChange={e => setPickedId(e.target.value)}>
+                        {methods.map(m => (
+                          <option key={m.id} value={m.id}>{serviceName(m)}{m.state === 'signed_in' ? ' · signed in' : ''}</option>
+                        ))}
+                      </select>
+                    ) : null}
+                    onSignIn={() => void startSignIn(picked)} onConsent={() => void startSignIn(picked, true)}
+                    onSignOut={() => void endSignIn(picked)} onUse={() => choose(picked.id)} />
+                )}
               </div>
             ) : status.sign_in?.reason ? (
               <>
@@ -763,14 +777,25 @@ function SubscriptionNote() {
 }
 
 /** One sign-in method: its button, or who is signed in with Sign out, or why it cannot be used. */
-function SignInRow({ m, inUse, url, onSignIn, onConsent, onSignOut, onUse }: {
-  m: SignInMethod; inUse: boolean; url: string | null;
+function SignInRow({ m, inUse, url, picker, onSignIn, onConsent, onSignOut, onUse }: {
+  m: SignInMethod; inUse: boolean; url: string | null; picker?: ReactNode;
   onSignIn: () => void; onConsent: () => void; onSignOut: () => void; onUse: () => void;
 }) {
   const name = serviceName(m);
+  // The button reads "Sign in" next to the drop-down; its name keeps the service's
+  // own wording ("Sign in with Claude", "Continue with ChatGPT").
+  const button = (disabled: boolean, onClick?: () => void) => (
+    <div className="ai-row">
+      {picker}
+      <button type="button" className="hist-btn ai-signin-btn" aria-label={m.label} disabled={disabled} onClick={onClick}>
+        {picker ? 'Sign in' : m.label}
+      </button>
+    </div>
+  );
   if (m.state === 'signed_in') {
     return (
       <div className="ai-signin" aria-label={name}>
+        {picker && <div className="ai-row">{picker}</div>}
         <div className="row-label ai-small">
           <strong>{name}</strong> · {m.account ? `Signed in as ${m.account}` : 'Signed in'}{m.plan ? ` · ${m.plan}` : ''}
         </div>
@@ -800,7 +825,7 @@ function SignInRow({ m, inUse, url, onSignIn, onConsent, onSignOut, onUse }: {
   if (m.state === 'not_installed') {
     return (
       <div className="ai-signin" aria-label={name}>
-        <button type="button" className="hist-btn ai-signin-btn" disabled>{m.label}</button>
+        {button(true)}
         <div className="row-label ai-small">
           {m.kind === 'local_agent' ? 'Claude Code is needed: ' : ''}
           {m.install_url ? <>install it from <a href={m.install_url} target="_blank" rel="noopener noreferrer">claude.com</a>.</> : 'it is not installed.'}
@@ -811,7 +836,7 @@ function SignInRow({ m, inUse, url, onSignIn, onConsent, onSignOut, onUse }: {
   }
   return (
     <div className="ai-signin" aria-label={name}>
-      <button type="button" className="hist-btn ai-signin-btn" onClick={m.state === 'no_plan' ? onConsent : onSignIn}>{m.label}</button>
+      {button(false, m.state === 'no_plan' ? onConsent : onSignIn)}
       <div className={`row-label ai-small${m.detail ? ' ai-error' : ''}`}>{m.detail ?? m.blurb}</div>
     </div>
   );

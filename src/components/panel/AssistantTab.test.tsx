@@ -31,6 +31,9 @@ const CHATGPT_IN = method({
   usage_url: 'https://chatgpt.com/settings/usage?tab=overview',
 });
 const SIGN_IN = { allowed: true, reason: null, methods: [CLAUDE_IN, CHATGPT_IN] };
+/** Choose a service in the one "Sign in with" drop-down. */
+const pickService = (id: string) => fireEvent.change(screen.getByRole('combobox', { name: 'Sign in with' }), { target: { value: id } });
+
 const STATUS = { enabled: true, page_keys: true, default_provider: null, providers: [ANTHROPIC, OLLAMA], sign_in: SIGN_IN };
 
 const sse = (...events: object[]) => new Response(events.map(e => `data: ${JSON.stringify(e)}\n\n`).join(''), {
@@ -373,18 +376,24 @@ describe('AssistantTab sign-in', () => {
     expect(await screen.findByText('Stopped after 8 tool calls.')).toBeTruthy();
   });
 
-  it('lists the sign-in buttons from the server, with the API key form below them', async () => {
+  it('offers one Sign in with a drop-down of the services, with the API key form below it', async () => {
     const off = { ...STATUS, providers: [ANTHROPIC] };  // nothing ready: the setup opens by itself
     server(off);
     renderTab();
+    // One button; its name keeps the service's own words.
     const claude = await screen.findByRole('button', { name: 'Sign in with Claude' });
-    expect(screen.getByRole('button', { name: 'Continue with ChatGPT' })).toBeTruthy();
+    expect(claude.textContent?.trim()).toBe('Sign in');
     expect(screen.getByText('Uses Claude Code on this computer and your Claude plan.')).toBeTruthy();
-    // The buttons come in the server's order, before "Use an API key".
+    // The services come in the server's order in the drop-down, before "Use an API key".
+    const picker = screen.getByRole('combobox', { name: 'Sign in with' }) as HTMLSelectElement;
+    expect(Array.from(picker.options).map(o => o.textContent)).toEqual(['Claude', 'ChatGPT']);
     const buttons = screen.getAllByRole('button').map(b => b.textContent?.trim());
-    expect(buttons.indexOf('Sign in with Claude')).toBeLessThan(buttons.indexOf('Continue with ChatGPT'));
-    expect(buttons.indexOf('Continue with ChatGPT')).toBeLessThan(buttons.findIndex(t => t?.includes('Use an API key')));
-    expect(claude).toBeTruthy();
+    expect(buttons.filter(t => t === 'Sign in')).toHaveLength(1);
+    expect(buttons.indexOf('Sign in')).toBeLessThan(buttons.findIndex(t => t?.includes('Use an API key')));
+    pickService('chatgpt');
+    expect(screen.getByRole('button', { name: 'Continue with ChatGPT' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Sign in with Claude' })).toBeNull();
+    expect(screen.getByText('Uses your ChatGPT plan.')).toBeTruthy();
     expect(screen.queryByLabelText('API key')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /Use an API key/ }));
     expect(screen.getByLabelText('API key')).toBeTruthy();
@@ -404,6 +413,7 @@ describe('AssistantTab sign-in', () => {
     });
     renderTab();
     fireEvent.click(await screen.findByRole('button', { name: 'Sign in or use a key' }));
+    pickService('chatgpt');
     fireEvent.click(screen.getByRole('button', { name: 'Continue with ChatGPT' }));
     expect(await screen.findByText(/Finish signing in on OpenAI's page/)).toBeTruthy();
     expect(calls.find(c => c.url === '/assistant/signin')!.body).toEqual({ method: 'chatgpt' });
