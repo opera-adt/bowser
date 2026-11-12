@@ -16,7 +16,7 @@ Map-based viewer for InSAR time-series outputs — GeoZarr cubes, dolphin workfl
 - **Context.** Satellite, topographic, relief and hillshade basemaps, 3D terrain, GNSS stations (UNR, or [your own CSV files](docs/gnss.md)), geology, land cover, drawing and measuring tools.
 - **Ask an AI assistant.** `bowser mcp` gives Claude Desktop, Claude Code and other MCP clients tools for time series, trends, profiles and statistics from a running Bowser server. See [MCP server](docs/mcp.md).
 
-The full server also provides a [polygon statistics API](docs/polygon-statistics.md) for stored raster values.
+The full server and bowser-lite also provide a [polygon statistics API](docs/polygon-statistics.md) for stored raster values.
 
 <p>
   <img src="docs/images/chart-areas.jpg" alt="Time-series chart with three points and two areas from a loaded polygon file" width="58%">

@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 
-/** Why area statistics are off on bowser-lite (its /config says polygon_stats: false). */
+/** Why area statistics are off on a server whose /config says polygon_stats: false. */
 export const AREA_NEEDS_SERVER = 'Area statistics need the full Bowser server';
 
-/** False once /config says this server can't summarise polygons (bowser-lite); true until then. */
+/** False once /config says this server can't summarise polygons; true until then. */
 export function usePolygonStats(): boolean {
   const [supported, setSupported] = useState(true);
   useEffect(() => {
