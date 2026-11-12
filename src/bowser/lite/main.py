@@ -7,8 +7,8 @@ cube) and/or ``BOWSER_CATALOG_FILE`` (``?dataset=<id>`` routing),
 ``BOWSER_ALLOW_OPEN``, ``BOWSER_REMEMBER_OPENED``.
 
 Not in lite (HTTP 501): GeoTIFF uploads (``/upload_raster``, ``/upload_mask``),
-added-file conversion (``/upload_data``, ``/data``, ``/files``),
-``/export/geotiff``, COG mode and the ``/cog`` and ``/overlay`` tilers.
+added-file conversion (``/upload_data``, ``/data``, ``/files``), COG mode and
+the ``/cog`` and ``/overlay`` tilers.
 """
 
 from __future__ import annotations
@@ -25,11 +25,17 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Literal, Optional
 from urllib.parse import parse_qs, urlencode, urlparse
 
+import anyio.to_thread
 import numpy as np
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi import Path as PathParam
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.responses import FileResponse, JSONResponse, RedirectResponse
+from starlette.responses import (
+    FileResponse,
+    JSONResponse,
+    RedirectResponse,
+    StreamingResponse,
+)
 from starlette.staticfiles import StaticFiles
 
 from .. import api_models as api
@@ -39,6 +45,7 @@ from ..assistant.relay import assistant_config
 from ..assistant.relay import router as assistant_router
 from ..catalog import CatalogEntry, load_catalog, save_catalog
 from ..config import settings
+from ..constants import TILE_CACHE_CONTROL
 from ..context import router as context_router
 from ..context import zones_answer
 from ..gnss_custom import router as gnss_custom_router
@@ -55,7 +62,9 @@ from ..zarr_files import make_router as make_zarr_router
 from . import colormaps, geo, meta, sampling, tiles
 from .auth import BasicAuthMiddleware
 from .cube import Cube, Registry, load_default, open_cube
+from .export import export_layer
 from .png import encode_rgba
+from .polygon import PolygonRequest, summarize_cube
 from .profile import Line, binned_profile, point_profile
 
 if TYPE_CHECKING:
@@ -140,7 +149,11 @@ async def _route_dataset(request: Request, call_next):
             return JSONResponse(
                 {"detail": f"unknown dataset id {name!r}"}, status_code=404
             )
-        routed = registry.get(name)
+        # Opening a cube reads every level's metadata (seconds from S3): in a
+        # thread, or every other request would wait on this event loop.
+        routed = registry.cached(name)
+        if routed is None:
+            routed = await anyio.to_thread.run_sync(registry.get, name)
         _warm(routed)
         token = _request_cube.set(routed)
     try:
@@ -207,11 +220,11 @@ def get_config(
     """Page title, logo flag, and what this server can do.
 
     The title is the catalog entry's name, from ``?dataset=`` or the Referer.
-    ``geotiff_export`` is False: exports need the full server (``bowser run``),
-    so the page turns its GeoTIFF button off instead of failing with a 501.
-    ``polygon_stats`` is False for the same reason: ``/polygon_timeseries``
-    answers 501 here, so the chart's "+ Area" button is off. ``geotiff_upload``
-    is False too: ``/upload_mask`` and ``/upload_raster`` answer 501, so the
+    ``geotiff_export`` is True: lite writes GeoTIFFs itself (no GDAL), so the
+    page's GeoTIFF button is on.
+    ``polygon_stats`` is True: ``/polygon_timeseries`` works here (numpy), so
+    the chart's "+ Area" button is on. ``geotiff_upload``
+    is False: ``/upload_mask`` and ``/upload_raster`` answer 501, so the
     custom mask's Upload button is off. ``data_conversion`` is all off:
     converting added files to COG or PMTiles needs GDAL, so only the vectors
     the browser reads itself can be added, and ``overlay_files`` is empty.
@@ -223,8 +236,8 @@ def get_config(
     return {
         "title": entry.name if entry is not None else settings.BOWSER_TITLE,
         "opera_logo": settings.BOWSER_OPERA_LOGO,
-        "geotiff_export": False,
-        "polygon_stats": False,
+        "geotiff_export": True,
+        "polygon_stats": True,
         "assistant": assistant_config(settings),
         "geotiff_upload": False,
         "data_conversion": {"cog": False, "pmtiles": False, "pmtiles_min_mb": None},
@@ -611,6 +624,103 @@ async def get_histogram(
     """Histogram and percentiles of one time step."""
     return NanJSONResponse(
         await _layer_histogram(dataset, dataset_name, time_index, nbins)
+    )
+
+
+@app.post(
+    "/polygon_timeseries",
+    response_class=JSONResponse,
+    response_model=api.PolygonStatistics,
+    **api.route_doc("POST /polygon_timeseries"),
+)
+def polygon_timeseries(
+    body: PolygonRequest,
+    dataset: str | None = Query(None, **api.PARAMS["dataset"]),
+):
+    """Summarize stored native pixels inside a WGS84 polygon.
+
+    The full server's request, statistics and response (``bowser.polygon``);
+    the pixels are selected with numpy (``bowser.lite.polygon``). Stored
+    values retain their reference; only explicitly requested named quality masks
+    are applied. Component screening is not inferred. Runs in a worker thread,
+    so other requests are answered meanwhile.
+    """
+    cube = resolve(dataset)
+    if body.variable not in cube.dataset.data_vars:
+        raise HTTPException(status_code=404, detail=f"Unknown layer: {body.variable}")
+    try:
+        source = cube.dataset[body.variable]
+        extra = [d for d in source.dims if d not in ("x", "y")]
+        if len(extra) > 1:
+            raise ValueError("Source supports at most one non-spatial axis")
+        labels = meta.dim_labels(source, extra[0]) if extra else ["Stored layer"]
+        result = summarize_cube(
+            source, cube.crs, body, labels, mask_dataset=cube.dataset
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except OSError as exc:
+        logger.warning("Could not read polygon-analysis source: %s", type(exc).__name__)
+        raise HTTPException(
+            status_code=422, detail="Could not read polygon-analysis source"
+        ) from exc
+    return JSONResponse(result)
+
+
+@app.get(
+    "/export/geotiff",
+    response_class=Response,
+    responses=api.image_response(
+        "image/tiff", "The active layer as a GeoTIFF download"
+    ),
+    **api.route_doc("GET /export/geotiff"),
+)
+def export_geotiff(
+    variable: str = Query(..., **api.PARAMS["variable"]),
+    dataset: Optional[str] = Query(None, **api.PARAMS["dataset"]),
+    time_idx: Optional[int] = Query(None, ge=0, **api.PARAMS["time_idx"]),
+    mask_variable: Optional[str] = Query(None, **api.PARAMS["mask_variable"]),
+    mask_min_value: Optional[float] = Query(
+        None, **api.PARAMS["export_mask_min_value"]
+    ),
+    layer_masks: Optional[str] = Query(None, **api.PARAMS["layer_masks_json"]),
+    custom_mask_path: Optional[str] = Query(None, **api.PARAMS["custom_mask_path"]),
+    ref_lon: Optional[float] = Query(None, **api.PARAMS["ref_lon"]),
+    ref_lat: Optional[float] = Query(None, **api.PARAMS["ref_lat"]),
+    ref_buffer_m: float = Query(0.0, **api.PARAMS["ref_buffer_m"]),
+    ref_time_idx: Optional[int] = Query(None, ge=0, **api.PARAMS["ref_time_idx"]),
+):
+    """Export the active layer as a (optionally masked) GeoTIFF.
+
+    The full server's parameters, values, nodata, provenance tags and filename
+    (``bowser.lite.export``), written without GDAL (``bowser.lite.geotiff``):
+    one 2-D slice at native resolution, masked pixels NaN, optionally relative
+    to a reference point and to another date. A custom mask GeoTIFF is the one
+    thing lite cannot apply (501). Runs in a worker thread and streams the
+    file block by block.
+    """
+    if custom_mask_path:
+        return _not_in_lite("Applying a custom mask GeoTIFF to an export")
+    parts, filename = export_layer(
+        resolve(dataset),
+        variable=variable,
+        time_idx=time_idx,
+        mask_variable=mask_variable,
+        mask_min_value=mask_min_value,
+        layer_masks=layer_masks,
+        ref_lon=ref_lon,
+        ref_lat=ref_lat,
+        ref_buffer_m=ref_buffer_m,
+        ref_time_idx=ref_time_idx,
+        use_spatial_reference=settings.BOWSER_USE_SPATIAL_REFERENCE_DISP,
+    )
+    return StreamingResponse(
+        iter(parts),
+        media_type="image/tiff",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(sum(len(part) for part in parts)),
+        },
     )
 
 
@@ -1032,7 +1142,11 @@ def _tile(
         content = tiles.render_tile(cube, q, x, y, z, tilesize=size)
     except tiles.TileOutsideBoundsError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
-    return Response(content, media_type="image/png")
+    return Response(
+        content,
+        media_type="image/png",
+        headers={"Cache-Control": TILE_CACHE_CONTROL},
+    )
 
 
 _TILE_QUERY = {
@@ -1179,26 +1293,6 @@ def data_status(data_id: str):  # noqa: ARG001
 def list_files():
     """501: lite cannot add server files, so it does not list them."""
     return _not_in_lite("Browsing server folders for files to add")
-
-
-@app.get(
-    "/export/geotiff",
-    responses=api.NOT_IN_LITE,
-    **api.route_doc("GET /export/geotiff", lite_stub=True),
-)
-def export_geotiff():
-    """501: writing GeoTIFFs needs GDAL."""
-    return _not_in_lite("Exporting a GeoTIFF")
-
-
-@app.post(
-    "/polygon_timeseries",
-    responses=api.NOT_IN_LITE,
-    **api.route_doc("POST /polygon_timeseries", lite_stub=True),
-)
-def polygon_timeseries():
-    """501: native polygon statistics currently require the full server."""
-    return _not_in_lite("Native polygon statistics")
 
 
 @app.api_route("/cog/{path:path}", methods=["GET", "POST"], include_in_schema=False)

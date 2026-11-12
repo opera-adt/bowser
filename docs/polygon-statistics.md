@@ -1,6 +1,6 @@
 # Native polygon statistics API
 
-The full server provides `POST /polygon_timeseries` for read-only summaries of
+The full server and bowser-lite provide `POST /polygon_timeseries` for read-only summaries of
 stored GeoZarr or single-band GeoTIFF values inside one WGS84 GeoJSON Polygon
 or MultiPolygon. The time-series chart uses it for areas (see below); the
 polygons come from the existing drawing and file-import tools.
@@ -42,7 +42,11 @@ When the viewer's reference is on for the layer, the chart subtracts the same
 reference value per date that the map and the point series use, so areas and
 points can be compared ("relative to the reference" in the tooltip). The
 optional masks are not applied to areas; the chart says so when masks are on.
-Bowser-lite reports `polygon_stats: false` in `/config` and the button is off.
+The API now accepts explicit named layer masks, described below; forwarding the
+chart's mask controls and invalidating its cached area summaries is separate
+UI work. Merely enabling a map mask does not yet change an area chart.
+Bowser-lite has the same button and gives the same numbers (see
+[Bowser-lite](#bowser-lite)).
 
 ## Selection and calculations
 
@@ -72,11 +76,46 @@ intersection), `common_pixels`, per-row counts, geometry, grid, labels, units,
 and scientific limitations. Source filenames and local directory paths are not
 included in the result. The result contains no implicit temporal zero datum.
 
-## Explicit initial scope
+## Explicit quality masks
+
+Add `layer_masks` to the JSON request to summarize only qualifying native
+pixels, for example:
+
+```json
+{"layer_masks": [{"dataset": "temporal_coherence", "threshold": 0.7, "mode": "min"}]}
+```
+
+The threshold is in the named layer's stored units. Up to ten masks are combined
+with AND, in addition to intrinsic source validity. GeoZarr (full and lite)
+supports inclusive `min` (`>=`) and `max` (`<=`). Direct GeoTIFF masks preserve
+the map reader's strict `min` (`>`) convention. GeoTIFF `max` is rejected until
+the map/export upper-bound support is repaired; it is never silently ignored.
+Mask nodata, undecoded fill sentinels and nonfinite values are always excluded,
+even when a sentinel would satisfy the threshold. A legitimate displacement of
+zero remains valid if it passes the masks.
+
+Static two-dimensional masks are reused at every date. Dynamic GeoZarr masks
+must have the exact same non-spatial dimension name and coordinate values as
+the selected variable. Dynamic GeoTIFF groups must match its configured labels
+and file count. All masks must match the exact native grid and CRS. Unknown
+layers, mismatched dates/grids, multiband masks and unsupported comparisons
+return 422. There is no date clamping, nearest-date matching, inferred ministack
+mapping, mask reprojection or automatic resampling. Use a suitable static
+quality summary when a dynamic mask has a different axis.
+
+Masks apply before `common` support is intersected across dates, or before each
+`per_date` summary. The reported `valid_per_date`, `common_pixels` and row counts
+describe the resulting support. An all-invalid mask gives zero counts and null
+statistics, without falling back to unmasked values. The response records the
+actual named layers, thresholds, comparison operators and temporal support in
+`masks`, and sets `optional_masks_applied` to true. Omitting masks or specifying
+an empty list preserves the original stored summary.
+
+## Reference and remaining scope
 
 This endpoint summarizes **stored values**. It does not apply a moved viewer
-reference, optional quality masks, or a connected-component screen. These
-limits are always present in the response:
+reference or a connected-component screen. With no explicit masks the response
+retains:
 
 ```json
 {"reference": "stored", "optional_masks_applied": false,
@@ -84,9 +123,11 @@ limits are always present in the response:
 ```
 
 It therefore does not claim to reproduce a dynamically referenced/masked map.
-Reference/mask fields are rejected as unsupported request arguments rather
-than silently ignored. Future chart wiring must preserve this distinction or
-add separately tested reference/mask support first. Disconnected offsets can be
+Reference coordinates, primary/configured mask options and external uploaded
+mask paths remain unsupported request fields and are rejected. The chart
+already subtracts its reference from stored summaries; no second reference
+subtraction is introduced here. Future chart mask wiring must send its options
+explicitly and invalidate old summaries when they change. Disconnected offsets can be
 ambiguous; component numbers are never assumed comparable between pairs or
 dates. Spatial spread is not measurement uncertainty, and an apparent history
 does not establish reference stability or ground motion.
@@ -102,7 +143,11 @@ unclosed rings and antimeridian-spanning polygons are rejected.
 
 To bound memory and work, requests allow at most 10,000 vertices, a bounding
 window of 2,000,000 native pixels, and 50,000,000 bounding-window pixel-epochs.
-These budgets are checked before reading raster values. Two spatially bounded
+The pixel-epoch budget includes the source plus each requested mask and is
+checked before reading raster values: a mask along the dates counts one frame
+per date, a static mask one frame, since its window is read once and kept.
+Masks along the dates are read in blocks of their time chunks (at most
+4,000,000 values per mask at a time). Two spatially bounded
 passes determine common support and then exact summaries, retaining one frame
 at a time. Percentiles use all eligible pixels rather than a sampled preview.
 The budget covers each pass; two passes can read the same source window twice.
@@ -111,16 +156,49 @@ GeoTIFF reads use a raster window. Lazy GeoZarr reads evaluate only intersecting
 native chunks, though compressed chunk/block transfers can be larger than the
 polygon window. No claim of arbitrary byte-level subsetting is made.
 
-Bowser-lite explicitly returns 501 and does not import the full-server
-geometry/raster stack. No package pins or installed environments change:
-Shapely is already required by the full server's existing `opera-utils`
-dependency. This module uses it to validate topology rather than repairing or
-simplifying a user's geometry.
+On the full server no package pins or installed environments change: Shapely
+is already required by its existing `opera-utils` dependency. This module uses
+it to validate topology rather than repairing or simplifying a user's geometry.
+
+## Bowser-lite
+
+Bowser-lite (and so the desktop app) answers the same request with the same
+response, for GeoZarr cubes, without GDAL or Shapely
+(`bowser.lite.polygon`): the request model, limits, statistics, warnings and
+error messages are the full server's code, and three steps are redone with
+pyproj and numpy:
+
+- the polygon's vertices are reprojected to the cube's CRS with pyproj;
+- validity is checked with the OGC rules Shapely applies (rings that cross or
+  touch themselves, holes outside their exterior or inside one another,
+  overlapping parts, two rings of a polygon touching at more than one point).
+  The check uses plain floating point, so it can differ from Shapely for rings
+  that touch within rounding, and it does not look for an interior cut in two
+  by a chain of three or more touching rings;
+- the pixels are selected by a scanline fill that follows GDAL's
+  (`all_touched=False`): a pixel is in when its centre is inside, even-odd over
+  all rings. Centres exactly on an edge follow GDAL's rule as built for Linux
+  x86-64: on a north-up grid a centre on a left edge is out and one on a right
+  edge is in, and rows of centres on a horizontal edge are in. Lite computes
+  this with plain double arithmetic, so its answer for given vertices is the
+  same on every platform (the desktop app on a Mac included). GDAL's own answer
+  for such ties can differ by platform and build (its arm64 builds round the
+  pixel coordinates differently), so on those the full server may differ from
+  lite in pixels whose centre lies on an edge, and only in those.
+
+Only the polygon's window is read, in blocks of time steps that follow the
+cube's time chunks (at most 16 million values at once), each block once per
+pass. The request runs in a worker thread, so the page stays responsive. The
+tests compare both servers on every kind of polygon (convex, concave, holes,
+several parts, partly outside, inside one pixel, on the grid's edge, edges
+through pixel centres) and compare the fill with rasterio on random polygons.
 
 ## Validation
 
 Synthetic tests cover known summaries and support, stationary zero values,
 nodata and missing-value sentinels, holes, multiple polygon parts, reversed and
 transposed axes, clipping, absent data, mixed units/grids, unsupported fields,
-lazy GeoZarr chunk reads, windowed GeoTIFF reads, catalog isolation, actual
-HTTP responses and lite dependency isolation. They require no real data.
+lazy GeoZarr chunk reads, windowed GeoTIFF reads, explicit mask/date/grid support,
+agreement with actual masked GeoTIFF exports, catalog isolation, actual
+HTTP responses, lite dependency isolation and the equality of bowser-lite's
+answers with the full server's. They require no real data.

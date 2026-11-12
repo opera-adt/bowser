@@ -1,6 +1,6 @@
 # GeoTIFF export provenance
 
-The full server exports native raster values with the requested masks. The
+Both servers export native raster values with the requested masks. The
 GeoTIFF contains a versioned JSON tag, `BOWSER_EXPORT_PROVENANCE`, plus searchable
 `BOWSER_SOURCE_*`, `BOWSER_TIME_*`, and `BOWSER_EXPORT_*` tags. The browser uses the
 server's filename so its dates and `_masked` suffix describe the actual export.
@@ -58,7 +58,32 @@ fallback for an otherwise unlabeled time axis.
 The exporter does not infer sensor geometry, convert units, fit a new velocity,
 apply a display colormap, or rewrap values. This contribution does not add
 interactive referencing where unsupported; that functionality is separate.
-Bowser-lite still does not support GeoTIFF export.
+
+## Bowser-lite
+
+Bowser-lite (and so the desktop app) exports GeoZarr layers without GDAL: the
+same parameters, values, type, nodata, tags, band description and filename as
+the full server, built by the same expressions (`bowser.lite.export`) and
+written by a small GeoTIFF writer (`bowser.lite.geotiff`, numpy + zlib). The
+tests read both servers' files with rasterio and require them to be equal.
+
+The file is a plain GeoTIFF, as the full server's (no overviews):
+
+- little-endian TIFF 6.0, or BigTIFF when the file would pass 4 GB;
+- Deflate without a predictor; one strip when the image fits in 512 x 512
+  pixels, 512-pixel tiles otherwise (the full server's GDAL writes strips, so
+  the sizes are close but not equal);
+- GeoKeys as GDAL writes them for an EPSG code, with `ModelPixelScale` and
+  `ModelTiepoint` (or `ModelTransformation` for a grid that is not north-up);
+- tags, band description, scale and offset in `GDAL_METADATA`, nodata in
+  `GDAL_NODATA`.
+
+Two limits: the cube's CRS must be a projected or geographic CRS with an EPSG
+code (GeoTIFF keys name a code, not a full definition; otherwise HTTP 500 with
+the reason), and a custom mask GeoTIFF (`custom_mask_path`) cannot be applied
+(HTTP 501), since lite cannot read one. The export runs in a worker thread and
+is sent block by block with its `Content-Length`, so the page shows progress
+and stays responsive.
 
 ## Existing masking differences
 

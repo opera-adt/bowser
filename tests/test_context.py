@@ -152,6 +152,43 @@ def test_an_outline_touching_itself_at_a_corner_is_one_ring():
     assert abs(zones._signed_area(rings[0])) == 7
 
 
+@pytest.mark.parametrize("max_cells", [zones.MAX_CELLS, 1200, 300])
+def test_layers_are_read_in_bands_with_the_same_result(monkeypatch, max_cells):
+    """A DISP-S1 stack is tens of GB: only a band of rows is in memory at a time."""
+    monkeypatch.setattr(zones, "MAX_CELLS", max_cells)  # blocks of 1, 2 and 4 cells
+    ds = planted()
+    # A coherence per date too, so the median over dates is read in bands as well.
+    coh = ds["median_temporal_coherence"].expand_dims(time=ds.time).copy()
+    coh[1, 30:40, 50:60] = np.nan
+    per_date = ds.drop_vars("median_temporal_coherence").assign(temporal_coherence=coh)
+    cases = [
+        (ds, {}),
+        (ds, {"coherence_min": 0.5}),
+        (ds.drop_vars("velocity"), {}),
+        (per_date, {"coherence_min": 0.5}),
+        (ds, {"bbox": (*ll(50, 5), *ll(3, 70))}),
+    ]
+    whole = [zones.deformation_zones(d, TO_XY, 5.0, **kw) for d, kw in cases]
+    assert whole[0]["n_zones"] > 0
+
+    rows_read = []
+    block_mean = zones._block_mean
+
+    band = 8 * NX * 6 * 3  # 3 rows of the 6 dates, or 18 of a 2-D layer
+
+    def spy(a, k):
+        rows_read.append((a.shape[-2], max(k, band // (8 * a.shape[-1]))))
+        return block_mean(a, k)
+
+    monkeypatch.setattr(zones, "_block_mean", spy)
+    monkeypatch.setattr(zones, "BAND_BYTES", band)
+    banded = [zones.deformation_zones(d, TO_XY, 5.0, **kw) for d, kw in cases]
+    assert banded == whole
+    # Never more rows at once than fit the band (at least one block), in many bands.
+    assert all(rows <= most for rows, most in rows_read), rows_read
+    assert len(rows_read) > 5 * len(cases)
+
+
 def test_options_sign_area_bbox_quality_reference_and_fitted_rate():
     ds = planted()
     neg = zones.deformation_zones(ds, TO_XY, 5.0, sign="negative")

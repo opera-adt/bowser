@@ -315,6 +315,30 @@ def test_tile_source_masks_like_the_full_server(regression_cube):
         tiles.tile_source(c.dataset, tiles.TileQuery(variable="nope"))
 
 
+def test_tile_source_reads_only_the_window_for_a_reference_step(regression_cube):
+    """Without dask, subtracting the steps before the window reads two whole layers."""
+    c = lcube.open_cube(str(regression_cube))
+    q = tiles.TileQuery(variable="displacement", time_idx=4, ref_time_idx=1)
+    da, finish = tiles.tile_source(c.dataset, q)
+    assert not da.variable._in_memory  # nothing read yet
+    read = []
+
+    def select(a):
+        out = a.isel(y=slice(8, 24), x=slice(40, 48)).load()
+        read.append(out.shape)
+        return out
+
+    got = finish(select(da), select)
+    assert read == [(16, 8), (16, 8)]  # the step, then the reference step
+    ds = c.dataset
+    want = (ds.displacement[4] - ds.displacement[1]).isel(
+        y=slice(8, 24), x=slice(40, 48)
+    )
+    np.testing.assert_array_equal(got.values, want.values)
+    assert got.attrs == ds.displacement.attrs
+    assert got.encoding == da.encoding
+
+
 def test_datasets_carry_the_cubes_radar_wavelength(tmp_path):
     """``/datasets``: the radar wavelength a variable records, for the series checks."""
     c = lcube.open_cube(str(_plain_cube(tmp_path / "w.zarr")))

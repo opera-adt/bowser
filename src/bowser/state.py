@@ -62,6 +62,7 @@ def _open_md(uri: str) -> tuple[xr.Dataset, Transformer, list["PyramidLevel"]]:
         resolve_crs,
         storage_options_for,
     )
+    from .histograms import detach_stored  # noqa: PLC0415
 
     logger.info(f"Loading MD dataset from {uri}")
     so = storage_options_for(uri)
@@ -102,6 +103,10 @@ def _open_md(uri: str) -> tuple[xr.Dataset, Transformer, list["PyramidLevel"]]:
         for i in range(1, len(levels)):
             levels[i].dataset = _spatial_ref_as_coord(levels[i].dataset)
             levels[i].dataset.rio.write_crs(crs, inplace=True)
+    # Last, on the datasets that are served: a megabyte of per-date histograms in
+    # a layer's attributes is deep-copied by rioxarray for every tile.
+    for lv in levels:
+        detach_stored(lv.dataset)
     return ds, tr, levels
 
 
@@ -313,6 +318,9 @@ class DatasetRegistry:
     # and race on ``OrderedDict`` mutation. Guard every read/write on the
     # cache with this lock.
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    # One lock per id being opened, so a burst of first requests for a dataset
+    # (a page load sends a dozen) opens it once and the rest wait for that.
+    _opening: dict[str, threading.Lock] = field(default_factory=dict, repr=False)
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "DatasetRegistry":
@@ -329,25 +337,32 @@ class DatasetRegistry:
                 f"unknown dataset id {dataset_id!r}; "
                 f"catalog has {sorted(self.catalog)}"
             )
+        cached = self.cached(dataset_id)
+        if cached is not None:
+            return cached
+        # Load outside the registry lock — opening a zarr is slow and we don't
+        # want to serialise unrelated requests on it — but one at a time per id.
+        with self._lock:
+            opening = self._opening.setdefault(dataset_id, threading.Lock())
+        with opening:
+            cached = self.cached(dataset_id)
+            if cached is not None:
+                return cached
+            state = BowserState.load_zarr(self.catalog[dataset_id].uri)
+            with self._lock:
+                self._cache[dataset_id] = state
+                while len(self._cache) > self.maxsize:
+                    evicted, _ = self._cache.popitem(last=False)
+                    logger.info(f"DatasetRegistry evicted {evicted!r}")
+        return state
+
+    def cached(self, dataset_id: str) -> BowserState | None:
+        """Return the state for ``dataset_id`` if it is open, without opening it."""
         with self._lock:
             cached = self._cache.get(dataset_id)
             if cached is not None:
                 self._cache.move_to_end(dataset_id)
-                return cached
-        # Load outside the lock — opening a zarr is slow and we don't want to
-        # serialise unrelated requests on it. If a concurrent caller beat us
-        # to the insert, keep theirs and drop ours on the floor (garbage
-        # collection handles cleanup).
-        state = BowserState.load_zarr(self.catalog[dataset_id].uri)
-        with self._lock:
-            if dataset_id in self._cache:
-                self._cache.move_to_end(dataset_id)
-                return self._cache[dataset_id]
-            self._cache[dataset_id] = state
-            while len(self._cache) > self.maxsize:
-                evicted, _ = self._cache.popitem(last=False)
-                logger.info(f"DatasetRegistry evicted {evicted!r}")
-        return state
+            return cached
 
     def register(self, entry: CatalogEntry, state: BowserState | None = None) -> None:
         """Add (or replace) one entry at runtime, with its state if already open.
