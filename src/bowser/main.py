@@ -7,6 +7,7 @@ import os
 import re
 import time
 import warnings
+import weakref
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Annotated, Any, Callable, Literal, Optional
@@ -538,6 +539,30 @@ def create_xarray_dataset_info(ds: xr.Dataset) -> dict:
     return dataset_info
 
 
+# One dataset's info per opened cube: nothing in it changes while the cube is open.
+_dataset_info: dict[int, tuple[weakref.ref, dict]] = {}
+
+
+def xarray_dataset_info(ds: xr.Dataset) -> dict:
+    """Return :func:`create_xarray_dataset_info` of ``ds``, built once per dataset.
+
+    Building it reprojects a subsampled layer for the lon/lat bounds and formats
+    every layer's dates: half a second for a DISP-S1 cube, on every page load.
+    """
+    key = id(ds)
+    hit = _dataset_info.get(key)
+    if hit is not None and hit[0]() is ds:
+        return hit[1]
+    info = create_xarray_dataset_info(ds)
+
+    def forget(ref: weakref.ref) -> None:
+        if (now := _dataset_info.get(key)) is not None and now[0] is ref:
+            del _dataset_info[key]
+
+    _dataset_info[key] = (weakref.ref(ds, forget), info)
+    return info
+
+
 def create_rastergroup_dataset_info(raster_groups: dict) -> dict:
     """Create dataset info structure from RasterGroups."""
     dataset_info = {}
@@ -583,7 +608,7 @@ def datasets(
     """
     target = _resolve_state(dataset)
     if target.mode == "md":
-        return create_xarray_dataset_info(target.dataset)
+        return xarray_dataset_info(target.dataset)
     else:  # cog mode
         return create_rastergroup_dataset_info(target.raster_groups)
 

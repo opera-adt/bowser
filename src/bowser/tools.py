@@ -53,14 +53,13 @@ from any producer or sensor, often with quality layers such as temporal
 coherence, phase similarity and a recommended mask. These tools read the cube
 that a Bowser server has open. Start with server_info and list_layers: they name
 the layers, their dates and units, the reference point, what the values measure
-and what this server can do (bowser-lite cannot compute polygon statistics or
-export GeoTIFFs).
+and what this server can do.
 
 Typical flows:
 - "Is this place moving?": list_layers -> point_timeseries (or trend_at_point) at
   the point, and the same at a nearby point that should be stable, for comparison.
 - "Compare places": multi_point_timeseries with all of them and one reference.
-- "How does an area behave?": polygon_statistics (full server), or several points.
+- "How does an area behave?": polygon_statistics, or several points.
 - "Where does it change?": profile along a line across the feature at one date.
 - "Is the colour scale sensible / how big are values on this date?": layer_statistics.
 - "Who and what is affected by motion in X?": go_to X -> deformation_zones (look
@@ -844,13 +843,15 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
             measurement = _measurement_summary(await layers(dataset))
         except BowserError as e:
             measurement = {"kind": "unknown", "summary": f"Not read: {e}"}
-        full = bool(config.get("geotiff_export"))
+        # bowser-lite is the server without GDAL: it takes no GeoTIFF uploads.
+        full = bool(config.get("geotiff_upload"))
+        can_convert = (config.get("data_conversion") or {}).get("cog")
         unsupported = [
             name
             for name, ok in (
                 ("polygon_statistics", config.get("polygon_stats")),
                 ("export_geotiff", config.get("geotiff_export")),
-                ("convert_to_cog", config.get("geotiff_export")),
+                ("convert_to_cog", can_convert),
             )
             if not ok
         ]
@@ -860,7 +861,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
             "server": "full" if full else "lite",
             "mode": mode.get("mode"),
             "polygon_stats": bool(config.get("polygon_stats")),
-            "geotiff_export": full,
+            "geotiff_export": bool(config.get("geotiff_export")),
             "unsupported_tools": unsupported,
             "catalog": [
                 {k: e.get(k) for k in ("id", "name", "bbox", "description")}
@@ -1276,13 +1277,12 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
         ] = [10.0, 90.0],
         dataset: Dataset = None,
     ) -> dict[str, Any]:
-        """Summarize the pixels inside a polygon, date by date (full server only).
+        """Summarize the pixels inside a polygon, date by date.
 
         Count, median, mean, spatial standard deviation, min, max and
         percentiles of the stored values, per date, as columns aligned with
         `dates`. Values are as stored (relative to the producer's reference),
         not re-referenced to a point, and no quality mask is applied.
-        bowser-lite does not do this and says so.
         """
         if geometry.get("type") == "Feature":
             geometry = geometry.get("geometry") or {}
@@ -1481,21 +1481,17 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
         ] = None,
         dataset: Dataset = None,
     ) -> dict[str, Any]:
-        """Export one date of a layer as a GeoTIFF (full server only).
+        """Export one date of a layer as a GeoTIFF.
 
         Gives the download URL, or saves the file when `save_to` is given (an
         existing file is never overwritten). Masked pixels are nodata; with a
-        reference point the reference's value is subtracted. bowser-lite cannot
-        write GeoTIFFs and says so.
+        reference point the reference's value is subtracted.
         """
         if (ref_lon is None) != (ref_lat is None):
             raise BowserError("Give both ref_lon and ref_lat, or neither.")
         config = await api.get("/config", dataset=dataset)
         if not config.get("geotiff_export"):
-            raise BowserError(
-                "This server cannot export GeoTIFFs (it is bowser-lite, which has "
-                "no GDAL). Run the full server (`bowser run`) to export."
-            )
+            raise BowserError("This server cannot export GeoTIFFs.")
         info = await layer_info(dataset, layer)
         if ref_lon is not None and ref_lat is not None:
             check_point(info, ref_lon, ref_lat, "Reference point")

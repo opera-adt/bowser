@@ -88,8 +88,8 @@ cfg = c.get("/config", headers={"referer": "http://localhost/?dataset=cube-b"})
 expected = {
     "title": "Cube B",
     "opera_logo": False,
-    "geotiff_export": False,
-    "polygon_stats": False,
+    "geotiff_export": True,
+    "polygon_stats": True,
     "assistant": {
         "enabled": False,
         "providers": [],
@@ -202,8 +202,9 @@ assert c.get("/mode").json() == {"mode": "md"}
 for path, method in (
     ("/upload_raster", "post"),
     ("/upload_mask", "post"),
-    ("/export/geotiff", "get"),
     ("/files", "get"),
+    # Exports work in lite, except with a custom mask GeoTIFF (reading one needs GDAL).
+    ("/export/geotiff?variable=displacement&custom_mask_path=mask.tif", "get"),
     ("/data", "post"),
     ("/cog/WebMercatorQuad/tilejson.json", "get"),
     ("/overlay/WebMercatorQuad/tilejson.json", "get"),
