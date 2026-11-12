@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } fr
 import { useAppContext } from '../../context/AppContext';
 import { useApi } from '../../hooks/useApi';
 import {
-  answerPermission, fetchAgentState, fetchModels, startAgent, fetchStatus, removeKey, saveKey, signIn, signOut, stopAgent, streamChat, RelayError,
+  answerPermission, fetchAgentState, fetchModels, startAgent, fetchStatus, removeKey, saveKey, sendSignInCode, signIn, signOut, stopAgent, streamChat, RelayError,
   type AgentState, type AssistantStatus, type ChatEvent, type ConvMessage, type ModelInfo, type ProviderInfo, type SignInMethod, type ToolResult,
 } from '../../assistant/client';
 import { newDone, PAGE_TOOL_NAMES, pageMasks, pageState, runPageTool, showResult, toolStatus, type PageContext } from '../../assistant/pageTools';
@@ -314,9 +314,10 @@ export default function AssistantTab() {
   const startSignIn = async (m: SignInMethod, consent = false) => {
     setSignMsg(null);
     const openUrl = window.pywebview?.api?.open_url;
-    // Open the tab now, while the click still counts, and send it to OpenAI's page below.
+    // Open the tab now, while the click still counts, and send it to the sign-in page below
+    // (OpenAI's, or Claude Code's own where it cannot open a browser itself).
     let tab: Window | null = null;
-    if (m.kind === 'oauth' && !openUrl) {
+    if ((m.kind === 'oauth' || m.page_opens) && !openUrl) {
       tab = window.open('about:blank', '_blank');
       if (tab) tab.opener = null;
     }
@@ -327,12 +328,24 @@ export default function AssistantTab() {
         setSignUrl(s.sign_in_url);
         if (openUrl) await openUrl(s.sign_in_url);
         else if (tab) tab.location.href = s.sign_in_url;
+      } else {
+        // Signed in already, or no page yet ("Open the page again" follows when there is one).
+        tab?.close();
       }
       setStatus(s);
     } catch (e) {
       tab?.close();
       starting.current = null;
       setSignMsg({ text: `Could not sign in: ${(e as Error).message}`, error: true });
+    }
+  };
+  /** The code from the agent's sign-in page: sent once, never kept in the page. */
+  const sendCode = async (m: SignInMethod, code: string) => {
+    try {
+      setStatus(await sendSignInCode(m.id, code));
+      setSignMsg(null);
+    } catch (e) {
+      setSignMsg({ text: `Not sent: ${(e as Error).message}`, error: true });
     }
   };
   const endSignIn = async (m: SignInMethod) => {
@@ -565,7 +578,8 @@ export default function AssistantTab() {
             {status.sign_in?.allowed ? (
               <div className="ai-signins">
                 {picked && (
-                  <SignInRow m={picked} inUse={account?.id === picked.id} url={starting.current === picked.id ? signUrl : null}
+                  <SignInRow m={picked} inUse={account?.id === picked.id}
+                    url={(starting.current === picked.id ? signUrl : null) ?? picked.sign_in_url ?? null}
                     picker={methods.length > 1 && picked.state !== 'pending' ? (
                       <select aria-label="Sign in with" className="sidebar-select" value={picked.id} onChange={e => setPickedId(e.target.value)}>
                         {methods.map(m => (
@@ -574,6 +588,7 @@ export default function AssistantTab() {
                       </select>
                     ) : null}
                     onSignIn={() => void startSignIn(picked)} onConsent={() => void startSignIn(picked, true)}
+                    onCode={code => sendCode(picked, code)}
                     onSignOut={() => void endSignIn(picked)} onUse={() => choose(picked.id)} />
                 )}
               </div>
@@ -777,9 +792,10 @@ function SubscriptionNote() {
 }
 
 /** One sign-in method: its button, or who is signed in with Sign out, or why it cannot be used. */
-function SignInRow({ m, inUse, url, picker, onSignIn, onConsent, onSignOut, onUse }: {
+function SignInRow({ m, inUse, url, picker, onSignIn, onConsent, onSignOut, onUse, onCode }: {
   m: SignInMethod; inUse: boolean; url: string | null; picker?: ReactNode;
   onSignIn: () => void; onConsent: () => void; onSignOut: () => void; onUse: () => void;
+  onCode: (code: string) => Promise<void>;
 }) {
   const name = serviceName(m);
   // The button reads "Sign in" next to the drop-down; its name keeps the service's
@@ -804,6 +820,25 @@ function SignInRow({ m, inUse, url, picker, onSignIn, onConsent, onSignOut, onUs
             ? <span className="row-label ai-small ai-in-use"><i className="fa-solid fa-check" aria-hidden="true"></i> In use</span>
             : <button type="button" className="hist-btn ai-inline-btn" onClick={onUse}>Use {name}</button>}
           <button type="button" className="hist-btn ai-inline-btn" onClick={onSignOut}>Sign out</button>
+        </div>
+      </div>
+    );
+  }
+  if (m.state === 'pending' && m.kind === 'local_agent' && m.page_opens) {
+    // Claude Code cannot open a browser here (Bowser on another computer): the page
+    // opened its sign-in page, and the code that page shows goes back to Claude Code.
+    return (
+      <div className="ai-signin" aria-label={name}>
+        <div className="ai-working row-label" role="status">
+          <span className="ai-spinner" aria-hidden="true" />
+          {!url ? "Waiting for Claude Code's sign-in page…"
+            : m.code ? "Sign in on Claude Code's sign-in page, then paste the code it shows here."
+              : 'Checking the code…'}
+        </div>
+        {url && m.code && <CodeBox onCode={onCode} />}
+        <div className="ai-row">
+          {url && <a className="row-label ai-small" href={url} target="_blank" rel="noopener noreferrer">Open the page again</a>}
+          <button type="button" className="hist-btn ai-inline-btn" onClick={onSignOut}>Cancel</button>
         </div>
       </div>
     );
@@ -838,6 +873,27 @@ function SignInRow({ m, inUse, url, picker, onSignIn, onConsent, onSignOut, onUs
     <div className="ai-signin" aria-label={name}>
       {button(false, m.state === 'no_plan' ? onConsent : onSignIn)}
       <div className={`row-label ai-small${m.detail ? ' ai-error' : ''}`}>{m.detail ?? m.blurb}</div>
+    </div>
+  );
+}
+
+/** The code a sign-in page shows: pasted, sent once, then cleared (never kept). */
+function CodeBox({ onCode }: { onCode: (code: string) => Promise<void> }) {
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const send = async () => {
+    const value = code.trim();
+    if (!value || busy) return;
+    setBusy(true);
+    setCode('');
+    try { await onCode(value); } finally { setBusy(false); }
+  };
+  return (
+    <div className="ai-row">
+      <input aria-label="Code from the sign-in page" className="sidebar-input ai-text" type="text" autoComplete="off"
+        spellCheck={false} placeholder="Paste the code" value={code} disabled={busy}
+        onChange={e => setCode(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void send(); }} />
+      <button type="button" className="hist-btn ai-inline-btn" disabled={busy || !code.trim()} onClick={() => void send()}>Continue</button>
     </div>
   );
 }

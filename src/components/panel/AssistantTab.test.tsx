@@ -453,6 +453,92 @@ describe('AssistantTab sign-in', () => {
     expect(screen.getByRole('link', { name: 'claude.com' }).getAttribute('href')).toBe('https://code.claude.com/docs/en/setup');
   });
 
+  it("opens Claude Code's own sign-in page in a new tab where it cannot open a browser, and passes the code", async () => {
+    const PAGE = 'https://claude.com/cai/oauth/authorize?code=true&state=s1';
+    const remote = { ...CLAUDE_IN, page_opens: true };
+    const out = { ...STATUS, providers: [ANTHROPIC], sign_in: { ...SIGN_IN, methods: [remote, CHATGPT_IN] } };
+    const waiting = (code: boolean) => ({
+      ...out, sign_in: { ...SIGN_IN, methods: [{ ...remote, state: 'pending', sign_in_url: PAGE, code }, CHATGPT_IN] },
+    });
+    const tab = { opener: {}, location: { href: '' }, close: vi.fn() };
+    vi.stubGlobal('open', vi.fn(() => tab));
+    let phase: 'out' | 'code' | 'checking' | 'done' = 'out';
+    const calls = server(out, [], c => {
+      if (c.url === '/assistant/signin' && c.method === 'POST') { phase = 'code'; return json({ ...waiting(true), sign_in_url: PAGE }); }
+      if (c.url === '/assistant/signin/code') { phase = 'checking'; return json(waiting(false)); }
+      if (c.url.startsWith('/assistant/status')) {
+        if (phase === 'checking') { phase = 'done'; return json(waiting(false)); }
+        return json(phase === 'done' ? CLAUDE_ON : phase === 'code' ? waiting(true) : out);
+      }
+      if (c.url.startsWith('/assistant/agent')) return json(READY);
+      return null;
+    });
+    renderTab();
+    fireEvent.click(await screen.findByRole('button', { name: 'Sign in with Claude' }));
+    // The tab opens on the click itself (no pop-up blocker), before the server answers.
+    expect(window.open).toHaveBeenCalledTimes(1);
+    expect(tab.opener).toBeNull();
+    expect(await screen.findByText("Sign in on Claude Code's sign-in page, then paste the code it shows here.")).toBeTruthy();
+    expect(tab.location.href).toBe(PAGE);
+    expect(tab.close).not.toHaveBeenCalled();
+    expect(screen.getByRole('link', { name: 'Open the page again' }).getAttribute('href')).toBe(PAGE);
+    const box = screen.getByRole('textbox', { name: 'Code from the sign-in page' }) as HTMLInputElement;
+    fireEvent.change(box, { target: { value: '  abc123#state-1 ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    expect(await screen.findByText('Checking the code…')).toBeTruthy();
+    expect(calls.find(c => c.url === '/assistant/signin/code')!.body).toEqual({ method: 'claude', code: 'abc123#state-1' });
+    // The box is gone and the code is kept nowhere in the page.
+    expect(screen.queryByRole('textbox', { name: 'Code from the sign-in page' })).toBeNull();
+    expect(JSON.stringify(localStorage)).not.toContain('abc123');
+    expect(await screen.findByText(/Claude · Signed in as me@example.com · Max/, {}, { timeout: 5000 })).toBeTruthy();
+    expect(calls.filter(c => c.url === '/assistant/signin/code')).toHaveLength(1);
+  }, 10000);
+
+  it('says when a code was not taken, and Cancel ends the sign-in', async () => {
+    const PAGE = 'https://claude.com/cai/oauth/authorize?code=true&state=s1';
+    const remote = { ...CLAUDE_IN, page_opens: true };
+    const out = { ...STATUS, providers: [ANTHROPIC], sign_in: { ...SIGN_IN, methods: [remote, CHATGPT_IN] } };
+    const waiting = { ...out, sign_in: { ...SIGN_IN, methods: [{ ...remote, state: 'pending', sign_in_url: PAGE, code: true }, CHATGPT_IN] } };
+    vi.stubGlobal('open', vi.fn(() => ({ opener: {}, location: { href: '' }, close: vi.fn() })));
+    let phase: 'out' | 'code' = 'out';
+    const calls = server(out, [], c => {
+      if (c.url === '/assistant/signin' && c.method === 'POST') { phase = 'code'; return json({ ...waiting, sign_in_url: PAGE }); }
+      if (c.url === '/assistant/signin/code') return json({ detail: "That is not a whole code from Claude Code's sign-in page; copy it again." }, 409);
+      if (c.url.startsWith('/assistant/signin?method=claude') && c.method === 'DELETE') { phase = 'out'; return json(out); }
+      if (c.url.startsWith('/assistant/status')) return json(phase === 'code' ? waiting : out);
+      return null;
+    });
+    renderTab();
+    fireEvent.click(await screen.findByRole('button', { name: 'Sign in with Claude' }));
+    const box = await screen.findByRole('textbox', { name: 'Code from the sign-in page' });
+    fireEvent.change(box, { target: { value: 'half' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect((await screen.findByRole('alert')).textContent).toBe("Not sent: That is not a whole code from Claude Code's sign-in page; copy it again.");
+    fireEvent.click(within(screen.getByLabelText('Claude')).getByRole('button', { name: 'Cancel' }));
+    expect(await screen.findByRole('button', { name: 'Sign in with Claude' })).toBeTruthy();
+    expect(calls.some(c => c.method === 'DELETE' && c.url === '/assistant/signin?method=claude')).toBe(true);
+  });
+
+  it('closes the tab it opened when Claude Code was signed in already', async () => {
+    const remote = { ...CLAUDE_IN, page_opens: true };
+    const out = { ...STATUS, providers: [ANTHROPIC], sign_in: { ...SIGN_IN, methods: [remote, CHATGPT_IN] } };
+    const on = { ...out, sign_in_url: null, sign_in: { ...SIGN_IN, methods: [{ ...remote, state: 'signed_in', account: 'me@example.com', plan: 'Max' }, CHATGPT_IN] } };
+    const tab = { opener: {}, location: { href: '' }, close: vi.fn() };
+    vi.stubGlobal('open', vi.fn(() => tab));
+    let signedIn = false;
+    server(out, [], c => {
+      if (c.url === '/assistant/signin' && c.method === 'POST') { signedIn = true; return json(on); }
+      if (c.url.startsWith('/assistant/status')) return json(signedIn ? on : out);
+      if (c.url.startsWith('/assistant/agent')) return json(READY);
+      return null;
+    });
+    renderTab();
+    fireEvent.click(await screen.findByRole('button', { name: 'Sign in with Claude' }));
+    expect(window.open).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(tab.close).toHaveBeenCalled());
+    expect(tab.location.href).toBe('');
+  });
+
   it("shows the agent's permission request, sends the answer, and stops the agent on Stop and New chat", async () => {
     const calls = server(CLAUDE_ON, [
       sse(
