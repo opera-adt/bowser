@@ -452,7 +452,10 @@ ROUTES: dict[str, dict[str, Any]] = {
     "GET /dataset_range/{dataset_name}": {
         "summary": "Value range of a layer",
         "description": "Minimum, maximum and the 2/98 and 5/95 percentiles of the "
-        "layer's first time step, for colour scales and mask sliders.",
+        "layer's first time step, for colour scales and mask sliders. Taken from "
+        "that step's histogram (`GET /histogram/{dataset_name}`), so nothing is "
+        "read when the cube stores one; 5/95 come from its counts, within one bin "
+        "of the exact percentiles.",
         "tags": [STATS],
     },
     "GET /histogram/{dataset_name}": {

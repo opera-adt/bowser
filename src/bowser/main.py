@@ -567,7 +567,7 @@ def create_rastergroup_dataset_info(raster_groups: dict) -> dict:
     responses={200: {"model": api.DatasetsInfo}},
     **api.route_doc("GET /datasets"),
 )
-async def datasets(
+def datasets(
     dataset: str | None = Query(None, **api.PARAMS["dataset"]),
 ):
     """Return the JSON describing all data variables for the chosen dataset.
@@ -724,7 +724,7 @@ def scan_folder(body: dict = Body(..., examples=[{"dir": "/data/cubes"}])):
     responses={200: {"model": api.OpenedDataset}},
     **api.route_doc("POST /catalog/open"),
 )
-async def open_dataset(
+def open_dataset(
     body: dict = Body(..., examples=[{"uri": "/data/cubes/site_asc.zarr"}]),
 ):
     """Open a GeoZarr store by path or URL and add it to the catalog.
@@ -789,7 +789,7 @@ async def open_dataset(
     responses={200: {"model": api.VariablesInfo}},
     **api.route_doc("GET /variables"),
 )
-async def get_variables(
+def get_variables(
     dataset: str | None = Query(None, **api.PARAMS["dataset"]),
 ):
     """Get available variables (only for MD mode).
@@ -876,7 +876,7 @@ def _apply_layer_masks_md(
     return da
 
 
-async def _get_ref_median(
+def _get_ref_median(
     dataset_name: str,
     lon: float,
     lat: float,
@@ -889,7 +889,7 @@ async def _get_ref_median(
     """
     layer_masks = layer_masks or []
     if buffer_m <= 0 or state.mode != "md":
-        return await _get_point_values(dataset_name, lon, lat, layer_masks)
+        return _get_point_values(dataset_name, lon, lat, layer_masks)
 
     if dataset_name not in state.dataset.data_vars:
         raise HTTPException(
@@ -905,12 +905,12 @@ async def _get_ref_median(
     cx, cy = tr.transform(lon, lat)
     circle = select_circle(da, cx, cy, buffer_m, margin_window=True, sqrt_distance=True)
     if circle is None:
-        return await _get_point_values(dataset_name, lon, lat, layer_masks)
+        return _get_point_values(dataset_name, lon, lat, layer_masks)
     # (time,) for a (time, y, x) variable, (1,) for a 2-D one.
     return reference_median(pool(*circle))
 
 
-async def _get_point_values(
+def _get_point_values(
     dataset_name: str,
     lon: float,
     lat: float,
@@ -979,7 +979,7 @@ def _point_xy(dataset_name: str, lon: float, lat: float) -> tuple[float, float] 
     responses={200: {"description": "Return the list of values for a point"}},
     **api.route_doc("GET /point"),
 )
-async def point(
+def point(
     dataset_name: Annotated[str, Query(**api.PARAMS["dataset_name"])],
     lon: Annotated[
         float, Query(..., title="Longitude", ge=-180, le=180, **api.PARAMS["lon"])
@@ -993,7 +993,7 @@ async def point(
     ] = None,
 ):
     """Fetch point values. Full time series, or one value when ``time_idx`` is set."""
-    values = await _get_point_values(dataset_name, lon, lat, time_idx=time_idx)
+    values = _get_point_values(dataset_name, lon, lat, time_idx=time_idx)
     return JSONResponse(values.tolist())
 
 
@@ -1004,7 +1004,7 @@ async def point(
     responses={200: {"description": "Return the Chart.js-formatted data for a point"}},
     **api.route_doc("GET /chart_point"),
 )
-async def chart_point(
+def chart_point(
     dataset_name: Annotated[str, Query(**api.PARAMS["dataset_name"])],
     lon: Annotated[
         float, Query(..., title="Longitude", ge=-180, le=180, **api.PARAMS["lon"])
@@ -1050,11 +1050,11 @@ async def chart_point(
         ]
 
     # Get values at the point
-    values = await _get_point_values(dataset_name, lon, lat)
+    values = _get_point_values(dataset_name, lon, lat)
 
     # Apply reference subtraction if provided
     if ref_lon is not None and ref_lat is not None:
-        ref_values = await _get_point_values(dataset_name, ref_lon, ref_lat)
+        ref_values = _get_point_values(dataset_name, ref_lon, ref_lat)
         values = values - ref_values
 
     dataset_item = values_to_chart_data(values.tolist())
@@ -1069,7 +1069,7 @@ async def chart_point(
     responses={200: {"description": "Return time series data for multiple points"}},
     **api.route_doc("POST /multi_point"),
 )
-async def multi_point(
+def multi_point(
     points: list[dict[str, Any]] = Body(..., **api.PARAMS["points"]),
     dataset_name: str = Body(..., **api.PARAMS["dataset_name"]),
     ref_lon: Optional[float] = Body(None, **api.PARAMS["ref_lon"]),
@@ -1099,7 +1099,7 @@ async def multi_point(
     # Get reference values if provided (use buffer median when ref_buffer_m > 0)
     ref_values = None
     if ref_lon is not None and ref_lat is not None:
-        ref_values = await _get_ref_median(
+        ref_values = _get_ref_median(
             dataset_name,
             ref_lon,
             ref_lat,
@@ -1121,7 +1121,7 @@ async def multi_point(
 
         try:
             # Get values at the point
-            values = await _get_point_values(
+            values = _get_point_values(
                 dataset_name,
                 float(lon),  # type: ignore[arg-type]
                 float(lat),  # type: ignore[arg-type]
@@ -1185,7 +1185,7 @@ async def multi_point(
     responses={200: {"description": "Return trend analysis for a point"}},
     **api.route_doc("GET /trend_analysis/{dataset_name}"),
 )
-async def trend_analysis(
+def trend_analysis(
     dataset_name: Annotated[str, PathParam(**api.PARAMS["dataset_name"])],
     lon: Annotated[
         float, Query(title="Longitude", ge=-180, le=180, **api.PARAMS["lon"])
@@ -1219,11 +1219,11 @@ async def trend_analysis(
         x_values = rg.x_values
 
     # Get values at the point
-    values = await _get_point_values(dataset_name, lon, lat)
+    values = _get_point_values(dataset_name, lon, lat)
 
     # Apply reference subtraction if provided
     if ref_lon is not None and ref_lat is not None:
-        ref_values = await _get_point_values(dataset_name, ref_lon, ref_lat)
+        ref_values = _get_point_values(dataset_name, ref_lon, ref_lat)
         values = values - ref_values
 
     # Calculate trend
@@ -1299,47 +1299,19 @@ async def get_colorbar(
     response_model=api.ValueRange,
     **api.route_doc("GET /dataset_range/{dataset_name}"),
 )
-def get_dataset_range(
+async def get_dataset_range(
     dataset_name: Annotated[str, PathParam(**api.PARAMS["dataset_name"])],
     target: BowserState = Depends(TargetState),
 ):
-    """Return the value range of a dataset for use in mask threshold sliders."""
-    if target.mode == "md":
-        if dataset_name not in target.dataset.data_vars:
-            raise HTTPException(
-                status_code=404, detail=f"Variable {dataset_name} not found"
-            )
-        da = target.dataset[dataset_name]
-        dim = _non_spatial_dim(da)
-        arr = (
-            (da.isel({dim: 0}) if dim is not None else da).values.ravel().astype(float)
-        )
-    else:
-        if dataset_name not in target.raster_groups:
-            raise HTTPException(
-                status_code=404, detail=f"Dataset {dataset_name} not found"
-            )
-        rg = target.raster_groups[dataset_name]
-        with rasterio.open(rg.file_list[0]) as src:
-            arr = src.read(1).ravel().astype(float)
-            nodata = src.nodata
-        if nodata is not None:
-            arr = arr[arr != nodata]
+    """Return the value range of a dataset for use in mask threshold sliders.
 
-    valid = arr[np.isfinite(arr)]
-    if valid.size == 0:
+    From the first time step's histogram (``_layer_histogram``): stored in the
+    cube, cached, or computed once in a worker thread, never a full read per call.
+    """
+    found = histograms.value_range(await _layer_histogram(target, dataset_name, 0))
+    if found is None:
         raise HTTPException(status_code=204, detail="No valid data")
-
-    return JSONResponse(
-        {
-            "min": float(valid.min()),
-            "max": float(valid.max()),
-            "p2": float(np.percentile(valid, 2)),
-            "p98": float(np.percentile(valid, 98)),
-            "p5": float(np.percentile(valid, 5)),
-            "p95": float(np.percentile(valid, 95)),
-        }
-    )
+    return JSONResponse(found)
 
 
 @app.post(
@@ -1386,20 +1358,10 @@ def polygon_timeseries(
     return JSONResponse(result)
 
 
-@app.get(
-    "/histogram/{dataset_name}",
-    response_class=JSONResponse,
-    responses={200: {"description": "Return histogram data for one time slice"}},
-    response_model=api.Histogram,
-    **api.route_doc("GET /histogram/{dataset_name}"),
-)
-async def get_histogram(
-    dataset_name: Annotated[str, PathParam(**api.PARAMS["dataset_name"])],
-    time_index: Annotated[int, Query(ge=0, **api.PARAMS["time_index"])] = 0,
-    nbins: Annotated[int, Query(ge=4, le=256, **api.PARAMS["nbins"])] = 100,
-    target: BowserState = Depends(TargetState),
-):
-    """Compute a histogram of valid pixel values for one time step of a dataset.
+async def _layer_histogram(
+    target: BowserState, dataset_name: str, time_index: int, nbins: int = 100
+) -> dict:
+    """Return the histogram of one time step of a layer (404 for an unknown one).
 
     The stored histogram when the cube has one; otherwise from a coarse pyramid
     level, cached, one at a time in a worker thread (``bowser.histograms``).
@@ -1414,10 +1376,8 @@ async def get_histogram(
         if dim is not None:
             time_index = min(time_index, da.sizes[dim] - 1)
         datasets, sources = _cube_levels(target)
-        return JSONResponse(
-            await histograms.histogram(
-                datasets, dataset_name, time_index, nbins, sources=sources
-            )
+        return await histograms.histogram(
+            datasets, dataset_name, time_index, nbins, sources=sources
         )
 
     if dataset_name not in target.raster_groups:
@@ -1433,9 +1393,26 @@ async def get_histogram(
             arr = arr[arr != nodata]
         return histograms.summarize(arr, nbins)
 
-    return JSONResponse(
-        await histograms.SERVICE.get(rg, (dataset_name, time_index, nbins), from_file)
+    return await histograms.SERVICE.get(
+        rg, (dataset_name, time_index, nbins), from_file
     )
+
+
+@app.get(
+    "/histogram/{dataset_name}",
+    response_class=JSONResponse,
+    responses={200: {"description": "Return histogram data for one time slice"}},
+    response_model=api.Histogram,
+    **api.route_doc("GET /histogram/{dataset_name}"),
+)
+async def get_histogram(
+    dataset_name: Annotated[str, PathParam(**api.PARAMS["dataset_name"])],
+    time_index: Annotated[int, Query(ge=0, **api.PARAMS["time_index"])] = 0,
+    nbins: Annotated[int, Query(ge=4, le=256, **api.PARAMS["nbins"])] = 100,
+    target: BowserState = Depends(TargetState),
+):
+    """Compute a histogram of valid pixel values for one time step of a dataset."""
+    return JSONResponse(await _layer_histogram(target, dataset_name, time_index, nbins))
 
 
 @app.get(
@@ -1496,7 +1473,7 @@ def deformation_zones(
     response_model=api.BufferSeries,
     **api.route_doc("POST /buffer_timeseries"),
 )
-async def buffer_timeseries(
+def buffer_timeseries(
     lon: float = Body(..., **api.PARAMS["lon"]),
     lat: float = Body(..., **api.PARAMS["lat"]),
     dataset_name: str = Body(..., **api.PARAMS["dataset_name"]),
@@ -1535,7 +1512,7 @@ async def buffer_timeseries(
 
         # Reference subtraction (use buffer median when ref_buffer_m > 0)
         if ref_lon is not None and ref_lat is not None:
-            ref_vals = await _get_ref_median(
+            ref_vals = _get_ref_median(
                 dataset_name,
                 ref_lon,
                 ref_lat,
@@ -1593,7 +1570,7 @@ async def buffer_timeseries(
         flat = circle.values[:, circle.inside]
 
         if ref_lon is not None and ref_lat is not None:
-            ref_vals = await _get_point_values(dataset_name, ref_lon, ref_lat)
+            ref_vals = _get_point_values(dataset_name, ref_lon, ref_lat)
             flat = flat - ref_vals[:, np.newaxis]
 
     # Drop columns (pixels) that are all NaN
@@ -1697,7 +1674,7 @@ def reference_candidates(
     response_model=api.Profile,
     **api.route_doc("POST /profile"),
 )
-async def extract_profile(
+def extract_profile(
     coords: list[list[float]] = Body(..., **api.PARAMS["coords"]),
     dataset_name: str = Body(..., **api.PARAMS["dataset_name"]),
     time_index: int = Body(0, **api.PARAMS["time_index"]),
@@ -2104,11 +2081,15 @@ async def upload_raster(file: UploadFile):
     await _save_upload(file, dest)
 
     from rio_tiler.io import Reader  # noqa: PLC0415
+    from starlette.concurrency import run_in_threadpool  # noqa: PLC0415
+
+    def read() -> tuple[int, dict]:
+        with Reader(str(dest)) as r:
+            return r.info().count, r.statistics(percentiles=[2, 5, 95, 98])
 
     try:
-        with Reader(str(dest)) as r:
-            band_count = r.info().count
-            stats = r.statistics(percentiles=[2, 5, 95, 98])
+        # Reads the whole raster: in a worker thread, off the event loop.
+        band_count, stats = await run_in_threadpool(read)
     except Exception as exc:  # noqa: BLE001
         dest.unlink(missing_ok=True)
         raise HTTPException(

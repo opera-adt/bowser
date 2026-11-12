@@ -285,6 +285,11 @@ bowser-lite) and its disk cache, so a restarted server has them at once.
 `BOWSER_HISTOGRAM_WARMUP=0` turns that off. While the page plays through the
 dates it does not ask for histograms; it asks for the date it stops on.
 
+`GET /dataset_range/{name}` is the first date's histogram reduced to `min`,
+`max`, `p2`, `p98`, `p5` and `p95`, so it costs what that histogram costs:
+nothing when the cube stores it. `p5` and `p95` are read off the histogram's
+counts, within one bin (1 % of the range) of the exact percentiles.
+
 ## What a layer measures
 
 Each layer of `GET /datasets` has a `measurement` (null for layers that measure
