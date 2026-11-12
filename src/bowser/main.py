@@ -10,6 +10,7 @@ from contextvars import ContextVar
 from pathlib import Path
 from typing import Annotated, Any, Callable, Literal, Optional
 
+import anyio.to_thread
 import matplotlib
 import numpy as np
 import rasterio
@@ -254,7 +255,11 @@ async def _route_dataset(request: Request, call_next):
             return JSONResponse(
                 {"detail": f"unknown dataset id {name!r}"}, status_code=404
             )
-        routed = registry.get(name)
+        # Opening a cube reads every level's metadata (seconds from S3): in a
+        # thread, or every other request would wait on this event loop.
+        routed = registry.cached(name)
+        if routed is None:
+            routed = await anyio.to_thread.run_sync(registry.get, name)
         _warm(routed)
         token = _request_state.set(routed)
     try:

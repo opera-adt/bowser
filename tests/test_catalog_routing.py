@@ -79,7 +79,7 @@ SCRIPT = textwrap.dedent(
 )
 
 
-def test_catalog_endpoints_route_by_dataset(tmp_path):
+def _catalog(tmp_path):
     from bowser.catalog import CatalogEntry, save_catalog
 
     entries = []
@@ -93,6 +93,11 @@ def test_catalog_endpoints_route_by_dataset(tmp_path):
         )
     catalog = tmp_path / "catalog.toml"
     save_catalog(entries, catalog)
+    return catalog
+
+
+def test_catalog_endpoints_route_by_dataset(tmp_path):
+    catalog = _catalog(tmp_path)
 
     env = {**os.environ, "BOWSER_CATALOG_FILE": str(catalog)}
     r = subprocess.run(
@@ -103,3 +108,65 @@ def test_catalog_endpoints_route_by_dataset(tmp_path):
         cwd=tmp_path,
     )
     assert r.returncode == 0 and "OK" in r.stdout, r.stdout[-2000:] + r.stderr[-4000:]
+
+
+OPENING = textwrap.dedent(
+    """
+    import asyncio, importlib, sys, time
+    import httpx
+
+    m = importlib.import_module(sys.argv[1])
+    opened = []
+    if sys.argv[1] == "bowser.main":
+        from bowser.state import BowserState as owner
+        name, slow_open = "load_zarr", owner.load_zarr
+    else:
+        import bowser.lite.cube as owner
+        name, slow_open = "open_cube", owner.open_cube
+
+    def opening(uri):
+        opened.append(uri)
+        time.sleep(1.5)   # a cube on S3: every level's metadata
+        return slow_open(uri)
+
+    setattr(owner, name, opening)
+    q = {"dataset_name": "displacement", "lon": -117.687, "lat": 33.968,
+         "dataset": "cube-a"}
+
+    async def main():
+        transport = httpx.ASGITransport(app=m.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+            t0 = time.perf_counter()
+            first = [asyncio.create_task(c.get("/point", params=q)) for _ in range(4)]
+            await asyncio.sleep(0.2)   # all four are waiting for the cube
+            other = await c.get("/config")
+            waited = time.perf_counter() - t0
+            answers = await asyncio.gather(*first)
+            again = time.perf_counter()
+            assert (await c.get("/point", params=q)).status_code == 200
+            again = time.perf_counter() - again
+        assert other.status_code == 200, other.text
+        assert [r.status_code for r in answers] == [200] * 4, answers[0].text
+        assert all(r.json() == [10.0, 11.0, 12.0] for r in answers)
+        assert waited < 1.0, f"/config waited {waited:.2f} s for a cube to open"
+        assert len(opened) == 1, opened   # once, not once per request
+        assert again < 1.0, again
+
+    asyncio.run(main())
+    print("OK")
+"""
+)
+
+
+@pytest.mark.parametrize("module", ["bowser.main", "bowser.lite.main"])
+def test_opening_a_cube_does_not_hold_up_other_requests(tmp_path, module):
+    """A catalog entry's first request opens it in a thread, once."""
+    env = {**os.environ, "BOWSER_CATALOG_FILE": str(_catalog(tmp_path))}
+    r = subprocess.run(
+        [sys.executable, "-c", OPENING, module],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode == 0, r.stdout[-2000:] + r.stderr[-4000:]
+    assert r.stdout.strip().endswith("OK")

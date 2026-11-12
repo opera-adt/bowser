@@ -240,6 +240,10 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The first request for a catalog entry (`?dataset=`) no longer holds up every
+  other request while its cube opens (seconds for a cube on S3, on the server's
+  event loop). Both servers open it in a worker thread, and once: a page
+  load's burst of first requests used to open the same cube several times.
 - `GET /histogram` no longer holds the server up. Without a stored histogram
   it read the date at full resolution: on a DISP-S1 frame 5 s of CPU on the full
   server, on its event loop, so `/config` and `/datasets` waited up to 20 s
