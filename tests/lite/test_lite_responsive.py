@@ -1,7 +1,8 @@
 """bowser-lite answers other requests while a long read is running.
 
-The desktop app is bowser-lite: a polygon over many dates must not freeze the
-page. The work runs in a worker thread, so ``/config`` is answered meanwhile.
+The desktop app is bowser-lite: a polygon over many dates or a GeoTIFF export
+must not freeze the page. The work runs in a worker thread, so ``/config`` is
+answered meanwhile.
 
 The server reads its settings at import, so it runs in a subprocess; nothing
 here imports ``bowser.lite.main`` or ``bowser.config``.
@@ -53,7 +54,7 @@ UVICORN = textwrap.dedent(
     """
 )
 #: The functions of ``bowser.lite.main`` that do the long work.
-WORK = ["summarize_cube"]
+WORK = ["summarize_cube", "export_layer"]
 
 
 def _cube(path: Path) -> Path:
@@ -132,7 +133,11 @@ def _polygon() -> tuple[str, bytes | None, dict]:
     )
 
 
-REQUESTS = {"summarize_cube": _polygon}
+def _export() -> tuple[str, bytes | None, dict]:
+    return "/export/geotiff?variable=displacement&time_idx=1", None, {}
+
+
+REQUESTS = {"summarize_cube": _polygon, "export_layer": _export}
 
 
 @pytest.mark.parametrize("work", WORK)

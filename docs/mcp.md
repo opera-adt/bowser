@@ -45,8 +45,8 @@ bowser-lite inside the MCP process:
 bowser mcp --stack-file cube.zarr
 ```
 
-bowser-lite has no GDAL, so GeoTIFF export needs the full server: run
-`bowser run` and use `--url`.
+bowser-lite has no GDAL, so converting a raster to a COG needs the full
+server: run `bowser run` and use `--url`.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
@@ -147,7 +147,7 @@ a point outside the cube is refused rather than read at the nearest edge pixel.
 | `polygon_statistics` | Per-date count, median, mean, spatial std, min, max and percentiles inside a GeoJSON polygon | `POST /polygon_timeseries` |
 | `profile` | Values along a line at one date by distance, with an optional strip median | `POST /profile` |
 | `layer_statistics` | Min, max, percentiles and a histogram of a layer at one date | `GET /histogram/{layer}` |
-| `export_geotiff` | A GeoTIFF of one date: its download URL, or the file saved where you say (full server) | `GET /export/geotiff` |
+| `export_geotiff` | A GeoTIFF of one date: its download URL, or the file saved where you say | `GET /export/geotiff` |
 | `find_reference_candidates` | Stable places for the reference point: the recommended one and up to `n` spaced candidates with coherence, phase similarity, scatter, velocity and a reason | `GET /reference_candidates` |
 | `geocode` | Candidates for a place name or address, with lon/lat and a bounding box (OpenStreetMap Nominatim; no page needed) | `GET /geocode` |
 | `deformation_zones` | Connected areas where \|rate\| reaches `threshold_mm_yr` (from the velocity layer, or a rate fitted to the displacement): id (`Z1` = largest), direction, area, mean, median and peak rate, centroid, box; optional `min_area_m2`, `bbox`, `sign`, `coherence_min` | `GET /deformation_zones` |
@@ -158,9 +158,8 @@ a point outside the cube is refused rather than read at the nearest edge pixel.
 | `list_gnss_stations` | The stations loaded from files, and with a `bbox` the public UNR stations in it (MIDAS velocities) | `GET /gnss/custom`, `GET /gnss/stations` |
 | `convert_to_cog` | A Cloud-Optimized GeoTIFF of a raster on the server: its path, size and whether the file already was one (used as it is); others are converted once into the conversion cache, never next to the file. Full server, `BOWSER_ALLOW_OPEN` | `POST /data`, `GET /data/{id}` |
 
-On bowser-lite, `export_geotiff` and `convert_to_cog`
-return a tool error that says the full server is needed; `server_info` lists
-them under `unsupported_tools`.
+On bowser-lite, `convert_to_cog` returns a tool error that says the full
+server is needed; `server_info` lists it under `unsupported_tools`.
 
 `load_gnss_csv` and `convert_to_cog` read a path on the server's computer only
 where the page could (`BOWSER_ALLOW_OPEN`, on for `bowser run` and `bowser

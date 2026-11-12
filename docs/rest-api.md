@@ -332,15 +332,20 @@ east-west product, derived from several tracks, gets no wavelength sentence.
 
 bowser-lite needs no GDAL, so it leaves out what needs it:
 
-- `POST /upload_mask`, `POST /upload_raster`, `GET /export/geotiff` and the
-  added-file routes (`/upload_data`, `/data`) answer HTTP 501 with a `detail` message, and `GET /config` reports
-  `"geotiff_export": false` and `data_conversion` all off (small vector files
-  are still read in the browser);
+- `POST /upload_mask`, `POST /upload_raster` and the added-file routes
+  (`/upload_data`, `/data`) answer HTTP 501 with a `detail` message, and
+  `GET /config` reports `"geotiff_upload": false` and `data_conversion` all
+  off (small vector files are still read in the browser);
 - GeoTIFF stacks (COG mode, `GET /mode` is always `md`) and the `/cog` and
   `/overlay` tilers (501);
 - of TiTiler's `/md` routes, only the TileJSON and the tiles; tiles are PNG in
   the WebMercatorQuad grid only, and TiTiler's other tile options (`bidx`,
   `expression`, `nodata`, `resampling`, ...) are not taken;
-- `custom_mask_path` is accepted on tiles but ignored.
+- `custom_mask_path` is accepted on tiles but ignored, and refused (501) by
+  `GET /export/geotiff`.
+
+Polygon statistics and GeoTIFF export do work in bowser-lite, with the full
+server's answers: see [polygon-statistics.md](polygon-statistics.md#bowser-lite)
+and [geotiff-export-provenance.md](geotiff-export-provenance.md#bowser-lite).
 
 Its colorbars are PNG; the full server's are WEBP.

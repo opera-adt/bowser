@@ -40,6 +40,8 @@ LITE_ONLY_TILE_QUERY = {"scale", "format"}
 #: The binary responses, whose media types differ: the full server sends WEBP
 #: colorbars, lite PNG.
 BINARY = {"GET /colorbar/{cmap_name}"}
+#: File downloads, described the same way by both servers.
+DOWNLOADS = {"GET /export/geotiff": "image/tiff"}
 #: Routes that stream server-sent events rather than send JSON.
 EVENT_STREAMS = {"POST /assistant/chat", "GET /page/events"}
 #: Routes that answer a small HTML page (the browser lands on them).
@@ -414,6 +416,9 @@ def test_shared_routes_have_the_same_parameters_and_responses(apps):
             }, key
             continue
         assert fr == lr, key
+        if key in DOWNLOADS:
+            assert fr.keys() == {DOWNLOADS[key]}, key
+            continue
         if key in EVENT_STREAMS:
             assert fr.keys() == {"text/event-stream"}, key
             continue

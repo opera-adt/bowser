@@ -100,6 +100,11 @@ body = {
 }
 r = c.post("/polygon_timeseries", json=body)
 assert r.status_code == 200 and r.json()["polygon_pixels"] > 0, r.text
+# GeoTIFF export: written with numpy, zlib and struct, not GDAL.
+r = c.get("/export/geotiff", params={"variable": "displacement", "time_idx": 1})
+assert r.status_code == 200 and r.content[:4] == b"II*\\x00", r.text[:200]
+assert r.headers["content-type"] == "image/tiff"
+assert int(r.headers["content-length"]) == len(r.content) > 500
 # The reference finder reuses bowser.reference, which must not need rasterio.
 q = {"coherence_layer": "displacement", "similarity_layer": "displacement"}
 r = c.get("/reference_candidates", params={**q, "radius_m": 30})

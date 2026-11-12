@@ -687,7 +687,7 @@ async function addOverlay(path: string, name: string | undefined, ctx: PageConte
     fetch('/config').then(r => r.json()).catch(() => ({})),
     fetch('/catalog').then(r => r.json()).catch(() => ({})),
   ]);
-  if (!config.geotiff_export) throw new Error('This server (bowser-lite) cannot show GeoTIFF overlays; run `bowser run`.');
+  if (!config.geotiff_upload) throw new Error('This server (bowser-lite) cannot show GeoTIFF overlays; run `bowser run`.');
   if (!catalog.allow_open) throw new Error('Opening files on the server from the page is off here.');
   const q = `url=${encodeURIComponent(path)}`;
   const statsRes = await fetch(`/overlay/statistics?${q}`);
