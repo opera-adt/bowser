@@ -121,6 +121,7 @@ export function useApi() {
         },
         body: JSON.stringify(payload),
       });
+      if (!response.ok) return undefined;
       return await response.json();
     } catch (error) {
       console.error('Error fetching multi-point time series:', error);

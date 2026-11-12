@@ -184,9 +184,12 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     ? winDsNames
     : (followedDs ? [followedDs] : []);
 
+  const pointRequest = useRef(0);
   const updateChart = useCallback(async () => {
+    const request = ++pointRequest.current;
+    setChartDataMap({});
     if (!state.showChart || !state.currentDataset || state.timeSeriesPoints.length === 0) {
-      setChartDataMap({});
+      setIsLoading(false);
       return;
     }
     setIsLoading(true);
@@ -229,11 +232,11 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
       results.forEach(({ dsName, tsData }) => {
         if (tsData) newMap[dsName] = tsData;
       });
-      setChartDataMap(newMap);
+      if (pointRequest.current === request) setChartDataMap(newMap);
     } catch (error) {
       console.error('Error updating chart:', error);
     } finally {
-      setIsLoading(false);
+      if (pointRequest.current === request) setIsLoading(false);
     }
   }, [
     state.showChart,
@@ -249,18 +252,20 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     fetchMultiPointTimeSeries,
   ]);
 
-  useEffect(() => { updateChart(); }, [updateChart]);
+  useEffect(() => {
+    void updateChart();
+    return () => { pointRequest.current += 1; };
+  }, [updateChart]);
 
   // Fetch buffer data for each visible point × each active dataset
   useEffect(() => {
-    if (!state.bufferEnabled || !state.showChart || !state.currentDataset) {
-      setBufferData({});
-      return;
-    }
+    let current = true;
+    setBufferData({});
+    if (!state.bufferEnabled || !state.showChart || !state.currentDataset) return;
     const visiblePoints = state.timeSeriesPoints.filter(p => p.visible);
-    if (visiblePoints.length === 0) { setBufferData({}); return; }
+    if (visiblePoints.length === 0) return;
 
-    if (activeDatasetsForChart.length === 0) { setBufferData({}); return; }
+    if (activeDatasetsForChart.length === 0) return;
     Promise.all(
       activeDatasetsForChart.flatMap(dsName => {
         const dsInfo = state.datasetInfo[dsName];
@@ -282,10 +287,14 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
         });
       })
     ).then(results => {
+      if (!current) return;
       const newData: { [key: string]: any } = {};
       results.forEach(({ key, result }) => { if (result) newData[key] = result; });
       setBufferData(newData);
+    }).catch(error => {
+      if (current) console.error('Error updating buffer chart:', error);
     });
+    return () => { current = false; };
   }, [
     state.bufferEnabled,
     state.showChart,
@@ -297,6 +306,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     state.refBufferEnabled,
     state.refBufferRadius,
     state.layerMasks,
+    state.datasetInfo,
     JSON.stringify(state.timeSeriesPoints.map(p => ({ id: p.id, position: p.position, visible: p.visible }))),
     state.refMarkerPosition,
     fetchBufferTimeSeries,
