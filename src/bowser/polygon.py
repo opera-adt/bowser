@@ -23,6 +23,15 @@ MAX_PIXEL_EPOCHS = 50_000_000
 _ANGULAR_UNITS = {"degree", "degrees", "deg", "radian", "radians", "rad"}
 
 
+class PolygonMask(BaseModel):
+    """An explicit threshold in a named mask layer's native units."""
+
+    model_config = ConfigDict(extra="forbid")
+    dataset: str = Field(min_length=1)
+    threshold: float = Field(default=0.5, allow_inf_nan=False)
+    mode: Literal["min", "max"] = "min"
+
+
 class PolygonRequest(BaseModel):
     """Request stored-value summaries, without implicit viewer transformations."""
 
@@ -33,6 +42,7 @@ class PolygonRequest(BaseModel):
     percentiles: list[float] = Field(
         default_factory=lambda: [10.0, 90.0], min_length=1, max_length=20
     )
+    layer_masks: list[PolygonMask] = Field(default_factory=list, max_length=10)
 
     @field_validator("percentiles")
     @classmethod
@@ -235,8 +245,12 @@ def summarize_xarray(
     source: xr.DataArray,
     request: PolygonRequest,
     labels: list[str],
+    *,
+    mask_dataset: xr.Dataset | None = None,
 ) -> dict:
     """Summarize a level-zero GeoZarr variable using bounded spatial reads."""
+    from .polygon_masks import xarray_masks  # noqa: PLC0415
+
     if not {"x", "y"}.issubset(source.dims):
         raise ValueError("Source requires x/y spatial dimensions")
     if any(axis not in source.coords for axis in ("x", "y")):
@@ -268,28 +282,49 @@ def summarize_xarray(
     )
     if grid.transform.b != 0 or grid.transform.d != 0:
         raise ValueError("GeoZarr statistics require a rectilinear x/y grid")
-    window, inside, clipped = _selection(grid, request.geometry, count)
+    masks = xarray_masks(source, mask_dataset, request, grid.crs)
+    window, inside, clipped = _selection(
+        grid, request.geometry, count * (1 + len(request.layer_masks))
+    )
+    rows = slice(int(window.row_off), int(window.row_off + window.height))
+    cols = slice(int(window.col_off), int(window.col_off + window.width))
     subset = source.isel(
-        y=slice(int(window.row_off), int(window.row_off + window.height)),
-        x=slice(int(window.col_off), int(window.col_off + window.width)),
+        y=rows,
+        x=cols,
     )
 
     def load(index: int) -> np.ndarray:
         frame = subset.isel({dim: index}) if dim else subset
-        return _values(frame.transpose("y", "x").values, source.attrs)[inside]
+        values = _values(frame.transpose("y", "x").values, source.attrs)
+        return masks.apply(index, rows, cols, values)[inside]
 
-    return _result(load, count, inside, clipped, grid, labels, units, request)
+    return masks.finish(
+        _result(load, count, inside, clipped, grid, labels, units, request)
+    )
 
 
-def summarize_rasters(group: Any, request: PolygonRequest) -> dict:
+def summarize_rasters(
+    group: Any,
+    request: PolygonRequest,
+    *,
+    mask_groups: dict | None = None,
+) -> dict:
     """Summarize identical-grid, identical-unit GeoTIFFs with windowed reads."""
     import rasterio  # noqa: PLC0415
+
+    from .polygon_masks import raster_masks  # noqa: PLC0415
 
     if not group.file_list:
         raise ValueError("No rasters in the selected layer")
     with rasterio.open(group.file_list[0]) as first:
         grid = NativeGrid(first.crs, first.transform, first.width, first.height)
-    window, inside, clipped = _selection(grid, request.geometry, len(group.file_list))
+    labels = [str(v) for v in group.x_values]
+    masks = raster_masks(mask_groups, request, labels, grid)
+    window, inside, clipped = _selection(
+        grid, request.geometry, len(group.file_list) * (1 + len(request.layer_masks))
+    )
+    rows = slice(int(window.row_off), int(window.row_off + window.height))
+    cols = slice(int(window.col_off), int(window.col_off + window.width))
     units: list[str | None] = []
 
     def load(index: int) -> np.ndarray:
@@ -314,18 +349,20 @@ def summarize_rasters(group: Any, request: PolygonRequest) -> dict:
             values = _values(src.read(1, window=window, masked=True))
             if group.nodata is not None:
                 values = np.where(values == group.nodata, np.nan, values)
-            return values[inside]
+            return masks.apply(index, rows, cols, values)[inside]
 
-    return _result(
-        load,
-        len(group.file_list),
-        inside,
-        clipped,
-        grid,
-        [str(v) for v in group.x_values],
-        None,
-        request,
-        units,
+    return masks.finish(
+        _result(
+            load,
+            len(group.file_list),
+            inside,
+            clipped,
+            grid,
+            labels,
+            None,
+            request,
+            units,
+        )
     )
 
 
