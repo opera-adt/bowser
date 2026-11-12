@@ -223,6 +223,14 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and kept in the reference finder's disk cache. The page asks for no
   histogram while playing through the dates. `GET /dataset_range` on the full
   server also left the event loop.
+- `GET /dataset_range` no longer reads the layer. It read the first date at full
+  resolution on every call, about 20 s on a DISP-S1 frame, and the page asks for
+  it at load for the default mask's slider. Both servers now answer from that
+  date's histogram: the one stored in the cube, else the cached or coarse-level
+  one `GET /histogram` uses. `min`, `max`, `p2` and `p98` are the histogram's;
+  `p5` and `p95` come from its counts, within one bin (1 % of the range) of the
+  exact percentiles. Without a stored histogram the values are those of the
+  coarse level, as for `GET /histogram`.
 - **Breaking:** Bowser now requires Python 3.12 or newer (`requires-python
   = ">=3.12"`); Python 3.11 is no longer supported. The `writer` extra's
   geozarr-toolkit and rasterio 1.5 already needed 3.12, and the pixi
@@ -238,6 +246,14 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `band_descriptions`, `data_type` and `raster_layers`; bowser-lite returns
   them too. Response compression (`BOWSER_COMPRESSION=1`) works again: the
   truncated compressed responses that made it opt-in no longer happen.
+- Reading data no longer holds up the full server's other requests. A time
+  series (`/point`, `/chart_point`, `/multi_point`, `/trend_analysis`,
+  `/buffer_timeseries`), a profile (`/profile`, 4 s for a 60 km line on a
+  DISP-S1 frame), the layer lists (`/datasets`, `/variables`) and
+  `/catalog/open` ran on the server's event loop, so tiles and every other
+  request waited for them. They are plain functions now, run in FastAPI's
+  thread pool as on bowser-lite; `/upload_raster` computes its statistics in a
+  worker thread. Answers are unchanged.
 
 ## [0.6.1] - 2026-11-05
 
