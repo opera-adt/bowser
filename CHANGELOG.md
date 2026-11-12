@@ -256,6 +256,9 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `GET /datasets` on the full server is built once per opened cube instead of
+  on every request (560 ms to 8 ms for a 419-date DISP-S1 cube): it reprojected
+  a subsampled layer for the lon/lat bounds each time.
 - Full-resolution tiles of a cube with stored histograms render about twice as
   fast on the full server (135 ms to 65 ms for a 419-date DISP-S1 layer). The
   layer's `bowser_histogram` attribute, about 1 MB for that many dates, was
