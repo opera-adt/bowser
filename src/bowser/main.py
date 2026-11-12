@@ -5,9 +5,11 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 import warnings
 import weakref
+from collections import OrderedDict
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Annotated, Any, Callable, Literal, Optional
@@ -2699,6 +2701,50 @@ def _minus_reference_step(
     return out
 
 
+#: Custom masks warped to a grid, newest last: ``key -> keep`` (see below).
+_custom_masks: "OrderedDict[tuple, xr.DataArray]" = OrderedDict()
+_custom_masks_lock = threading.Lock()
+#: Most bytes of warped masks kept (a DISP-S1 level 0 is about 70 MB as bool).
+CUSTOM_MASK_CACHE_BYTES = 256 * 2**20
+
+
+def _custom_mask_on(da: "xr.DataArray", path: str) -> "xr.DataArray":
+    """Return where the mask GeoTIFF at ``path`` keeps pixels, on the grid of ``da``.
+
+    Warping the file to a whole pyramid level takes most of a second, and every
+    tile of that level needs the same result, so it is kept per file (path, size
+    and modification time) and grid.
+    """
+    import rioxarray as rxr  # noqa: PLC0415
+
+    file = Path(path).resolve()
+    stat = file.stat()
+    x, y = da["x"].values, da["y"].values
+    key = (
+        str(file),
+        stat.st_mtime_ns,
+        stat.st_size,
+        da.rio.crs.to_wkt(),
+        (x.size, float(x[0]), float(x[-1])),
+        (y.size, float(y[0]), float(y[-1])),
+    )
+    with _custom_masks_lock:
+        keep = _custom_masks.get(key)
+        if keep is not None:
+            _custom_masks.move_to_end(key)
+            return keep
+    custom_da = rxr.open_rasterio(path, masked=True).squeeze("band", drop=True)
+    keep = (custom_da.rio.reproject_match(da) > 0).compute()
+    with _custom_masks_lock:
+        _custom_masks[key] = keep
+        while (
+            len(_custom_masks) > 1
+            and sum(k.nbytes for k in _custom_masks.values()) > CUSTOM_MASK_CACHE_BYTES
+        ):
+            _custom_masks.popitem(last=False)
+    return keep
+
+
 # MD mode: use xarray approach
 def _build_masked_md_dataarray(
     ds: "xr.Dataset",
@@ -2776,13 +2822,7 @@ def _build_masked_md_dataarray(
     # Custom mask (uploaded GeoTIFF) — reproject to match da
     if custom_mask_path and (strict_masks or Path(custom_mask_path).exists()):
         try:
-            import rioxarray as rxr  # noqa: PLC0415
-
-            custom_da = rxr.open_rasterio(custom_mask_path, masked=True).squeeze(
-                "band", drop=True
-            )
-            custom_da_repr = custom_da.rio.reproject_match(da)
-            da = da.where(custom_da_repr > 0)
+            da = da.where(_custom_mask_on(da, custom_mask_path))
         except Exception as exc:
             if strict_masks:
                 raise HTTPException(

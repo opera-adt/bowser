@@ -256,6 +256,10 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Tiles with an uploaded custom mask no longer warp the mask file to the whole
+  pyramid level for every tile: the warped mask is kept per file and level
+  (up to 256 MB). A full-resolution tile of a DISP-S1 cube with a custom mask
+  went from 836 ms to 196 ms; the tiles are the same.
 - Time series at a point are read without dask on the full server (`/point`,
   `/chart_point`, `/multi_point`, `/trend_analysis`), as bowser-lite reads
   them. For a 419-date DISP-S1 cube: one series 149 ms to 54 ms, five points
