@@ -8,6 +8,14 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- GeoTIFF export in bowser-lite and the desktop app: `GET /export/geotiff`
+  (the Export button, the `export_geotiff` tool) now works without GDAL, with
+  the full server's parameters, masks, reference handling, provenance tags and
+  filename. The file is written by a small built-in writer (Deflate, tiled
+  past 512 pixels, BigTIFF past 4 GB) and holds the same values, type, nodata,
+  CRS and tags as the full server's when read with GDAL. `GET /config` reports
+  `geotiff_export: true`; a custom mask GeoTIFF is still refused (501). See
+  [docs/geotiff-export-provenance.md](docs/geotiff-export-provenance.md#bowser-lite).
 - Area statistics in bowser-lite and the desktop app: `POST
   /polygon_timeseries` (the chart's "+ Area", the Stats tab, the
   `polygon_statistics` tool) now works without GDAL, with the full server's
