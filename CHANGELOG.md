@@ -8,6 +8,14 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Area statistics in bowser-lite and the desktop app: `POST
+  /polygon_timeseries` (the chart's "+ Area", the Stats tab, the
+  `polygon_statistics` tool) now works without GDAL, with the full server's
+  request, limits and response. The polygon is burned with numpy by GDAL's own
+  rule (pixel centres inside, holes out), so both servers select the same
+  pixels and return the same numbers; only the polygon's window is read, in a
+  worker thread. `GET /config` reports `polygon_stats: true`. See
+  [docs/polygon-statistics.md](docs/polygon-statistics.md#bowser-lite).
 - GNSS tab › *Load local GNSS file*: load station time series from your own CSV
   files (picked on your computer, or a server path with `BOWSER_ALLOW_OPEN`).
   Dates as ISO, YYYYMMDD, decimal year or MJD; east, north and up in m, mm or

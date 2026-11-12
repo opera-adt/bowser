@@ -225,14 +225,14 @@ SCRIPT = textwrap.dedent(
         body = c.get("/deformation_zones", params=q).json()
         body.pop("result_id", None)
         result.setdefault("zones", {})[name] = body
+    square = [[lon - 0.002, lat - 0.002], [lon + 0.002, lat - 0.002],
+              [lon + 0.002, lat + 0.002], [lon - 0.002, lat + 0.002],
+              [lon - 0.002, lat - 0.002]]
+    check("polygon", "POST", "/polygon_timeseries", json={
+        "variable": "displacement",
+        "geometry": {"type": "Polygon", "coordinates": [square]},
+    })
     if which == "full":
-        square = [[lon - 0.002, lat - 0.002], [lon + 0.002, lat - 0.002],
-                  [lon + 0.002, lat + 0.002], [lon - 0.002, lat + 0.002],
-                  [lon - 0.002, lat - 0.002]]
-        check("polygon", "POST", "/polygon_timeseries", json={
-            "variable": "displacement",
-            "geometry": {"type": "Polygon", "coordinates": [square]},
-        })
         import numpy as np
         import rasterio
         from rasterio.transform import from_origin

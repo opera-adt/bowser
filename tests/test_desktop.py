@@ -170,3 +170,31 @@ def test_open_url_opens_only_https_pages_in_the_system_browser(monkeypatch):
     assert api.open_url("file:///etc/passwd") is False
     assert api.open_url("javascript:alert(1)") is False
     assert opened == ["https://auth.openai.com/api/accounts/authorize?x=1"]
+
+
+def test_the_app_packs_what_the_assistant_needs():
+    """packaging/requirements-desktop.txt lists every "assistant" extra package.
+
+    bowser-lite imports bowser.assistant at start, so a package missing from the
+    frozen app stops it from launching (or fails on the first question).
+    """
+    import re
+    import tomllib
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+
+    def names(lines):
+        out = set()
+        for line in lines:
+            line = line.split("#")[0].strip()
+            if line:
+                out.add(re.split(r"[\[<>=!~ ]", line, maxsplit=1)[0].lower())
+        return out
+
+    project = tomllib.loads((root / "pyproject.toml").read_text())
+    extra = names(project["project"]["optional-dependencies"]["assistant"])
+    packed = names(
+        (root / "packaging" / "requirements-desktop.txt").read_text().splitlines()
+    )
+    assert extra and extra <= packed, sorted(extra - packed)

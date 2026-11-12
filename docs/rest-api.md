@@ -147,7 +147,7 @@ curl -s -X POST http://localhost:8000/buffer_timeseries \
        "buffer_m": 200, "n_samples": 0}'
 ```
 
-Statistics of the stored values inside a polygon (full server; see
+Statistics of the stored values inside a polygon (see
 [polygon-statistics.md](polygon-statistics.md)):
 
 ```bash
@@ -332,9 +332,8 @@ east-west product, derived from several tracks, gets no wavelength sentence.
 
 bowser-lite needs no GDAL, so it leaves out what needs it:
 
-- `POST /upload_mask`, `POST /upload_raster`, `GET /export/geotiff`,
-  `POST /polygon_timeseries` and the added-file routes (`/upload_data`,
-  `/data`) answer HTTP 501 with a `detail` message, and `GET /config` reports
+- `POST /upload_mask`, `POST /upload_raster`, `GET /export/geotiff` and the
+  added-file routes (`/upload_data`, `/data`) answer HTTP 501 with a `detail` message, and `GET /config` reports
   `"geotiff_export": false` and `data_conversion` all off (small vector files
   are still read in the browser);
 - GeoTIFF stacks (COG mode, `GET /mode` is always `md`) and the `/cog` and

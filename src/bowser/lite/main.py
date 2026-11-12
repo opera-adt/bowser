@@ -56,6 +56,7 @@ from . import colormaps, geo, meta, sampling, tiles
 from .auth import BasicAuthMiddleware
 from .cube import Cube, Registry, load_default, open_cube
 from .png import encode_rgba
+from .polygon import PolygonRequest, summarize_cube
 from .profile import Line, binned_profile, point_profile
 
 if TYPE_CHECKING:
@@ -209,9 +210,9 @@ def get_config(
     The title is the catalog entry's name, from ``?dataset=`` or the Referer.
     ``geotiff_export`` is False: exports need the full server (``bowser run``),
     so the page turns its GeoTIFF button off instead of failing with a 501.
-    ``polygon_stats`` is False for the same reason: ``/polygon_timeseries``
-    answers 501 here, so the chart's "+ Area" button is off. ``geotiff_upload``
-    is False too: ``/upload_mask`` and ``/upload_raster`` answer 501, so the
+    ``polygon_stats`` is True: ``/polygon_timeseries`` works here (numpy), so
+    the chart's "+ Area" button is on. ``geotiff_upload``
+    is False: ``/upload_mask`` and ``/upload_raster`` answer 501, so the
     custom mask's Upload button is off. ``data_conversion`` is all off:
     converting added files to COG or PMTiles needs GDAL, so only the vectors
     the browser reads itself can be added, and ``overlay_files`` is empty.
@@ -224,7 +225,7 @@ def get_config(
         "title": entry.name if entry is not None else settings.BOWSER_TITLE,
         "opera_logo": settings.BOWSER_OPERA_LOGO,
         "geotiff_export": False,
-        "polygon_stats": False,
+        "polygon_stats": True,
         "assistant": assistant_config(settings),
         "geotiff_upload": False,
         "data_conversion": {"cog": False, "pmtiles": False, "pmtiles_min_mb": None},
@@ -612,6 +613,43 @@ async def get_histogram(
     return NanJSONResponse(
         await _layer_histogram(dataset, dataset_name, time_index, nbins)
     )
+
+
+@app.post(
+    "/polygon_timeseries",
+    response_class=JSONResponse,
+    response_model=api.PolygonStatistics,
+    **api.route_doc("POST /polygon_timeseries"),
+)
+def polygon_timeseries(
+    body: PolygonRequest,
+    dataset: str | None = Query(None, **api.PARAMS["dataset"]),
+):
+    """Summarize stored native pixels inside a WGS84 polygon.
+
+    The full server's request, statistics and response (``bowser.polygon``);
+    the pixels are selected with numpy (``bowser.lite.polygon``). Stored
+    values: no reference, mask or component screening is applied. Runs in a
+    worker thread, so other requests are answered meanwhile.
+    """
+    cube = resolve(dataset)
+    if body.variable not in cube.dataset.data_vars:
+        raise HTTPException(status_code=404, detail=f"Unknown layer: {body.variable}")
+    try:
+        source = cube.dataset[body.variable]
+        extra = [d for d in source.dims if d not in ("x", "y")]
+        if len(extra) > 1:
+            raise ValueError("Source supports at most one non-spatial axis")
+        labels = meta.dim_labels(source, extra[0]) if extra else ["Stored layer"]
+        result = summarize_cube(source, cube.crs, body, labels)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except OSError as exc:
+        logger.warning("Could not read polygon-analysis source: %s", type(exc).__name__)
+        raise HTTPException(
+            status_code=422, detail="Could not read polygon-analysis source"
+        ) from exc
+    return JSONResponse(result)
 
 
 @app.get(
@@ -1189,16 +1227,6 @@ def list_files():
 def export_geotiff():
     """501: writing GeoTIFFs needs GDAL."""
     return _not_in_lite("Exporting a GeoTIFF")
-
-
-@app.post(
-    "/polygon_timeseries",
-    responses=api.NOT_IN_LITE,
-    **api.route_doc("POST /polygon_timeseries", lite_stub=True),
-)
-def polygon_timeseries():
-    """501: native polygon statistics currently require the full server."""
-    return _not_in_lite("Native polygon statistics")
 
 
 @app.api_route("/cog/{path:path}", methods=["GET", "POST"], include_in_schema=False)

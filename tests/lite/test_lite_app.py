@@ -89,7 +89,7 @@ expected = {
     "title": "Cube B",
     "opera_logo": False,
     "geotiff_export": False,
-    "polygon_stats": False,
+    "polygon_stats": True,
     "assistant": {
         "enabled": False,
         "providers": [],
