@@ -459,9 +459,7 @@ def test_a_refused_first_exchange_keeps_the_issued_client(tmp_path, store, opena
     q2 = start(client, openai)
     assert q2["client_id"] == ISSUED and "agent_name_hint" not in q2
     assert q2["ext_agent_host_id"] == q["ext_agent_host_id"]
-    r = client.get(
-        "/auth/callback", params={"code": "good-code", "state": q2["state"]}
-    )
+    r = client.get("/auth/callback", params={"code": "good-code", "state": q2["state"]})
     assert r.status_code == 200 and "Signed in" in r.text, r.text
     assert method_status(client, "chatgpt")["state"] == "signed_in"
 
