@@ -194,4 +194,6 @@ def test_catalog_isolation_and_lite_scope(responses):
         responses["md_unknown"]["status"] == responses["cog_unknown"]["status"] == 404
     )
     assert responses["bad_shape"]["status"] == 422
-    assert responses["lite"]["status"] == 501
+    # bowser-lite answers the same request with the same body (numpy selection).
+    assert responses["lite"]["status"] == 200
+    assert responses["lite"]["body"] == responses["md_common"]["body"]

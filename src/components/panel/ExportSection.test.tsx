@@ -119,14 +119,14 @@ describe('GeoTIFF export availability', () => {
     render(<ExportSection />);
     await waitFor(() => expect(fetch).toHaveBeenCalledWith('/config'));
     expect(geotiffButton().disabled).toBe(false);
-    expect(screen.queryByText(/needs the full Bowser server/)).toBeNull();
+    expect(screen.queryByText(/cannot export GeoTIFFs/)).toBeNull();
   });
 
   it('turns GeoTIFF export off on bowser-lite, and says why', async () => {
     config = { title: 'Bowser', geotiff_export: false };
     render(<ExportSection />);
     await waitFor(() => expect(geotiffButton().disabled).toBe(true));
-    expect(screen.getByText(/needs the full Bowser server/)).toBeTruthy();
+    expect(screen.getByText(/cannot export GeoTIFFs/)).toBeTruthy();
   });
 
   it('keeps export on when /config has no flag (an older server)', async () => {

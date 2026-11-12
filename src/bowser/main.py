@@ -4,8 +4,10 @@ import hmac
 import json
 import logging
 import os
+import re
 import time
 import warnings
+import weakref
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Annotated, Any, Callable, Literal, Optional
@@ -27,10 +29,12 @@ from fastapi import (
 from fastapi import Path as PathParam
 from fastapi.middleware.cors import CORSMiddleware
 from pyproj import CRS
+from starlette.datastructures import MutableHeaders
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response as StarletteResponse
 from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from starlette_cramjam.middleware import CompressionMiddleware
 
 from . import api_models as api
@@ -39,6 +43,7 @@ from .assistant.page import router as page_router
 from .assistant.relay import assistant_config
 from .assistant.relay import router as assistant_router
 from .config import settings
+from .constants import TILE_CACHE_CONTROL
 from .context import router as context_router
 from .context import zones_answer
 from .gnss_custom import router as gnss_custom_router
@@ -534,6 +539,30 @@ def create_xarray_dataset_info(ds: xr.Dataset) -> dict:
     return dataset_info
 
 
+# One dataset's info per opened cube: nothing in it changes while the cube is open.
+_dataset_info: dict[int, tuple[weakref.ref, dict]] = {}
+
+
+def xarray_dataset_info(ds: xr.Dataset) -> dict:
+    """Return :func:`create_xarray_dataset_info` of ``ds``, built once per dataset.
+
+    Building it reprojects a subsampled layer for the lon/lat bounds and formats
+    every layer's dates: half a second for a DISP-S1 cube, on every page load.
+    """
+    key = id(ds)
+    hit = _dataset_info.get(key)
+    if hit is not None and hit[0]() is ds:
+        return hit[1]
+    info = create_xarray_dataset_info(ds)
+
+    def forget(ref: weakref.ref) -> None:
+        if (now := _dataset_info.get(key)) is not None and now[0] is ref:
+            del _dataset_info[key]
+
+    _dataset_info[key] = (weakref.ref(ds, forget), info)
+    return info
+
+
 def create_rastergroup_dataset_info(raster_groups: dict) -> dict:
     """Create dataset info structure from RasterGroups."""
     dataset_info = {}
@@ -579,7 +608,7 @@ def datasets(
     """
     target = _resolve_state(dataset)
     if target.mode == "md":
-        return create_xarray_dataset_info(target.dataset)
+        return xarray_dataset_info(target.dataset)
     else:  # cog mode
         return create_rastergroup_dataset_info(target.raster_groups)
 
@@ -2546,6 +2575,37 @@ def InputDependency(
         "extra_masks": extra_masks,
     }
 
+
+_DATA_TILE = re.compile(r"/(md|cog)/tiles/")
+
+
+class TileCacheMiddleware:
+    """Let the browser keep the data tiles it was sent (not the tilers' metadata).
+
+    The tilers return their own ``Response``, which a route dependency cannot
+    add a header to, hence a middleware.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:  # noqa: D107
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """Add ``Cache-Control`` to a tile that was rendered (200)."""
+        if scope["type"] != "http" or not _DATA_TILE.search(scope["path"]):
+            await self.app(scope, receive, send)
+            return
+
+        async def keep(message: Message) -> None:
+            if message["type"] == "http.response.start" and message["status"] == 200:
+                MutableHeaders(scope=message).setdefault(
+                    "Cache-Control", TILE_CACHE_CONTROL
+                )
+            await send(message)
+
+        await self.app(scope, receive, keep)
+
+
+app.add_middleware(TileCacheMiddleware)
 
 cog_endpoints = TilerFactory(
     router_prefix="/cog",

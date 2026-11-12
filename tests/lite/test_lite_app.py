@@ -88,8 +88,8 @@ cfg = c.get("/config", headers={"referer": "http://localhost/?dataset=cube-b"})
 expected = {
     "title": "Cube B",
     "opera_logo": False,
-    "geotiff_export": False,
-    "polygon_stats": False,
+    "geotiff_export": True,
+    "polygon_stats": True,
     "assistant": {
         "enabled": False,
         "providers": [],
@@ -202,8 +202,9 @@ assert c.get("/mode").json() == {"mode": "md"}
 for path, method in (
     ("/upload_raster", "post"),
     ("/upload_mask", "post"),
-    ("/export/geotiff", "get"),
     ("/files", "get"),
+    # Exports work in lite, except with a custom mask GeoTIFF (reading one needs GDAL).
+    ("/export/geotiff?variable=displacement&custom_mask_path=mask.tif", "get"),
     ("/data", "post"),
     ("/cog/WebMercatorQuad/tilejson.json", "get"),
     ("/overlay/WebMercatorQuad/tilejson.json", "get"),
@@ -230,6 +231,10 @@ y = int((1 - math.asinh(math.tan(math.radians(lat))) / math.pi) / 2 * 2**z)
 url = tj["tiles"][0].split("testserver")[1].format(z=z, x=x, y=y)
 r = c.get(url)
 assert r.status_code == 200 and r.headers["content-type"] == "image/png", r.text
+# The browser may keep a tile (its URL names all it is drawn from), not the metadata.
+assert r.headers["cache-control"] == "private, max-age=600"
+meta = c.get("/md/WebMercatorQuad/tilejson.json", params=base)
+assert "cache-control" not in meta.headers
 for suffix in (".png", "@2x.png", "@2x"):
     r = c.get(f"/md/tiles/WebMercatorQuad/{z}/{x}/{y}{suffix}", params=base)
     assert r.status_code == 200, (suffix, r.text)
