@@ -91,7 +91,12 @@ def pixels(raw: bytes, dtype: str) -> np.ndarray:
 
 def _field(seed: int, shape: tuple[int, int], dtype: str = "float32") -> np.ndarray:
     rng = np.random.default_rng(seed)
-    data = (rng.normal(size=shape) * 50).astype(dtype)
+    values = rng.normal(size=shape) * 50
+    if np.dtype(dtype).kind == "u":
+        # A negative float has no unsigned value: the cast is undefined, and numpy
+        # warns about it on some platforms (arm64) and not on others.
+        values = np.clip(np.abs(values), 0, np.iinfo(dtype).max)
+    data = values.astype(dtype)
     if data.dtype.kind == "f":
         data[:2, :3] = np.nan
     return data
