@@ -175,9 +175,7 @@ def test_known_endpoint_statistics_labels_units_and_scope(responses, mode):
 
 
 @pytest.mark.parametrize("mode", ["md", "cog"])
-@pytest.mark.parametrize(
-    "case", ["reference", "custom", "bad_percentiles", "empty"]
-)
+@pytest.mark.parametrize("case", ["reference", "custom", "bad_percentiles", "empty"])
 def test_unsupported_arguments_not_silently_ignored(responses, mode, case):
     assert responses[f"{mode}_{case}"]["status"] == 422
 
