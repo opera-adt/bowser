@@ -1,7 +1,7 @@
 """Signing in to an AI account instead of pasting an API key.
 
-One registry, :data:`METHODS`, lists the ways to sign in; the tab shows one
-button per entry. There are two kinds:
+One registry, :data:`METHODS`, lists the ways to sign in; the tab's Sign in
+drop-down offers one entry each. There are two kinds:
 
 - ``oauth``: OAuth 2.0 authorization code with PKCE. The user's browser opens
   the provider's page and comes back to this server's ``/auth/callback``. The
@@ -117,7 +117,7 @@ class AgentSpec:
 
 @dataclass(frozen=True)
 class Method:
-    """One way to sign in, shown as one button."""
+    """One way to sign in, one entry in the tab's Sign in drop-down."""
 
     id: str
     label: str

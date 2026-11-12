@@ -95,7 +95,18 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     open-source apps: OAuth with PKCE in your browser, then the chat uses your
     ChatGPT plan through the Responses API. The tokens are kept like keys,
     renewed, and revoked on Sign out.
-  - New routes `POST`/`DELETE /assistant/signin`, `GET /auth/callback`,
+  - One "Sign in" button with a drop-down of the services (Claude, ChatGPT);
+    the button's accessible name keeps each service's own wording.
+  - Signing in with Claude works when Bowser runs on another computer (a
+    workstation reached over SSH with port forwarding, or Linux with no
+    display): the tab opens Claude Code's own sign-in page (on claude.com,
+    claude.ai or anthropic.com only) in a new tab of your browser, and you
+    paste the code that page shows into the tab, which passes it to the
+    waiting `claude auth login` once (`POST /assistant/signin/code`; never
+    kept or logged). Where Claude Code can open the browser itself (a
+    desktop), it still does, with no code to paste.
+  - New routes `POST`/`DELETE /assistant/signin`, `POST
+    /assistant/signin/code`, `GET /auth/callback`,
     `POST /assistant/permission` and `POST /assistant/stop`; `GET
     /assistant/status` and `GET /config` list the sign-in methods. Signing in
     and signed-in chats answer requests from the same computer only.
