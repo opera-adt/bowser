@@ -51,17 +51,25 @@ export const DEFAULT_BUDGET_MB = 384;
 export const MIN_BUDGET_MB = 64;
 export const MAX_BUDGET_MB = 2048;
 
+/** Budget per GB of device memory, and its range. */
+export const BUDGET_MB_PER_GB = 96;
+export const DEVICE_BUDGET_MB = [128, 768] as const;
+
 /**
- * Texture budget in bytes: ``override`` MB (``?gpu_mb=``) when given, else 64 MB per
+ * Texture budget in bytes: ``override`` MB (``?gpu_mb=``) when given, else 96 MB per
  * GB of device memory (``navigator.deviceMemory``, which browsers cap at 8 GB) between
- * 128 and 512 MB, else 384 MB. Overrides are clamped to 64..2048 MB.
+ * 128 and 768 MB, else 384 MB. Overrides are clamped to 64..2048 MB.
+ *
+ * 768 MB on an 8 GB device is what stage 1 kept as float32; as float16 it holds twice
+ * the dates (all 269 dates of a 30 m frame at a 1100×800 view), so playing again or
+ * going back draws from memory instead of decoding again.
  */
 export function textureBudgetBytes(override: number | null, deviceMemoryGb: number | undefined): number {
   if (override !== null && Number.isFinite(override) && override > 0) {
     return Math.round(Math.min(MAX_BUDGET_MB, Math.max(MIN_BUDGET_MB, override)) * MB);
   }
   if (deviceMemoryGb && Number.isFinite(deviceMemoryGb) && deviceMemoryGb > 0) {
-    return Math.min(512, Math.max(128, deviceMemoryGb * 64)) * MB;
+    return Math.min(DEVICE_BUDGET_MB[1], Math.max(DEVICE_BUDGET_MB[0], deviceMemoryGb * BUDGET_MB_PER_GB)) * MB;
   }
   return DEFAULT_BUDGET_MB * MB;
 }

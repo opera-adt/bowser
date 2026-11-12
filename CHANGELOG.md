@@ -200,10 +200,11 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   stepping through the dates fell by 30–60%, depending on how many chunks each
   step needs). Displacement is kept on the GPU as 16-bit floats where that rounds
   within 0.1 mm (half the memory); masks stay 32-bit. Chunks on the GPU stay
-  within a memory budget (128–512 MB from the device's memory, or
-  `?gpu_mb=`), dropping chunks away from the view first; dates played past
-  are no longer fetched. The `?render=` label shows the memory in use. A
-  worker that can't start switches to tiles, as other failures do.
+  within a memory budget (128–768 MB from the device's memory, 768 MB with
+  8 GB or more, or `?gpu_mb=`), dropping chunks away from the view first;
+  dates played past are no longer fetched. The `?render=` label shows the
+  memory in use. A worker that can't start switches to tiles, as other
+  failures do.
 
 ### Changed
 

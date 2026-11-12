@@ -84,11 +84,13 @@ more by the map; the value drawn at a cube pixel is the same.
   layers in other units always stay 32-bit, so a threshold compares exactly
   as on the server. Nodata stays nodata.
 - **Memory cap.** Chunks already on the GPU are kept for going back and forth
-  in time, up to a budget: 64 MB per GB of the device's memory, between 128
-  and 512 MB (384 MB where the browser doesn't say), or `?gpu_mb=` (64 to
-  2048 MB). Above it, chunks away from the view are dropped first, then the
-  view's other dates, the least recently used first, down to 80% of the
-  budget. What the current frame draws is always kept, so a very large view
+  in time, up to a budget: 96 MB per GB of the device's memory, between 128
+  and 768 MB (768 MB on a computer with 8 GB or more, 384 MB where the browser
+  doesn't say), or `?gpu_mb=` (64 to 2048 MB). As 16-bit floats, 768 MB holds
+  all 269 dates of a 30 m frame in a 1100×800 view, so a second play-through
+  or going back draws from memory without fetching or decoding again. Above
+  the budget, chunks away from the view are dropped first, then the view's
+  other dates, the least recently used first, down to 80% of the budget. What the current frame draws is always kept, so a very large view
   can go over the budget by that much. Chunks the view stopped needing while
   still queued (dates played past, places panned away from) are not fetched;
   those already on their way are still uploaded, after the view's own, so

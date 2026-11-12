@@ -61,9 +61,10 @@ describe('evictionPlan', () => {
 });
 
 describe('textureBudgetBytes', () => {
-  it('follows device memory between 128 and 512 MB, else 384 MB', () => {
-    expect(textureBudgetBytes(null, 8)).toBe(512 * MB);
-    expect(textureBudgetBytes(null, 4)).toBe(256 * MB);
+  it('follows device memory between 128 and 768 MB, else 384 MB', () => {
+    expect(textureBudgetBytes(null, 8)).toBe(768 * MB);
+    expect(textureBudgetBytes(null, 4)).toBe(384 * MB);
+    expect(textureBudgetBytes(null, 2)).toBe(192 * MB);
     expect(textureBudgetBytes(null, 0.5)).toBe(128 * MB);
     expect(textureBudgetBytes(null, undefined)).toBe(384 * MB);
   });
