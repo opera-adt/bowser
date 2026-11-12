@@ -89,6 +89,47 @@ server at `http://127.0.0.1:8765/mcp`:
 claude mcp add --transport http bowser http://127.0.0.1:8765/mcp
 ```
 
+## Signing in from the Assistant tab
+
+On your own computer (`bowser run`, `bowser lite`, the desktop app), the
+Assistant tab's **Sign in** button, with a drop-down of the services, can hand
+the chat to your own Claude Code ("Sign in with Claude"), with this MCP server
+as its tools, or use your ChatGPT plan ("Continue with ChatGPT"). Gemini and
+other providers are available with an API key (**Use an API key**).
+
+"Sign in with Claude" needs Claude Code (install it from
+[claude.com](https://code.claude.com/docs/en/setup)) and Node.js for its ACP
+adapter, which Bowser installs once. If Claude Code is not signed in, Bowser
+starts Claude Code's own sign-in (`claude auth login`), which opens Claude
+Code's sign-in page on claude.com. Bowser does not offer a Claude sign-in of
+its own: it only starts Claude Code's and, on a remote computer, passes on its
+page and your code (below).
+
+**Bowser on another computer.** When Claude Code cannot open a browser you
+see, because Bowser runs on a remote workstation you reach over SSH with port
+forwarding (`ssh -L 8000:localhost:8000 workstation`, then
+<http://localhost:8000>) or on Linux with no display, signing in happens in
+your own browser instead:
+
+1. Click **Sign in**. A new tab opens on Claude Code's own sign-in page.
+2. Sign in there. The page then shows a code.
+3. Paste the code into the box in Bowser's Assistant tab and click
+   **Continue**. Bowser writes it to the waiting `claude` program once; when
+   Claude Code has signed in, the tab says so.
+
+A code Claude Code refuses ends its sign-in, and the tab says so: click
+**Sign in** again. **Cancel** ends the program's sign-in. Bowser passes on a
+sign-in page only on Anthropic's own sites (claude.com, claude.ai,
+anthropic.com), never keeps or logs the code, and still answers sign-in
+requests from the same computer only (through the forwarded port, they are).
+Bowser takes the browser to be elsewhere when it was started from an SSH
+session (`SSH_CONNECTION`) or, on Linux, without `DISPLAY`/`WAYLAND_DISPLAY`;
+otherwise Claude Code opens the browser itself and no code is needed.
+
+Bowser never reads, copies or stores Claude Code's credentials and never calls
+Anthropic itself; only Claude Code does. Signing out in the tab stops using
+Claude Code here; Claude Code itself stays signed in.
+
 ## Tools
 
 Every tool takes an optional `dataset`, the catalog id of a server started with

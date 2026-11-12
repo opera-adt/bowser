@@ -2738,8 +2738,13 @@ img.huechange { filter: hue-rotate(120deg); }
 }
 
 .hist-btn.ai-signin-btn {
-  width: 100%;
+  flex: 1;
   font-weight: 600;
+}
+
+.ai-signin .ai-row > .sidebar-select {
+  flex: 1;
+  min-width: 0;
 }
 
 .ai-in-use {
