@@ -25,7 +25,7 @@ The full server and bowser-lite also provide a [polygon statistics API](docs/pol
 
 ## Download
 
-- **Desktop app** for macOS (Apple silicon and Intel), Windows and Linux: [latest release](https://github.com/opera-adt/bowser/releases/latest). No Python needed. It opens local `.zarr` or `s3://` cubes with bowser-lite, so GeoTIFF upload and export need the full server. The apps are not signed yet; the release notes say how to open them on macOS and Windows.
+- **Desktop app** for macOS (Apple silicon and Intel), Windows and Linux: [latest release](https://github.com/opera-adt/bowser/releases/latest). No Python needed. It opens local `.zarr` or `s3://` cubes with bowser-lite: area statistics and GeoTIFF export work, GeoTIFF upload needs the full server. The apps are not signed yet; the release notes say how to open them on macOS and Windows.
 - **Python package:** [`bowser-insar` on PyPI](https://pypi.org/project/bowser-insar/).
 - **Docker image:** [`ghcr.io/opera-adt/bowser`](https://github.com/opera-adt/bowser/pkgs/container/bowser).
 - **All releases and changes:** [Releases](https://github.com/opera-adt/bowser/releases) and the [changelog](CHANGELOG.md).
