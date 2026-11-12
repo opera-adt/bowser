@@ -13,7 +13,7 @@ import numpy as np
 from pyproj import CRS
 from pyproj.exceptions import CRSError
 
-from .polygon import NativeGrid, _linear, _values
+from .polygon import STORED_WARNING, NativeGrid, _linear, _values
 
 if TYPE_CHECKING:
     import xarray as xr
@@ -21,6 +21,11 @@ if TYPE_CHECKING:
     from .polygon import PolygonRequest
 
 Reader = Callable[[int, slice, slice], np.ndarray]
+
+#: Values of a dynamic mask read at once (whole time chunks when they fit): about
+#: 32 MB as float64 per mask, and a request has at most ten masks.
+_READ_BLOCK = 4_000_000
+MASKED_WARNING = "Explicit quality masks applied; stored spatial reference retained."
 
 
 @dataclass
@@ -54,14 +59,24 @@ class PolygonMasks:
         keep = np.isfinite(values) & self.valid(index, rows, cols, values.shape)
         return np.where(keep, values, np.nan)
 
+    def work(self, count: int) -> int:
+        """Return the frames read for ``count`` data frames and these masks.
+
+        A mask that follows the data's axis costs one frame per data frame; a
+        static mask is read once, so it costs one frame.
+        """
+        dynamic = sum(r["temporal_support"] == "matching_axis" for r in self.records)
+        return count * (1 + dynamic) + (len(self.records) - dynamic)
+
     def finish(self, result: dict) -> dict:
         """Report the masks actually applied without claiming connectivity."""
         if self.records:
             result["optional_masks_applied"] = True
             result["masks"] = self.records
-            result["warnings"][0] = (
-                "Explicit quality masks applied; stored spatial reference retained."
-            )
+            # By its text, not its place: the list's order is _result's business.
+            result["warnings"] = [
+                MASKED_WARNING if w == STORED_WARNING else w for w in result["warnings"]
+            ]
         return result
 
 
@@ -132,10 +147,28 @@ def xarray_masks(
         ):
             raise ValueError("Masks must share the exact native data grid and CRS")
 
-        def read(index, rows, cols, mask=mask, dim=dim):
-            frame = mask.isel({dim: index}) if dim else mask
-            frame = frame.isel(y=rows, x=cols).transpose("y", "x")
-            return _values(frame.values, mask.attrs)
+        stored = dataset[spec.dataset].encoding.get("preferred_chunks", {})
+        kept: dict[str, Any] = {"key": None, "values": None}
+
+        def read(index, rows, cols, mask=mask, dim=dim, stored=stored, kept=kept):
+            window = (rows.start, rows.stop, cols.start, cols.stop)
+            part = mask.isel(y=rows, x=cols)
+            if dim is None:
+                # A static mask is the same at every date: read its window once.
+                if kept["key"] != window:
+                    values = _values(part.transpose("y", "x").values, mask.attrs)
+                    kept.update(key=window, values=values)
+                return kept["values"]
+            # A mask along the data's axis: whole time chunks at a time, since
+            # reading one date decodes every date stored in its chunks.
+            pixels = max(1, (rows.stop - rows.start) * (cols.stop - cols.start))
+            chunk = max(1, min(int(stored.get(dim) or 1), _READ_BLOCK // pixels))
+            start = index - index % chunk
+            if kept["key"] != (window, start):
+                block = part.isel({dim: slice(start, start + chunk)})
+                values = _values(block.transpose(dim, "y", "x").values, mask.attrs)
+                kept.update(key=(window, start), values=values)
+            return kept["values"][index - start]
 
         masks.readers.append(read)
         masks.records.append(
@@ -176,7 +209,13 @@ def raster_masks(
         if len(paths) > 1 and list(map(str, group.x_values)) != labels:
             raise ValueError("Dynamic mask labels must match the selected axis exactly")
 
-        def read(index, rows, cols, paths=paths, group=group):
+        kept: dict[str, Any] = {"key": None, "values": None}
+
+        def read(index, rows, cols, paths=paths, group=group, kept=kept):
+            # One file for every date: read its window once.
+            window = (rows.start, rows.stop, cols.start, cols.stop)
+            if len(paths) == 1 and kept["key"] == window:
+                return kept["values"]
             with rasterio.open(paths[0 if len(paths) == 1 else index]) as mask:
                 if (
                     NativeGrid(mask.crs, mask.transform, mask.width, mask.height)
@@ -193,6 +232,8 @@ def raster_masks(
                 )
                 if group.nodata is not None:
                     values = np.where(values == group.nodata, np.nan, values)
+                if len(paths) == 1:
+                    kept.update(key=window, values=values)
                 return values
 
         masks.readers.append(read)

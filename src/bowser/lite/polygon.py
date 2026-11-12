@@ -438,7 +438,7 @@ def summarize_cube(
     )
     masks = xarray_masks(source, mask_dataset, request, crs)
     (col_off, row_off, width, height), inside, clipped = selection(
-        grid, request.geometry, count * (1 + len(request.layer_masks))
+        grid, request.geometry, masks.work(count)
     )
     cols = (
         slice(x.size - col_off - width, x.size - col_off)

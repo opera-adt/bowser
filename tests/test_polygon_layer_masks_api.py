@@ -6,13 +6,13 @@ import subprocess
 import sys
 
 import pytest
-from test_polygon_layer_masks import inputs as inputs
+from test_polygon_layer_masks import inputs  # noqa: F401  (a fixture)
 
 from bowser.catalog import CatalogEntry, save_catalog
 
 
 @pytest.fixture
-def responses(inputs, tmp_path):
+def responses(inputs, tmp_path):  # noqa: F811
     ds, groups, body = inputs
     ds.to_zarr(tmp_path / "cube.zarr", consolidated=False)
     alternate = ds.copy(deep=True)
