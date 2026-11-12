@@ -1,26 +1,39 @@
-"""Summarize stored scalar rasters on native pixel centers inside a polygon."""
+"""Summarize stored scalar rasters on native pixel centers inside a polygon.
+
+rasterio and shapely are imported where they are used: bowser-lite reuses the
+request model, the statistics and the result of this module without them
+(``bowser.lite.polygon`` selects the pixels with numpy).
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Literal
+from typing import TYPE_CHECKING, Any, Callable, Literal
 
 import numpy as np
-import rasterio
-import xarray as xr
-from affine import Affine
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from rasterio.errors import WindowError
-from rasterio.features import geometry_mask, geometry_window
-from rasterio.warp import transform_geom
-from rasterio.windows import Window
-from rasterio.windows import transform as window_transform
-from shapely.geometry import shape
+
+if TYPE_CHECKING:
+    import xarray as xr
+    from rasterio.windows import Window
 
 MAX_VERTICES = 10_000
 MAX_WINDOW_PIXELS = 2_000_000
 MAX_PIXEL_EPOCHS = 50_000_000
 _ANGULAR_UNITS = {"degree", "degrees", "deg", "radian", "radians", "rad"}
+#: The first warning of a summary without masks (replaced when masks are applied).
+STORED_WARNING = (
+    "Stored values: interactive referencing and optional quality masks are not applied."
+)
+
+
+class PolygonMask(BaseModel):
+    """An explicit threshold in a named mask layer's native units."""
+
+    model_config = ConfigDict(extra="forbid")
+    dataset: str = Field(min_length=1)
+    threshold: float = Field(default=0.5, allow_inf_nan=False)
+    mode: Literal["min", "max"] = "min"
 
 
 class PolygonRequest(BaseModel):
@@ -33,6 +46,7 @@ class PolygonRequest(BaseModel):
     percentiles: list[float] = Field(
         default_factory=lambda: [10.0, 90.0], min_length=1, max_length=20
     )
+    layer_masks: list[PolygonMask] = Field(default_factory=list, max_length=10)
 
     @field_validator("percentiles")
     @classmethod
@@ -81,13 +95,21 @@ class PolygonRequest(BaseModel):
                         raise ValueError(
                             "Use finite 2-D WGS84 longitude/latitude coordinates"
                         )
-        geom = shape(geometry)
-        if geom.is_empty or not geom.is_valid:
+        if not cls._topologically_valid(geometry):
             raise ValueError("Polygon must be nonempty and topologically valid")
-        if geom.bounds[2] - geom.bounds[0] > 180:
+        lons = [p[0] for polygon in polygons for ring in polygon for p in ring]
+        if max(lons) - min(lons) > 180:
             raise ValueError("Antimeridian-spanning polygons are not supported")
         # Ignore foreign GeoJSON members, not geometry holes or separate parts.
         return {"type": kind, "coordinates": geometry["coordinates"]}
+
+    @classmethod
+    def _topologically_valid(cls, geometry: dict[str, Any]) -> bool:
+        """Whether the rings form a nonempty, valid (OGC) polygon; shapely here."""
+        from shapely.geometry import shape  # noqa: PLC0415
+
+        geom = shape(geometry)
+        return not geom.is_empty and bool(geom.is_valid)
 
 
 @dataclass(frozen=True)
@@ -95,7 +117,7 @@ class NativeGrid:
     """Describe the unchanged level-zero raster grid."""
 
     crs: Any
-    transform: Affine
+    transform: Any
     width: int
     height: int
 
@@ -103,6 +125,13 @@ class NativeGrid:
 def _selection(
     grid: NativeGrid, geometry: dict, count: int
 ) -> tuple[Window, np.ndarray, bool]:
+    from rasterio.errors import WindowError  # noqa: PLC0415
+    from rasterio.features import geometry_mask, geometry_window  # noqa: PLC0415
+    from rasterio.warp import transform_geom  # noqa: PLC0415
+    from rasterio.windows import Window  # noqa: PLC0415
+    from rasterio.windows import transform as window_transform  # noqa: PLC0415
+    from shapely.geometry import shape  # noqa: PLC0415
+
     if grid.crs is None:
         raise ValueError("A source CRS is required")
     native = transform_geom("EPSG:4326", grid.crs, geometry)
@@ -220,8 +249,12 @@ def summarize_xarray(
     source: xr.DataArray,
     request: PolygonRequest,
     labels: list[str],
+    *,
+    mask_dataset: xr.Dataset | None = None,
 ) -> dict:
     """Summarize a level-zero GeoZarr variable using bounded spatial reads."""
+    from .polygon_masks import xarray_masks  # noqa: PLC0415
+
     if not {"x", "y"}.issubset(source.dims):
         raise ValueError("Source requires x/y spatial dimensions")
     if any(axis not in source.coords for axis in ("x", "y")):
@@ -253,26 +286,47 @@ def summarize_xarray(
     )
     if grid.transform.b != 0 or grid.transform.d != 0:
         raise ValueError("GeoZarr statistics require a rectilinear x/y grid")
-    window, inside, clipped = _selection(grid, request.geometry, count)
+    masks = xarray_masks(source, mask_dataset, request, grid.crs)
+    window, inside, clipped = _selection(grid, request.geometry, masks.work(count))
+    rows = slice(int(window.row_off), int(window.row_off + window.height))
+    cols = slice(int(window.col_off), int(window.col_off + window.width))
     subset = source.isel(
-        y=slice(int(window.row_off), int(window.row_off + window.height)),
-        x=slice(int(window.col_off), int(window.col_off + window.width)),
+        y=rows,
+        x=cols,
     )
 
     def load(index: int) -> np.ndarray:
         frame = subset.isel({dim: index}) if dim else subset
-        return _values(frame.transpose("y", "x").values, source.attrs)[inside]
+        values = _values(frame.transpose("y", "x").values, source.attrs)
+        return masks.apply(index, rows, cols, values)[inside]
 
-    return _result(load, count, inside, clipped, grid, labels, units, request)
+    return masks.finish(
+        _result(load, count, inside, clipped, grid, labels, units, request)
+    )
 
 
-def summarize_rasters(group: Any, request: PolygonRequest) -> dict:
+def summarize_rasters(
+    group: Any,
+    request: PolygonRequest,
+    *,
+    mask_groups: dict | None = None,
+) -> dict:
     """Summarize identical-grid, identical-unit GeoTIFFs with windowed reads."""
+    import rasterio  # noqa: PLC0415
+
+    from .polygon_masks import raster_masks  # noqa: PLC0415
+
     if not group.file_list:
         raise ValueError("No rasters in the selected layer")
     with rasterio.open(group.file_list[0]) as first:
         grid = NativeGrid(first.crs, first.transform, first.width, first.height)
-    window, inside, clipped = _selection(grid, request.geometry, len(group.file_list))
+    labels = [str(v) for v in group.x_values]
+    masks = raster_masks(mask_groups, request, labels, grid)
+    window, inside, clipped = _selection(
+        grid, request.geometry, masks.work(len(group.file_list))
+    )
+    rows = slice(int(window.row_off), int(window.row_off + window.height))
+    cols = slice(int(window.col_off), int(window.col_off + window.width))
     units: list[str | None] = []
 
     def load(index: int) -> np.ndarray:
@@ -297,18 +351,20 @@ def summarize_rasters(group: Any, request: PolygonRequest) -> dict:
             values = _values(src.read(1, window=window, masked=True))
             if group.nodata is not None:
                 values = np.where(values == group.nodata, np.nan, values)
-            return values[inside]
+            return masks.apply(index, rows, cols, values)[inside]
 
-    return _result(
-        load,
-        len(group.file_list),
-        inside,
-        clipped,
-        grid,
-        [str(v) for v in group.x_values],
-        None,
-        request,
-        units,
+    return masks.finish(
+        _result(
+            load,
+            len(group.file_list),
+            inside,
+            clipped,
+            grid,
+            labels,
+            None,
+            request,
+            units,
+        )
     )
 
 
@@ -335,10 +391,7 @@ def _result(
     if raster_units:
         units = raster_units[0]
     warnings = [
-        (
-            "Stored values: interactive referencing and optional quality masks "
-            "are not applied."
-        ),
+        STORED_WARNING,
         (
             "Connected-component compatibility is unverified; disconnected offsets "
             "may be ambiguous."

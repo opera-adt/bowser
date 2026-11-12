@@ -159,7 +159,7 @@ def register_file_tools(tool: Callable, api: BowserAPI) -> None:
         opening files (BOWSER_ALLOW_OPEN) and GDAL: bowser-lite says it cannot.
         """
         config = await api.get("/config")
-        if not config.get("geotiff_export"):
+        if not (config.get("data_conversion") or {}).get("cog"):
             raise BowserError(
                 "This server cannot convert rasters (it is bowser-lite, which has "
                 "no GDAL). Run the full server (`bowser run`) to make a COG."

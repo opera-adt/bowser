@@ -4,14 +4,17 @@ import hmac
 import json
 import logging
 import os
+import re
 import threading
 import time
 import warnings
+import weakref
 from collections import OrderedDict
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Annotated, Any, Callable, Literal, Optional
 
+import anyio.to_thread
 import matplotlib
 import numpy as np
 import rasterio
@@ -29,10 +32,12 @@ from fastapi import (
 from fastapi import Path as PathParam
 from fastapi.middleware.cors import CORSMiddleware
 from pyproj import CRS
+from starlette.datastructures import MutableHeaders
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response as StarletteResponse
 from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from starlette_cramjam.middleware import CompressionMiddleware
 
 from . import api_models as api
@@ -41,6 +46,7 @@ from .assistant.page import router as page_router
 from .assistant.relay import assistant_config
 from .assistant.relay import router as assistant_router
 from .config import settings
+from .constants import TILE_CACHE_CONTROL
 from .context import router as context_router
 from .context import zones_answer
 from .gnss_custom import router as gnss_custom_router
@@ -256,7 +262,11 @@ async def _route_dataset(request: Request, call_next):
             return JSONResponse(
                 {"detail": f"unknown dataset id {name!r}"}, status_code=404
             )
-        routed = registry.get(name)
+        # Opening a cube reads every level's metadata (seconds from S3): in a
+        # thread, or every other request would wait on this event loop.
+        routed = registry.cached(name)
+        if routed is None:
+            routed = await anyio.to_thread.run_sync(registry.get, name)
         _warm(routed)
         token = _request_state.set(routed)
     try:
@@ -536,6 +546,30 @@ def create_xarray_dataset_info(ds: xr.Dataset) -> dict:
     return dataset_info
 
 
+# One dataset's info per opened cube: nothing in it changes while the cube is open.
+_dataset_info: dict[int, tuple[weakref.ref, dict]] = {}
+
+
+def xarray_dataset_info(ds: xr.Dataset) -> dict:
+    """Return :func:`create_xarray_dataset_info` of ``ds``, built once per dataset.
+
+    Building it reprojects a subsampled layer for the lon/lat bounds and formats
+    every layer's dates: half a second for a DISP-S1 cube, on every page load.
+    """
+    key = id(ds)
+    hit = _dataset_info.get(key)
+    if hit is not None and hit[0]() is ds:
+        return hit[1]
+    info = create_xarray_dataset_info(ds)
+
+    def forget(ref: weakref.ref) -> None:
+        if (now := _dataset_info.get(key)) is not None and now[0] is ref:
+            del _dataset_info[key]
+
+    _dataset_info[key] = (weakref.ref(ds, forget), info)
+    return info
+
+
 def create_rastergroup_dataset_info(raster_groups: dict) -> dict:
     """Create dataset info structure from RasterGroups."""
     dataset_info = {}
@@ -581,7 +615,7 @@ def datasets(
     """
     target = _resolve_state(dataset)
     if target.mode == "md":
-        return create_xarray_dataset_info(target.dataset)
+        return xarray_dataset_info(target.dataset)
     else:  # cog mode
         return create_rastergroup_dataset_info(target.raster_groups)
 
@@ -914,6 +948,44 @@ def _get_ref_median(
     return reference_median(pool(*circle))
 
 
+def _point_values_direct(
+    ds: "xr.Dataset",
+    name: str,
+    x: float,
+    y: float,
+    layer_masks: list[dict],
+    time_idx: int | None,
+) -> np.ndarray:
+    """Return a layer's values at one pixel of ``ds``, opened without dask.
+
+    The values ``_apply_layer_masks_md`` and ``select_point`` give on the dask
+    dataset, but the pixel is picked first and the masks are applied to it:
+    these arrays read whole when masked as layers. A mask is always one value
+    at a pixel (its step ``time_idx``, or its first without one).
+    """
+    da = ds[name]
+    if time_idx is not None:
+        dim = _non_spatial_dim(da)
+        if dim is not None:
+            da = da.isel({dim: max(0, min(time_idx, da.sizes[dim] - 1))})
+    values = np.atleast_1d(select_point(da, x, y, "nearest").values[..., 0, 0])
+    for m in layer_masks:
+        var = m.get("dataset")
+        if not var or var not in ds.data_vars:
+            continue
+        threshold = float(m.get("threshold", 0.5))
+        mask_da = ds[var]
+        mdim = _non_spatial_dim(mask_da)
+        if mdim is not None:
+            step = 0 if time_idx is None else min(time_idx, mask_da.sizes[mdim] - 1)
+            mask_da = mask_da.isel({mdim: step})
+        at = select_point(mask_da, x, y, "nearest").values[..., 0, 0]
+        keep = at <= threshold if m.get("mode", "min") == "max" else at >= threshold
+        # As ``DataArray.where``: NaN where the mask fails, integers become float.
+        values = xr.DataArray(values).where(bool(np.all(keep))).values
+    return values
+
+
 def _get_point_values(
     dataset_name: str,
     lon: float,
@@ -933,6 +1005,12 @@ def _get_point_values(
             raise HTTPException(
                 status_code=404, detail=f"Variable {dataset_name} not found"
             )
+        x, y = state.transformer_from_lonlat.transform(lon, lat)
+        direct = state.point_dataset()
+        if direct is not None and dataset_name in direct.data_vars:
+            return _point_values_direct(
+                direct, dataset_name, x, y, layer_masks or [], time_idx
+            )
         da = state.dataset[dataset_name]
         # Select the single time step before reading so only its chunk is fetched.
         if time_idx is not None:
@@ -940,7 +1018,6 @@ def _get_point_values(
             if dim is not None:
                 da = da.isel({dim: max(0, min(time_idx, da.sizes[dim] - 1))})
         da = _apply_layer_masks_md(da, layer_masks or [], time_idx=time_idx)
-        x, y = state.transformer_from_lonlat.transform(lon, lat)
         return np.atleast_1d(select_point(da, x, y, "nearest").values[..., 0, 0])
     else:  # cog mode
         if dataset_name not in state.raster_groups:
@@ -1330,9 +1407,9 @@ def polygon_timeseries(
 ):
     """Summarize stored native pixels inside a WGS84 polygon.
 
-    This first endpoint provides bounded stored-value summaries, independent
-    of map zoom. Interactive references, optional quality masks and component
-    screening are not implicitly applied. Unknown request fields are rejected.
+    Named quality masks are opt-in and checked on the exact native grid/axis.
+    The stored reference is retained: the chart applies its reference separately.
+    Component screening is not inferred. Unknown request fields are rejected.
     """
     available = (
         target.dataset.data_vars
@@ -1349,9 +1426,13 @@ def polygon_timeseries(
                 raise ValueError("Source supports at most one non-spatial axis")
             dim = extra[0] if extra else None
             labels = _dim_labels(source, dim) if dim else ["Stored layer"]
-            result = summarize_xarray(source, body, labels)
+            result = summarize_xarray(source, body, labels, mask_dataset=target.dataset)
         else:
-            result = summarize_rasters(target.raster_groups[body.variable], body)
+            result = summarize_rasters(
+                target.raster_groups[body.variable],
+                body,
+                mask_groups=target.raster_groups,
+            )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except (OSError, rasterio.errors.RasterioError) as exc:
@@ -2548,6 +2629,37 @@ def InputDependency(
         "extra_masks": extra_masks,
     }
 
+
+_DATA_TILE = re.compile(r"/(md|cog)/tiles/")
+
+
+class TileCacheMiddleware:
+    """Let the browser keep the data tiles it was sent (not the tilers' metadata).
+
+    The tilers return their own ``Response``, which a route dependency cannot
+    add a header to, hence a middleware.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:  # noqa: D107
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """Add ``Cache-Control`` to a tile that was rendered (200)."""
+        if scope["type"] != "http" or not _DATA_TILE.search(scope["path"]):
+            await self.app(scope, receive, send)
+            return
+
+        async def keep(message: Message) -> None:
+            if message["type"] == "http.response.start" and message["status"] == 200:
+                MutableHeaders(scope=message).setdefault(
+                    "Cache-Control", TILE_CACHE_CONTROL
+                )
+            await send(message)
+
+        await self.app(scope, receive, keep)
+
+
+app.add_middleware(TileCacheMiddleware)
 
 cog_endpoints = TilerFactory(
     router_prefix="/cog",

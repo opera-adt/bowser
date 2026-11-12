@@ -260,7 +260,8 @@ PARAMS: dict[str, dict[str, Any]] = {
     },
     "custom_mask_path": {
         "description": "Server path of a mask from POST /upload_mask; keeps "
-        "pixels where the mask is > 0. Ignored by bowser-lite.",
+        "pixels where the mask is > 0. bowser-lite ignores it on tiles and "
+        "refuses it (501) on exports.",
         "examples": ["/tmp/bowser_masks/mask_0123abcd.tif"],
     },
     "rescale": {
@@ -325,7 +326,7 @@ ROUTES: dict[str, dict[str, Any]] = {
     "GET /config": {
         "summary": "Server configuration",
         "description": "Page title, whether to show the OPERA logo, and whether "
-        "GeoTIFF export is available (false on bowser-lite). The title is the "
+        "GeoTIFF export and polygon statistics are available. The title is the "
         "catalog entry's name when `dataset` is given, here or in the Referer. "
         "`assistant` says whether the Assistant tab is on, its providers and "
         "those with a key.",
@@ -472,7 +473,8 @@ ROUTES: dict[str, dict[str, Any]] = {
         "summary": "Statistics inside a polygon",
         "description": "Per-date statistics (count, mean, median, spread, "
         "percentiles) of the stored pixels inside a WGS84 GeoJSON Polygon or "
-        "MultiPolygon, on the native grid. No reference or mask is applied. See "
+        "MultiPolygon, on the native grid. Named quality masks are opt-in; "
+        "the stored reference is retained. See "
         "docs/polygon-statistics.md.",
         "tags": [STATS],
     },
@@ -862,8 +864,6 @@ LITE_501 = (
     "GET /data/{data_id}",
     "GET /data/{data_id}.{fmt}",
     "GET /files",
-    "GET /export/geotiff",
-    "POST /polygon_timeseries",
 )
 
 
@@ -1705,6 +1705,15 @@ class PolygonGrid(_Fixed):
     shape: list[int]
 
 
+class AppliedPolygonMask(_Fixed):
+    """Native-unit threshold and support of a mask applied to polygon pixels."""
+
+    dataset: str
+    threshold: float
+    operator: Literal[">", ">=", "<="]
+    temporal_support: Literal["static", "matching_axis"]
+
+
 class PolygonStatistics(_Fixed):
     """``POST /polygon_timeseries``."""
 
@@ -1719,6 +1728,7 @@ class PolygonStatistics(_Fixed):
     statistics: list[PolygonRow]
     reference: Literal["stored"]
     optional_masks_applied: bool
+    masks: list[AppliedPolygonMask] = Field(default_factory=list)
     component_compatibility: str
     warnings: list[str]
     grid: PolygonGrid

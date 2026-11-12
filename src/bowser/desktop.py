@@ -8,7 +8,7 @@ instead. Closing the window stops the server.
 
 The server is bowser-lite (``bowser.lite.main:app``: GeoZarr cubes, no GDAL) unless
 ``BOWSER_SERVER=full`` (or ``server="full"``) asks for the full one, which adds
-GeoTIFF uploads, exports and COG stacks but needs rasterio/titiler installed.
+GeoTIFF uploads and COG stacks but needs rasterio/titiler installed.
 """
 
 from __future__ import annotations

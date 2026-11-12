@@ -173,15 +173,13 @@ def _clamp(i: int, n: int) -> int:
     return max(0, min(i, n - 1))
 
 
-def minus_reference_step(
-    da: xr.DataArray, full: xr.DataArray, dim: str, ref_time_idx: int
-) -> xr.DataArray:
-    """Return ``da`` minus ``full`` at step ``ref_time_idx`` (clamped), per pixel.
+def minus_reference_step(da: xr.DataArray, ref: xr.DataArray) -> xr.DataArray:
+    """Return ``da`` minus the reference step ``ref``, per pixel.
 
     As ``bowser.main._minus_reference_step``: NaN where either is NaN, with
-    ``da``'s attributes, encoding and coordinates kept.
+    ``da``'s attributes, encoding and coordinates kept. Both are read in full,
+    so give it windows: these arrays are not dask's.
     """
-    ref = full.isel({dim: _clamp(ref_time_idx, full.sizes[dim])}, drop=True)
     with xr.set_options(keep_attrs=True):
         out = da - ref
     out.encoding = dict(da.encoding)
@@ -191,17 +189,21 @@ def minus_reference_step(
 def tile_source(
     ds: xr.Dataset, q: TileQuery
 ) -> tuple[xr.DataArray, Callable[[xr.DataArray, Any], xr.DataArray]]:
-    """Return the lazy variable for a tile and a function that masks any window of it.
+    """Return the lazy variable for a tile and a function that finishes a window of it.
 
     Mirrors ``bowser.main._build_masked_md_dataarray``: select ``time_idx``
     (clamped), subtract the step at ``ref_time_idx`` when given, keep pixels
     where ``mask_variable > mask_min_value``, then apply the layer masks from the
     same pyramid level.
+
+    The variable returned is the step as stored, not read yet. The subtraction
+    is part of the function, on the window: without dask, subtracting the two
+    steps here would read both whole layers for every tile.
     """
     if q.variable not in ds.variables:
         raise HTTPException(status_code=404, detail=f"Variable {q.variable} not found")
     da = ds[q.variable]
-    mask_da = None
+    mask_da = ref = None
     if q.mask_variable is not None:
         if q.mask_variable not in ds.variables:
             raise HTTPException(
@@ -211,10 +213,10 @@ def tile_source(
     if q.time_idx is not None:
         dim = non_spatial_dim(da)
         if dim is not None:
-            full = da
-            da = da.isel({dim: _clamp(q.time_idx, da.sizes[dim])})
             if q.ref_time_idx is not None:
-                da = minus_reference_step(da, full, dim, q.ref_time_idx)
+                at = _clamp(q.ref_time_idx, da.sizes[dim])
+                ref = da.isel({dim: at}, drop=True)
+            da = da.isel({dim: _clamp(q.time_idx, da.sizes[dim])})
         if mask_da is not None and (mdim := non_spatial_dim(mask_da)) is not None:
             mask_da = mask_da.isel({mdim: _clamp(q.time_idx, mask_da.sizes[mdim])})
     layer_masks = parse_layer_masks(q.layer_masks)
@@ -222,6 +224,8 @@ def tile_source(
     def masked(
         window: xr.DataArray, select: Callable[[xr.DataArray], xr.DataArray]
     ) -> xr.DataArray:
+        if ref is not None:
+            window = minus_reference_step(window, select(ref))
         if mask_da is not None:
             window = window.where(select(mask_da) > q.mask_min_value)
         return apply_layer_masks(window, ds, layer_masks, q.time_idx, select)
