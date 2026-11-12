@@ -60,15 +60,19 @@ def _steps() -> xr.Dataset:
 
 def test_lite_tile_source_subtracts_the_reference_step():
     ds = _steps()
-    q = tiles.TileQuery(variable="displacement", time_idx=1, ref_time_idx=0)
-    da, _ = tiles.tile_source(ds, q)
+
+    def whole(q):
+        da, finish = tiles.tile_source(ds, q)
+        return finish(da.load(), lambda a: a.load())
+
+    da = whole(tiles.TileQuery(variable="displacement", time_idx=1, ref_time_idx=0))
     np.testing.assert_array_equal(da.values, [[np.nan, 10.0], [10.0, 10.0]])
     assert da.attrs == {"units": "meters"}
     assert str(da["time"].values)[:10] == "2026-01-13"
-    q = tiles.TileQuery(variable="displacement", time_idx=0, ref_time_idx=99)
-    da, _ = tiles.tile_source(ds, q)  # clamped to the last step
+    # Clamped to the last step.
+    da = whole(tiles.TileQuery(variable="displacement", time_idx=0, ref_time_idx=99))
     np.testing.assert_array_equal(da.values, [[np.nan, -20.0], [-20.0, np.nan]])
-    da, _ = tiles.tile_source(ds, tiles.TileQuery(variable="displacement", time_idx=1))
+    da = whole(tiles.TileQuery(variable="displacement", time_idx=1))
     np.testing.assert_array_equal(da.values, ds.displacement[1].values)
 
 

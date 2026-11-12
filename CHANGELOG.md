@@ -256,6 +256,11 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- bowser-lite: a tile shown relative to another date (`ref_time_idx`) read both
+  whole layers before cutting the tile out, since its arrays are not dask's:
+  about 1 s per full-resolution tile on a DISP-S1 frame, and twice the layer
+  in memory. The two steps are now subtracted on the tile's window (46 ms);
+  the tiles are the same.
 - Data tiles (`/md/tiles`, `/cog/tiles`, and bowser-lite's) are sent with
   `Cache-Control: private, max-age=600`, like the cube's zarr files, so going
   back to a date or view already seen is drawn from the browser's cache
