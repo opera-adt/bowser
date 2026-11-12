@@ -1295,7 +1295,8 @@ async def _terrain(lon: float, lat: float, z: int = 13) -> dict:
     )
     caution = (
         "On a slope this steep, downslope creep or landsliding can show as motion "
-        "along the line of sight; the share seen depends on the slope's facing."
+        "in the measurement; the share seen depends on the slope's facing and "
+        "the direction the values measure."
         if steep
         else None
     )

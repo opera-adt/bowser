@@ -31,7 +31,7 @@ pytest.importorskip("rioxarray")
 
 from mcp import Client  # noqa: E402
 
-from bowser.chart_tools import CHART_COMMANDS  # noqa: E402
+from bowser.chart_tools import CHART_COMMANDS, CHART_INSTRUCTIONS  # noqa: E402
 from bowser.mcp_server import INSTRUCTIONS, build_server  # noqa: E402
 
 REGRESSION = Path(__file__).resolve().parent / "regression"
@@ -277,6 +277,34 @@ def test_tools_have_descriptions_and_schemas():
     assert "never interpret displacement from the curve alone" in INSTRUCTIONS
 
 
+def test_text_for_models_makes_no_product_specific_claims():
+    """Bowser serves many products: what a value measures comes from the cube.
+
+    Guards against the Sentinel-1 / DISP-S1 facts that used to be hard-coded
+    (reviewed on opera-adt/bowser#127): direction, sign and sensitivity are in
+    server_info's measurement instead.
+    """
+
+    async def listing():
+        async with Client(build_server("http://127.0.0.1:1")) as client:
+            return (await client.list_tools()).tools
+
+    descriptions = " ".join(t.description or "" for t in asyncio.run(listing()))
+    text = (INSTRUCTIONS + CHART_INSTRUCTIONS + descriptions).replace("\n", " ")
+    for claim in (
+        "barely seen",
+        "Sentinel-1",
+        "28 mm",
+        "12 cm",
+        "positive is towards the satellite",
+        "DISP-S1",
+        "NISAR",
+    ):
+        assert claim not in text, claim
+    assert "server_info's measurement" in INSTRUCTIONS
+    assert "do not assume them" in INSTRUCTIONS
+
+
 def test_unreachable_server_is_a_tool_error():
     async def call():
         async with Client(build_server("http://127.0.0.1:1")) as client:
@@ -299,6 +327,33 @@ def test_server_info_and_layers(answers):
         else ["polygon_statistics", "export_geotiff", "convert_to_cog"]
     )
     assert info["unsupported_tools"] == expected
+    # What the values measure, from the cube (the same on both servers): the
+    # layer's long_name says LOS, the look vector gives the sensitivity, and the
+    # cube records neither a sign nor a wavelength, so those stay unknown.
+    m = info["measurement"]
+    assert m["layer"] == "displacement"
+    assert m["kind"] == "line_of_sight"
+    assert m["kind_source"] == "layer attribute 'long_name'"
+    assert m["positive_direction"] is None
+    assert m["sensitivity"] == {"east": 0.57, "north": 0.15, "up": 0.81}
+    assert m["half_wavelength_mm"] is None and m["product"] is None
+    assert m["sensitivity_note"].startswith(
+        "Sensitive mainly to vertical (0.81) and east-west (0.57) motion; "
+        "north-south sensitivity 0.15."
+    )
+    assert m == {
+        "layer": "displacement",
+        **api["datasets"]["displacement"]["measurement"],
+        "same_for": [],
+        "differs_in": {
+            "velocity": {
+                "kind": "unknown",
+                "positive_direction": None,
+                "summary": api["datasets"]["velocity"]["measurement"]["summary"],
+            }
+        },
+    }
+    assert api["datasets"]["temporal_coherence"]["measurement"] is None
 
     layers = mcp["list_layers"]
     assert set(layers["layers"]) == set(api["datasets"])
@@ -315,6 +370,8 @@ def test_server_info_and_layers(answers):
     assert layers["reference_lonlat"] == src["reference_lonlat"]
     assert layers["latlon_bounds"] == src["latlon_bounds"]
     assert layers["layers"]["velocity"]["has_time_axis"] is False
+    assert disp["measures"] == "line of sight, sign not recorded"
+    assert "measures" not in layers["layers"]["temporal_coherence"]
 
 
 def test_point_timeseries(answers):

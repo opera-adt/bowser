@@ -209,3 +209,17 @@ def test_radar_wavelength_comes_from_the_cube_or_its_variables():
     assert radar_wavelength({"wavelength_cutoff": 50.0}, {"wavelength": 50.0}) is None
     assert radar_wavelength({"wavelength": "C-band"}) is None
     assert radar_wavelength() is None
+
+
+def test_radar_wavelength_from_a_centre_frequency_in_hertz():
+    # NISAR products record centerFrequency (Hz) per band (JPL D-102272).
+    lband = radar_wavelength({"centerFrequency": 1257.5e6})
+    assert lband == pytest.approx(0.23840, abs=1e-5)
+    assert radar_wavelength({"center_frequency": "3.2e9"}) == pytest.approx(
+        0.09369, abs=1e-5
+    )
+    # A wavelength, when recorded, wins; an implausible frequency is ignored.
+    assert (
+        radar_wavelength({"centerFrequency": 1257.5e6, "wavelength": 0.0555}) == 0.0555
+    )
+    assert radar_wavelength({"centerFrequency": 50.0}) is None
