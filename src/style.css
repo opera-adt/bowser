@@ -1670,6 +1670,13 @@ img.huechange { filter: hue-rotate(120deg); }
   cursor: pointer;
 }
 
+/* A station from a file can have a longer name than UNR's four characters. */
+.gnss-item strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .gnss-item:hover {
   background: var(--sb-surface2);
 }

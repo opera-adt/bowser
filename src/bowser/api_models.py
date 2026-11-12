@@ -603,6 +603,36 @@ ROUTES: dict[str, dict[str, Any]] = {
         "steps and the monument description.",
         "tags": [CONTEXT],
     },
+    "POST /gnss/custom": {
+        "summary": "Load a GNSS file",
+        "description": "Read a GNSS station time series from a CSV (or NGL "
+        "`.tenv3`, EarthScope CSV) file and keep its stations for the session: "
+        "the file's `text` (from the page, always allowed) or its `path` on the "
+        "server (403 unless `BOWSER_ALLOW_OPEN`). Dates as ISO, YYYYMMDD, decimal "
+        "year or MJD; east, north and up in m, mm or cm (`units`, else from the "
+        "header or guessed); the station and its lon/lat from columns or "
+        "`# key: value` lines. Rows that cannot be read are skipped and counted; "
+        "400 when nothing is usable. See docs/gnss.md.",
+        "tags": [CONTEXT],
+    },
+    "GET /gnss/custom": {
+        "summary": "Loaded GNSS stations",
+        "description": "The stations read from files in this session (`POST "
+        "/gnss/custom`), with a linear rate per component in mm/yr.",
+        "tags": [CONTEXT],
+    },
+    "GET /gnss/custom/{station_id}": {
+        "summary": "Loaded GNSS series",
+        "description": "A loaded station's east, north and up in mm from its "
+        "first date (and sigmas when the file has them), shaped as `GET "
+        "/gnss/series/{station}`.",
+        "tags": [CONTEXT],
+    },
+    "DELETE /gnss/custom/{station_id}": {
+        "summary": "Forget a loaded GNSS station",
+        "description": "Remove a station read from a file from this session.",
+        "tags": [CONTEXT],
+    },
     "GET /wms_capabilities": {
         "summary": "Layers of a WMS",
         "description": "Fetch a WMS GetCapabilities on the server (browsers are "
@@ -1708,6 +1738,7 @@ class DataStatus(_Fixed):
     cog: Optional[str] = Field(
         None, description="Server path of the COG; pass as url= to /overlay."
     )
+    cog_bytes: Optional[int] = Field(None, description="The COG's size in bytes.")
     band_count: Optional[int] = None
     bands: Optional[list[BandStats]] = None
     nodata: Optional[float] = None
@@ -1790,6 +1821,70 @@ class GnssSeries(_Fixed):
     up_mm: list[float]
     steps: Optional[list[GnssStep]] = None
     monument: Optional[dict[str, Optional[str]]] = None
+
+
+class CustomGnssStation(_Fixed):
+    """A station read from the user's file, with linear rates (mm/yr)."""
+
+    id: str
+    name: str
+    custom: Literal[True] = True
+    lon: float
+    lat: float
+    first: float = Field(description="First epoch, decimal year.")
+    last: float = Field(description="Last epoch, decimal year.")
+    first_date: str
+    last_date: str
+    ve_mm_yr: float = Field(description="Least-squares rate of east.")
+    vn_mm_yr: float
+    vu_mm_yr: float
+    sigma_vu_mm_yr: float = Field(description="Formal 1-sigma of the up rate.")
+    rows: int = Field(description="Rows read.")
+    skipped: int = Field(description="Rows that could not be read.")
+    units: Literal["m", "mm", "cm"] = Field(description="The file's units.")
+    units_from: Literal["header", "file", "option", "guessed"]
+    date_format: Optional[str] = Field(
+        description="iso, yyyymmdd, yymmmdd, decimal_year or mjd."
+    )
+    components: list[str] = Field(description="Components the file gives.")
+    source: str = Field(description="The file's name.")
+    frame: str
+    warnings: list[str]
+
+
+class CustomGnssStations(_Fixed):
+    """``GET /gnss/custom``."""
+
+    stations: list[CustomGnssStation]
+
+
+class GnssCsvLoaded(_Fixed):
+    """``POST /gnss/custom``: what was read."""
+
+    file: str
+    rows: int
+    skipped: int
+    stations: list[CustomGnssStation]
+
+
+class CustomGnssSeries(CustomGnssStation):
+    """``GET /gnss/custom/{station_id}``: as ``GnssSeries``, from the user's file."""
+
+    station: str
+    station_page: None = None
+    dates: list[str]
+    east_mm: list[float]
+    north_mm: list[float]
+    up_mm: list[float]
+    sigma_east_mm: Optional[list[float]] = None
+    sigma_north_mm: Optional[list[float]] = None
+    sigma_up_mm: Optional[list[float]] = None
+
+
+class RemovedGnssStation(_Fixed):
+    """``DELETE /gnss/custom/{station_id}``."""
+
+    removed: str
 
 
 class WmsLayer(_Fixed):

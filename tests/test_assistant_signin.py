@@ -447,6 +447,28 @@ def test_chatgpt_sign_in_with_pkce_state_and_issued_client(tmp_path, store, open
     assert q2["login_hint"] == EMAIL
 
 
+def test_a_refused_first_exchange_keeps_the_issued_client(tmp_path, store, openai):
+    """After invalid_grant on a first sign-in, the retry uses the issued id."""
+    client = local(make_app(settings(tmp_path)))
+    q = start(client, openai)
+    assert q["client_id"] == "dynamic_agent_client"
+    openai.challenge = "something-else"  # the token endpoint refuses the code
+    r = client.get(
+        "/auth/callback",
+        params={"code": "good-code", "state": q["state"], "client_id": ISSUED},
+    )
+    assert r.status_code == 400 and "refused" in r.text
+    assert store.account("chatgpt")["client_id"] == ISSUED
+    assert method_status(client, "chatgpt")["state"] == "signed_out"
+    # The retry authorizes with the issued id, no new registration, and signs in.
+    q2 = start(client, openai)
+    assert q2["client_id"] == ISSUED and "agent_name_hint" not in q2
+    assert q2["ext_agent_host_id"] == q["ext_agent_host_id"]
+    r = client.get("/auth/callback", params={"code": "good-code", "state": q2["state"]})
+    assert r.status_code == 200 and "Signed in" in r.text, r.text
+    assert method_status(client, "chatgpt")["state"] == "signed_in"
+
+
 def test_callback_refuses_bad_state_other_computers_and_bad_tokens(
     store, tmp_path, openai
 ):
@@ -1444,9 +1466,12 @@ def test_quiet_tools_are_those_that_read_or_move_the_map():
         "pan",
         "zoom",
         "fit_bounds",
+        "list_gnss_stations",
     } <= quiet
     assert not quiet & {
         "export_geotiff",
+        "load_gnss_csv",
+        "convert_to_cog",
         "set_masks",
         "set_reference_point",
         "run_command",

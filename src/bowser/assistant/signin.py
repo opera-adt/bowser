@@ -38,6 +38,7 @@ import base64
 import contextlib
 import hashlib
 import json
+import logging
 import os
 import re
 import secrets
@@ -51,6 +52,8 @@ from typing import Any, Literal
 from urllib.parse import urlencode
 
 from .keys import KeyStore
+
+logger = logging.getLogger(__name__)
 
 #: How long a started sign-in waits for the browser to come back.
 PENDING_SECONDS = 600
@@ -359,7 +362,15 @@ async def _post_form(
             f"Could not reach the sign-in server ({type(e).__name__})."
         ) from e
     if r.status_code >= 400:
-        raise _TokenError(_oauth_error(r))
+        code = _oauth_error(r)
+        # An error answer carries no tokens; its description says why.
+        detail = ""
+        with contextlib.suppress(ValueError, AttributeError):
+            detail = str(r.json().get("error_description") or "")[:300]
+        logger.warning(
+            "sign-in: %s answered HTTP %s %s %s", url, r.status_code, code, detail
+        )
+        raise _TokenError(code)
     try:
         body = r.json()
     except ValueError as e:
@@ -497,6 +508,10 @@ async def _complete(
         if not returned or returned == spec.register_client_id:
             raise SignInError("The app was not registered; sign in again.")
         client_id = returned
+        # Keep the issued id before the exchange: when the exchange fails, the next
+        # attempt must start with it, not register again (OpenAI: "start a fresh
+        # authorization with the issued client ID retained").
+        store.set_account(m.id, client_id=client_id)
     elif returned and returned != client_id:
         raise SignInError("The sign-in came back for another app registration.")
     body = await _post_form(
