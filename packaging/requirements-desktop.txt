@@ -16,6 +16,10 @@ anthropic>=2.8,<3
 httpx
 keyring
 pyjwt[crypto]>=2.10
+# Wheels only for cryptography: where the newest release has no wheel (Intel
+# Macs), pip would compile it against the build machine's OpenSSL, which the
+# frozen app does not carry ("Symbol not found" at import). A wheel brings its own.
+--only-binary cryptography
 mcp==2.2.0
 certifi  # CA bundle for GNSS and WMS requests
 pywebview
