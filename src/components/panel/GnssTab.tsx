@@ -15,6 +15,8 @@ import { SectionHeader, Switch } from './controls';
 import { displayUnit, type DisplayUnit } from '../../utils/units';
 
 /** How a GNSS file should look, with example files to copy. */
+/** The source of the open-source stations. */
+const UNR_SITE = 'https://geodesy.unr.edu/';
 const GNSS_FORMAT_DOCS = 'https://github.com/opera-adt/bowser/blob/main/docs/gnss.md#the-file-format';
 
 /** Half the side (degrees) of the view the zoom button opens on a station: about 2 km. */
@@ -163,7 +165,10 @@ export default function GnssTab() {
   return (
     <>
       <div className="sidebar-section">
-        <SectionHeader label="UNR GNSS stations" />
+        <SectionHeader label="Open-source GNSS stations" />
+        <div className="row-label" style={{ fontSize: '0.7em' }}>
+          Source: UNR, the <a href={UNR_SITE} target="_blank" rel="noopener noreferrer">Nevada Geodetic Laboratory</a> (University of Nevada, Reno).
+        </div>
         <div style={{ display: 'flex', gap: 6 }}>
           <button type="button" className="hist-btn" disabled={loading || !state.viewBounds} onClick={find}>
             {loading ? 'Finding…' : stations ? 'Find again in this view' : 'Find stations in this view'}
@@ -212,7 +217,7 @@ export default function GnssTab() {
           </>
         )}
         <div className="row-label" style={{ fontSize: '0.7em' }}>
-          Velocities in {u.label}/yr (MIDAS, North America fixed); LOS is towards the satellite. Nearest the map centre first.
+          Velocities in {u.label}/yr (UNR MIDAS, North America fixed); LOS is towards the satellite. Nearest the map centre first.
         </div>
       </div>
       <div className="sidebar-section">

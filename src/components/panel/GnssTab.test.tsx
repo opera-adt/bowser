@@ -70,6 +70,15 @@ afterEach(() => { cleanup(); dispatch.mockReset(); vi.restoreAllMocks(); vi.unst
 const overlaysAdded = () => dispatch.mock.calls.map(([a]) => a).filter(a => a.type === 'ADD_OVERLAY')
   .map(a => (a as { payload: { id: string; data: GeoJSON.FeatureCollection } }).payload);
 
+describe('GNSS tab › Open-source GNSS stations', () => {
+  it('names its source, UNR, with a link', () => {
+    render(<GnssTab />);
+    expect(screen.getByText('Open-source GNSS stations')).toBeTruthy();
+    expect(screen.getByText(/Source: UNR/)).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Nevada Geodetic Laboratory' }).getAttribute('href')).toBe('https://geodesy.unr.edu/');
+  });
+});
+
 describe('GNSS tab › Load local GNSS file', () => {
   it('loads picked files: posts their text and the units, reports rows and skipped rows, lists and maps the stations', async () => {
     render(<GnssTab />);
