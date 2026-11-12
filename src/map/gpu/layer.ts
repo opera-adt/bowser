@@ -1,18 +1,22 @@
 /**
- * The GPU renderer's MapLibre custom layer: zarr chunks as R32F texture arrays (all
- * dates of a chunk in one texture), coloured in a fragment shader with the reference
- * date, the spatial-reference shift, one threshold mask, vmin/vmax and a colormap (the
- * maths of params.ts's ``displayedValue`` and ``colormapIndex``).
+ * The GPU renderer's MapLibre custom layer: zarr chunks as R16F or R32F texture arrays
+ * (all dates of a chunk in one texture; float16 where the values allow it, see half.ts),
+ * coloured in a fragment shader with the reference date, the spatial-reference shift,
+ * one threshold mask, vmin/vmax and a colormap (the maths of params.ts's
+ * ``displayedValue`` and ``colormapIndex``).
  *
  * Changing date within a chunk's dates, the colormap or the range is a uniform change:
- * no network, no upload. Uploads happen only inside render() (MapLibre marks its GL
- * state cache dirty after a custom layer renders).
+ * no network, no upload. Chunks are fetched and decoded by the decoder workers
+ * (decoderPool.ts); the main thread only uploads them, inside render() (MapLibre marks
+ * its GL state cache dirty after a custom layer renders). Uploaded textures are kept
+ * within a byte budget (textureBudget.ts).
  */
 import type * as maplibregl from 'maplibre-gl';
 import { colormapTexture } from './colormap';
 import { GpuCube, type CubeVariable } from './cube';
 import { chunkMesh, chunksForView, pickLevel, rasterTileZoom, translateMatrix } from './geometry';
 import type { GpuParams } from './params';
+import { evictionPlan, parseBudgetOverride, textureBudgetBytes } from './textureBudget';
 
 const VS = `#version 300 es
 uniform mat4 u_matrix;
@@ -65,7 +69,8 @@ void main() {
 interface TexEntry {
   state: 'queued' | 'loading' | 'decoded' | 'ready' | 'error';
   tex: WebGLTexture | null;
-  data: Float32Array | null;
+  data: Float32Array | Uint16Array | null;
+  format: 'f32' | 'f16';
   layers: number;
   bytes: number;
   lastUsed: number;
@@ -81,8 +86,32 @@ export interface GpuLayerOptions {
   onFailure: (reason: string) => void;
   /** Watch for slow frames (auto mode only: forced GPU keeps going on slow GPUs). */
   watchSlowFrames: boolean;
-  /** Texture memory budget in bytes (least recently used chunks are dropped above it). */
+  /**
+   * Texture memory budget in bytes. Default: ``?gpu_mb=`` from the address, else from
+   * the device's memory (textureBudget.ts).
+   */
   budgetBytes?: number;
+}
+
+/** What the layer holds (for the debug label and the tests). */
+export interface GpuLayerStats {
+  /** Bytes of uploaded chunk textures now, and the most there ever were. */
+  textureBytes: number;
+  peakTextureBytes: number;
+  budgetBytes: number;
+  /** Uploaded chunk textures by format. */
+  f16: number;
+  f32: number;
+  /** Textures deleted to stay within the budget, and requests dropped as no longer needed. */
+  evicted: number;
+  dropped: number;
+  /** Largest float16 rounding error of the uploaded chunks (data units). */
+  maxHalfError: number;
+  /**
+   * Milliseconds from the last change of what to draw (a date, a colour range, ...)
+   * to the first frame that drew all of it in view, or null before one.
+   */
+  drawMs: number | null;
 }
 
 const MAX_INFLIGHT = 6;
@@ -113,12 +142,35 @@ export class GpuCubeLayer implements maplibregl.CustomLayerInterface {
   private opacity = 1;
   private useCounter = 0;
   private textureBytes = 0;
+  private counts = { peak: 0, f16: 0, f32: 0, evicted: 0, dropped: 0, maxHalfError: 0 };
+  private readonly budget: number;
+  private changedAt: number | null = null;
+  private drawMs: number | null = null;
 
-  constructor(readonly cube: GpuCube, private opts: GpuLayerOptions) {}
+  constructor(readonly cube: GpuCube, private opts: GpuLayerOptions) {
+    this.budget = opts.budgetBytes ?? textureBudgetBytes(
+      parseBudgetOverride(typeof location !== 'undefined' ? location.search : ''),
+      typeof navigator !== 'undefined' ? (navigator as Navigator & { deviceMemory?: number }).deviceMemory : undefined);
+    // The decoder workers failing means no more chunks: tiles instead.
+    cube.onFailure?.(reason => this.fail(reason));
+  }
+
+  stats(): GpuLayerStats {
+    const c = this.counts;
+    return {
+      textureBytes: this.textureBytes, peakTextureBytes: c.peak, budgetBytes: this.budget, f16: c.f16, f32: c.f32,
+      evicted: c.evicted, dropped: c.dropped, maxHalfError: c.maxHalfError,
+      drawMs: this.drawMs === null ? null : Math.round(this.drawMs),
+    };
+  }
+
+  /** Stop the decoder workers (the layer is not used again). */
+  close() { this.cube.close?.(); }
 
   /** What to draw (null: nothing, while the map shows tiles for a view the GPU can't draw). */
   setParams(p: GpuParams | null, opacity: number) {
     this.params = p;
+    this.changedAt = performance.now();
     this.opacity = opacity;
     this.map?.triggerRepaint();
   }
@@ -155,7 +207,9 @@ export class GpuCubeLayer implements maplibregl.CustomLayerInterface {
     if (this.dummyTex) gl.deleteTexture(this.dummyTex);
     this.textures.clear();
     this.meshes.clear();
+    this.displayed.clear();
     this.textureBytes = 0;
+    this.counts.f16 = this.counts.f32 = 0;
     this.map = null;
   }
 
@@ -213,12 +267,16 @@ export class GpuCubeLayer implements maplibregl.CustomLayerInterface {
     if (this.errors >= 3) this.fail(`repeated chunk errors (${reason})`);
   }
 
-  /** The texture entry for a chunk, queued for loading if new. */
-  private want(level: number, variable: string, tb: number, cy: number, cx: number, priority: number): string {
-    const key = `${level}|${variable}|${tb}|${cy}|${cx}`;
+  /**
+   * The texture entry for a chunk, queued for loading if new. ``exact`` chunks (masks,
+   * compared with a threshold as the server does) are always float32; others may be
+   * float16 (half.ts).
+   */
+  private want(level: number, variable: string, tb: number, cy: number, cx: number, priority: number, exact = false): string {
+    const key = `${level}|${variable}|${tb}|${cy}|${cx}|${exact ? 'x' : 'h'}`;
     let e = this.textures.get(key);
     if (!e) {
-      e = { state: 'queued', tex: null, data: null, layers: 0, bytes: 0, lastUsed: 0, priority };
+      e = { state: 'queued', tex: null, data: null, format: 'f32', layers: 0, bytes: 0, lastUsed: 0, priority };
       this.textures.set(key, e);
     }
     e.priority = Math.min(e.priority, priority);
@@ -232,15 +290,19 @@ export class GpuCubeLayer implements maplibregl.CustomLayerInterface {
       .sort((a, b) => a[1].priority - b[1].priority || b[1].lastUsed - a[1].lastUsed);
     for (const [key, e] of queued) {
       if (this.inflight >= MAX_INFLIGHT) break;
-      const [level, variable, tb, cy, cx] = key.split('|');
+      const [level, variable, tb, cy, cx, kind] = key.split('|');
       e.state = 'loading';
       this.inflight++;
-      this.cube.chunk(Number(level), variable, Number(tb), Number(cy), Number(cx)).then(c => {
+      this.cube.chunk(Number(level), variable, Number(tb), Number(cy), Number(cx), kind === 'h').then(c => {
+        this.errors = 0;
+        if (this.textures.get(key) !== e) return;   // dropped meanwhile
         e.data = c.data;
+        e.format = c.format;
         e.layers = c.layers;
         e.state = 'decoded';
-        this.errors = 0;
+        if (c.format === 'f16') this.counts.maxHalfError = Math.max(this.counts.maxHalfError, c.maxError ?? 0);
       }, err => {
+        if (this.failed || this.textures.get(key) !== e) return;
         e.state = 'error';
         this.countError(String(err));
       }).finally(() => {
@@ -255,30 +317,48 @@ export class GpuCubeLayer implements maplibregl.CustomLayerInterface {
     gl.bindTexture(gl.TEXTURE_2D_ARRAY, tex);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
-    gl.texImage3D(gl.TEXTURE_2D_ARRAY, 0, gl.R32F, chunk[1], chunk[0], e.layers, 0, gl.RED, gl.FLOAT, e.data);
+    const half = e.format === 'f16';
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, half ? 2 : 4);
+    gl.texImage3D(gl.TEXTURE_2D_ARRAY, 0, half ? gl.R16F : gl.R32F, chunk[1], chunk[0], e.layers, 0, gl.RED,
+      half ? gl.HALF_FLOAT : gl.FLOAT, e.data);
     this.nearest(gl, gl.TEXTURE_2D_ARRAY);
     e.tex = tex;
-    e.bytes = chunk[0] * chunk[1] * e.layers * 4;
+    e.bytes = chunk[0] * chunk[1] * e.layers * (half ? 2 : 4);
     e.data = null;
     e.state = 'ready';
     this.textureBytes += e.bytes;
+    this.counts.peak = Math.max(this.counts.peak, this.textureBytes);
+    this.counts[e.format]++;
   }
 
   private chunkShape(key: string): [number, number] {
     return this.cube.levels[Number(key.split('|')[0])].chunk;
   }
 
-  private evict(gl: WebGL2RenderingContext, keep: Set<string>) {
-    const budget = this.opts.budgetBytes ?? 768 * 1024 * 1024;
-    if (this.textureBytes <= budget) return;
-    const ready = [...this.textures.entries()].filter(([k, e]) => e.state === 'ready' && !keep.has(k))
-      .sort((a, b) => a[1].lastUsed - b[1].lastUsed);
-    for (const [k, e] of ready) {
-      if (this.textureBytes <= budget * 0.8) break;
+  /** Delete textures above the budget: away from the view first, then other dates (textureBudget.ts). */
+  private evict(gl: WebGL2RenderingContext, keep: Set<string>, inView: Set<string>) {
+    for (const k of evictionPlan(this.textures, this.textureBytes, this.budget, keep, inView)) {
+      const e = this.textures.get(k)!;
       gl.deleteTexture(e.tex);
       this.textureBytes -= e.bytes;
+      this.counts[e.format]--;
+      this.counts.evicted++;
       this.textures.delete(k);
+    }
+  }
+
+  /**
+   * Forget queued chunks this frame no longer asks for (dates played past, places
+   * panned away from), so the network doesn't go to them. Chunks already fetched or
+   * being fetched are still uploaded (one per frame, after the view's own), so coming
+   * back to them needs no second fetch; the budget evicts them like any other.
+   */
+  private dropStale(since: number) {
+    for (const [k, e] of this.textures) {
+      if (e.state === 'queued' && e.lastUsed <= since) {
+        this.textures.delete(k);
+        this.counts.dropped++;
+      }
     }
   }
 
@@ -343,6 +423,8 @@ export class GpuCubeLayer implements maplibregl.CustomLayerInterface {
     const want: DrawItem[] = [];
     let complete = true;
     const keep = new Set<string>();
+    const inView = new Set<string>();
+    const frameStart = this.useCounter;
     if (range) {
       for (let cy = range.cy0; cy <= range.cy1; cy++) {
         for (let cx = range.cx0; cx <= range.cx1; cx++) {
@@ -351,10 +433,11 @@ export class GpuCubeLayer implements maplibregl.CustomLayerInterface {
             data: this.want(level, p.variable, tb, cy, cx, 0), layer: t % info.tChunk,
             ref: tr !== null ? this.want(level, p.variable, Math.floor(tr / info.tChunk), cy, cx, 0) : null,
             refLayer: tr !== null ? tr % info.tChunk : -1,
-            mask: maskInfo && p.mask ? this.want(level, p.mask.dataset, Math.floor(mt / maskInfo.tChunk), cy, cx, 0) : null,
+            mask: maskInfo && p.mask ? this.want(level, p.mask.dataset, Math.floor(mt / maskInfo.tChunk), cy, cx, 0, true) : null,
             maskLayer: maskInfo ? mt % maskInfo.tChunk : 0,
           };
           [item.data, item.ref, item.mask].forEach(k => k && keep.add(k));
+          inView.add(`${level}|${cy}|${cx}`);
           want.push(item);
         }
       }
@@ -385,6 +468,7 @@ export class GpuCubeLayer implements maplibregl.CustomLayerInterface {
         if (prev && ready(prev.data) && ready(prev.ref) && ready(prev.mask)) items.push(prev);   // stale until new
       }
     }
+    if (complete && this.changedAt !== null) { this.drawMs = performance.now() - this.changedAt; this.changedAt = null; }
     // Other levels' chunks stay underneath until this level has fully drawn.
     const under: DrawItem[] = [];
     for (const [pos, it] of this.displayed) {
@@ -393,16 +477,21 @@ export class GpuCubeLayer implements maplibregl.CustomLayerInterface {
       else if (ready(it.data) && ready(it.ref) && ready(it.mask)) under.push(it);
     }
 
-    if (complete && range) {
-      // Prefetch the next block of dates while the view is idle.
-      if (tb + 1 < Math.ceil(info.nTime / info.tChunk)) {
-        for (const it of want) this.want(level, p.variable, tb + 1, it.cy, it.cx, 1);
+    if (range && tb + 1 < Math.ceil(info.nTime / info.tChunk)) {
+      // Prefetch the next block of dates once the view is drawn; keep what is on its way.
+      for (const it of want) {
+        if (complete) this.want(level, p.variable, tb + 1, it.cy, it.cx, 1);
+        else {
+          const e = this.textures.get(`${level}|${p.variable}|${tb + 1}|${it.cy}|${it.cx}|h`);
+          if (e) e.lastUsed = ++this.useCounter;
+        }
       }
     }
     for (const k of keep) { const e = this.textures.get(k); if (e) e.lastUsed = ++this.useCounter; }
+    this.dropStale(frameStart);
     this.pump();
     const pending = [...this.textures.values()].some(e => e.state !== 'ready' && e.state !== 'error');
-    this.evict(gl, keep);
+    this.evict(gl, keep, inView);
 
     this.ensureColormap(gl, p.colormap);
     gl.useProgram(this.program);

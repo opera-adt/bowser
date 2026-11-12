@@ -40,3 +40,12 @@ export const TILT_ON = 10;
 export function terrainOnTilt(wasFlat: boolean, pitch: number, enabled: boolean): boolean {
   return wasFlat && pitch >= TILT_ON && !enabled;
 }
+
+/**
+ * When the GPU renderer gets chosen, turn off a 3D terrain left on from an earlier visit
+ * (remembered, often from a tilt), so the page opens flat and the GPU draws. A DEM overlay
+ * used for terrain keeps it; tilting or the terrain button turn it on again.
+ */
+export function terrainOffForGpu(gpuChosen: boolean, enabled: boolean, demTerrain: boolean): boolean {
+  return gpuChosen && enabled && !demTerrain;
+}

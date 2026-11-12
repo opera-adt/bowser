@@ -24,6 +24,9 @@ once per browser session.
 Example: `http://127.0.0.1:8000/?render=auto`, or with a catalog,
 `http://127.0.0.1:8000/?dataset=my-cube&render=gpu`.
 
+`?gpu_mb=` sets the GPU memory the layer may keep chunks in (see below), for
+example `?render=gpu&gpu_mb=256`.
+
 ## What the GPU path draws, and what stays on tiles
 
 The GPU path draws the same picture the tiles show, from the same parameters
@@ -50,23 +53,69 @@ again afterwards:
 - the right side of split screen, which always uses tiles.
 
 When the GPU path fails it switches to server tiles for the rest of the page
-visit, without a reload: the WebGL context is lost, chunks fail to load three
-times in a row, the layer's drawing throws, or (in `auto` only) five frames in
-a row take longer than 250 ms.
+visit, without a reload: the WebGL context is lost, the decoder workers can't
+start or stop working, chunks fail to load three times in a row, the layer's
+drawing throws, or (in `auto` only) five frames in a row take longer than
+250 ms.
 
 Where pixels are only partly covered (edges of masked areas, a zoomed-out view)
 the two renderers can differ by a pixel, since the tiles are resampled once
 more by the map; the value drawn at a cube pixel is the same.
 
+## How chunks are read and kept
+
+- **Off the main thread.** Up to four Web Workers (one less than the
+  processor's cores, at most four) fetch each chunk from `/zarr/`, decompress
+  it, apply the CF decoding and, where allowed, round it to float16. The
+  finished buffer is handed to the page without a copy, and the page only
+  uploads it to the GPU (at most four chunks per frame). The decompressor a
+  cube uses (zstd, blosc, ...) is loaded the first time a `zarr.json` names
+  it, in the worker; a cube that uses none, or only gzip, loads none.
+- **Half floats.** Displacement and other layers in metres (or m/yr, mm) are
+  kept as 16-bit floats (half the GPU memory of 32-bit ones) when every value
+  of the chunk rounds to float16 within **0.1 mm**. A float16 value keeps 11
+  significant bits, so that holds for chunks whose values stay within
+  ±0.25 m (then the largest value alone proves it, and the values aren't
+  checked one by one); chunks with larger values are checked, and stay 32-bit
+  when one rounds by more. 0.1 mm is 50 times below OPERA DISP-S1's 5 mm
+  accuracy requirement and below one colour step for
+  any colour range wider than ±13 mm (±26 mm with a reference date, which
+  subtracts two rounded values). Masks (coherence, similarity, ...) and
+  layers in other units always stay 32-bit, so a threshold compares exactly
+  as on the server. Nodata stays nodata.
+- **Memory cap.** Chunks already on the GPU are kept for going back and forth
+  in time, up to a budget: 96 MB per GB of the device's memory, between 128
+  and 768 MB (768 MB on a computer with 8 GB or more, 384 MB where the browser
+  doesn't say), or `?gpu_mb=` (64 to 2048 MB). As 16-bit floats, 768 MB holds
+  all 269 dates of a 30 m frame in a 1100×800 view, so a second play-through
+  or going back draws from memory without fetching or decoding again. Above
+  the budget, chunks away from the view are dropped first, then the view's
+  other dates, the least recently used first, down to 80% of the budget. What the current frame draws is always kept, so a very large view
+  can go over the budget by that much. Chunks the view stopped needing while
+  still queued (dates played past, places panned away from) are not fetched;
+  those already on their way are still uploaded, after the view's own, so
+  coming back to them needs no second fetch.
+
 ## Which renderer is drawing
 
-- **Label**: with `?render=` in the address, a small label at the bottom of
-  the map says *GPU render* or *Server tiles*, and why (for example
-  `auto: software renderer (...)` or `fell back to tiles: WebGL context lost`).
+- **Label** (a diagnostic, off by default): turn on *Diagnostics* with the bug
+  icon in the Project tab's *Appearance* header (kept in this browser), or add
+  `?debug=1` to the address. A small label at the bottom of the map then says
+  *GPU render* or *Server tiles*, and why (for example
+  `auto: software renderer (...)`, `fell back to tiles: WebGL context lost` or
+  `3D terrain not on the GPU path yet`). For the GPU it adds the GPU memory in
+  use and the budget, how many chunks are 16-bit and 32-bit, and how long the
+  last change (a date, the colours) took until everything in view was drawn
+  (`GPU memory 42/768 MB · 30 f16, 2 f32 · drawn in 120 ms`).
+- **3D terrain**: the GPU layer draws a flat (or rotated) map. With 3D terrain
+  on, which tilting the map turns on, the data is drawn with server tiles,
+  draped over the terrain. Opening the page with the GPU renderer starts flat:
+  a terrain left on from an earlier visit is turned off.
 - **Console**: one line, `[bowser] data layer: GPU — render=gpu (forced)` or
   `[bowser] data layer: tiles — ...`, and a warning when it falls back.
 - **Network tab**: the GPU path reads `/zarr/...` (`zarr.json` and chunk
-  files, often as `206` byte ranges); server tiles are `/md/tiles/...` PNGs.
+  files, often as `206` byte ranges), from the `bowser-gpu-decoder` workers;
+  server tiles are `/md/tiles/...` PNGs.
 
 ## The `/zarr/` route
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   EXAGGERATION_DEFAULT, EXAGGERATION_MAX, EXAGGERATION_MIN, TERRAIN_SOURCE, TERRAIN_SOURCE_ID,
-  clampExaggeration, terrainSpec, terrainOnTilt } from './terrain';
+  clampExaggeration, terrainSpec, terrainOnTilt, terrainOffForGpu } from './terrain';
 
 describe('terrain', () => {
   it('uses a key-free Terrarium DEM source', () => {
@@ -21,6 +21,17 @@ describe('terrain', () => {
     expect(terrainSpec(false, 3)).toBeNull();
     expect(terrainSpec(true, 3)).toEqual({ source: TERRAIN_SOURCE_ID, exaggeration: 3 });
     expect(terrainSpec(true, 99)).toEqual({ source: TERRAIN_SOURCE_ID, exaggeration: EXAGGERATION_MAX });
+  });
+});
+
+describe('terrainOffForGpu', () => {
+  it('turns a remembered terrain off when the GPU renderer is chosen', () => {
+    expect(terrainOffForGpu(true, true, false)).toBe(true);
+  });
+  it('keeps it otherwise: tiles, already off, or a DEM overlay used for terrain', () => {
+    expect(terrainOffForGpu(false, true, false)).toBe(false);
+    expect(terrainOffForGpu(true, false, false)).toBe(false);
+    expect(terrainOffForGpu(true, true, true)).toBe(false);
   });
 });
 

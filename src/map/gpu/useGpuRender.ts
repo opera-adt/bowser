@@ -1,7 +1,8 @@
 /**
  * The experimental GPU renderer's hook: decides tiles vs GPU (capability.ts, from
- * ``?render=``), loads the GPU runtime only when the GPU is chosen (zarrita, codecs and
- * colormap tables in their own chunks), keeps the custom layer's parameters in step
+ * ``?render=``), loads the GPU runtime only when the GPU is chosen (the layer and the
+ * colormap tables in their own chunk; zarrita and the decompressors in the decoder
+ * worker's), keeps the custom layer's parameters in step
  * with the app state, and falls back to server tiles — without a reload — when the GPU
  * path fails (context loss, chunk errors, render errors, slow frames in ``auto``).
  *
@@ -9,22 +10,38 @@
  * tiles while it lasts; the GPU layer stays, empty, and draws again afterwards.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useDebug } from '../../utils/debug';
 import type * as maplibregl from 'maplibre-gl';
 import { useAppContext } from '../../context/AppContext';
 import { buildTileRequest } from '../../utils/tileParams';
 import { chooseRenderer, gpuCaps, parseRenderMode, type Decision } from './capability';
 import { gpuParamsFromTileQuery, type ParamsResult } from './params';
-import type { GpuCubeLayer } from './layer';
+import type { GpuCubeLayer, GpuLayerStats } from './layer';
 
 type Runtime = typeof import('./runtime');
 
 export interface GpuRenderStatus {
   /** The GPU layer draws the data; the tile layer should stay empty. */
   active: boolean;
+  /** The GPU renderer is chosen (``?render=gpu``, or ``auto`` on a capable GPU), even
+   * while a view it can't draw (3D terrain) keeps tiles. */
+  chosen: boolean;
   renderer: 'tiles' | 'gpu';
   reason: string;
-  /** Show the debug label (only when ``?render=`` is in the address). */
+  /** Show the diagnostic label (only with diagnostics on: Project tab, or ``?debug=1``). */
   showLabel: boolean;
+  /** The GPU layer's memory and texture counts (with the label only), or null. */
+  stats: GpuLayerStats | null;
+}
+
+/**
+ * The label's summary of the layer's textures and how long the last change took to
+ * draw, e.g. ``GPU memory 42/768 MB · 30 f16, 2 f32 · drawn in 120 ms``.
+ */
+export function statsText(s: GpuLayerStats): string {
+  const mb = (b: number) => (b / 1048576).toFixed(b < 10 * 1048576 ? 1 : 0);
+  return `GPU memory ${mb(s.textureBytes)}/${mb(s.budgetBytes)} MB · ${s.f16} f16, ${s.f32} f32${s.evicted ? ` · ${s.evicted} evicted` : ''}`
+    + `${s.drawMs != null ? ` · drawn in ${s.drawMs} ms` : ''}`;
 }
 
 let logged = '';
@@ -49,6 +66,7 @@ export function useGpuRender(
   const [runtime, setRuntime] = useState<Runtime | null>(null);
   const layerRef = useRef<GpuCubeLayer | null>(null);
   const [layerReady, setLayerReady] = useState(0);
+  const [stats, setStats] = useState<GpuLayerStats | null>(null);
   const wantGpu = decision.renderer === 'gpu';
 
   const dataset = state.currentDataset;
@@ -70,7 +88,8 @@ export function useGpuRender(
   // Waiting for the state to settle keeps the GPU (drawing nothing), not tiles.
   const active = wantGpu && (params.ok || !!params.wait);
 
-  const showLabel = new URLSearchParams(search).has('render');
+  // The label is a diagnostic: shown only with diagnostics on (Project tab, or ?debug=1).
+  const showLabel = useDebug();
   useEffect(() => {
     if (mode === 'tiles' && !showLabel) return;   // the default: nothing to say
     if (!wantGpu) logOnce(`tiles — ${decision.reason}`, decision.reason.startsWith('fell back'));
@@ -88,7 +107,7 @@ export function useGpuRender(
       if (cancelled) return;
       setRuntime(rt);
       const cube = await rt.GpuCube.open(`${window.location.origin}/zarr/`, dataset, datasetId);
-      if (cancelled) return;
+      if (cancelled) { cube.close(); return; }
       const layer = new rt.GpuCubeLayer(cube, { watchSlowFrames: mode === 'auto', onFailure: fallBack });
       layerRef.current = layer;
       map.addLayer(layer, beforeId());
@@ -104,6 +123,7 @@ export function useGpuRender(
     const layer = layerRef.current;
     if (wantGpu || !map || !layer) return;
     if (map.getLayer(layer.id)) map.removeLayer(layer.id);
+    layer.close?.();
     layerRef.current = null;
   }, [wantGpu, map]);
 
@@ -113,7 +133,20 @@ export function useGpuRender(
     try {
       if (map && layer && map.getLayer(layer.id)) map.removeLayer(layer.id);
     } catch { /* the map is already gone */ }
+    layer?.close?.();
   }, [map]);
+
+  // The label shows the layer's texture memory, once a second.
+  useEffect(() => {
+    if (!showLabel || !wantGpu) { setStats(null); return; }
+    const tick = () => setStats(s => {
+      const next = layerRef.current?.stats?.() ?? null;
+      return next && s && JSON.stringify(next) === JSON.stringify(s) ? s : next;
+    });
+    tick();
+    const t = window.setInterval(tick, 1000);
+    return () => window.clearInterval(t);
+  }, [showLabel, wantGpu, layerReady]);
 
   // Only a real change reaches the layer (unrelated state changes re-run the memo).
   const paramsKey = params.ok ? JSON.stringify(params.params) : '';
@@ -123,8 +156,10 @@ export function useGpuRender(
 
   return {
     active,
+    chosen: wantGpu,
     renderer: active ? 'gpu' : 'tiles',
     reason: params.ok || params.wait ? decision.reason : params.reason,
     showLabel,
+    stats: active ? stats : null,
   };
 }

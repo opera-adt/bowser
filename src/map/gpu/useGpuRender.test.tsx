@@ -5,11 +5,15 @@ import type * as maplibregl from 'maplibre-gl';
 import { AppProvider, useAppContext } from '../../context/AppContext';
 import type { RasterGroup } from '../../types';
 import { resetGpuCapsCache } from './capability';
-import { useGpuRender, type GpuRenderStatus } from './useGpuRender';
+import { statsText, useGpuRender, type GpuRenderStatus } from './useGpuRender';
+import { DEBUG_KEY, setDebug } from '../../utils/debug';
 
 // The GPU runtime (zarrita, colormap tables, the custom layer), as the hook loads it.
 const rt = vi.hoisted(() => {
-  const layers: { id: string; setParams: ReturnType<typeof vi.fn>; opts: { onFailure: (r: string) => void; watchSlowFrames: boolean } }[] = [];
+  const layers: {
+    id: string; setParams: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>;
+    opts: { onFailure: (r: string) => void; watchSlowFrames: boolean };
+  }[] = [];
   return {
     loaded: 0,
     layers,
@@ -24,6 +28,9 @@ vi.mock('./runtime', () => {
     GpuCubeLayer: class {
       readonly id = 'gpu-data';
       setParams = vi.fn();
+      close = vi.fn();
+      stats = () => ({ textureBytes: 3 * 1048576, peakTextureBytes: 4 * 1048576, budgetBytes: 384 * 1048576,
+        f16: 3, f32: 1, evicted: 2, dropped: 0, maxHalfError: 1e-5, drawMs: null });
       constructor(_cube: unknown, public opts: { onFailure: (r: string) => void; watchSlowFrames: boolean }) {
         rt.layers.push(this as never);
       }
@@ -80,13 +87,13 @@ beforeEach(() => {
   sessionStorage.clear();
   resetGpuCapsCache();
 });
-afterEach(() => { cleanup(); window.history.replaceState({}, '', '/'); });
+afterEach(() => { cleanup(); window.history.replaceState({}, '', '/'); localStorage.removeItem(DEBUG_KEY); });
 
 describe('useGpuRender', () => {
   it('keeps server tiles by default and never loads the GPU runtime', async () => {
     const { map } = start('/');
     await act(async () => {});
-    expect(status).toMatchObject({ active: false, renderer: 'tiles', showLabel: false });
+    expect(status).toMatchObject({ active: false, chosen: false, renderer: 'tiles', showLabel: false });
     expect(rt.loaded).toBe(0);
     expect(map.addLayer).not.toHaveBeenCalled();
     expect(info).not.toHaveBeenCalled();   // nothing in the console either
@@ -97,6 +104,9 @@ describe('useGpuRender', () => {
     await act(async () => {});
     expect(status.renderer).toBe('tiles');
     expect(status.reason).toBe('auto: no WebGL2');
+    // The label is a diagnostic: off by default, on with the Project tab's toggle.
+    expect(status.showLabel).toBe(false);
+    act(() => setDebug(true));
     expect(status.showLabel).toBe(true);
     expect(rt.loaded).toBe(0);
     expect(info).toHaveBeenCalledWith('[bowser] data layer: tiles — auto: no WebGL2');
@@ -134,6 +144,8 @@ describe('useGpuRender', () => {
     // Rewrap (as any view params.ts refuses): tiles; the GPU layer stays, drawing nothing.
     act(() => { dispatch({ type: 'TOGGLE_WRAP' }); });
     expect(status).toMatchObject({ active: false, renderer: 'tiles' });
+    // Still chosen: the map uses this to keep tilting from turning 3D terrain on.
+    expect(status.chosen).toBe(true);
     expect(status.reason).toMatch(/rewrap.*not on the GPU path yet/);
     await waitFor(() => expect(gl.setParams.mock.lastCall![0]).toBeNull());
     expect(map.removeLayer).not.toHaveBeenCalled();
@@ -165,7 +177,17 @@ describe('useGpuRender', () => {
     act(() => { rt.layers[0].opts.onFailure('WebGL context lost'); });
     expect(status).toMatchObject({ active: false, renderer: 'tiles', reason: 'fell back to tiles: WebGL context lost' });
     expect(map.removeLayer).toHaveBeenCalledWith('gpu-data');
+    expect(rt.layers[0].close).toHaveBeenCalled();   // its decoder workers stop
     expect(warn).toHaveBeenCalledWith('[bowser] data layer: tiles — fell back to tiles: WebGL context lost');
+  });
+
+  it("shows the GPU layer's texture memory with the label", async () => {
+    localStorage.setItem(DEBUG_KEY, '1');
+    start('/?render=gpu');
+    await waitFor(() => expect(status.stats).not.toBeNull());
+    expect(status.stats).toMatchObject({ f16: 3, f32: 1, budgetBytes: 384 * 1048576 });
+    expect(statsText(status.stats!)).toBe('GPU memory 3.0/384 MB · 3 f16, 1 f32 · 2 evicted');
+    expect(statsText({ ...status.stats!, evicted: 0, drawMs: 120 })).toBe('GPU memory 3.0/384 MB · 3 f16, 1 f32 · drawn in 120 ms');
   });
 
   it('falls back to tiles when the cube cannot be opened at /zarr/', async () => {

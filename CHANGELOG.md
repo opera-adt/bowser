@@ -220,6 +220,23 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   read-only at `GET /zarr/{path}` (`BOWSER_ZARR_FILES=false` turns it off). The
   GPU code loads only when chosen (about 4 kB more in the default bundle). See
   [docs/gpu-render.md](docs/gpu-render.md).
+- GPU rendering (still experimental, `?render=gpu|auto`): chunks are fetched
+  and decompressed in up to four Web Workers, so the page's main thread only
+  uploads them (in a headless test on a 269-date frame, main-thread time while
+  stepping through the dates fell by 30–60%, depending on how many chunks each
+  step needs). Displacement is kept on the GPU as 16-bit floats where that rounds
+  within 0.1 mm (half the memory); masks stay 32-bit. Chunks on the GPU stay
+  within a memory budget (128–768 MB from the device's memory, 768 MB with
+  8 GB or more, or `?gpu_mb=`), dropping chunks away from the view first;
+  dates played past are no longer fetched. A worker that can't start switches
+  to tiles, as other failures do. Opening the page with the GPU renderer
+  starts flat: a 3D terrain left on from an earlier visit is turned off
+  (tilting turns it on again, and the data then drapes over it with tiles).
+- Project tab › *Appearance*: a bug icon turns on *Diagnostics* (off by
+  default, kept in this browser; also `?debug=1`). With it, the map's label
+  says which renderer draws the data and why, the GPU memory in use and how
+  long the last date took to draw. The label no longer shows just because
+  `?render=` is in the address.
 
 ### Changed
 

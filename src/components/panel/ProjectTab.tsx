@@ -4,6 +4,7 @@ import { applyTheme, readThemeChoice, THEME_EVENT, type ThemeChoice } from '../.
 import { SectionHeader } from './controls';
 import ExportSection from './ExportSection';
 import { saveFile } from '../../utils/saveFile';
+import { setDebug, useDebug } from '../../utils/debug';
 
 const APPEARANCE: { value: ThemeChoice; label: string }[] = [
   { value: 'system', label: 'System' },
@@ -160,6 +161,7 @@ function OpenData() {
 export default function ProjectTab() {
   const { state, dispatch } = useAppContext();
   const [theme, setTheme] = useState<ThemeChoice>(readThemeChoice);
+  const debug = useDebug();
   useEffect(() => {
     const follow = (e: Event) => setTheme((e as CustomEvent<ThemeChoice>).detail);
     window.addEventListener(THEME_EVENT, follow);
@@ -293,7 +295,13 @@ export default function ProjectTab() {
       <OpenData />
       <ExportSection />
       <div className="sidebar-section">
-        <SectionHeader label="Appearance" />
+        <SectionHeader label="Appearance" action={
+          <button type="button" className={`ov-icon-btn${debug ? ' on' : ''}`} onClick={() => setDebug(!debug)}
+            aria-pressed={debug} aria-label="Diagnostics"
+            title={debug ? 'Diagnostics on: the map shows how it draws the data (click to turn off)' : 'Diagnostics: show how the map draws the data'}>
+            <i className="fa-solid fa-bug" aria-hidden="true"></i>
+          </button>
+        } />
         <div className="toggle-row" style={{ gap: 8 }}>
           <span className="row-label">Ground motion in</span>
           <div className="segmented" role="radiogroup" aria-label="Units" style={{ flex: 1 }}>
