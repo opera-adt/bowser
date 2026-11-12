@@ -3,7 +3,8 @@
 Bowser                      the app: start screen in its own window
 Bowser --browser            the same in the default browser
 Bowser --smoke-test CUBE    start headless, open CUBE, fetch one tile and one point,
-                            exit 0 on success
+                            the statistics of an area and a GeoTIFF export, exit 0
+                            on success
 Bowser --mcp-url URL        Bowser's MCP server on stdio for the Bowser at URL (what
                             a signed-in Claude Code starts; see bowser.assistant)
 """
@@ -60,9 +61,53 @@ def smoke_test(cube: str) -> int:
             f"smoke test {'passed' if ok else 'FAILED'}: {variable}, "
             f"{len(json.loads(series))} values, tile {len(tile)} bytes"
         )
-        return 0 if ok and assistant_check(call) else 1
+        analysis = analysis_check(call, dataset, variable, meta["latlon_bounds"])
+        return 0 if ok and analysis and assistant_check(call) else 1
     finally:
         server.stop()
+
+
+def analysis_check(call, dataset: str, variable: str, bounds: list[float]) -> bool:
+    """Check area statistics and GeoTIFF export, which the app does without GDAL."""
+    import urllib.error  # noqa: PLC0415
+
+    w, s, e, n = bounds
+    lon, lat = (w + e) / 2, (s + n) / 2
+    pixels = 0
+    # A box around the centre: larger until it holds a pixel centre.
+    for share in (0.002, 0.01, 0.05, 0.25):
+        dx, dy = (e - w) * share, (n - s) * share
+        ring = [
+            [lon - dx, lat - dy],
+            [lon + dx, lat - dy],
+            [lon + dx, lat + dy],
+            [lon - dx, lat + dy],
+            [lon - dx, lat - dy],
+        ]
+        body = {
+            "variable": variable,
+            "geometry": {"type": "Polygon", "coordinates": [ring]},
+        }
+        try:
+            _, stats = call(f"/polygon_timeseries?dataset={dataset}", body)
+        except urllib.error.HTTPError as err:
+            if err.code == 422:  # no pixel centre inside yet
+                continue
+            raise
+        found = json.loads(stats)
+        pixels = found["polygon_pixels"] if found["statistics"] else 0
+        break
+    status, tif = call(
+        f"/export/geotiff?dataset={dataset}&variable={variable}&time_idx=0"
+    )
+    # A little-endian TIFF (42) or BigTIFF (43).
+    exported = status == 200 and tif[:4] in (b"II*\x00", b"II+\x00")
+    ok = pixels > 0 and exported
+    print(
+        f"analysis check {'passed' if ok else 'FAILED'}: area of {pixels} pixels, "
+        f"GeoTIFF {len(tif)} bytes"
+    )
+    return ok
 
 
 #: What the Assistant tab loads only when it is used: missing from the frozen app,
