@@ -129,9 +129,54 @@ def summarize(values: np.ndarray, nbins: int = NBINS, level: int = 0) -> dict[st
     )
 
 
-def stored(da: xr.DataArray, index: int) -> dict | None:
-    """Return the histogram stored in the cube for step ``index``, if any."""
-    entries = da.attrs.get("bowser_histogram")
+#: The layer attribute holding every date's histogram.
+STORED_ATTR = "bowser_histogram"
+
+_detached_lock = threading.Lock()
+_detached: dict[int, tuple[weakref.ref, dict[str, list]]] = {}
+
+
+def detach_stored(ds: xr.Dataset) -> None:
+    """Move the stored histograms of ``ds``'s layers out of their attributes.
+
+    xarray and rioxarray deep-copy a layer's attributes on most operations, and
+    a few hundred dates of histograms are about a megabyte of them: left in
+    place, every full-resolution tile spent half its time copying them.
+    :func:`stored` still finds them, by dataset.
+    """
+    found: dict[str, list] = {}
+    for name, var in ds.variables.items():
+        entries = var.attrs.pop(STORED_ATTR, None)
+        if isinstance(entries, list):
+            found[str(name)] = entries
+    if not found:
+        return
+    key = id(ds)
+    with _detached_lock:
+        hit = _detached.get(key)
+        if hit is not None and hit[0]() is ds:
+            found = hit[1] | found
+        _detached[key] = (weakref.ref(ds, lambda _: _forget(key)), found)
+
+
+def _forget(key: int) -> None:
+    """Drop the detached histograms of a dataset that is gone."""
+    with _detached_lock:
+        hit = _detached.get(key)
+        if hit is not None and hit[0]() is None:
+            del _detached[key]
+
+
+def stored(ds: xr.Dataset, name: str, index: int) -> dict | None:
+    """Return the histogram stored in the cube for step ``index`` of ``name``, if any.
+
+    Read from the layer's attribute, or from where :func:`detach_stored` put it.
+    """
+    with _detached_lock:
+        hit = _detached.get(id(ds))
+    entries = hit[1].get(name) if hit is not None and hit[0]() is ds else None
+    if entries is None:
+        entries = ds[name].attrs.get(STORED_ATTR)
     if isinstance(entries, list) and 0 <= index < len(entries):
         entry = entries[index]
         if isinstance(entry, dict) and "bins" in entry and "counts" in entry:
@@ -555,7 +600,7 @@ async def histogram(
     :func:`level_for`, and every date is started in the background.
     """
     da = levels[0][name]
-    hit = stored(da, t if da.ndim > 2 else 0)
+    hit = stored(levels[0], name, t if da.ndim > 2 else 0)
     if hit is not None:
         return hit
     owner = levels[0]

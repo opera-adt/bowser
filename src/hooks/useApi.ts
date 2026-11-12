@@ -205,7 +205,7 @@ export function useApi() {
     }
   }, []);
 
-  /** Statistics of a layer inside a polygon (full server only); an error is a short message. */
+  /** Statistics of a layer inside a polygon; an error is a short message. */
   const fetchPolygonTimeSeries = useCallback(async (
     datasetName: string,
     geometry: ChartArea['geometry'],
