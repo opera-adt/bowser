@@ -240,6 +240,9 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `GET /datasets` on the full server is built once per opened cube instead of
+  on every request (560 ms to 8 ms for a 419-date DISP-S1 cube): it reprojected
+  a subsampled layer for the lon/lat bounds each time.
 - `GET /histogram` no longer holds the server up. Without a stored histogram
   it read the date at full resolution: on a DISP-S1 frame 5 s of CPU on the full
   server, on its event loop, so `/config` and `/datasets` waited up to 20 s
