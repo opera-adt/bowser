@@ -80,7 +80,7 @@ ASSISTANT_MODULES = (
 
 
 def assistant_check(call) -> bool:
-    """The Assistant is on in the app, and everything it loads later is packed."""
+    """Check the Assistant is on in the app and all it loads later is packed."""
     import importlib  # noqa: PLC0415
 
     _, status = call("/assistant/status")
