@@ -1,21 +1,21 @@
-"""Summarize stored scalar rasters on native pixel centers inside a polygon."""
+"""Summarize stored scalar rasters on native pixel centers inside a polygon.
+
+rasterio and shapely are imported where they are used: bowser-lite reuses the
+request model, the statistics and the result of this module without them
+(``bowser.lite.polygon`` selects the pixels with numpy).
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Literal
+from typing import TYPE_CHECKING, Any, Callable, Literal
 
 import numpy as np
-import rasterio
-import xarray as xr
-from affine import Affine
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from rasterio.errors import WindowError
-from rasterio.features import geometry_mask, geometry_window
-from rasterio.warp import transform_geom
-from rasterio.windows import Window
-from rasterio.windows import transform as window_transform
-from shapely.geometry import shape
+
+if TYPE_CHECKING:
+    import xarray as xr
+    from rasterio.windows import Window
 
 MAX_VERTICES = 10_000
 MAX_WINDOW_PIXELS = 2_000_000
@@ -81,13 +81,21 @@ class PolygonRequest(BaseModel):
                         raise ValueError(
                             "Use finite 2-D WGS84 longitude/latitude coordinates"
                         )
-        geom = shape(geometry)
-        if geom.is_empty or not geom.is_valid:
+        if not cls._topologically_valid(geometry):
             raise ValueError("Polygon must be nonempty and topologically valid")
-        if geom.bounds[2] - geom.bounds[0] > 180:
+        lons = [p[0] for polygon in polygons for ring in polygon for p in ring]
+        if max(lons) - min(lons) > 180:
             raise ValueError("Antimeridian-spanning polygons are not supported")
         # Ignore foreign GeoJSON members, not geometry holes or separate parts.
         return {"type": kind, "coordinates": geometry["coordinates"]}
+
+    @classmethod
+    def _topologically_valid(cls, geometry: dict[str, Any]) -> bool:
+        """Whether the rings form a nonempty, valid (OGC) polygon; shapely here."""
+        from shapely.geometry import shape  # noqa: PLC0415
+
+        geom = shape(geometry)
+        return not geom.is_empty and bool(geom.is_valid)
 
 
 @dataclass(frozen=True)
@@ -95,7 +103,7 @@ class NativeGrid:
     """Describe the unchanged level-zero raster grid."""
 
     crs: Any
-    transform: Affine
+    transform: Any
     width: int
     height: int
 
@@ -103,6 +111,13 @@ class NativeGrid:
 def _selection(
     grid: NativeGrid, geometry: dict, count: int
 ) -> tuple[Window, np.ndarray, bool]:
+    from rasterio.errors import WindowError  # noqa: PLC0415
+    from rasterio.features import geometry_mask, geometry_window  # noqa: PLC0415
+    from rasterio.warp import transform_geom  # noqa: PLC0415
+    from rasterio.windows import Window  # noqa: PLC0415
+    from rasterio.windows import transform as window_transform  # noqa: PLC0415
+    from shapely.geometry import shape  # noqa: PLC0415
+
     if grid.crs is None:
         raise ValueError("A source CRS is required")
     native = transform_geom("EPSG:4326", grid.crs, geometry)
@@ -268,6 +283,8 @@ def summarize_xarray(
 
 def summarize_rasters(group: Any, request: PolygonRequest) -> dict:
     """Summarize identical-grid, identical-unit GeoTIFFs with windowed reads."""
+    import rasterio  # noqa: PLC0415
+
     if not group.file_list:
         raise ValueError("No rasters in the selected layer")
     with rasterio.open(group.file_list[0]) as first:
