@@ -340,6 +340,16 @@ def describe_raster_group(name: str, headers: Sequence[Mapping[str, Any]]) -> La
     return info
 
 
+#: Speed of light in vacuum (m/s), to turn a centre frequency into a wavelength.
+SPEED_OF_LIGHT = 299_792_458.0
+#: Attribute names a producer may record the radar centre frequency under (Hz).
+_FREQUENCY_KEYS = (
+    "center_frequency",
+    "centerFrequency",
+    "radar_frequency",
+    "radar_center_frequency",
+    "center_frequency_hz",
+)
 #: Attribute names a producer may record the radar wavelength under (metres).
 _WAVELENGTH_KEYS = (
     "radar_wavelength_m",
@@ -365,4 +375,14 @@ def radar_wavelength(*attr_maps: Mapping[str, Any]) -> float | None:
                 continue
             if 0.005 <= value <= 1.0:
                 return value
+    # No wavelength, but a centre frequency in hertz (NISAR products record
+    # ``centerFrequency`` per band, JPL D-102272): wavelength = c / f.
+    for attrs in attr_maps:
+        for key in _FREQUENCY_KEYS:
+            try:
+                hz = float(attrs[key])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if hz > 0 and 0.005 <= SPEED_OF_LIGHT / hz <= 1.0:
+                return SPEED_OF_LIGHT / hz
     return None

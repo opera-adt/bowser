@@ -323,3 +323,28 @@ def test_datasets_carry_the_cubes_radar_wavelength(tmp_path):
     info = meta.dataset_info(c, True)
     assert info["displacement"]["radar_wavelength_m"] == 0.05546576
     assert info["coh"]["radar_wavelength_m"] == 0.05546576
+
+
+def test_datasets_say_what_each_layer_measures(tmp_path):
+    """``/datasets``: per layer, what it measures, from the cube's metadata."""
+    c = lcube.open_cube(str(_plain_cube(tmp_path / "m.zarr")))
+    info = meta.dataset_info(c, True)
+    assert info["displacement"]["measurement"]["kind"] == "unknown"
+    assert info["displacement"]["measurement"]["half_wavelength_mm"] is None
+    c.dataset.attrs.update(
+        {
+            "title": "OPERA L3 DISP-S1",
+            "heading_angle_deg": 349.6,
+            "incidence_angle_deg": 39.0,
+            "los_enu_ground_to_satellite": {
+                "east": -0.619,
+                "north": -0.113,
+                "up": 0.777,
+            },
+        }
+    )
+    m = meta.dataset_info(c, True)["displacement"]["measurement"]
+    assert m["kind"] == "line_of_sight"
+    assert m["positive_direction"] == "towards the satellite"
+    assert m["sensitivity"] == {"east": 0.62, "north": 0.11, "up": 0.78}
+    assert m["half_wavelength_mm"] == 27.7

@@ -41,6 +41,7 @@ from ..catalog import CatalogEntry, load_catalog, save_catalog
 from ..config import settings
 from ..context import router as context_router
 from ..context import zones_answer
+from ..gnss_custom import router as gnss_custom_router
 from ..reference_candidates import (
     CandidateParams,
     candidate_query,
@@ -238,6 +239,7 @@ app.include_router(assistant_router, tags=[api.ASSISTANT])
 app.include_router(page_router, tags=[api.ASSISTANT])
 # What is on the ground: OpenStreetMap infrastructure and site context (the AI tools).
 app.include_router(context_router)
+app.include_router(gnss_custom_router)
 
 
 @app.get(
@@ -556,13 +558,24 @@ def trend_analysis(
     return NanJSONResponse(calculate_trend(values, x_values))  # type: ignore[arg-type]
 
 
-def _first_step(cube: Cube, name: str, time_index: int = 0) -> np.ndarray:
+async def _layer_histogram(
+    dataset: str | None, name: str, time_index: int, nbins: int = 100
+) -> dict:
+    """Return the histogram of one time step of a layer.
+
+    The stored ``bowser_histogram`` when present; otherwise from a coarse pyramid
+    level, cached, one at a time in a worker thread, never on the event loop
+    (``bowser.histograms``). Every date is then computed in the background with
+    one reader thread, pausing for requests.
+    """
+    cube = resolve(dataset)
     da = sampling.require_var(cube.dataset, name)
     dim = meta.non_spatial_dim(da)
-    return (
-        (da.isel({dim: time_index}) if dim is not None else da)
-        .values.ravel()
-        .astype(float)
+    if dim is not None:
+        time_index = min(time_index, da.sizes[dim] - 1)
+    datasets, sources = _cube_levels(cube)
+    return await histograms.histogram(
+        datasets, name, time_index, nbins, sources=sources, workers=1
     )
 
 
@@ -572,26 +585,15 @@ def _first_step(cube: Cube, name: str, time_index: int = 0) -> np.ndarray:
     response_model=api.ValueRange,
     **api.route_doc("GET /dataset_range/{dataset_name}"),
 )
-def get_dataset_range(
+async def get_dataset_range(
     dataset_name: DatasetNamePath,
     dataset: str | None = Query(None, **api.PARAMS["dataset"]),
 ):
-    """min/max and 2/98, 5/95 percentiles of the first time step."""
-    arr = _first_step(resolve(dataset), dataset_name)
-    valid = arr[np.isfinite(arr)]
-    if valid.size == 0:
+    """min/max and 2/98, 5/95 percentiles of the first time step, from its histogram."""
+    found = histograms.value_range(await _layer_histogram(dataset, dataset_name, 0))
+    if found is None:
         raise HTTPException(status_code=204, detail="No valid data")
-    p = np.percentile(valid, [2, 98, 5, 95])
-    return NanJSONResponse(
-        {
-            "min": float(valid.min()),
-            "max": float(valid.max()),
-            "p2": float(p[0]),
-            "p98": float(p[1]),
-            "p5": float(p[2]),
-            "p95": float(p[3]),
-        }
-    )
+    return NanJSONResponse(found)
 
 
 @app.get(
@@ -606,23 +608,9 @@ async def get_histogram(
     nbins: Annotated[int, Query(ge=4, le=256, **api.PARAMS["nbins"])] = 100,
     dataset: str | None = Query(None, **api.PARAMS["dataset"]),
 ):
-    """Histogram and percentiles of one time step.
-
-    The stored ``bowser_histogram`` when present; otherwise from a coarse pyramid
-    level, cached, one at a time in a worker thread, never on the event loop
-    (``bowser.histograms``). Every date is then computed in the background with
-    one reader thread, pausing for requests.
-    """
-    cube = resolve(dataset)
-    da = sampling.require_var(cube.dataset, dataset_name)
-    dim = meta.non_spatial_dim(da)
-    if dim is not None:
-        time_index = min(time_index, da.sizes[dim] - 1)
-    datasets, sources = _cube_levels(cube)
+    """Histogram and percentiles of one time step."""
     return NanJSONResponse(
-        await histograms.histogram(
-            datasets, dataset_name, time_index, nbins, sources=sources, workers=1
-        )
+        await _layer_histogram(dataset, dataset_name, time_index, nbins)
     )
 
 

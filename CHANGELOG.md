@@ -8,6 +8,21 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- GNSS tab › *Load local GNSS file*: load station time series from your own CSV
+  files (picked on your computer, or a server path with `BOWSER_ALLOW_OPEN`).
+  Dates as ISO, YYYYMMDD, decimal year or MJD; east, north and up in m, mm or
+  cm (from the header, a `# units:` line, a Units choice, or guessed and said
+  so); station and lon/lat as columns or `# key: value` lines; NGL `.tenv3`
+  and EarthScope CSVs too. Unreadable rows are skipped and counted. The
+  stations show on the map as amber squares with their own legend entry, and
+  compare with InSAR along the line of sight like UNR's. Kept for the server
+  session (`POST/GET/DELETE /gnss/custom`), on the full server and
+  bowser-lite. See [docs/gnss.md](docs/gnss.md).
+- MCP and Assistant tools `load_gnss_csv`, `list_gnss_stations` (files and
+  UNR) and `convert_to_cog` (a raster on the server to a Cloud-Optimized
+  GeoTIFF in the conversion cache; full server). Server paths are read only
+  where the page could (`BOWSER_ALLOW_OPEN`). `GET /data/{id}` gives a ready
+  raster's `cog_bytes`.
 - `bowser add-histograms CUBE.zarr` stores every date's colour histogram in an
   existing GeoZarr cube (`bowser_histogram`, the attribute the converter
   writes), computed in one pass over the stack from a coarse pyramid level
@@ -95,7 +110,18 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     open-source apps: OAuth with PKCE in your browser, then the chat uses your
     ChatGPT plan through the Responses API. The tokens are kept like keys,
     renewed, and revoked on Sign out.
-  - New routes `POST`/`DELETE /assistant/signin`, `GET /auth/callback`,
+  - One "Sign in" button with a drop-down of the services (Claude, ChatGPT);
+    the button's accessible name keeps each service's own wording.
+  - Signing in with Claude works when Bowser runs on another computer (a
+    workstation reached over SSH with port forwarding, or Linux with no
+    display): the tab opens Claude Code's own sign-in page (on claude.com,
+    claude.ai or anthropic.com only) in a new tab of your browser, and you
+    paste the code that page shows into the tab, which passes it to the
+    waiting `claude auth login` once (`POST /assistant/signin/code`; never
+    kept or logged). Where Claude Code can open the browser itself (a
+    desktop), it still does, with no code to paste.
+  - New routes `POST`/`DELETE /assistant/signin`, `POST
+    /assistant/signin/code`, `GET /auth/callback`,
     `POST /assistant/permission` and `POST /assistant/stop`; `GET
     /assistant/status` and `GET /config` list the sign-in methods. Signing in
     and signed-in chats answer requests from the same computer only.
@@ -219,6 +245,14 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and kept in the reference finder's disk cache. The page asks for no
   histogram while playing through the dates. `GET /dataset_range` on the full
   server also left the event loop.
+- `GET /dataset_range` no longer reads the layer. It read the first date at full
+  resolution on every call, about 20 s on a DISP-S1 frame, and the page asks for
+  it at load for the default mask's slider. Both servers now answer from that
+  date's histogram: the one stored in the cube, else the cached or coarse-level
+  one `GET /histogram` uses. `min`, `max`, `p2` and `p98` are the histogram's;
+  `p5` and `p95` come from its counts, within one bin (1 % of the range) of the
+  exact percentiles. Without a stored histogram the values are those of the
+  coarse level, as for `GET /histogram`.
 - **Breaking:** Bowser now requires Python 3.12 or newer (`requires-python
   = ">=3.12"`); Python 3.11 is no longer supported. The `writer` extra's
   geozarr-toolkit and rasterio 1.5 already needed 3.12, and the pixi
@@ -234,6 +268,14 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `band_descriptions`, `data_type` and `raster_layers`; bowser-lite returns
   them too. Response compression (`BOWSER_COMPRESSION=1`) works again: the
   truncated compressed responses that made it opt-in no longer happen.
+- Reading data no longer holds up the full server's other requests. A time
+  series (`/point`, `/chart_point`, `/multi_point`, `/trend_analysis`,
+  `/buffer_timeseries`), a profile (`/profile`, 4 s for a 60 km line on a
+  DISP-S1 frame), the layer lists (`/datasets`, `/variables`) and
+  `/catalog/open` ran on the server's event loop, so tiles and every other
+  request waited for them. They are plain functions now, run in FastAPI's
+  thread pool as on bowser-lite; `/upload_raster` computes its statistics in a
+  worker thread. Answers are unchanged.
 
 ## [0.6.1] - 2026-11-05
 

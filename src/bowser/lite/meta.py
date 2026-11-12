@@ -15,6 +15,7 @@ import pandas as pd
 import xarray as xr
 
 from ..layer_info import describe_layer, radar_wavelength
+from ..measurement import describe_measurement
 from ..utils import _uses_spatial_reference
 from . import geo
 from .cube import Cube, spatial_ref_attrs
@@ -207,5 +208,8 @@ def dataset_info(cube: Cube, use_spatial_reference: bool) -> dict:
             "reference_lonlat": ref_ll,
             **({"radar_wavelength_m": wavelength} if wavelength else {}),
             **describe_layer(str(name), attrs),
+            "measurement": describe_measurement(
+                str(name), attrs, dict(ds.attrs), los, wavelength
+            ),
         }
     return info

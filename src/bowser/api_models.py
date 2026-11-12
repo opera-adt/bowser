@@ -452,7 +452,10 @@ ROUTES: dict[str, dict[str, Any]] = {
     "GET /dataset_range/{dataset_name}": {
         "summary": "Value range of a layer",
         "description": "Minimum, maximum and the 2/98 and 5/95 percentiles of the "
-        "layer's first time step, for colour scales and mask sliders.",
+        "layer's first time step, for colour scales and mask sliders. Taken from "
+        "that step's histogram (`GET /histogram/{dataset_name}`), so nothing is "
+        "read when the cube stores one; 5/95 come from its counts, within one bin "
+        "of the exact percentiles.",
         "tags": [STATS],
     },
     "GET /histogram/{dataset_name}": {
@@ -600,6 +603,36 @@ ROUTES: dict[str, dict[str, Any]] = {
         "steps and the monument description.",
         "tags": [CONTEXT],
     },
+    "POST /gnss/custom": {
+        "summary": "Load a GNSS file",
+        "description": "Read a GNSS station time series from a CSV (or NGL "
+        "`.tenv3`, EarthScope CSV) file and keep its stations for the session: "
+        "the file's `text` (from the page, always allowed) or its `path` on the "
+        "server (403 unless `BOWSER_ALLOW_OPEN`). Dates as ISO, YYYYMMDD, decimal "
+        "year or MJD; east, north and up in m, mm or cm (`units`, else from the "
+        "header or guessed); the station and its lon/lat from columns or "
+        "`# key: value` lines. Rows that cannot be read are skipped and counted; "
+        "400 when nothing is usable. See docs/gnss.md.",
+        "tags": [CONTEXT],
+    },
+    "GET /gnss/custom": {
+        "summary": "Loaded GNSS stations",
+        "description": "The stations read from files in this session (`POST "
+        "/gnss/custom`), with a linear rate per component in mm/yr.",
+        "tags": [CONTEXT],
+    },
+    "GET /gnss/custom/{station_id}": {
+        "summary": "Loaded GNSS series",
+        "description": "A loaded station's east, north and up in mm from its "
+        "first date (and sigmas when the file has them), shaped as `GET "
+        "/gnss/series/{station}`.",
+        "tags": [CONTEXT],
+    },
+    "DELETE /gnss/custom/{station_id}": {
+        "summary": "Forget a loaded GNSS station",
+        "description": "Remove a station read from a file from this session.",
+        "tags": [CONTEXT],
+    },
     "GET /wms_capabilities": {
         "summary": "Layers of a WMS",
         "description": "Fetch a WMS GetCapabilities on the server (browsers are "
@@ -649,8 +682,20 @@ ROUTES: dict[str, dict[str, Any]] = {
         "OpenAI's page for the browser, which comes back to GET /auth/callback. "
         "`claude`: Bowser runs the user's Claude Code, which signs in on "
         "Anthropic's page if it is not signed in yet (Bowser never sees its "
-        "credentials). 403 unless `BOWSER_ASSISTANT_PAGE_KEYS` is set and the "
-        "request comes from this computer.",
+        "credentials). Where Claude Code cannot open a browser (no display, or "
+        "Bowser started over SSH), `sign_in_url` is Claude Code's own sign-in "
+        "page, for the page to open; the code that page shows goes to POST "
+        "/assistant/signin/code. 403 unless `BOWSER_ASSISTANT_PAGE_KEYS` is set "
+        "and the request comes from this computer.",
+        "tags": [ASSISTANT],
+    },
+    "POST /assistant/signin/code": {
+        "summary": "Pass a sign-in code to the agent",
+        "description": '`{"method", "code"}`: the code the agent\'s sign-in '
+        "page showed (`sign_in.methods[].code` is true while it waits for "
+        "one). Bowser writes it to the waiting program's input once and keeps "
+        "or logs nothing of it. 409 when no sign-in waits for a code or it is "
+        "not one. Same conditions as POST /assistant/signin.",
         "tags": [ASSISTANT],
     },
     "DELETE /assistant/signin": {
@@ -959,6 +1004,19 @@ class SignInMethod(_Fixed):
     usage_url: Optional[str] = Field(None, description="Where to manage usage.")
     model: str = Field(description="Default model; empty for an agent.")
     models: list[str]
+    page_opens: bool = Field(
+        False,
+        description="Whether the page opens the sign-in page itself (else the "
+        "agent's program opens the browser).",
+    )
+    sign_in_url: Optional[str] = Field(
+        None, description="While pending: the agent's sign-in page, for the page."
+    )
+    code: bool = Field(
+        False,
+        description="While pending: the agent waits for the code its sign-in "
+        "page shows (POST /assistant/signin/code).",
+    )
 
 
 class SignInStatus(_Fixed):
@@ -1190,6 +1248,47 @@ class LosInfo(_Fixed):
     los_enu_ground_to_sat_far: Optional[EnuVector] = None
 
 
+class Sensitivity(_Fixed):
+    """How much of 1 unit of motion east, north or up shows in a value (0-1)."""
+
+    east: float
+    north: float
+    up: float
+
+
+class Measurement(_Fixed):
+    """What a layer's values measure, from the cube's metadata (unknown is null).
+
+    Built by ``bowser.measurement.describe_measurement``: the layer's attributes
+    win over the cube's, and both over Bowser's small table of producer-documented
+    products. Nothing is assumed for an unrecognised cube.
+    """
+
+    kind: Literal["line_of_sight", "vertical", "east_west", "north_south", "unknown"]
+    kind_source: Optional[str] = Field(
+        description="Where `kind` came from (an attribute, or a known product)."
+    )
+    positive_direction: Optional[str] = Field(
+        description="What a positive value means, e.g. 'towards the satellite', "
+        "'up'; null when the cube does not say."
+    )
+    sign_source: Optional[str]
+    sensitivity: Optional[Sensitivity] = Field(
+        description="|east|, |north|, |up| of the look vector for line-of-sight "
+        "values (1 for the measured axis of a vertical or horizontal component); "
+        "null when unknown."
+    )
+    sensitivity_note: str
+    radar_wavelength_m: Optional[float]
+    half_wavelength_mm: Optional[float] = Field(
+        description="Half the radar wavelength in mm: the size of a "
+        "line-of-sight unwrapping jump."
+    )
+    wavelength_source: Optional[str]
+    product: Optional[str] = Field(description="The recognised product, if any.")
+    summary: str = Field(description="The above in plain words.")
+
+
 class DatasetInfo(_Fixed):
     """One layer of ``GET /datasets``.
 
@@ -1243,6 +1342,12 @@ class DatasetInfo(_Fixed):
         "description is shown as `description`.",
     )
     metadata_notes: Optional[list[str]] = None
+    measurement: Optional[Measurement] = Field(
+        None,
+        description="What the values measure (direction, sign, sensitivity, "
+        "radar wavelength); null for a layer that measures no motion (coherence, "
+        "masks, uncertainties).",
+    )
 
 
 class DatasetsInfo(RootModel[dict[str, DatasetInfo]]):
@@ -1680,6 +1785,7 @@ class DataStatus(_Fixed):
     cog: Optional[str] = Field(
         None, description="Server path of the COG; pass as url= to /overlay."
     )
+    cog_bytes: Optional[int] = Field(None, description="The COG's size in bytes.")
     band_count: Optional[int] = None
     bands: Optional[list[BandStats]] = None
     nodata: Optional[float] = None
@@ -1762,6 +1868,70 @@ class GnssSeries(_Fixed):
     up_mm: list[float]
     steps: Optional[list[GnssStep]] = None
     monument: Optional[dict[str, Optional[str]]] = None
+
+
+class CustomGnssStation(_Fixed):
+    """A station read from the user's file, with linear rates (mm/yr)."""
+
+    id: str
+    name: str
+    custom: Literal[True] = True
+    lon: float
+    lat: float
+    first: float = Field(description="First epoch, decimal year.")
+    last: float = Field(description="Last epoch, decimal year.")
+    first_date: str
+    last_date: str
+    ve_mm_yr: float = Field(description="Least-squares rate of east.")
+    vn_mm_yr: float
+    vu_mm_yr: float
+    sigma_vu_mm_yr: float = Field(description="Formal 1-sigma of the up rate.")
+    rows: int = Field(description="Rows read.")
+    skipped: int = Field(description="Rows that could not be read.")
+    units: Literal["m", "mm", "cm"] = Field(description="The file's units.")
+    units_from: Literal["header", "file", "option", "guessed"]
+    date_format: Optional[str] = Field(
+        description="iso, yyyymmdd, yymmmdd, decimal_year or mjd."
+    )
+    components: list[str] = Field(description="Components the file gives.")
+    source: str = Field(description="The file's name.")
+    frame: str
+    warnings: list[str]
+
+
+class CustomGnssStations(_Fixed):
+    """``GET /gnss/custom``."""
+
+    stations: list[CustomGnssStation]
+
+
+class GnssCsvLoaded(_Fixed):
+    """``POST /gnss/custom``: what was read."""
+
+    file: str
+    rows: int
+    skipped: int
+    stations: list[CustomGnssStation]
+
+
+class CustomGnssSeries(CustomGnssStation):
+    """``GET /gnss/custom/{station_id}``: as ``GnssSeries``, from the user's file."""
+
+    station: str
+    station_page: None = None
+    dates: list[str]
+    east_mm: list[float]
+    north_mm: list[float]
+    up_mm: list[float]
+    sigma_east_mm: Optional[list[float]] = None
+    sigma_north_mm: Optional[list[float]] = None
+    sigma_up_mm: Optional[list[float]] = None
+
+
+class RemovedGnssStation(_Fixed):
+    """``DELETE /gnss/custom/{station_id}``."""
+
+    removed: str
 
 
 class WmsLayer(_Fixed):

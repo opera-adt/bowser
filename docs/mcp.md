@@ -89,6 +89,47 @@ server at `http://127.0.0.1:8765/mcp`:
 claude mcp add --transport http bowser http://127.0.0.1:8765/mcp
 ```
 
+## Signing in from the Assistant tab
+
+On your own computer (`bowser run`, `bowser lite`, the desktop app), the
+Assistant tab's **Sign in** button, with a drop-down of the services, can hand
+the chat to your own Claude Code ("Sign in with Claude"), with this MCP server
+as its tools, or use your ChatGPT plan ("Continue with ChatGPT"). Gemini and
+other providers are available with an API key (**Use an API key**).
+
+"Sign in with Claude" needs Claude Code (install it from
+[claude.com](https://code.claude.com/docs/en/setup)) and Node.js for its ACP
+adapter, which Bowser installs once. If Claude Code is not signed in, Bowser
+starts Claude Code's own sign-in (`claude auth login`), which opens Claude
+Code's sign-in page on claude.com. Bowser does not offer a Claude sign-in of
+its own: it only starts Claude Code's and, on a remote computer, passes on its
+page and your code (below).
+
+**Bowser on another computer.** When Claude Code cannot open a browser you
+see, because Bowser runs on a remote workstation you reach over SSH with port
+forwarding (`ssh -L 8000:localhost:8000 workstation`, then
+<http://localhost:8000>) or on Linux with no display, signing in happens in
+your own browser instead:
+
+1. Click **Sign in**. A new tab opens on Claude Code's own sign-in page.
+2. Sign in there. The page then shows a code.
+3. Paste the code into the box in Bowser's Assistant tab and click
+   **Continue**. Bowser writes it to the waiting `claude` program once; when
+   Claude Code has signed in, the tab says so.
+
+A code Claude Code refuses ends its sign-in, and the tab says so: click
+**Sign in** again. **Cancel** ends the program's sign-in. Bowser passes on a
+sign-in page only on Anthropic's own sites (claude.com, claude.ai,
+anthropic.com), never keeps or logs the code, and still answers sign-in
+requests from the same computer only (through the forwarded port, they are).
+Bowser takes the browser to be elsewhere when it was started from an SSH
+session (`SSH_CONNECTION`) or, on Linux, without `DISPLAY`/`WAYLAND_DISPLAY`;
+otherwise Claude Code opens the browser itself and no code is needed.
+
+Bowser never reads, copies or stores Claude Code's credentials and never calls
+Anthropic itself; only Claude Code does. Signing out in the tab stops using
+Claude Code here; Claude Code itself stays signed in.
+
 ## Tools
 
 Every tool takes an optional `dataset`, the catalog id of a server started with
@@ -97,8 +138,8 @@ a point outside the cube is refused rather than read at the nearest edge pixel.
 
 | Tool | What it returns | HTTP API |
 | --- | --- | --- |
-| `server_info` | Title, full or lite, data mode, whether polygon statistics and GeoTIFF export work, the catalog | `GET /config`, `/mode`, `/catalog` |
-| `list_layers` | Each layer's label, unit, number of dates, first and last date, whether it is re-referenced to a point, description; the cube's area, reference point and date, and look geometry | `GET /datasets` |
+| `server_info` | Title, full or lite, data mode, whether polygon statistics and GeoTIFF export work, the catalog, and `measurement`: what the values measure (line of sight, vertical...), their sign, their sensitivity to east, north and up motion and half the radar wavelength, from the cube's metadata ([rest-api.md](rest-api.md#what-a-layer-measures)); unknown when the cube does not say | `GET /config`, `/mode`, `/catalog`, `/datasets` |
+| `list_layers` | Each layer's label, unit, number of dates, first and last date, whether it is re-referenced to a point, description, what it measures; the cube's area, reference point and date, and look geometry | `GET /datasets` |
 | `point_timeseries` | Dates and values at a point, relative to a reference point (yours, or the cube's) and date; optional median reference circle | `GET /chart_point`, `POST /multi_point` |
 | `multi_point_timeseries` | Several points on shared dates against one reference, each with a linear rate; optional layer masks | `POST /multi_point` |
 | `trend_at_point` | Linear rate per year at a point, its standard error and R² | `GET /trend_analysis/{layer}`, `POST /multi_point` |
@@ -113,10 +154,18 @@ a point outside the cube is refused rather than read at the nearest edge pixel.
 | `infrastructure_at` | Roads, buildings, rail, bridges, pipelines, dams and levees within `radius_m` of a point: counts, length by class, building footprint and types, named features (OpenStreetMap) | `POST /infrastructure` |
 | `infrastructure_in_area` | The same in a GeoJSON polygon, a bbox, a shape drawn on the page or a chart area (`area`), or a zone (`zone: "Z1"`) | `POST /infrastructure` |
 | `site_context` | What is on the ground at a point: land cover, geology, wetlands, soil, slope and how much of a downslope motion the radar sees, nearby infrastructure, and the cube's coherence and phase similarity there | `GET /site_context`, `POST /infrastructure`, `GET /point` |
+| `load_gnss_csv` | Read a GNSS station time series from a CSV file on the server (also NGL `.tenv3`, EarthScope CSV): stations with rows read and skipped, units and where they came from, time span and straight-line rates; kept for the session and shown in the page's GNSS tab ([gnss.md](gnss.md)). Needs `BOWSER_ALLOW_OPEN` | `POST /gnss/custom` |
+| `list_gnss_stations` | The stations loaded from files, and with a `bbox` the public UNR stations in it (MIDAS velocities) | `GET /gnss/custom`, `GET /gnss/stations` |
+| `convert_to_cog` | A Cloud-Optimized GeoTIFF of a raster on the server: its path, size and whether the file already was one (used as it is); others are converted once into the conversion cache, never next to the file. Full server, `BOWSER_ALLOW_OPEN` | `POST /data`, `GET /data/{id}` |
 
-On bowser-lite, `polygon_statistics` and `export_geotiff` return a tool error
-that says the full server is needed; `server_info` lists them under
-`unsupported_tools`.
+On bowser-lite, `polygon_statistics`, `export_geotiff` and `convert_to_cog`
+return a tool error that says the full server is needed; `server_info` lists
+them under `unsupported_tools`.
+
+`load_gnss_csv` and `convert_to_cog` read a path on the server's computer only
+where the page could (`BOWSER_ALLOW_OPEN`, on for `bowser run` and `bowser
+lite` on your own computer and in the desktop app); elsewhere they answer
+HTTP 403. `bowser mcp --stack-file` starts bowser-lite without it.
 
 `point_timeseries`, `multi_point_timeseries` and `trend_at_point` apply the
 open page's layer masks by default (`use_page_masks`), so their answers match

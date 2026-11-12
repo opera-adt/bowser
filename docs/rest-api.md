@@ -45,7 +45,7 @@ are indexes into a layer's `x_values`.
 | --- | --- | --- |
 | Config | `GET /config` | Page title, logo flag, whether GeoTIFF export works, what added files are converted to |
 | | `GET /mode` | `md` (GeoZarr) or `cog` (GeoTIFF stack) |
-| Data | `GET /datasets` | Every layer: dates, bounds, reference point, units, description |
+| Data | `GET /datasets` | Every layer: dates, bounds, reference point, units, description, what it measures |
 | | `GET /variables` | Dimensions, shape, dtype and attributes of each variable |
 | | `GET /datasets/{name}/time_bounds` | First and last date, number of steps |
 | | `GET /catalog` | Catalog entries; whether opening is allowed |
@@ -79,6 +79,10 @@ are indexes into a layer's `x_values`.
 | | `/overlay/*` (full only) | TiTiler routes for uploaded overlays |
 | Context | `GET /gnss/stations` | UNR GNSS stations in a box, with velocities |
 | | `GET /gnss/series/{station}` | A station's daily positions |
+| | `POST /gnss/custom` | Read a GNSS station series from your file (text, or a server path with `BOWSER_ALLOW_OPEN`); see [gnss.md](gnss.md) |
+| | `GET /gnss/custom` | The stations read from files this session |
+| | `GET /gnss/custom/{station_id}` | One of them: east, north, up from its first date |
+| | `DELETE /gnss/custom/{station_id}` | Forget one |
 | | `GET /wms_capabilities` | Named layers of a WMS |
 
 ## Added files
@@ -96,7 +100,9 @@ with `BOWSER_ALLOW_OPEN`, any server path are allowed; other paths get 403.
   smaller one becomes a GeoJSON in WGS84 that the page holds whole. The page
   reads vector files under the threshold itself and never sends them.
 - Conversions run in a background thread; poll `GET /data/{id}` while `status`
-  is `converting`. `/config` says what the server converts:
+  is `converting`. A ready raster gives its COG's path (`cog`), size
+  (`cog_bytes`) and whether it was converted (`converted: false` when the file
+  already was a COG). `/config` says what the server converts:
   `data_conversion: {cog, pmtiles, pmtiles_min_mb}`.
 - `GET /files?dir=<folder>` lists one server folder for Overlays › Load file ›
   Browse: its sub-folders, then the files `POST /data` adds, with sizes
@@ -284,6 +290,43 @@ idle server, pauses while requests are in flight, one reader thread on
 bowser-lite) and its disk cache, so a restarted server has them at once.
 `BOWSER_HISTOGRAM_WARMUP=0` turns that off. While the page plays through the
 dates it does not ask for histograms; it asks for the date it stops on.
+
+`GET /dataset_range/{name}` is the first date's histogram reduced to `min`,
+`max`, `p2`, `p98`, `p5` and `p95`, so it costs what that histogram costs:
+nothing when the cube stores it. `p5` and `p95` are read off the histogram's
+counts, within one bin (1 % of the range) of the exact percentiles.
+
+## What a layer measures
+
+Each layer of `GET /datasets` has a `measurement` (null for layers that measure
+no motion: coherence, masks, uncertainties). Bowser serves stacks from many
+producers, so it is built from the cube's own metadata and nothing is assumed
+for a cube that does not say:
+
+| Field | Meaning |
+| --- | --- |
+| `kind` | `line_of_sight`, `vertical`, `east_west`, `north_south` or `unknown` |
+| `positive_direction` | What a positive value means (`towards the satellite`, `up`, ...), or null |
+| `kind_source`, `sign_source` | The attribute each came from, or `known product ...` |
+| `sensitivity` | How much of 1 mm of east, north or up motion shows in a value: the absolute east, north and up parts of the look vector (`los_enu_ground_to_satellite`) for line-of-sight values; null when unknown |
+| `sensitivity_note` | The same in words, e.g. "Sensitive mainly to vertical (0.78) and east-west (0.62) motion; north-south sensitivity 0.11." |
+| `radar_wavelength_m`, `half_wavelength_mm` | The radar wavelength and half of it, the size of a line-of-sight unwrapping jump; null when not recorded |
+| `product`, `summary` | The recognised product, and all of the above in a sentence |
+
+Direction and sign come from the layer's attributes (`measurement_direction`,
+`sign_convention`, `positive_direction`, or its `long_name` / `description`
+when they name one direction, or say "positive ... towards the satellite"), then
+the cube's (`displacement_convention`, `ceos_product_measurement_projection`,
+...), then a short table of facts producers document (`KNOWN_PRODUCTS` in
+`src/bowser/measurement.py`, matched on the cube's `title`, `product` or
+`source`; today only OPERA DISP-S1). A cube whose product name says vertical
+land motion (`title`, `product`, `short_name`... containing "VLM" or "vertical
+land motion") is vertical. The file always wins over the table. The look
+geometry and the wavelength are the cube's, the same for every layer. The
+wavelength is read from `radar_wavelength` (or `wavelength`, metres), or
+computed from a centre frequency in hertz (`centerFrequency`, as NISAR
+products record it, or `center_frequency`, `radar_frequency`). A vertical or
+east-west product, derived from several tracks, gets no wavelength sentence.
 
 ## What bowser-lite does not do
 

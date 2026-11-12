@@ -433,10 +433,10 @@ def register_chart_tools(page_tool: PageTool, on_page: OnPage) -> None:
 
         Per series: the dates and sizes (mm) of lasting jumps, with the date a
         model step would go at (step_date); single-date outliers; and which of
-        them are about half the radar wavelength or a multiple (about 28 mm for
-        Sentinel-1), the size an unwrapping error leaves. Also gaps, thin months,
-        the scatter and how the trend compares with it. These are flags, not
-        findings: suggest add_step at a flagged step_date and ask the user before
-        adding it.
+        them are about half the radar wavelength or a multiple (the cube's,
+        in server_info's measurement), the size an unwrapping error leaves.
+        Also gaps, thin months, the scatter and how the trend compares with it.
+        These are flags, not findings: suggest add_step at a flagged step_date
+        and ask the user before adding it.
         """
         return await on_page("check_series", point=point, wavelength_m=wavelength_m)

@@ -223,7 +223,7 @@
    "max": 0.0,
    "min": 0.0,
    "p2": 0.0,
-   "p5": -0.0,
+   "p5": 0.0,
    "p95": 0.0,
    "p98": 0.0
   },
@@ -234,8 +234,8 @@
    "max": 0.060875,
    "min": -0.060875,
    "p2": -0.060875,
-   "p5": -0.0556941,
-   "p95": 0.0556941,
+   "p5": -0.055518,
+   "p95": 0.055518,
    "p98": 0.060875
   },
   "status": 200
@@ -286,6 +286,7 @@
      }
     },
     "mask_min_value": 0.1,
+    "measurement": null,
     "n_time_steps": 1,
     "name": "amplitude_dispersion",
     "nodata": null,
@@ -345,6 +346,23 @@
      }
     },
     "mask_min_value": 0.1,
+    "measurement": {
+     "half_wavelength_mm": null,
+     "kind": "line_of_sight",
+     "kind_source": "layer attribute 'long_name'",
+     "positive_direction": null,
+     "product": null,
+     "radar_wavelength_m": null,
+     "sensitivity": {
+      "east": 0.57,
+      "north": 0.15,
+      "up": 0.81
+     },
+     "sensitivity_note": "Sensitive mainly to vertical (0.81) and east-west (0.57) motion; north-south sensitivity 0.15. A sensitivity is how much of 1 mm of motion in that direction shows.",
+     "sign_source": null,
+     "summary": "Values are along the radar line of sight; the sign convention is not recorded. Sensitive mainly to vertical (0.81) and east-west (0.57) motion; north-south sensitivity 0.15. The radar wavelength is not recorded.",
+     "wavelength_source": null
+    },
     "n_time_steps": 6,
     "name": "displacement",
     "nodata": null,
@@ -411,6 +429,7 @@
      }
     },
     "mask_min_value": 0.1,
+    "measurement": null,
     "n_time_steps": 6,
     "name": "phase_similarity",
     "nodata": null,
@@ -477,6 +496,7 @@
      }
     },
     "mask_min_value": 0.1,
+    "measurement": null,
     "n_time_steps": 6,
     "name": "recommended_mask",
     "nodata": null,
@@ -543,6 +563,7 @@
      }
     },
     "mask_min_value": 0.1,
+    "measurement": null,
     "n_time_steps": 6,
     "name": "temporal_coherence",
     "nodata": null,
@@ -609,6 +630,23 @@
      }
     },
     "mask_min_value": 0.1,
+    "measurement": {
+     "half_wavelength_mm": null,
+     "kind": "unknown",
+     "kind_source": null,
+     "positive_direction": null,
+     "product": null,
+     "radar_wavelength_m": null,
+     "sensitivity": {
+      "east": 0.57,
+      "north": 0.15,
+      "up": 0.81
+     },
+     "sensitivity_note": "If these values are along the line of sight (the cube records a look direction but does not say what the values measure): Sensitive mainly to vertical (0.81) and east-west (0.57) motion; north-south sensitivity 0.15. A sensitivity is how much of 1 mm of motion in that direction shows.",
+     "sign_source": null,
+     "summary": "The cube does not say what these values measure (line of sight, vertical, east-west...); the sign convention is not recorded. If these values are along the line of sight (the cube records a look direction but does not say what the values measure): Sensitive mainly to vertical (0.81) and east-west (0.57) motion; north-south sensitivity 0.15. The radar wavelength is not recorded.",
+     "wavelength_source": null
+    },
     "n_time_steps": 1,
     "name": "velocity",
     "nodata": null,

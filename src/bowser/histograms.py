@@ -139,6 +139,42 @@ def stored(da: xr.DataArray, index: int) -> dict | None:
     return None
 
 
+def percentile(entry: dict, q: float) -> float:
+    """Return percentile ``q`` of a histogram ``entry``, from its bins and counts.
+
+    Linear inside the bin holding it, so within one bin width (1 % of the range
+    at 100 bins) of the percentile of the values themselves.
+    """
+    counts = np.asarray(entry["counts"], dtype=np.float64)
+    edges = np.asarray(entry["bins"], dtype=np.float64)
+    above = np.cumsum(counts)
+    want = above[-1] * q / 100.0
+    i = min(int(np.searchsorted(above, want, side="left")), counts.size - 1)
+    below = above[i - 1] if i else 0.0
+    part = (want - below) / counts[i] if counts[i] else 0.0
+    return float(edges[i] + part * (edges[i + 1] - edges[i]))
+
+
+def value_range(entry: dict) -> dict[str, float] | None:
+    """Return ``GET /dataset_range``'s answer from a histogram ``entry``.
+
+    ``min``, ``max``, ``p2`` and ``p98`` as the entry has them; ``p5`` and ``p95``,
+    which entries do not carry, from its counts (:func:`percentile`), kept inside
+    2/98. ``None`` for an entry without values.
+    """
+    if not entry.get("counts"):
+        return None
+    lo, hi = float(entry["p2"]), float(entry["p98"])
+    return {
+        "min": float(entry["min"]),
+        "max": float(entry["max"]),
+        "p2": lo,
+        "p98": hi,
+        "p5": min(max(percentile(entry, 5.0), lo), hi),
+        "p95": min(max(percentile(entry, 95.0), lo), hi),
+    }
+
+
 def _step(da: xr.DataArray, t: int) -> xr.DataArray:
     extra = [d for d in da.dims if d not in _SPATIAL]
     return da.isel({extra[0]: t}) if extra else da

@@ -29,6 +29,7 @@ import httpx
 from pydantic import BaseModel, Field, create_model
 
 from .chart_tools import CHART_COMMANDS, CHART_INSTRUCTIONS, register_chart_tools
+from .file_tools import register_file_tools
 
 DEFAULT_URL = "http://127.0.0.1:8000"
 
@@ -48,11 +49,12 @@ _METRES_PER_YEAR = {
 
 INSTRUCTIONS = """\
 Bowser is a viewer for InSAR time series: a cube of satellite radar displacement
-(for example OPERA DISP-S1 from Sentinel-1, or NISAR), with quality layers such as
-temporal coherence, phase similarity and a recommended mask. These tools read the
-cube that a Bowser server has open. Start with server_info and list_layers: they
-name the layers, their dates and units, the reference point and what this server
-can do (bowser-lite cannot compute polygon statistics or export GeoTIFFs).
+from any producer or sensor, often with quality layers such as temporal
+coherence, phase similarity and a recommended mask. These tools read the cube
+that a Bowser server has open. Start with server_info and list_layers: they name
+the layers, their dates and units, the reference point, what the values measure
+and what this server can do (bowser-lite cannot compute polygon statistics or
+export GeoTIFFs).
 
 Typical flows:
 - "Is this place moving?": list_layers -> point_timeseries (or trend_at_point) at
@@ -102,10 +104,12 @@ The page tools act on the Bowser page the user has open (on their own computer):
   list_commands, then run_command. Ask the user before a command marked
   destructive.
 
-What the numbers are. Displacement is measured along the radar's line of sight
-(LOS), not vertical: a value can be vertical motion, horizontal motion or both, and
-north-south motion is barely seen. The sign convention comes from the producer
-(for OPERA DISP-S1, positive is towards the satellite). Values are relative, not
+What the numbers are. What a value measures (along the radar line of sight,
+vertical, east-west...), what its sign means and which directions of motion it
+is sensitive to differ between products and are given in server_info's
+measurement section, read from the cube's metadata. Use those; when they are
+unknown, say so and do not assume them. A line-of-sight value can be vertical
+motion, horizontal motion or both. Values are relative, not
 absolute: relative to a reference point (the point is assumed stable, which is not
 guaranteed) and to a reference date (which can be before the first date shown,
 so a series need not start at 0). Every result says which reference was used.
@@ -125,8 +129,8 @@ Bedrock is expected to be stable, so a large trend there needs an explanation
 Unconsolidated sediment can compact (compare wells and pumping); peat can really
 subside; expansive clay swells and shrinks with moisture. Seasonal cycles can be
 groundwater, soil moisture, snow, thermal expansion or atmosphere. Sudden lasting
-offsets of about half the radar wavelength (about 28 mm for Sentinel-1, about
-12 cm for NISAR's L-band) or a multiple of it are likely unwrapping errors,
+offsets of about half the radar wavelength (server_info's measurement gives it
+when the cube records it) or a multiple of it are likely unwrapping errors,
 especially when they end at a sharp line or show on one pass only. Fast or sharp
 motion (landslide margins, mine collapse, fault rupture) can alias and look slower
 than it is, or lose coherence and go blank. A trend is a straight line through
@@ -138,8 +142,8 @@ Say what you checked and what you could not. These are screening results from
 satellite data, not findings: tell the user that any motion reported must be
 confirmed by a qualified expert (GNSS, levelling, field inspection) before it
 informs a decision, and never state that a specific building or property is
-damaged, unsafe or at risk. A pixel is about 30 m (Sentinel-1) or 20-80 m (NISAR),
-so it does not describe a single structure.
+damaged, unsafe or at risk. A pixel is typically tens of metres across, so it
+does not describe a single structure.
 """
 
 # --- descriptions of the shared parameters ---------------------------------------
@@ -286,12 +290,20 @@ EXPOSURE_NOTE = (
 )
 
 
-def _downslope_in_los(terrain: dict, los: dict | None) -> dict[str, Any]:
+def _downslope_in_los(
+    terrain: dict, los: dict | None, kind: str = "unknown"
+) -> dict[str, Any]:
     """How much of a downslope motion the cube's line of sight sees (+ = towards)."""
     slope = terrain.get("slope_deg")
     aspect = terrain.get("aspect_deg")
     if slope is None or aspect is None or slope < 2:
         return {}
+    if kind not in ("line_of_sight", "unknown"):
+        return {
+            "downslope_seen_in_los": None,
+            "downslope_note": f"The cube's values are {kind.replace('_', '-')} "
+            "motion, not along a line of sight (server_info's measurement).",
+        }
     if not los or not all(k in los for k in ("east", "north", "up")):
         return {
             "downslope_seen_in_los": None,
@@ -303,9 +315,51 @@ def _downslope_in_los(terrain: dict, los: dict | None) -> dict[str, Any]:
     return {
         "downslope_seen_in_los": round(share, 2),
         "downslope_note": "Share of a downslope movement seen along the line of "
-        "sight (1 = all of it, towards the satellite; negative = seen as motion "
-        "away), with the cube's look direction.",
+        "sight (1 = all of it, as motion towards the satellite; negative = away), "
+        "with the cube's look direction. The sign of the values themselves is "
+        "in server_info's measurement.",
     }
+
+
+def _measurement_summary(all_layers: dict[str, dict]) -> dict[str, Any]:
+    """Summarise what the cube's values measure, from ``/datasets`` per layer.
+
+    The displacement layer's (else the first measured layer's), with the other
+    layers that measure the same and, under ``differs_in``, those that do not
+    (a cube can hold line-of-sight and vertical layers).
+    """
+    measured = {
+        n: i["measurement"] for n, i in all_layers.items() if i.get("measurement")
+    }
+    if not measured:
+        return {
+            "layer": None,
+            "kind": "unknown",
+            "summary": "No layer of this cube is recorded as measuring motion, so "
+            "what its values measure, their sign and sensitivity are unknown.",
+        }
+    main = "displacement" if "displacement" in measured else next(iter(measured))
+    first = measured[main]
+
+    def same(m: dict) -> bool:
+        return (m.get("kind"), m.get("positive_direction")) == (
+            first.get("kind"),
+            first.get("positive_direction"),
+        )
+
+    out: dict[str, Any] = {
+        "layer": main,
+        **first,
+        "same_for": [n for n, m in measured.items() if n != main and same(m)],
+    }
+    differ = {
+        n: {k: m.get(k) for k in ("kind", "positive_direction", "summary")}
+        for n, m in measured.items()
+        if not same(m)
+    }
+    if differ:
+        out["differs_in"] = differ
+    return out
 
 
 class PointIn(BaseModel):
@@ -776,18 +830,27 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
 
         Returns the page title, the server kind (full or lite), the data mode
         (md = GeoZarr cube, cog = GeoTIFF stack), whether polygon statistics and
-        GeoTIFF export work, and the catalog of datasets when the server has one
-        (pass an id as `dataset` to the other tools). Call this first.
+        GeoTIFF export work, the catalog of datasets when the server has one
+        (pass an id as `dataset` to the other tools), and `measurement`: what
+        the values measure (line of sight, vertical...), their sign, which
+        directions of motion they are sensitive to and half the radar
+        wavelength, from the cube's metadata (unknown when it does not say).
+        Call this first.
         """
         config = await api.get("/config", dataset=dataset)
         mode = await api.get("/mode", dataset=dataset)
         catalog = await api.get("/catalog")
+        try:
+            measurement = _measurement_summary(await layers(dataset))
+        except BowserError as e:
+            measurement = {"kind": "unknown", "summary": f"Not read: {e}"}
         full = bool(config.get("geotiff_export"))
         unsupported = [
             name
             for name, ok in (
                 ("polygon_statistics", config.get("polygon_stats")),
                 ("export_geotiff", config.get("geotiff_export")),
+                ("convert_to_cog", config.get("geotiff_export")),
             )
             if not ok
         ]
@@ -803,6 +866,7 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
                 {k: e.get(k) for k in ("id", "name", "bbox", "description")}
                 for e in catalog.get("datasets", [])
             ],
+            "measurement": measurement,
             "note": "Without a catalog, the server serves one cube; omit `dataset`."
             if not catalog.get("datasets")
             else "Pass a catalog id as `dataset` to the other tools.",
@@ -814,9 +878,11 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
 
         For each layer: label, unit (as stored, and the unit the tools report),
         number of dates with the first and last, whether it is a displacement-like
-        layer re-referenced to a point (`relative_to_reference_point`), and the
-        producer's description. Also the cube's area (west, south, east, north),
-        reference point, reference date and radar look geometry.
+        layer re-referenced to a point (`relative_to_reference_point`), the
+        producer's description and, for layers of motion, what they measure
+        (`measures`; details in server_info's measurement). Also the cube's area
+        (west, south, east, north), reference point, reference date and radar
+        look geometry.
         """
         all_layers = await layers(dataset)
         out: dict[str, Any] = {"layers": {}}
@@ -833,6 +899,11 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
                 "relative_to_reference_point": bool(info.get("uses_spatial_ref")),
                 "description": info.get("description"),
             }
+            if m := info.get("measurement"):
+                sign = m.get("positive_direction")
+                entry["measures"] = m.get("kind", "unknown").replace("_", " ") + (
+                    f", positive {sign}" if sign else ", sign not recorded"
+                )
             if labels:
                 entry["first_date"], entry["last_date"] = labels[0], labels[-1]
             if info.get("uses_spatial_ref"):
@@ -2090,9 +2161,10 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
             if m.get("los_enu_ground_to_sat"):
                 los = m["los_enu_ground_to_sat"]
                 break
+        kind = _measurement_summary(all_layers).get("kind", "unknown")
         for f in factors:
             if f.get("factor") == "terrain" and f.get("slope_deg") is not None:
-                f.update(_downslope_in_los(f, los))
+                f.update(_downslope_in_los(f, los, kind))
         factors.append(await _quality_at(all_layers, lon, lat, dataset))
         try:
             infra = await api.post(
@@ -2636,6 +2708,8 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
         """
         return await on_page("run_command", id=id, args=args)
 
+    # --- tools: the user's files: GNSS series, rasters to COG (bowser.file_tools) ---
+    register_file_tools(tool, api)
     # --- tools: the page's time-series chart (bowser.chart_tools) ---------------------
     register_chart_tools(page_tool, on_page)
 

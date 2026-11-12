@@ -10,6 +10,9 @@
  * Signing in (POST /assistant/signin) replaces the key with an account: ChatGPT
  * (OAuth; the tokens stay on the server) or Claude, whose own Claude Code answers
  * through the server and asks the page before it runs a tool (`permission`).
+ * Where Claude Code cannot open a browser (Bowser on a remote computer), the
+ * page opens Claude Code's sign-in page and passes back the code it shows
+ * (POST /assistant/signin/code).
  */
 
 export interface ProviderInfo {
@@ -45,6 +48,12 @@ export interface SignInMethod {
   usage_url: string | null;
   model: string;
   models: string[];
+  /** The page opens the sign-in page itself (a tab opened on the click); else the agent's program opens the browser. */
+  page_opens?: boolean;
+  /** While pending: the agent's own sign-in page, for the page to open. */
+  sign_in_url?: string | null;
+  /** While pending: the agent waits for the code its sign-in page shows. */
+  code?: boolean;
 }
 
 export interface SignInStatus {
@@ -155,6 +164,15 @@ export async function signIn(method: string, consent = false): Promise<Assistant
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ method, ...(consent ? { consent: true } : {}) }),
+  }));
+}
+
+/** Pass the code the agent's sign-in page showed to the agent (the server writes it to the program, once). */
+export async function sendSignInCode(method: string, code: string): Promise<AssistantStatus> {
+  return json(await fetch('/assistant/signin/code', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ method, code }),
   }));
 }
 

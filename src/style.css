@@ -1670,6 +1670,13 @@ img.huechange { filter: hue-rotate(120deg); }
   cursor: pointer;
 }
 
+/* A station from a file can have a longer name than UNR's four characters. */
+.gnss-item strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .gnss-item:hover {
   background: var(--sb-surface2);
 }
@@ -2731,8 +2738,13 @@ img.huechange { filter: hue-rotate(120deg); }
 }
 
 .hist-btn.ai-signin-btn {
-  width: 100%;
+  flex: 1;
   font-weight: 600;
+}
+
+.ai-signin .ai-row > .sidebar-select {
+  flex: 1;
+  min-width: 0;
 }
 
 .ai-in-use {

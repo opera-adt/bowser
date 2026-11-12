@@ -339,6 +339,10 @@ async def _method_status(m: signin.Method, store: KeyStore) -> dict[str, Any]:
         "usage_url": None,
         "model": "",
         "models": [],
+        # Whether the page opens the sign-in page (a tab opened on the click).
+        "page_opens": m.oauth is not None or not signin.browser_here(),
+        "sign_in_url": None,
+        "code": False,
     }
     if m.oauth is not None:
         entry["usage_url"] = m.oauth.usage_url or None
@@ -365,6 +369,12 @@ async def _method_status(m: signin.Method, store: KeyStore) -> dict[str, Any]:
     login = signin.login_state(m)
     if login is not None and login.running and not login.error:
         entry["state"] = "pending"
+        entry["page_opens"] = login.page
+        if login.page and login.url:
+            # The program's page (checked to be the provider's site) and that it
+            # waits for the code the page shows.
+            entry["sign_in_url"] = login.url
+            entry["code"] = not login.code_sent
         return entry
     state = await signin.agent_state(m, fresh=login is not None)
     if login is not None:
@@ -1317,8 +1327,47 @@ async def assistant_sign_in(
                 await asyncio.to_thread(signin.start_login, m)
             except (OSError, signin.SignInError) as e:
                 raise HTTPException(status_code=500, detail=str(e)) from e
+            # Where the program cannot open a browser, the page opens its page:
+            # wait (off the event loop) for the link it prints.
+            url = await asyncio.to_thread(signin.wait_for_page, m)
     local = await asyncio.to_thread(_ollama_state, settings, ollama, False)
     return {**(await _full_status(settings, request, local)), "sign_in_url": url}
+
+
+class SignInCodeBody(BaseModel):
+    """``POST /assistant/signin/code``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    method: str = Field(description="Sign-in id, e.g. claude.")
+    code: str = Field(description="The code the sign-in page showed.")
+
+
+@router.post(
+    "/assistant/signin/code",
+    responses={200: {"model": api.AssistantStatus}},
+    **api.route_doc("POST /assistant/signin/code"),
+)
+async def assistant_sign_in_code(
+    request: Request,
+    body: SignInCodeBody,
+    settings: Any = Depends(get_settings),
+    ollama: Ollama = Depends(get_ollama),
+):
+    """Pass the code from the sign-in page to the agent program waiting for it."""
+    _require_sign_in(settings, request)
+    m = _method(body.method)
+    if m.kind != "local_agent":
+        raise HTTPException(status_code=400, detail=f"{m.label} takes no code.")
+    try:
+        # Written to the program's input only; not kept or logged.
+        await asyncio.to_thread(signin.send_code, m, body.code)
+    except signin.SignInError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from None
+    finally:
+        body.code = ""
+    local = await asyncio.to_thread(_ollama_state, settings, ollama, False)
+    return await _full_status(settings, request, local)
 
 
 @router.delete(

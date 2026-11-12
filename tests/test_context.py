@@ -935,3 +935,15 @@ def test_site_context_tool_adds_quality_slope_in_los_and_nearby_infrastructure(s
     assert f["infrastructure"]["status"] == "unavailable"
     assert f["geology"]["finding"].startswith("Could not be looked up")
     assert f["quality"]["status"] == "flagged"  # phase similarity 0.41: low
+
+
+def test_downslope_share_needs_a_line_of_sight_measurement():
+    """A vertical cube is not projected on a look vector it does not measure along."""
+    from bowser.tools import _downslope_in_los  # noqa: PLC0415
+
+    terrain = {"slope_deg": 20.0, "aspect_deg": 270.0}
+    los = {"east": -0.59, "north": -0.1, "up": 0.8}
+    assert _downslope_in_los(terrain, los, "line_of_sight")["downslope_seen_in_los"]
+    vertical = _downslope_in_los(terrain, los, "vertical")
+    assert vertical["downslope_seen_in_los"] is None
+    assert "vertical motion" in vertical["downslope_note"]

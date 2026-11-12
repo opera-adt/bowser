@@ -7,7 +7,7 @@
 import type { AppAction, AppState, Overlay, OverlayFeatures } from '../types';
 import { CONTEXT_LAYERS, contextOverlay, LAND_COVER_YEARS, landCoverOverlay, type ContextKey } from './contextLayers';
 import { geologyOverlay, soilsOverlay } from './services';
-import { GNSS_LAYER_ID, type GnssStation } from './gnss';
+import { GNSS_CUSTOM_LAYER_ID, GNSS_LAYER_ID, type CustomGnssStation, type GnssStation } from './gnss';
 import { featureBounds } from './fileParsers';
 
 export interface ServiceEnv {
@@ -54,6 +54,24 @@ export function gnssOverlay(list: GnssStation[]): Overlay {
       type: 'Feature', geometry: { type: 'Point', coordinates: [s.lon, s.lat] }, properties: { ...s },
     })) },
     attribution: 'GNSS: Nevada Geodetic Laboratory (UNR), MIDAS velocities, NA fixed',
+  };
+}
+
+/** The stations read from the user's files: amber squares, so they stand apart from UNR's. */
+export function customGnssOverlay(list: CustomGnssStation[]): Overlay {
+  return {
+    id: GNSS_CUSTOM_LAYER_ID, name: 'GNSS stations (your files)', type: 'vector', visible: true, opacity: 1, aboveData: true,
+    color: '#f59e0b', pointRadius: 6, lineWidth: 1, marker: 'square',
+    data: { type: 'FeatureCollection', features: list.map(s => ({
+      type: 'Feature', geometry: { type: 'Point', coordinates: [s.lon, s.lat] },
+      // Only the scalars: MapLibre hands lists back as JSON text.
+      properties: {
+        id: s.id, name: s.name, custom: true, lon: s.lon, lat: s.lat, first: s.first, last: s.last,
+        ve_mm_yr: s.ve_mm_yr, vn_mm_yr: s.vn_mm_yr, vu_mm_yr: s.vu_mm_yr, sigma_vu_mm_yr: s.sigma_vu_mm_yr,
+        rows: s.rows, source: s.source,
+      },
+    })) },
+    attribution: 'GNSS: your files (rates are a straight-line fit)',
   };
 }
 
