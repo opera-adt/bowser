@@ -3,7 +3,10 @@
 - :func:`bowser.lite.polygon.rasterize` selects pixel centres inside the polygon
   (holes out, parts together), with GDAL's rule for centres exactly on an edge;
 - :func:`bowser.lite.polygon.is_valid` accepts and rejects what shapely does;
-- both agree with rasterio and shapely on random polygons (when installed);
+- both agree with rasterio and shapely on random polygons (when installed),
+  except that a centre exactly on an edge may differ from rasterio: GDAL decides
+  those differently on arm64 macOS, lite the same way everywhere (pinned here
+  by hand-computed masks);
 - :func:`bowser.lite.polygon.summarize_cube` reads only the polygon's window,
   whatever the stored axis order or time chunking.
 
@@ -135,6 +138,61 @@ def test_many_vertices_are_checked_quickly():
     assert time.perf_counter() - t0 < 2.0
 
 
+def _centres_on_an_edge(
+    polygons: list[list[np.ndarray]],
+    transform,
+    shape: tuple[int, int],
+    eps: float = 1e-6,
+) -> np.ndarray:
+    """Pixels whose centre is within ``eps`` pixels of one of the rings' segments."""
+    height, width = shape
+    cx, cy = np.meshgrid(np.arange(width) + 0.5, np.arange(height) + 0.5)
+    near = np.zeros(shape, dtype=bool)
+    for polygon in polygons:
+        for ring in polygon:
+            px, py = ~transform * (ring[:, 0], ring[:, 1])
+            for x1, y1, x2, y2 in zip(px[:-1], py[:-1], px[1:], py[1:]):
+                dx, dy = x2 - x1, y2 - y1
+                length2 = dx * dx + dy * dy
+                if length2 == 0:
+                    continue
+                t = np.clip(((cx - x1) * dx + (cy - y1) * dy) / length2, 0, 1)
+                near |= np.hypot(cx - (x1 + t * dx), cy - (y1 + t * dy)) <= eps
+    return near
+
+
+@pytest.mark.parametrize(
+    ("x0", "y0", "dx", "nx", "ny"),
+    [
+        (436950.0, 3758490.0, 30.0, 48, 48),
+        (71970.0, 3385920.0, 90.0, 40, 30),
+        (-117.5, 34.2, 0.001, 80, 64),
+    ],
+)
+def test_ties_on_georeferenced_grids_have_one_answer(x0, y0, dx, nx, ny):
+    """Edges through pixel centres on real grids: lite's rule, on any platform.
+
+    The expected masks are written by hand from the rule (rows on a horizontal
+    edge in, a left edge out, a right edge in), not taken from GDAL, whose
+    answer for these depends on the platform it was built for.
+    """
+
+    def burn(c0: float, r0: float, c1: float, r1: float) -> np.ndarray:
+        corners = [(c0, r0), (c1, r0), (c1, r1), (c0, r1), (c0, r0)]
+        ring = np.array([(x0 + dx * c, y0 - dx * r) for c, r in corners])
+        return lp.rasterize([[ring]], (ny, nx), (x0, y0), (dx, -dx))
+
+    want = np.zeros((ny, nx), dtype=bool)
+    want[0:4, :] = True  # the lower edge runs through the centres of row 3
+    assert np.array_equal(burn(0, 0, nx, 3.5), want)
+    want[:] = False
+    want[5:, nx - 2 :] = True  # the left edge through column nx - 3
+    assert np.array_equal(burn(nx - 2.5, 5, nx, ny), want)
+    want[:] = False
+    want[5:13, 6:16] = True  # centres 5.5..12.5 down, 6.5..15.5 across
+    assert np.array_equal(burn(5.5, 5.5, 15.5, 12.5), want)
+
+
 def test_random_polygons_match_rasterio_and_shapely():
     features = pytest.importorskip("rasterio.features")
     geometry = pytest.importorskip("shapely.geometry")
@@ -158,7 +216,7 @@ def test_random_polygons_match_rasterio_and_shapely():
         xy = np.column_stack(transform * (px, py))
         return np.vstack([xy, xy[:1]])
 
-    compared = rejected = 0
+    compared = rejected = tied = 0
     for k in range(1500):
         snap = bool(k % 2)
         kind = k % 4
@@ -195,9 +253,16 @@ def test_random_polygons_match_rasterio_and_shapely():
             (transform.c, transform.f),
             (transform.a, transform.e),
         )
-        assert np.array_equal(got, want), geojson
+        # GDAL and lite may differ only where a centre is on an edge: GDAL
+        # decides those ties differently on arm64 macOS than on Linux x86-64.
+        differ = got != want
+        ties = _centres_on_an_edge(polygons, transform, (height, width))
+        assert not (differ & ~ties).any(), geojson
+        assert snap or not differ.any(), geojson  # random vertices: no ties
         compared += 1
+        tied += int(ties.any())
     assert compared > 500 and rejected > 100
+    assert tied > 50, "the snapped polygons no longer put centres on edges"
 
 
 # --- the statistics of a cube ------------------------------------------------------
