@@ -92,9 +92,12 @@ export interface WorkerLike {
 
 interface Slot { worker: WorkerLike; pending: Map<number, { resolve: (v: never) => void; reject: (e: Error) => void }> }
 
-/** Workers to start: one less than the cores, at most 2 (decoding is short; the network is the limit). */
+/**
+ * Workers to start: one less than the cores, at most 4. A worker decodes one chunk at a
+ * time, so a view's chunks arriving together decode up to 4 at once.
+ */
 export function poolSize(cores: number | undefined): number {
-  return Math.max(1, Math.min(2, (cores ?? 2) - 1));
+  return Math.max(1, Math.min(4, (cores ?? 2) - 1));
 }
 
 export class DecoderPool {

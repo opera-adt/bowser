@@ -151,11 +151,12 @@ describe('DecoderPool (the page side)', () => {
     expect(broken).not.toHaveBeenCalled();
   });
 
-  it('starts one worker less than the cores, 1 to 2', () => {
+  it('starts one worker less than the cores, 1 to 4', () => {
     expect(poolSize(undefined)).toBe(1);
     expect(poolSize(1)).toBe(1);
     expect(poolSize(3)).toBe(2);
-    expect(poolSize(16)).toBe(2);
+    expect(poolSize(5)).toBe(4);
+    expect(poolSize(16)).toBe(4);
   });
 });
 

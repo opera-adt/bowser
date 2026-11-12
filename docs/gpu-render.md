@@ -64,8 +64,8 @@ more by the map; the value drawn at a cube pixel is the same.
 
 ## How chunks are read and kept
 
-- **Off the main thread.** One or two Web Workers (one less than the
-  processor's cores, at most two) fetch each chunk from `/zarr/`, decompress
+- **Off the main thread.** Up to four Web Workers (one less than the
+  processor's cores, at most four) fetch each chunk from `/zarr/`, decompress
   it, apply the CF decoding and, where allowed, round it to float16. The
   finished buffer is handed to the page without a copy, and the page only
   uploads it to the GPU (at most four chunks per frame). The decompressor a

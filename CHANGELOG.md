@@ -195,7 +195,7 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   GPU code loads only when chosen (about 4 kB more in the default bundle). See
   [docs/gpu-render.md](docs/gpu-render.md).
 - GPU rendering (still experimental, `?render=gpu|auto`): chunks are fetched
-  and decompressed in one or two Web Workers, so the page's main thread only
+  and decompressed in up to four Web Workers, so the page's main thread only
   uploads them (in a headless test on a 269-date frame, main-thread time while
   stepping through the dates fell by 30–60%, depending on how many chunks each
   step needs). Displacement is kept on the GPU as 16-bit floats where that rounds
