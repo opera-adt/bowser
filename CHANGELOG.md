@@ -256,6 +256,10 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Data tiles (`/md/tiles`, `/cog/tiles`, and bowser-lite's) are sent with
+  `Cache-Control: private, max-age=600`, like the cube's zarr files, so going
+  back to a date or view already seen is drawn from the browser's cache
+  instead of rendered again. The tilers' metadata routes are not cached.
 - `GET /datasets` on the full server is built once per opened cube instead of
   on every request (560 ms to 8 ms for a 419-date DISP-S1 cube): it reprojected
   a subsampled layer for the lon/lat bounds each time.

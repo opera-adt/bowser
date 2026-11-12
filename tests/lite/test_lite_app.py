@@ -231,6 +231,10 @@ y = int((1 - math.asinh(math.tan(math.radians(lat))) / math.pi) / 2 * 2**z)
 url = tj["tiles"][0].split("testserver")[1].format(z=z, x=x, y=y)
 r = c.get(url)
 assert r.status_code == 200 and r.headers["content-type"] == "image/png", r.text
+# The browser may keep a tile (its URL names all it is drawn from), not the metadata.
+assert r.headers["cache-control"] == "private, max-age=600"
+meta = c.get("/md/WebMercatorQuad/tilejson.json", params=base)
+assert "cache-control" not in meta.headers
 for suffix in (".png", "@2x.png", "@2x"):
     r = c.get(f"/md/tiles/WebMercatorQuad/{z}/{x}/{y}{suffix}", params=base)
     assert r.status_code == 200, (suffix, r.text)
