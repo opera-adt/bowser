@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { encodeHalf, HALF_TOLERANCE_M, halfTolerance, halfToFloat, toHalfBits } from './half';
+import { encodeHalf, HALF_TOLERANCE_M, halfErrorBound, halfTolerance, halfToFloat, toHalfBits } from './half';
 
 describe('float16 rounding (as numpy astype(float16))', () => {
   it('rounds known values to nearest, ties to even', () => {
@@ -72,5 +72,39 @@ describe('when a chunk is uploaded as float16', () => {
     expect(encodeHalf(new Float32Array([0.01, 1e6]), HALF_TOLERANCE_M, undefined)).toBeNull();   // overflow
     expect(encodeHalf(new Float32Array([0.01, Infinity]), HALF_TOLERANCE_M, undefined)).toBeNull();
     expect(encodeHalf(new Float32Array([0.5 + 2 ** -12]), 1e-3, undefined)).not.toBeNull();
+  });
+});
+
+describe('the float16 error bound from the largest value', () => {
+  it('is half the float16 spacing at the largest value', () => {
+    expect(halfErrorBound(0)).toBe(2 ** -25);
+    expect(halfErrorBound(2 ** -15)).toBe(2 ** -25);   // subnormal
+    expect(halfErrorBound(0.2499)).toBe(2 ** -14);
+    expect(halfErrorBound(0.25)).toBe(2 ** -13);
+    expect(halfErrorBound(1)).toBe(2 ** -11);
+    expect(halfErrorBound(65519)).toBe(16);
+    expect(halfErrorBound(65520)).toBe(Infinity);
+    expect(halfErrorBound(Infinity)).toBe(Infinity);
+  });
+
+  it('bounds every value\'s rounding error, so the per-value check can be skipped', () => {
+    const bad: number[] = [];
+    for (let k = 0; k < 20000; k++) {
+      const v = Math.fround((Math.random() - 0.5) * 2 ** (Math.random() * 40 - 24));
+      if (Math.abs(halfToFloat(toHalfBits(v)) - v) > halfErrorBound(Math.abs(v))) bad.push(v);
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('gives the same float16 values with or without the per-value check', () => {
+    const v = new Float32Array(5000).map(() => (Math.random() - 0.5) * 0.4);
+    v[7] = NaN;
+    const fast = encodeHalf(v, HALF_TOLERANCE_M, undefined)!;   // |v| < 0.25: bound 2^-14 <= 0.1 mm, no check
+    const w = v.slice();
+    w[0] = 0.375;                                               // exact in float16, but bound 2^-13 > 0.1 mm
+    const checked = encodeHalf(w, HALF_TOLERANCE_M, undefined)!;
+    expect(Array.from(fast.data.subarray(1))).toEqual(Array.from(checked.data.subarray(1)));
+    expect(fast.maxError).toBe(2 ** -14);
+    expect(checked.maxError).toBeLessThanOrEqual(2 ** -14);
   });
 });

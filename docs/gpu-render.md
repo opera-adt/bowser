@@ -75,8 +75,10 @@ more by the map; the value drawn at a cube pixel is the same.
   kept as 16-bit floats (half the GPU memory of 32-bit ones) when every value
   of the chunk rounds to float16 within **0.1 mm**. A float16 value keeps 11
   significant bits, so that holds for chunks whose values stay within
-  ±0.25 m; chunks with larger values stay 32-bit. 0.1 mm is 50 times below
-  OPERA DISP-S1's 5 mm accuracy requirement and below one colour step for
+  ±0.25 m (then the largest value alone proves it, and the values aren't
+  checked one by one); chunks with larger values are checked, and stay 32-bit
+  when one rounds by more. 0.1 mm is 50 times below OPERA DISP-S1's 5 mm
+  accuracy requirement and below one colour step for
   any colour range wider than ±13 mm (±26 mm with a reference date, which
   subtracts two rounded values). Masks (coherence, similarity, ...) and
   layers in other units always stay 32-bit, so a threshold compares exactly

@@ -88,19 +88,43 @@ export function halfToFloat(h: number): number {
 
 export interface HalfChunk {
   data: Uint16Array;
-  /** Largest |float16 - float32| over the finite values. */
+  /**
+   * Largest |float16 - float32| over the finite values, or an upper bound of it
+   * (half the float16 spacing at the largest value) when that bound alone is within
+   * the tolerance.
+   */
   maxError: number;
 }
 
 type Float16Ctor = new (src: ArrayLike<number>) => ArrayLike<number> & { buffer: ArrayBufferLike };
 
 /**
+ * The largest float16 rounding error of any value with ``|v| <= maxAbs``: half the
+ * float16 spacing there (2^-25 among the subnormals), or Infinity when such a value
+ * can round to Inf.
+ */
+export function halfErrorBound(maxAbs: number): number {
+  if (!(maxAbs < 65520)) return Infinity;
+  if (maxAbs < 2 ** -14) return 2 ** -25;
+  f32[0] = maxAbs;                          // its binary exponent, exactly
+  return 2 ** (((u32[0] >>> 23) & 0xff) - 127 - 11);
+}
+
+/**
  * ``values`` as float16 when every value rounds within ``tolerance``, else null.
- * Uses the platform's Float16Array (the same rounding) when there is one.
+ * Uses the platform's Float16Array (the same rounding) when there is one. When the
+ * largest |value| alone guarantees the tolerance (any chunk within ±0.25 m for 0.1 mm),
+ * the values aren't checked one by one.
  */
 export function encodeHalf(values: Float32Array, tolerance: number,
   float16: Float16Ctor | undefined = (globalThis as { Float16Array?: Float16Ctor }).Float16Array): HalfChunk | null {
   const n = values.length;
+  let maxAbs = 0;
+  for (let i = 0; i < n; i++) {
+    const a = Math.abs(values[i]);
+    if (a > maxAbs) maxAbs = a;             // NaN compares false: skipped; Inf: kept
+  }
+  const bound = halfErrorBound(maxAbs);
   let data: Uint16Array;
   if (float16) {
     data = new Uint16Array(new float16(values).buffer as ArrayBuffer, 0, n);
@@ -108,6 +132,7 @@ export function encodeHalf(values: Float32Array, tolerance: number,
     data = new Uint16Array(n);
     for (let i = 0; i < n; i++) data[i] = toHalfBits(values[i]);
   }
+  if (bound <= tolerance) return { data, maxError: bound };
   let maxError = 0;
   for (let i = 0; i < n; i++) {
     const v = values[i];
