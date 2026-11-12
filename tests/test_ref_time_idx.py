@@ -112,6 +112,12 @@ tj = c.get("/md/WebMercatorQuad/tilejson.json",
            params={**base, "time_idx": 5, "ref_time_idx": 2})
 assert tj.status_code == 200, tj.text
 assert "ref_time_idx=2" in tj.json()["tiles"][0], tj.json()["tiles"][0]
+# The browser may keep a tile (its URL names all it is drawn from), not the metadata.
+assert "cache-control" not in tj.headers
+kept = c.get(
+    f"/md/tiles/WebMercatorQuad/{z}/{x}/{y}.png", params={**base, "time_idx": 5}
+)
+assert kept.headers["cache-control"] == "private, max-age=600", dict(kept.headers)
 
 
 def tile(**params):

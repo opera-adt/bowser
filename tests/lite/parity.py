@@ -355,3 +355,116 @@ def real_cube_requests(bounds: list[float], zooms=range(10, 16)) -> list[dict]:
                     }
                 )
     return specs
+
+
+def polygon_bodies(
+    variable: str, x0: float, y0: float, dx: float, nx: int, ny: int, epsg: int
+) -> dict[str, dict]:
+    """``POST /polygon_timeseries`` bodies covering a north-up grid's cases.
+
+    The grid has ``nx`` x ``ny`` cells of ``dx`` from the corner ``(x0, y0)`` in
+    ``EPSG:epsg``; shapes are given in cell units and sent in lon/lat. Convex,
+    concave, with a hole, two parts (one with a hole), partly and wholly
+    outside, larger than the grid, inside one cell (with and without its
+    centre), over the grid's edges, and one that crosses itself. None of these
+    has a cell centre on an edge when the cells are the grid's pixels.
+
+    The ``tie_*`` shapes do: edges through cell centres or along the grid's own
+    edges (:func:`polygon_ties`). Which side such a centre falls on depends on
+    the last bit of the arithmetic, and GDAL's differs between platforms.
+    """
+    from pyproj import Transformer
+
+    back = Transformer.from_crs(epsg, 4326, always_xy=True)
+
+    def ring(points: list[tuple[float, float]]) -> list[list[float]]:
+        pts = [list(back.transform(x0 + dx * c, y0 - dx * r)) for c, r in points]
+        return pts + pts[:1]
+
+    def poly(*rings: list[tuple[float, float]]) -> dict:
+        return {"type": "Polygon", "coordinates": [ring(r) for r in rings]}
+
+    cx, cy = nx / 2, ny / 2
+    star = [
+        (
+            cx + (0.4 if k % 2 else 0.15) * min(nx, ny) * math.cos(k * math.pi / 7),
+            cy + (0.4 if k % 2 else 0.15) * min(nx, ny) * math.sin(k * math.pi / 7),
+        )
+        for k in range(14)
+    ]
+    shapes = {
+        "convex": poly(
+            [(cx - 9.3, cy - 7.1), (cx + 8.7, cy - 5.2), (cx + 11.2, cy + 6.4)]
+            + [(cx - 4.4, cy + 9.9)]
+        ),
+        "concave": poly(star),
+        "hole": poly(
+            [(4.2, 4.3), (nx - 5.1, 5.2), (nx - 4.4, ny - 6.3), (5.5, ny - 4.1)],
+            [(cx - 6.2, cy - 5.1), (cx - 5.7, cy + 6.3), (cx + 7.1, cy + 5.8)]
+            + [(cx + 6.6, cy - 6.4)],
+        ),
+        "multi": {
+            "type": "MultiPolygon",
+            "coordinates": [
+                [ring([(3.1, 3.2), (12.7, 4.1), (11.2, 13.6), (2.4, 11.9)])],
+                [
+                    ring(
+                        [(cx + 3.3, cy + 2.2), (nx - 3.6, cy + 4.9)]
+                        + [(nx - 6.1, ny - 2.7), (cx + 1.2, ny - 4.4)]
+                    ),
+                    ring(
+                        [(cx + 6.3, cy + 6.2), (cx + 9.6, cy + 6.9)]
+                        + [(cx + 8.1, cy + 10.7)]
+                    ),
+                ],
+            ],
+        },
+        "partly_outside": poly(
+            [(-7.5, -3.3), (9.4, 2.2), (6.1, ny + 8.8), (-11.2, ny / 2)]
+        ),
+        "covers_all": poly([(-3, -3), (nx + 3, -3), (nx + 3, ny + 3), (-3, ny + 3)]),
+        "tiny_hit": poly(
+            [(cx + 0.3, cy + 0.3), (cx + 0.7, cy + 0.35), (cx + 0.6, cy + 0.72)]
+            + [(cx + 0.31, cy + 0.66)]
+        ),
+        "tiny_miss": poly(
+            [(cx + 0.05, cy + 0.05), (cx + 0.3, cy + 0.07), (cx + 0.2, cy + 0.3)]
+        ),
+        "edge": poly([(-0.4, -0.4), (nx + 0.4, -0.4), (nx + 0.4, 3.3), (-0.4, 3.3)]),
+        "edge_right": poly(
+            [(nx - 2.3, 5.2), (nx + 0.6, 5.2), (nx + 0.6, ny + 0.7)]
+            + [(nx - 2.3, ny + 0.7)]
+        ),
+        # Ties: edges through cell centres and along the grid's own edges.
+        "tie_edge": poly([(0, 0), (nx, 0), (nx, 3.5), (0, 3.5)]),
+        "tie_right": poly([(nx - 2.5, 5), (nx, 5), (nx, ny), (nx - 2.5, ny)]),
+        "tie_centres": poly([(5.5, 5.5), (15.5, 5.5), (15.5, 12.5), (5.5, 12.5)]),
+        "outside": poly([(nx + 5, 2), (nx + 9, 2), (nx + 9, 7), (nx + 5, 7)]),
+        "bowtie": poly([(5, 5), (15, 15), (15, 5), (5, 15)]),
+    }
+    bodies = {k: {"variable": variable, "geometry": g} for k, g in shapes.items()}
+    bodies["per_date"] = {
+        **bodies["hole"],
+        "support": "per_date",
+        "percentiles": [5, 50, 97.5],
+    }
+    return bodies
+
+
+def polygon_ties(nx: int, ny: int) -> dict[str, tuple[int, int]]:
+    """Pixel counts of the ``tie_*`` shapes of :func:`polygon_bodies`.
+
+    ``{name: (certain, ties)}`` when the cells are the grid's pixels: the
+    pixels whose centre is strictly inside, and those whose centre is on an
+    edge. Any correct fill selects the certain ones and no pixel beyond the
+    ties.
+    """
+    return {
+        # Rows 0..2 are inside; the centres of row 3 are on the lower edge.
+        "tie_edge": (3 * nx, nx),
+        # The last two columns from row 5 down; the third-last is on the edge.
+        "tie_right": (2 * (ny - 5), ny - 5),
+        # Centres 6.5..14.5 x 6.5..11.5 inside; the frame of the 11 x 8 block
+        # of centres 5.5..15.5 x 5.5..12.5 is on the edges.
+        "tie_centres": (9 * 6, 11 * 8 - 9 * 6),
+    }

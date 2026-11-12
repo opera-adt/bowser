@@ -8,6 +8,22 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- GeoTIFF export in bowser-lite and the desktop app: `GET /export/geotiff`
+  (the Export button, the `export_geotiff` tool) now works without GDAL, with
+  the full server's parameters, masks, reference handling, provenance tags and
+  filename. The file is written by a small built-in writer (Deflate, tiled
+  past 512 pixels, BigTIFF past 4 GB) and holds the same values, type, nodata,
+  CRS and tags as the full server's when read with GDAL. `GET /config` reports
+  `geotiff_export: true`; a custom mask GeoTIFF is still refused (501). See
+  [docs/geotiff-export-provenance.md](docs/geotiff-export-provenance.md#bowser-lite).
+- Area statistics in bowser-lite and the desktop app: `POST
+  /polygon_timeseries` (the chart's "+ Area", the Stats tab, the
+  `polygon_statistics` tool) now works without GDAL, with the full server's
+  request, limits and response. The polygon is burned with numpy by GDAL's own
+  rule (pixel centres inside, holes out), so both servers select the same
+  pixels and return the same numbers; only the polygon's window is read, in a
+  worker thread. `GET /config` reports `polygon_stats: true`. See
+  [docs/polygon-statistics.md](docs/polygon-statistics.md#bowser-lite).
 - GNSS tab › *Load local GNSS file*: load station time series from your own CSV
   files (picked on your computer, or a server path with `BOWSER_ALLOW_OPEN`).
   Dates as ISO, YYYYMMDD, decimal year or MJD; east, north and up in m, mm or
@@ -245,6 +261,19 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   about 1 s per full-resolution tile on a DISP-S1 frame, and twice the layer
   in memory. The two steps are now subtracted on the tile's window (46 ms);
   the tiles are the same.
+- Data tiles (`/md/tiles`, `/cog/tiles`, and bowser-lite's) are sent with
+  `Cache-Control: private, max-age=600`, like the cube's zarr files, so going
+  back to a date or view already seen is drawn from the browser's cache
+  instead of rendered again. The tilers' metadata routes are not cached.
+- `GET /datasets` on the full server is built once per opened cube instead of
+  on every request (560 ms to 8 ms for a 419-date DISP-S1 cube): it reprojected
+  a subsampled layer for the lon/lat bounds each time.
+- Full-resolution tiles of a cube with stored histograms render about twice as
+  fast on the full server (135 ms to 65 ms for a 419-date DISP-S1 layer). The
+  layer's `bowser_histogram` attribute, about 1 MB for that many dates, was
+  deep-copied by rioxarray for every tile; the server now keeps it beside the
+  dataset. `GET /variables` no longer lists it among a layer's `attrs` (5 MB
+  of that response).
 - `GET /histogram` no longer holds the server up. Without a stored histogram
   it read the date at full resolution: on a DISP-S1 frame 5 s of CPU on the full
   server, on its event loop, so `/config` and `/datasets` waited up to 20 s

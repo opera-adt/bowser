@@ -10,7 +10,7 @@ map and its charts.
 from __future__ import annotations
 
 import warnings
-from typing import Literal, NamedTuple
+from typing import Any, Literal, NamedTuple
 
 import numpy as np
 import xarray as xr
@@ -170,6 +170,25 @@ def reference_median(pooled: np.ndarray) -> np.ndarray:
         return np.nanmedian(pooled, axis=1)
 
 
+class SourceGrid(NamedTuple):
+    """Georeferencing of a reference source, as its ``.rio`` accessor gives it.
+
+    Attributes
+    ----------
+    crs : Any
+        The source's CRS (anything pyproj reads), or None.
+    bounds : tuple of float
+        ``(left, bottom, right, top)`` of the pixel edges.
+    nodata : float or None
+        The value marking missing pixels in the decoded data.
+
+    """
+
+    crs: Any
+    bounds: tuple[float, float, float, float]
+    nodata: Any
+
+
 def reference_offset(
     source: xr.DataArray,
     lon: float,
@@ -177,6 +196,7 @@ def reference_offset(
     buffer_m: float = 0.0,
     *,
     point_method: PointMethod = "nearest",
+    grid: SourceGrid | None = None,
 ) -> tuple[float, dict[str, str]]:
     """Sample a point or circular median from an unmasked, 2-D source slice.
 
@@ -194,6 +214,9 @@ def reference_offset(
     point_method : {"nearest", "containing"}
         Match the viewer's native point reader: nearest coordinate for GeoZarr,
         containing raster pixel for GeoTIFFs. Only differs at pixel boundaries.
+    grid : SourceGrid, optional
+        CRS, bounds and nodata of ``source``. Read from its ``.rio`` accessor
+        when omitted; bowser-lite, which has no rioxarray, passes them.
 
     Returns
     -------
@@ -216,13 +239,15 @@ def reference_offset(
         raise ValueError("Reference buffer radius must be finite and non-negative")
     if source.ndim != 2 or set(source.dims) != {"y", "x"}:
         raise ValueError("Reference export requires a 2-D raster with x/y coordinates")
-    if source.rio.crs is None:
+    if grid is None:
+        grid = SourceGrid(source.rio.crs, source.rio.bounds(), source.rio.nodata)
+    if grid.crs is None:
         raise ValueError("Reference export requires a source CRS")
     if np.issubdtype(source.dtype, np.complexfloating):
         raise ValueError("Reference export requires real-valued data")
-    crs = CRS.from_user_input(source.rio.crs)
+    crs = CRS.from_user_input(grid.crs)
     cx, cy = Transformer.from_crs(4326, crs, always_xy=True).transform(lon, lat)
-    left, bottom, right, top = source.rio.bounds()
+    left, bottom, right, top = grid.bounds
     if not (
         np.isfinite(cx)
         and np.isfinite(cy)
@@ -246,7 +271,7 @@ def reference_offset(
     assert selected is not None  # only the viewer's margin window can miss
     values = np.asarray(selected.values, dtype=float)
     valid = selected.inside & np.isfinite(values)
-    nodata = source.rio.nodata
+    nodata = grid.nodata
     if nodata is not None and np.isfinite(nodata):
         valid &= values != nodata
     n_valid = int(np.count_nonzero(valid))
