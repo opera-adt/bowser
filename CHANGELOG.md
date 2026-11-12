@@ -260,6 +260,24 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   takes) for the tiles in view, within 64 MB, instead of working it out again
   for every date, mask and colour scale. Stepping through dates: a 512 px tile
   73 ms to 38 ms, a 256 px tile 36 ms to 27 ms; the tiles are the same.
+- Tiles with an uploaded custom mask no longer warp the mask file to the whole
+  pyramid level for every tile: the warped mask is kept per file and level
+  (up to 256 MB). A full-resolution tile of a DISP-S1 cube with a custom mask
+  went from 836 ms to 196 ms; the tiles are the same.
+- Time series at a point are read without dask on the full server (`/point`,
+  `/chart_point`, `/multi_point`, `/trend_analysis`), as bowser-lite reads
+  them. For a 419-date DISP-S1 cube: one series 149 ms to 54 ms, five points
+  and a reference 890 ms to 341 ms, the same with a layer mask 2.1 s to
+  0.3 s (the mask is now applied to the pixel, not to the layer). Same values.
+- The first request for a catalog entry (`?dataset=`) no longer holds up every
+  other request while its cube opens (seconds for a cube on S3, on the server's
+  event loop). Both servers open it in a worker thread, and once: a page
+  load's burst of first requests used to open the same cube several times.
+- `GET /deformation_zones` (and the Assistant's and MCP's zones tool) reads its
+  layers in bands of rows instead of all at once, on both servers. Fitting a
+  rate to a 419-date displacement stack over 800 x 600 pixels peaked at 5.2 GB
+  and now at 1.0 GB, however large the area; without a velocity layer and a
+  bbox it tried to hold the whole stack. The zones are the same.
 - bowser-lite: a tile shown relative to another date (`ref_time_idx`) read both
   whole layers before cutting the tile out, since its arrays are not dask's:
   about 1 s per full-resolution tile on a DISP-S1 frame, and twice the layer

@@ -28,6 +28,7 @@ from pyproj import CRS, Transformer
 
 from .. import polygon as _full
 from ..polygon import MAX_PIXEL_EPOCHS, MAX_WINDOW_PIXELS, NativeGrid
+from ..polygon_masks import xarray_masks
 
 #: Segment pairs tested per block by :func:`is_valid` (bounds its memory).
 _PAIR_BLOCK = 2_000_000
@@ -392,6 +393,8 @@ def summarize_cube(
     crs: CRS,
     request: _full.PolygonRequest,
     labels: list[str],
+    *,
+    mask_dataset: xr.Dataset | None = None,
 ) -> dict:
     """Summarize a level-zero GeoZarr variable inside the request's polygon.
 
@@ -433,8 +436,9 @@ def summarize_cube(
         x.size,
         y.size,
     )
+    masks = xarray_masks(source, mask_dataset, request, crs)
     (col_off, row_off, width, height), inside, clipped = selection(
-        grid, request.geometry, count
+        grid, request.geometry, masks.work(count)
     )
     cols = (
         slice(x.size - col_off - width, x.size - col_off)
@@ -464,6 +468,19 @@ def summarize_cube(
             # Keep the selected pixels only: ``(steps, n_inside)``.
             block.update(start=start, values=values.reshape(-1, height, width))
             block["values"] = block["values"][:, inside]
-        return _full._values(block["values"][index - start], source.attrs)
+        # Mask reads use the same canonical north-up window as the polygon.
+        # Apply before selecting polygon pixels, retaining the original read block.
+        values = _full._values(block["values"][index - start], source.attrs)
+        if not masks.readers:
+            return values
+        keep = masks.valid(
+            index,
+            slice(row_off, row_off + height),
+            slice(col_off, col_off + width),
+            (height, width),
+        )
+        return np.where(keep[inside], values, np.nan)
 
-    return _full._result(load, count, inside, clipped, grid, labels, units, request)
+    return masks.finish(
+        _full._result(load, count, inside, clipped, grid, labels, units, request)
+    )

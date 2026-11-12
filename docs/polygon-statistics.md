@@ -42,6 +42,9 @@ When the viewer's reference is on for the layer, the chart subtracts the same
 reference value per date that the map and the point series use, so areas and
 points can be compared ("relative to the reference" in the tooltip). The
 optional masks are not applied to areas; the chart says so when masks are on.
+The API now accepts explicit named layer masks, described below; forwarding the
+chart's mask controls and invalidating its cached area summaries is separate
+UI work. Merely enabling a map mask does not yet change an area chart.
 Bowser-lite has the same button and gives the same numbers (see
 [Bowser-lite](#bowser-lite)).
 
@@ -73,11 +76,46 @@ intersection), `common_pixels`, per-row counts, geometry, grid, labels, units,
 and scientific limitations. Source filenames and local directory paths are not
 included in the result. The result contains no implicit temporal zero datum.
 
-## Explicit initial scope
+## Explicit quality masks
+
+Add `layer_masks` to the JSON request to summarize only qualifying native
+pixels, for example:
+
+```json
+{"layer_masks": [{"dataset": "temporal_coherence", "threshold": 0.7, "mode": "min"}]}
+```
+
+The threshold is in the named layer's stored units. Up to ten masks are combined
+with AND, in addition to intrinsic source validity. GeoZarr (full and lite)
+supports inclusive `min` (`>=`) and `max` (`<=`). Direct GeoTIFF masks preserve
+the map reader's strict `min` (`>`) convention. GeoTIFF `max` is rejected until
+the map/export upper-bound support is repaired; it is never silently ignored.
+Mask nodata, undecoded fill sentinels and nonfinite values are always excluded,
+even when a sentinel would satisfy the threshold. A legitimate displacement of
+zero remains valid if it passes the masks.
+
+Static two-dimensional masks are reused at every date. Dynamic GeoZarr masks
+must have the exact same non-spatial dimension name and coordinate values as
+the selected variable. Dynamic GeoTIFF groups must match its configured labels
+and file count. All masks must match the exact native grid and CRS. Unknown
+layers, mismatched dates/grids, multiband masks and unsupported comparisons
+return 422. There is no date clamping, nearest-date matching, inferred ministack
+mapping, mask reprojection or automatic resampling. Use a suitable static
+quality summary when a dynamic mask has a different axis.
+
+Masks apply before `common` support is intersected across dates, or before each
+`per_date` summary. The reported `valid_per_date`, `common_pixels` and row counts
+describe the resulting support. An all-invalid mask gives zero counts and null
+statistics, without falling back to unmasked values. The response records the
+actual named layers, thresholds, comparison operators and temporal support in
+`masks`, and sets `optional_masks_applied` to true. Omitting masks or specifying
+an empty list preserves the original stored summary.
+
+## Reference and remaining scope
 
 This endpoint summarizes **stored values**. It does not apply a moved viewer
-reference, optional quality masks, or a connected-component screen. These
-limits are always present in the response:
+reference or a connected-component screen. With no explicit masks the response
+retains:
 
 ```json
 {"reference": "stored", "optional_masks_applied": false,
@@ -85,9 +123,11 @@ limits are always present in the response:
 ```
 
 It therefore does not claim to reproduce a dynamically referenced/masked map.
-Reference/mask fields are rejected as unsupported request arguments rather
-than silently ignored. Future chart wiring must preserve this distinction or
-add separately tested reference/mask support first. Disconnected offsets can be
+Reference coordinates, primary/configured mask options and external uploaded
+mask paths remain unsupported request fields and are rejected. The chart
+already subtracts its reference from stored summaries; no second reference
+subtraction is introduced here. Future chart mask wiring must send its options
+explicitly and invalidate old summaries when they change. Disconnected offsets can be
 ambiguous; component numbers are never assumed comparable between pairs or
 dates. Spatial spread is not measurement uncertainty, and an apparent history
 does not establish reference stability or ground motion.
@@ -103,7 +143,11 @@ unclosed rings and antimeridian-spanning polygons are rejected.
 
 To bound memory and work, requests allow at most 10,000 vertices, a bounding
 window of 2,000,000 native pixels, and 50,000,000 bounding-window pixel-epochs.
-These budgets are checked before reading raster values. Two spatially bounded
+The pixel-epoch budget includes the source plus each requested mask and is
+checked before reading raster values: a mask along the dates counts one frame
+per date, a static mask one frame, since its window is read once and kept.
+Masks along the dates are read in blocks of their time chunks (at most
+4,000,000 values per mask at a time). Two spatially bounded
 passes determine common support and then exact summaries, retaining one frame
 at a time. Percentiles use all eligible pixels rather than a sampled preview.
 The budget covers each pass; two passes can read the same source window twice.
@@ -154,6 +198,7 @@ through pixel centres) and compare the fill with rasterio on random polygons.
 Synthetic tests cover known summaries and support, stationary zero values,
 nodata and missing-value sentinels, holes, multiple polygon parts, reversed and
 transposed axes, clipping, absent data, mixed units/grids, unsupported fields,
-lazy GeoZarr chunk reads, windowed GeoTIFF reads, catalog isolation, actual
+lazy GeoZarr chunk reads, windowed GeoTIFF reads, explicit mask/date/grid support,
+agreement with actual masked GeoTIFF exports, catalog isolation, actual
 HTTP responses, lite dependency isolation and the equality of bowser-lite's
 answers with the full server's. They require no real data.

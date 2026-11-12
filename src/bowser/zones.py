@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import math
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -25,6 +26,9 @@ from pyproj import CRS, Transformer
 MAX_CELLS = 1_000_000
 #: Most values read for a fitted rate (dates x cells).
 MAX_FIT_VALUES = 60_000_000
+#: Most bytes read at a time, as float64: the layer is read in bands of rows
+#: and each band averaged into its blocks before the next is read.
+BAND_BYTES = 256 * 2**20
 #: Outlines are simplified to this fraction of a cell.
 SIMPLIFY_CELLS = 0.5
 #: Most vertices in one ring after simplification (the tolerance grows to fit).
@@ -157,6 +161,34 @@ def _block_mean(a: np.ndarray, k: int) -> np.ndarray:
         return np.where(n > 0, s / np.maximum(n, 1), np.nan)
 
 
+def _read_blocks(
+    part: Any,
+    k: int,
+    before: Callable[[np.ndarray], np.ndarray] | None = None,
+    after: Callable[[np.ndarray], np.ndarray] | None = None,
+) -> np.ndarray:
+    """Read ``part`` (..., y, x) and return the mean of its ``k`` x ``k`` blocks.
+
+    As ``_block_mean`` of all of it, but read in bands of whole blocks of rows,
+    so that memory holds one band (about ``BAND_BYTES``) and the result, not
+    the layer: a DISP-S1 displacement stack is tens of GB. ``before`` and
+    ``after`` reduce a band's leading axis before or after its blocks are
+    averaged (a median over dates, a rate fitted per cell).
+    """
+    ny = part.sizes["y"]
+    n_y = ny // k * k if k > 1 else ny
+    per_row = 8 * max(1, part.size // max(ny, 1))
+    rows = max(k, BAND_BYTES // per_row // k * k)
+    bands = []
+    for r in range(0, max(n_y, 1), rows):
+        a = np.asarray(part.isel(y=slice(r, min(r + rows, n_y))).values, dtype=float)
+        if before is not None:
+            a = before(a)
+        a = _block_mean(a, k)
+        bands.append(a if after is None else after(a))
+    return np.concatenate(bands, axis=-2)
+
+
 def _centres(c: np.ndarray, k: int) -> np.ndarray:
     n = len(c) // k * k
     return c[:n].reshape(-1, k).mean(axis=1) if k > 1 else c
@@ -199,19 +231,18 @@ def read_rate(
     )
     if dim is None:
         part = da.isel(y=rows, x=cols).transpose("y", "x")
-        values = _block_mean(np.asarray(part.values, dtype=float), k) * factor
+        values = _read_blocks(part, k) * factor
         source = f"the velocity layer {layer!r}"
     else:
         n_t = da.sizes[dim]
         if n_t < 2:
             raise ZonesError(f"{layer!r} has fewer than two dates to fit a rate.")
-        # Cap the values read: sample every k-th pixel (k grows for long series).
+        # Cap the values fitted: larger blocks for long series.
         while n_t * (len(y) // k) * (len(x) // k) > MAX_FIT_VALUES:
             k += 1
         part = da.isel(y=rows, x=cols).transpose(dim, "y", "x")
-        cube = _block_mean(np.asarray(part.values, dtype=float), k)
         t = _years(ds[dim].values if dim in ds.coords else np.arange(n_t))
-        values = fit_rate(cube, t) * factor
+        values = _read_blocks(part, k, after=lambda c: fit_rate(c, t)) * factor
         labels = [str(v)[:10] for v in np.asarray(ds[dim].values)[[0, -1]]]
         source = (
             f"a straight line fitted to {layer!r} at each pixel over {n_t} dates "
@@ -238,6 +269,11 @@ def fit_rate(cube: np.ndarray, t: np.ndarray) -> np.ndarray:
     return np.where((n >= 2) & (den > 0), slope, np.nan)
 
 
+def _median_over_dates(a: np.ndarray) -> np.ndarray:
+    with np.errstate(all="ignore"):
+        return np.nanmedian(a, axis=0)
+
+
 def read_quality(ds: Any, grid: Grid) -> tuple[np.ndarray, str] | None:
     """Return a coherence on the zones grid (same window and blocks), or None."""
     for name in COHERENCE_LAYERS:
@@ -250,13 +286,10 @@ def read_quality(ds: Any, grid: Grid) -> tuple[np.ndarray, str] | None:
             # A coherence per date: the median over at most 30 of its dates.
             step = max(1, math.ceil(da.sizes[dim] / 30))
             part = part.isel({dim: slice(0, None, step)}).transpose(dim, "y", "x")
-            with np.errstate(all="ignore"):
-                arr = np.nanmedian(np.asarray(part.values, dtype=float), axis=0)
-            label = f"the median of {name!r} over its dates"
-        else:
-            arr = np.asarray(part.transpose("y", "x").values, dtype=float)
-            label = name
-        return _block_mean(arr, grid.k), label
+            return _read_blocks(part, grid.k, before=_median_over_dates), (
+                f"the median of {name!r} over its dates"
+            )
+        return _read_blocks(part.transpose("y", "x"), grid.k), name
     return None
 
 

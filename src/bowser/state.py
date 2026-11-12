@@ -154,6 +154,47 @@ class BowserState:
     levels: Any = None
     # Path or URL of the MD store, None in COG mode.
     uri: Any = None
+    # Level 0 opened without dask (see ``point_dataset``); False: there is none.
+    _point_dataset: Any = field(default=None, repr=False, compare=False)
+    _point_lock: threading.Lock = field(
+        default_factory=threading.Lock, repr=False, compare=False
+    )
+
+    def point_dataset(self) -> xr.Dataset | None:
+        """Return level 0 of a zarr cube opened without dask, for reads at a point.
+
+        A pixel's time series crosses one chunk per time block. Through dask
+        that is a task graph and a thread pool for a few kilobytes: more than
+        twice the time of reading the chunks directly, which xarray does for a
+        store opened with ``chunks=None``. Only for picking pixels: arithmetic
+        on these arrays (``where``, ``-``) reads them whole. Opened on first
+        use; ``None`` when the source is not a zarr store.
+        """
+        if self._point_dataset is None:
+            with self._point_lock:
+                if self._point_dataset is None:
+                    self._point_dataset = self._open_point_dataset()
+        return None if self._point_dataset is False else self._point_dataset
+
+    def _open_point_dataset(self) -> Any:
+        from .geozarr import storage_options_for  # noqa: PLC0415 — avoid cycle
+
+        uri = self.uri
+        if self.mode != "md" or not uri or not self.levels:
+            return False
+        if not (str(uri).endswith(".zarr") or "://" in str(uri)):
+            return False
+        try:
+            return xr.open_zarr(
+                uri,
+                group=self.levels[0].asset or None,
+                consolidated=False,
+                chunks=None,
+                storage_options=storage_options_for(uri),
+            )
+        except Exception:  # noqa: BLE001 — the dask dataset still answers
+            logger.warning("No dask-less reader for %s", uri, exc_info=True)
+            return False
 
     def dataset_for_tile_zoom(self, z: int, tile_size: int = TILE_SIZE) -> xr.Dataset:
         """Return the pyramid level dataset appropriate for a given tile zoom.
@@ -277,6 +318,9 @@ class DatasetRegistry:
     # and race on ``OrderedDict`` mutation. Guard every read/write on the
     # cache with this lock.
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    # One lock per id being opened, so a burst of first requests for a dataset
+    # (a page load sends a dozen) opens it once and the rest wait for that.
+    _opening: dict[str, threading.Lock] = field(default_factory=dict, repr=False)
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "DatasetRegistry":
@@ -293,25 +337,32 @@ class DatasetRegistry:
                 f"unknown dataset id {dataset_id!r}; "
                 f"catalog has {sorted(self.catalog)}"
             )
+        cached = self.cached(dataset_id)
+        if cached is not None:
+            return cached
+        # Load outside the registry lock — opening a zarr is slow and we don't
+        # want to serialise unrelated requests on it — but one at a time per id.
+        with self._lock:
+            opening = self._opening.setdefault(dataset_id, threading.Lock())
+        with opening:
+            cached = self.cached(dataset_id)
+            if cached is not None:
+                return cached
+            state = BowserState.load_zarr(self.catalog[dataset_id].uri)
+            with self._lock:
+                self._cache[dataset_id] = state
+                while len(self._cache) > self.maxsize:
+                    evicted, _ = self._cache.popitem(last=False)
+                    logger.info(f"DatasetRegistry evicted {evicted!r}")
+        return state
+
+    def cached(self, dataset_id: str) -> BowserState | None:
+        """Return the state for ``dataset_id`` if it is open, without opening it."""
         with self._lock:
             cached = self._cache.get(dataset_id)
             if cached is not None:
                 self._cache.move_to_end(dataset_id)
-                return cached
-        # Load outside the lock — opening a zarr is slow and we don't want to
-        # serialise unrelated requests on it. If a concurrent caller beat us
-        # to the insert, keep theirs and drop ours on the floor (garbage
-        # collection handles cleanup).
-        state = BowserState.load_zarr(self.catalog[dataset_id].uri)
-        with self._lock:
-            if dataset_id in self._cache:
-                self._cache.move_to_end(dataset_id)
-                return self._cache[dataset_id]
-            self._cache[dataset_id] = state
-            while len(self._cache) > self.maxsize:
-                evicted, _ = self._cache.popitem(last=False)
-                logger.info(f"DatasetRegistry evicted {evicted!r}")
-        return state
+            return cached
 
     def register(self, entry: CatalogEntry, state: BowserState | None = None) -> None:
         """Add (or replace) one entry at runtime, with its state if already open.

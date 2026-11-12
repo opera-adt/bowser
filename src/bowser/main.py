@@ -5,13 +5,16 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 import warnings
 import weakref
+from collections import OrderedDict
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Annotated, Any, Callable, Literal, Optional
 
+import anyio.to_thread
 import matplotlib
 import numpy as np
 import rasterio
@@ -259,7 +262,11 @@ async def _route_dataset(request: Request, call_next):
             return JSONResponse(
                 {"detail": f"unknown dataset id {name!r}"}, status_code=404
             )
-        routed = registry.get(name)
+        # Opening a cube reads every level's metadata (seconds from S3): in a
+        # thread, or every other request would wait on this event loop.
+        routed = registry.cached(name)
+        if routed is None:
+            routed = await anyio.to_thread.run_sync(registry.get, name)
         _warm(routed)
         token = _request_state.set(routed)
     try:
@@ -941,6 +948,44 @@ def _get_ref_median(
     return reference_median(pool(*circle))
 
 
+def _point_values_direct(
+    ds: "xr.Dataset",
+    name: str,
+    x: float,
+    y: float,
+    layer_masks: list[dict],
+    time_idx: int | None,
+) -> np.ndarray:
+    """Return a layer's values at one pixel of ``ds``, opened without dask.
+
+    The values ``_apply_layer_masks_md`` and ``select_point`` give on the dask
+    dataset, but the pixel is picked first and the masks are applied to it:
+    these arrays read whole when masked as layers. A mask is always one value
+    at a pixel (its step ``time_idx``, or its first without one).
+    """
+    da = ds[name]
+    if time_idx is not None:
+        dim = _non_spatial_dim(da)
+        if dim is not None:
+            da = da.isel({dim: max(0, min(time_idx, da.sizes[dim] - 1))})
+    values = np.atleast_1d(select_point(da, x, y, "nearest").values[..., 0, 0])
+    for m in layer_masks:
+        var = m.get("dataset")
+        if not var or var not in ds.data_vars:
+            continue
+        threshold = float(m.get("threshold", 0.5))
+        mask_da = ds[var]
+        mdim = _non_spatial_dim(mask_da)
+        if mdim is not None:
+            step = 0 if time_idx is None else min(time_idx, mask_da.sizes[mdim] - 1)
+            mask_da = mask_da.isel({mdim: step})
+        at = select_point(mask_da, x, y, "nearest").values[..., 0, 0]
+        keep = at <= threshold if m.get("mode", "min") == "max" else at >= threshold
+        # As ``DataArray.where``: NaN where the mask fails, integers become float.
+        values = xr.DataArray(values).where(bool(np.all(keep))).values
+    return values
+
+
 def _get_point_values(
     dataset_name: str,
     lon: float,
@@ -960,6 +1005,12 @@ def _get_point_values(
             raise HTTPException(
                 status_code=404, detail=f"Variable {dataset_name} not found"
             )
+        x, y = state.transformer_from_lonlat.transform(lon, lat)
+        direct = state.point_dataset()
+        if direct is not None and dataset_name in direct.data_vars:
+            return _point_values_direct(
+                direct, dataset_name, x, y, layer_masks or [], time_idx
+            )
         da = state.dataset[dataset_name]
         # Select the single time step before reading so only its chunk is fetched.
         if time_idx is not None:
@@ -967,7 +1018,6 @@ def _get_point_values(
             if dim is not None:
                 da = da.isel({dim: max(0, min(time_idx, da.sizes[dim] - 1))})
         da = _apply_layer_masks_md(da, layer_masks or [], time_idx=time_idx)
-        x, y = state.transformer_from_lonlat.transform(lon, lat)
         return np.atleast_1d(select_point(da, x, y, "nearest").values[..., 0, 0])
     else:  # cog mode
         if dataset_name not in state.raster_groups:
@@ -1357,9 +1407,9 @@ def polygon_timeseries(
 ):
     """Summarize stored native pixels inside a WGS84 polygon.
 
-    This first endpoint provides bounded stored-value summaries, independent
-    of map zoom. Interactive references, optional quality masks and component
-    screening are not implicitly applied. Unknown request fields are rejected.
+    Named quality masks are opt-in and checked on the exact native grid/axis.
+    The stored reference is retained: the chart applies its reference separately.
+    Component screening is not inferred. Unknown request fields are rejected.
     """
     available = (
         target.dataset.data_vars
@@ -1376,9 +1426,13 @@ def polygon_timeseries(
                 raise ValueError("Source supports at most one non-spatial axis")
             dim = extra[0] if extra else None
             labels = _dim_labels(source, dim) if dim else ["Stored layer"]
-            result = summarize_xarray(source, body, labels)
+            result = summarize_xarray(source, body, labels, mask_dataset=target.dataset)
         else:
-            result = summarize_rasters(target.raster_groups[body.variable], body)
+            result = summarize_rasters(
+                target.raster_groups[body.variable],
+                body,
+                mask_groups=target.raster_groups,
+            )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except (OSError, rasterio.errors.RasterioError) as exc:
@@ -2542,31 +2596,34 @@ def InputDependency(
     ] = 0,
 ) -> dict:
     """Create dataset path from args."""
-    extra_masks: list[tuple[str, float]] = []
+    extra_masks: list[tuple[str, float] | tuple[str, float, str]] = []
     if custom_mask and Path(custom_mask).exists():
         extra_masks.append((custom_mask, 0.5))
 
     if layer_masks:
         try:
             masks = json.loads(layer_masks)
+            if not isinstance(masks, list):
+                raise ValueError("layer_masks must be a JSON list")
             for m in masks:
+                if not isinstance(m, dict):
+                    raise ValueError("Each layer mask must be an object")
                 dataset = m.get("dataset")
                 threshold = float(m.get("threshold", 0.5))
                 mode = m.get("mode", "min")
+                if mode not in ("min", "max") or not np.isfinite(threshold):
+                    raise ValueError(
+                        "Mask requires min/max mode and a finite threshold"
+                    )
                 if not dataset or dataset not in state.raster_groups:
-                    continue
+                    raise ValueError(f"Unknown mask layer: {dataset}")
                 fl = state.raster_groups[dataset].file_list
                 if not fl:
-                    continue
+                    raise ValueError(f"No files for mask layer: {dataset}")
                 f = fl[min(time_idx, len(fl) - 1)]
-                # Threshold is now an absolute value — pass it directly.
-                # CustomReader extra_masks keeps pixels where value > min_value
-                # ('min' mode only).
-                if mode == "min":
-                    extra_masks.append((f, threshold))
-                # 'max' mode not supported for COG tiles (CustomReader has no inversion)
-        except json.JSONDecodeError as e:
-            logger.warning(f"Failed to parse layer_masks JSON: {e}")
+                extra_masks.append((f, threshold, mode))
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     return {
         "data": url,
@@ -2647,6 +2704,50 @@ def _minus_reference_step(
     return out
 
 
+#: Custom masks warped to a grid, newest last: ``key -> keep`` (see below).
+_custom_masks: "OrderedDict[tuple, xr.DataArray]" = OrderedDict()
+_custom_masks_lock = threading.Lock()
+#: Most bytes of warped masks kept (a DISP-S1 level 0 is about 70 MB as bool).
+CUSTOM_MASK_CACHE_BYTES = 256 * 2**20
+
+
+def _custom_mask_on(da: "xr.DataArray", path: str) -> "xr.DataArray":
+    """Return where the mask GeoTIFF at ``path`` keeps pixels, on the grid of ``da``.
+
+    Warping the file to a whole pyramid level takes most of a second, and every
+    tile of that level needs the same result, so it is kept per file (path, size
+    and modification time) and grid.
+    """
+    import rioxarray as rxr  # noqa: PLC0415
+
+    file = Path(path).resolve()
+    stat = file.stat()
+    x, y = da["x"].values, da["y"].values
+    key = (
+        str(file),
+        stat.st_mtime_ns,
+        stat.st_size,
+        da.rio.crs.to_wkt(),
+        (x.size, float(x[0]), float(x[-1])),
+        (y.size, float(y[0]), float(y[-1])),
+    )
+    with _custom_masks_lock:
+        keep = _custom_masks.get(key)
+        if keep is not None:
+            _custom_masks.move_to_end(key)
+            return keep
+    custom_da = rxr.open_rasterio(path, masked=True).squeeze("band", drop=True)
+    keep = (custom_da.rio.reproject_match(da) > 0).compute()
+    with _custom_masks_lock:
+        _custom_masks[key] = keep
+        while (
+            len(_custom_masks) > 1
+            and sum(k.nbytes for k in _custom_masks.values()) > CUSTOM_MASK_CACHE_BYTES
+        ):
+            _custom_masks.popitem(last=False)
+    return keep
+
+
 # MD mode: use xarray approach
 def _build_masked_md_dataarray(
     ds: "xr.Dataset",
@@ -2724,13 +2825,7 @@ def _build_masked_md_dataarray(
     # Custom mask (uploaded GeoTIFF) — reproject to match da
     if custom_mask_path and (strict_masks or Path(custom_mask_path).exists()):
         try:
-            import rioxarray as rxr  # noqa: PLC0415
-
-            custom_da = rxr.open_rasterio(custom_mask_path, masked=True).squeeze(
-                "band", drop=True
-            )
-            custom_da_repr = custom_da.rio.reproject_match(da)
-            da = da.where(custom_da_repr > 0)
+            da = da.where(_custom_mask_on(da, custom_mask_path))
         except Exception as exc:
             if strict_masks:
                 raise HTTPException(
@@ -2756,7 +2851,8 @@ def _build_masked_cog_dataarray(
     Mirrors ``CustomReader``/``InputDependency``: the active group's GeoTIFF for
     that time step, with the primary (recommended) mask kept where
     ``value >= mask_min_value``, each ``min``-mode layer mask kept where
-    ``value > threshold``, and the custom mask kept where ``value > 0.5``. Masks
+    ``value > threshold``, each ``max`` mask where ``value <= threshold``, and
+    the custom mask kept where ``value > 0.5``. Masks
     are reprojected to the data grid when they don't already align.
     """
     import rioxarray as rxr  # noqa: PLC0415
@@ -2770,11 +2866,18 @@ def _build_masked_cog_dataarray(
 
     da = rxr.open_rasterio(rg.file_list[idx], masked=True).squeeze("band", drop=True)
 
-    def _keep(da_, path, thr, inclusive=False):
+    def _keep(da_, path, thr, inclusive=False, mode="min"):
         m = rxr.open_rasterio(path, masked=True).squeeze("band", drop=True)
-        if m.rio.crs != da_.rio.crs or m.shape != da_.shape:
+        if (
+            m.rio.crs != da_.rio.crs
+            or m.shape != da_.shape
+            or m.rio.transform() != da_.rio.transform()
+        ):
             m = m.rio.reproject_match(da_)
-        return da_.where(m >= thr) if inclusive else da_.where(m > thr)
+        if inclusive:
+            return da_.where(m >= thr)
+        keep = m <= thr if mode == "max" else m > thr
+        return da_.where(np.isfinite(m) & keep)
 
     # Primary (recommended) mask, as the COG tile path applies it.
     mmv = rg.mask_min_value if mask_min_value is None else mask_min_value
@@ -2783,20 +2886,30 @@ def _build_masked_cog_dataarray(
         if mfile:
             da = _keep(da, mfile, mmv, inclusive=True)
 
-    # Layer masks — only ``min`` mode is defined for COG (CustomReader can't invert).
+    # Preserve strict layer-min and inclusive layer-max comparisons.
     if layer_masks:
         try:
-            for m in json.loads(layer_masks):
+            masks = json.loads(layer_masks)
+            if not isinstance(masks, list):
+                raise ValueError("layer_masks must be a JSON list")
+            for m in masks:
+                if not isinstance(m, dict):
+                    raise ValueError("Each layer mask must be an object")
                 name = m.get("dataset")
-                if m.get("mode", "min") != "min" or name not in target.raster_groups:
-                    continue
-                fl = target.raster_groups[name].file_list
-                if fl:
-                    da = _keep(
-                        da, fl[min(idx, len(fl) - 1)], float(m.get("threshold", 0.5))
+                mode = m.get("mode", "min")
+                threshold = float(m.get("threshold", 0.5))
+                if mode not in ("min", "max") or not np.isfinite(threshold):
+                    raise ValueError(
+                        "Mask requires min/max mode and a finite threshold"
                     )
-        except json.JSONDecodeError as e:
-            logger.warning(f"Failed to parse layer_masks JSON: {e}")
+                if not name or name not in target.raster_groups:
+                    raise ValueError(f"Unknown mask layer: {name}")
+                fl = target.raster_groups[name].file_list
+                if not fl:
+                    raise ValueError(f"No files for mask layer: {name}")
+                da = _keep(da, fl[min(idx, len(fl) - 1)], threshold, mode=mode)
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     # Custom uploaded mask (binary, kept where > 0.5 — matches CustomReader).
     if custom_mask_path and (strict_masks or Path(custom_mask_path).exists()):
@@ -3000,17 +3113,13 @@ def _export_mask_provenance(
             mode = mask.get("mode", "min")
             if mode not in ("min", "max"):
                 raise ValueError("Mask mode must be min or max")
-            if target.mode == "cog" and mode != "min":
-                raise ValueError(
-                    "Direct GeoTIFF exports currently support only min layer masks"
-                )
             name = mask.get("dataset")
             if not isinstance(name, str) or not name:
                 raise ValueError("Each layer mask needs a dataset name")
             add(
                 name,
                 float(mask.get("threshold", 0.5)),
-                (">=" if mode == "min" else "<=") if target.mode == "md" else ">",
+                "<=" if mode == "max" else ">=" if target.mode == "md" else ">",
                 "layer",
             )
         if custom_mask_path:
