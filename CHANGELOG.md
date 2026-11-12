@@ -240,6 +240,11 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `GET /deformation_zones` (and the Assistant's and MCP's zones tool) reads its
+  layers in bands of rows instead of all at once, on both servers. Fitting a
+  rate to a 419-date displacement stack over 800 x 600 pixels peaked at 5.2 GB
+  and now at 1.0 GB, however large the area; without a velocity layer and a
+  bbox it tried to hold the whole stack. The zones are the same.
 - `GET /histogram` no longer holds the server up. Without a stored histogram
   it read the date at full resolution: on a DISP-S1 frame 5 s of CPU on the full
   server, on its event loop, so `/config` and `/datasets` waited up to 20 s
