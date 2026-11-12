@@ -191,6 +191,30 @@ class _Owner:
     """Stands in for an opened dataset (held weakly)."""
 
 
+def test_value_range_comes_from_a_histogram():
+    rng = np.random.default_rng(3)
+    values = np.concatenate(
+        [0.02 * rng.standard_normal(40_000), 0.3 + 0.01 * rng.standard_normal(2_000)]
+    )
+    entry = H.summarize(values)
+    found = H.value_range(entry)
+    assert found is not None and sorted(found) == sorted(
+        ["min", "max", "p2", "p98", "p5", "p95"]
+    )
+    for k in ("min", "max", "p2", "p98"):  # as the histogram has them: exact
+        assert found[k] == entry[k]
+    width = (entry["max"] - entry["min"]) / H.NBINS
+    for k, q in (("p5", 5), ("p95", 95)):  # from the counts: within one bin
+        assert abs(found[k] - np.percentile(values, q)) <= width, k
+    assert found["p2"] <= found["p5"] <= found["p95"] <= found["p98"]
+    # A 0/1 mask keeps its ends; a layer without values has no range.
+    mask = H.value_range(H.summarize(np.r_[np.zeros(300), np.ones(700)]))
+    assert mask is not None
+    assert (mask["min"], mask["max"]) == (0.0, 1.0)
+    assert mask["p5"] <= 0.01 and mask["p95"] >= 0.99
+    assert H.value_range(H.summarize(np.full(10, np.nan))) is None
+
+
 def test_service_caches_coalesces_caps_and_drops_abandoned_work():
     svc = H.Service()
     owner = _Owner()
@@ -259,6 +283,10 @@ SERVE = textwrap.dedent(
         out[f"t{t}"] = r.json()
     out["velocity"] = c.get("/histogram/velocity").json()
     out["computed"] = H.SERVICE.computed
+    for _ in range(2):  # the first date's range, from the same histograms
+        out["range"] = c.get("/dataset_range/displacement").json()
+        out["range_velocity"] = c.get("/dataset_range/velocity").json()
+    out["computed_with_ranges"] = H.SERVICE.computed
     print("RESULT" + json.dumps(out))
     """
 )
@@ -287,6 +315,13 @@ def test_servers_use_the_coarse_level_and_cache(cube, tmp_path, which):
     assert out["t2"] == H.compute_one(levels[1]["displacement"], 2, level=1)
     assert out["t7"] == H.compute_one(levels[1]["displacement"], 7, level=1)
     assert out["computed"] == 3  # t=2 twice: the second is a cache hit
+    # The ranges come from histograms: velocity's is the one already computed,
+    # the first date's is computed once for the two requests.
+    assert out["range_velocity"] == H.value_range(out["velocity"])
+    assert out["range"] == H.value_range(
+        H.compute_one(levels[1]["displacement"], 0, level=1)
+    )
+    assert out["computed_with_ranges"] == 4
     full = _serve(which, cube, tmp_path, BOWSER_HISTOGRAM_MAX_PIXELS="0")
     assert full["t2"] == H.compute_one(levels[0]["displacement"], 2)
 
@@ -487,6 +522,8 @@ def test_cli_stores_histograms_and_servers_serve_them(tmp_path):
         out = _serve(which, store, tmp_path)
         assert out["computed"] == 0, which  # nothing computed: served as stored
         assert out["t7"] == entries[7]
+        assert out["range"] == H.value_range(entries[0]), which
+        assert out["computed_with_ranges"] == 0, which  # no read for a range
     # A store that cannot be written says so and points to the server's cache.
     meta_file = store / "0" / "velocity" / "zarr.json"
     meta_file.chmod(0o444)
