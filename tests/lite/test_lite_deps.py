@@ -40,6 +40,8 @@ HEAVY = [
     "morecantile",
     "simplejson",
     "starlette_cramjam",
+    "shapely",
+    "affine",
 ]
 #: Imported by xarray/pandas whenever installed, though lite never uses them.
 OPPORTUNISTIC = {"dask", "pyarrow", "scipy"}
@@ -49,7 +51,6 @@ from fastapi.testclient import TestClient
 import bowser.lite.main as m
 
 c = TestClient(m.app)
-assert c.post("/polygon_timeseries", json={}).status_code == 501
 assert c.get("/datasets").status_code == 200
 tj = c.get(
     "/md/WebMercatorQuad/tilejson.json",
@@ -90,6 +91,15 @@ body = {
 }
 assert c.post("/profile", json=body).status_code == 200
 assert c.get("/colorbar/viridis").status_code == 200
+# Polygon statistics: the pixels are selected with numpy, not rasterio/shapely.
+d = 0.0005
+ring = [[lon - d, lat - d], [lon + d, lat - d], [lon + d, lat + d], [lon - d, lat + d]]
+body = {
+    "variable": "displacement",
+    "geometry": {"type": "Polygon", "coordinates": [ring + ring[:1]]},
+}
+r = c.post("/polygon_timeseries", json=body)
+assert r.status_code == 200 and r.json()["polygon_pixels"] > 0, r.text
 # The reference finder reuses bowser.reference, which must not need rasterio.
 q = {"coherence_layer": "displacement", "similarity_layer": "displacement"}
 r = c.get("/reference_candidates", params={**q, "radius_m": 30})

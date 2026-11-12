@@ -4,8 +4,8 @@
 - each data tool, called through an MCP client session in memory, returns the
   numbers the HTTP API gives for the same request, on the full server and on
   bowser-lite (each app called in-process through an ASGI transport);
-- lite reports the tools it cannot serve (polygon statistics, GeoTIFF export)
-  as tool errors that say so;
+- lite reports the tool it cannot serve (GeoTIFF export) as a tool error that
+  says so;
 - ``bowser mcp --stack-file`` talks MCP over stdio without other output.
 
 Each app reads its settings at import, so the API calls run in a fresh
@@ -321,11 +321,7 @@ def test_server_info_and_layers(answers):
     assert info["server"] == which
     assert info["polygon_stats"] == api["config"]["polygon_stats"]
     assert info["geotiff_export"] == api["config"]["geotiff_export"]
-    expected = (
-        []
-        if which == "full"
-        else ["polygon_statistics", "export_geotiff", "convert_to_cog"]
-    )
+    expected = [] if which == "full" else ["export_geotiff", "convert_to_cog"]
     assert info["unsupported_tools"] == expected
     # What the values measure, from the cube (the same on both servers): the
     # layer's long_name says LOS, the look vector gives the sensitivity, and the
@@ -466,21 +462,17 @@ def test_profile_and_layer_statistics(answers):
 
 def test_polygon_and_export(answers):
     which, mcp, api = answers
-    if which == "lite":
-        assert api["polygon"]["status"] == 501
-        assert "error" in mcp["polygon"]
-        assert "HTTP 501" in mcp["polygon"]["error"]
-        assert "full Bowser server" in mcp["polygon"]["error"]
-        assert "bowser run" in mcp["export"]["error"]
-        return
     res = mcp["polygon"]
     body = api["polygon"]["body"]
     assert res["dates"] == body["labels"]
-    assert res["polygon_pixels"] == body["polygon_pixels"]
+    assert res["polygon_pixels"] == body["polygon_pixels"] > 0
     stats = res["statistics"]
     assert stats["count"] == [s["count"] for s in body["statistics"]]
     _close(stats["median"], _mm([s["median"] for s in body["statistics"]]))
     _close(stats["p90"], _mm([s["percentiles"]["90"] for s in body["statistics"]]))
+    if which == "lite":
+        assert "bowser run" in mcp["export"]["error"]
+        return
 
     export = mcp["export"]
     path = Path(export["path"])

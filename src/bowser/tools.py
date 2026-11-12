@@ -53,14 +53,13 @@ from any producer or sensor, often with quality layers such as temporal
 coherence, phase similarity and a recommended mask. These tools read the cube
 that a Bowser server has open. Start with server_info and list_layers: they name
 the layers, their dates and units, the reference point, what the values measure
-and what this server can do (bowser-lite cannot compute polygon statistics or
-export GeoTIFFs).
+and what this server can do (bowser-lite cannot export GeoTIFFs).
 
 Typical flows:
 - "Is this place moving?": list_layers -> point_timeseries (or trend_at_point) at
   the point, and the same at a nearby point that should be stable, for comparison.
 - "Compare places": multi_point_timeseries with all of them and one reference.
-- "How does an area behave?": polygon_statistics (full server), or several points.
+- "How does an area behave?": polygon_statistics, or several points.
 - "Where does it change?": profile along a line across the feature at one date.
 - "Is the colour scale sensible / how big are values on this date?": layer_statistics.
 - "Who and what is affected by motion in X?": go_to X -> deformation_zones (look
@@ -1276,13 +1275,12 @@ def build_tools(api: BowserAPI) -> list[ToolSpec]:
         ] = [10.0, 90.0],
         dataset: Dataset = None,
     ) -> dict[str, Any]:
-        """Summarize the pixels inside a polygon, date by date (full server only).
+        """Summarize the pixels inside a polygon, date by date.
 
         Count, median, mean, spatial standard deviation, min, max and
         percentiles of the stored values, per date, as columns aligned with
         `dates`. Values are as stored (relative to the producer's reference),
         not re-referenced to a point, and no quality mask is applied.
-        bowser-lite does not do this and says so.
         """
         if geometry.get("type") == "Feature":
             geometry = geometry.get("geometry") or {}
