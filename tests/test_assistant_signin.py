@@ -11,6 +11,10 @@
   agent that calls Bowser's MCP server (``bowser mcp --url``) on a real local
   server: a permission request answered by the page, one declined on timeout,
   the agent's minimal environment, and Stop killing the agent and its children;
+- where no browser opens here (no display, or over SSH): Claude Code's own
+  sign-in page passed to the page (only on Anthropic's sites), the pasted code
+  written to Claude Code once and kept nowhere, a refused code, Cancel and the
+  time limit ending its sign-in;
 - the gates: sign-in only where the page keeps keys and from this computer.
 
 Nothing here imports bowser.main, bowser.state or bowser.config.
@@ -23,6 +27,7 @@ import base64
 import dataclasses
 import hashlib
 import json
+import logging
 import os
 import socket
 import sys
@@ -715,6 +720,8 @@ def test_sign_in_only_from_this_computer_where_the_page_keeps_keys(tmp_path, ope
         "methods": [],
     }
     assert far.post("/assistant/signin", json={"method": "chatgpt"}).status_code == 403
+    code = {"method": "claude", "code": "abcd#efgh"}
+    assert far.post("/assistant/signin/code", json=code).status_code == 403
     assert (
         far.delete("/assistant/signin", params={"method": "chatgpt"}).status_code == 403
     )
@@ -757,7 +764,9 @@ FAKE_CLAUDE = textwrap.dedent(
     import json, os, sys, time
     from pathlib import Path
     state = Path({state!r})
-    Path({envfile!r}).write_text(json.dumps(dict(os.environ)))
+    login = sys.argv[1:3] == ["auth", "login"]
+    Path({envfile!r} + ("-login" if login else "")).write_text(
+        json.dumps(dict(os.environ)))
     if sys.argv[1:3] == ["auth", "status"]:
         if state.exists():
             print(json.dumps({{"loggedIn": True, "authMethod": "claude.ai",
@@ -766,9 +775,28 @@ FAKE_CLAUDE = textwrap.dedent(
         print(json.dumps({{"loggedIn": False, "authMethod": "none"}}))
         sys.exit(1)
     if sys.argv[1:3] == ["auth", "login"]:
-        time.sleep(0.5)  # the user signs in on Anthropic's page
-        state.write_text("signed in")
-        sys.exit(0)
+        page = Path({page!r})
+        Path({pidfile!r}).write_text(str(os.getpid()))
+        if not page.exists():
+            time.sleep(0.5)  # the user signs in on Anthropic's page (loopback)
+            state.write_text("signed in")
+            sys.exit(0)
+        # As Claude Code 2.1 prints it with no browser, then reads code#state lines.
+        print("Opening browser to sign in\u2026")
+        print("If the browser didn't open, visit: " + page.read_text().strip())
+        print("Paste code here if prompted > ", end="", flush=True)
+        for line in sys.stdin:
+            with open({codes!r}, "a") as f:
+                f.write(line)
+            if line.strip() == "good-code#state-1":
+                state.write_text("signed in")
+                print("Login successful.", flush=True)
+                sys.exit(0)
+            else:
+                # Claude Code says so and does not end by itself.
+                print("Login failed: Request failed with status code 400",
+                      file=sys.stderr, flush=True)
+        time.sleep(600)
     sys.exit(2)
     """
 )
@@ -785,6 +813,9 @@ def claude(tmp_path, monkeypatch, store):  # noqa: ARG001  (one key store per te
             python=sys.executable,
             state=str(tmp_path / "claude-signed-in"),
             envfile=str(tmp_path / "claude-env.json"),
+            page=str(tmp_path / "claude-page"),
+            pidfile=str(tmp_path / "claude-login.pid"),
+            codes=str(tmp_path / "claude-codes.txt"),
         )
     )
     exe.chmod(0o755)
@@ -797,6 +828,9 @@ def claude(tmp_path, monkeypatch, store):  # noqa: ARG001  (one key store per te
 
     monkeypatch.setattr(relay, "_agent_argv", fake_argv)
     monkeypatch.setattr(signin, "cache_root", lambda: tmp_path / "cache")
+    # Claude Code opens the browser itself (a desktop); tests of the page's own
+    # tab say otherwise.
+    monkeypatch.setattr(signin, "browser_here", lambda: True)
     for name in (
         "ANTHROPIC_API_KEY",
         "OPENAI_API_KEY",
@@ -804,8 +838,18 @@ def claude(tmp_path, monkeypatch, store):  # noqa: ARG001  (one key store per te
         "BOWSER_AI_KEY",
     ):
         monkeypatch.setenv(name, "secret-value-1234")
-    yield SimpleNamespace(exe=exe, out=out, state=tmp_path / "claude-signed-in")
+    yield SimpleNamespace(
+        exe=exe,
+        out=out,
+        state=tmp_path / "claude-signed-in",
+        page=tmp_path / "claude-page",
+        pid=tmp_path / "claude-login.pid",
+        codes=tmp_path / "claude-codes.txt",
+        env=tmp_path / "claude-env.json",
+    )
     acp.kill_all_now()
+    for m in signin.METHODS:
+        signin.end_login(m)
 
 
 def _free_port() -> int:
@@ -1740,3 +1784,193 @@ def test_the_agents_bowser_mcp_gets_the_page_token_in_its_env(served, open_page)
     assert token not in json.dumps(ev)
     # The agent's own environment does not carry it.
     assert token not in (served.claude.out / "env.json").read_text()
+
+
+# --- no browser here (no display, or over SSH): the page opens the sign-in page ---
+
+CLAUDE_PAGE = (
+    "https://claude.com/cai/oauth/authorize?code=true&client_id=x&response_type=code"
+    "&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&state=s1"
+)
+
+
+def _until_settled(client, mid: str, timeout: float = 60) -> dict:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        m = method_status(client, mid)
+        if m["state"] != "pending":
+            return m
+        time.sleep(0.1)
+    raise AssertionError("still pending")
+
+
+def _gone(pid: int, timeout: float = 10) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not _alive(pid):
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def test_sign_in_page_is_only_on_the_providers_site():
+    claude = signin.CLAUDE_AGENT.page_hosts
+    assert signin.sign_in_page("visit: " + CLAUDE_PAGE, claude) == CLAUDE_PAGE
+    # A link in terminal escapes ends at the escape.
+    assert (
+        signin.sign_in_page("\x1b[1mhttps://claude.ai/login\x1b[0m.", claude)
+        == "https://claude.ai/login"
+    )
+    for bad in (
+        "http://claude.com/login",
+        "https://claude.com.evil.example/login",
+        "https://evilclaude.com/login",
+        "https://user@claude.com/login",
+        "https://claude.com:8443/login",
+        "https://example.org/?next=https://claude.com/",
+        "https://accounts.google.com/o/oauth2/v2/auth",
+        "no link at all",
+    ):
+        assert signin.sign_in_page(bad, claude) is None, bad
+
+
+def test_browser_here_is_not_over_ssh_or_without_a_display(monkeypatch):
+    for name in ("SSH_CONNECTION", "SSH_TTY", "DISPLAY", "WAYLAND_DISPLAY"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert signin.browser_here() is False
+    monkeypatch.setenv("DISPLAY", ":0")
+    assert signin.browser_here() is True
+    monkeypatch.setenv("SSH_CONNECTION", "10.0.0.2 50000 10.0.0.1 22")
+    assert signin.browser_here() is False
+    monkeypatch.setattr(sys, "platform", "darwin")
+    assert signin.browser_here() is False
+    monkeypatch.delenv("SSH_CONNECTION")
+    assert signin.browser_here() is True
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a script as the program")
+def test_claude_sign_in_opens_claude_codes_page_and_takes_the_code(
+    tmp_path, claude, monkeypatch, caplog
+):
+    caplog.set_level(logging.DEBUG)
+    monkeypatch.setattr(signin, "browser_here", lambda: False)
+    monkeypatch.setenv("DISPLAY", ":0")  # e.g. Bowser started over SSH with X
+    claude.page.write_text(CLAUDE_PAGE)
+    client = local(make_app(settings(tmp_path)))
+    assert method_status(client, "claude")["page_opens"] is True
+    started = time.monotonic()
+    r = client.post("/assistant/signin", json={"method": "claude"})
+    # The page gets Claude Code's own page at once (no wait for a browser).
+    assert r.status_code == 200 and r.json()["sign_in_url"] == CLAUDE_PAGE
+    assert time.monotonic() - started < 20
+    m = method_status(client, "claude")
+    assert (m["state"], m["sign_in_url"], m["code"]) == ("pending", CLAUDE_PAGE, True)
+    # Claude Code opened no browser on this computer's screen.
+    assert "DISPLAY" not in json.loads(Path(f"{claude.env}-login").read_text())
+    answers = [r.text]
+    # Not a whole code: refused here, nothing sent.
+    r = client.post(
+        "/assistant/signin/code", json={"method": "claude", "code": "no-state-part"}
+    )
+    assert r.status_code == 409 and "copy it again" in r.json()["detail"]
+    assert "no-state-part" not in r.text
+    assert not claude.codes.exists()
+    r = client.post(
+        "/assistant/signin/code", json={"method": "chatgpt", "code": "abcd#efgh"}
+    )
+    assert r.status_code == 400
+    # The code goes to Claude Code's input once; then it is signed in.
+    r = client.post(
+        "/assistant/signin/code",
+        json={"method": "claude", "code": "  good-code#state-1\n"},
+    )
+    assert r.status_code == 200
+    answers.append(r.text)
+    m = _until_settled(client, "claude")
+    assert (m["state"], m["account"], m["sign_in_url"]) == (
+        "signed_in",
+        "me@example.com",
+        None,
+    )
+    assert claude.codes.read_text() == "good-code#state-1\n"
+    # No sign-in waits any more.
+    r = client.post(
+        "/assistant/signin/code", json={"method": "claude", "code": "good-code#state-1"}
+    )
+    assert r.status_code == 409
+    answers.append(client.get("/assistant/status").text)
+    # The code is in no answer and no log.
+    assert not any("good-code" in a for a in answers)
+    assert "good-code" not in caplog.text
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a script as the program")
+def test_claude_sign_in_opens_the_browser_itself_where_it_can(tmp_path, claude):
+    # A desktop: Claude Code opens Anthropic's page itself; nothing for the page.
+    client = local(make_app(settings(tmp_path)))
+    assert method_status(client, "claude")["page_opens"] is False
+    r = client.post("/assistant/signin", json={"method": "claude"})
+    assert r.status_code == 200 and r.json()["sign_in_url"] is None
+    m = _until_settled(client, "claude")
+    assert (m["state"], m["account"]) == ("signed_in", "me@example.com")
+    assert not claude.codes.exists()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="process groups")
+def test_claude_wrong_code_cancel_and_timeout_end_its_sign_in(
+    tmp_path, claude, monkeypatch
+):
+    monkeypatch.setattr(signin, "browser_here", lambda: False)
+    claude.page.write_text(CLAUDE_PAGE)
+    client = local(make_app(settings(tmp_path)))
+    # A code Claude Code refuses: it says so and does not end; Bowser ends it.
+    client.post("/assistant/signin", json={"method": "claude"})
+    pid = int(claude.pid.read_text())
+    r = client.post(
+        "/assistant/signin/code", json={"method": "claude", "code": "bad-code#state-1"}
+    )
+    assert r.status_code == 200
+    # Said once, in the first answer after it ended (maybe this one).
+    m = next(x for x in r.json()["sign_in"]["methods"] if x["id"] == "claude")
+    if m["state"] == "pending":
+        m = _until_settled(client, "claude")
+    assert (m["state"], m["detail"]) == (
+        "signed_out",
+        "Claude Code could not sign in with that code. Sign in again.",
+    )
+    assert _gone(pid)
+    # Cancel: its sign-in program ends.
+    client.post("/assistant/signin", json={"method": "claude"})
+    pid = int(claude.pid.read_text())
+    assert method_status(client, "claude")["state"] == "pending"
+    client.delete("/assistant/signin", params={"method": "claude"})
+    assert method_status(client, "claude")["state"] == "signed_out"
+    assert _gone(pid)
+    # Too long: ended, and the tab says so.
+    monkeypatch.setattr(signin, "PENDING_SECONDS", 1.0)
+    client.post("/assistant/signin", json={"method": "claude"})
+    pid = int(claude.pid.read_text())
+    time.sleep(1.2)
+    m = method_status(client, "claude")
+    assert (m["state"], m["detail"]) == ("signed_out", "Signing in took too long.")
+    assert _gone(pid)
+    assert not claude.state.exists()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a script as the program")
+def test_a_page_on_another_site_is_not_passed_on(tmp_path, claude, monkeypatch):
+    monkeypatch.setattr(signin, "browser_here", lambda: False)
+    monkeypatch.setattr(signin, "PAGE_WAIT_SECONDS", 1.0)
+    claude.page.write_text("https://claude.com.evil.example/cai/oauth/authorize?x=1")
+    client = local(make_app(settings(tmp_path)))
+    r = client.post("/assistant/signin", json={"method": "claude"})
+    assert r.status_code == 200 and r.json()["sign_in_url"] is None
+    m = method_status(client, "claude")
+    assert (m["state"], m["sign_in_url"], m["code"]) == ("pending", None, False)
+    assert "evil" not in client.get("/assistant/status").text
+    r = client.post(
+        "/assistant/signin/code", json={"method": "claude", "code": "abcd#efgh"}
+    )
+    assert r.status_code == 409
+    assert not claude.codes.exists()

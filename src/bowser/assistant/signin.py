@@ -16,6 +16,15 @@ button per entry. There are two kinds:
   only the Claude Code process talks to Anthropic, and signing in happens in
   Claude Code's own flow (``claude auth login``) on Anthropic's page.
 
+Where Claude Code cannot open a browser the user sees (a Linux session with no
+display, or Bowser started over SSH: the usual remote workstation with port
+forwarding), the page opens the sign-in page instead. ``claude auth login``
+prints its page's link and waits for the code that page shows. Bowser passes
+the link on only when it is on Anthropic's own site, and writes the code the
+user pastes to the program's input once: it is never kept, logged or sent
+anywhere else. Bowser never offers a sign-in of its own; this is Claude Code's
+own flow.
+
 Sign-in works only where the page may keep keys (``BOWSER_ASSISTANT_PAGE_KEYS``)
 and for requests from this computer: a sign-in is the user's own account.
 
@@ -99,6 +108,11 @@ class AgentSpec:
     #: Arguments that start the program's own sign-in in the browser.
     login_args: tuple[str, ...] = ()
     install_url: str = ""
+    #: The sites of the provider's sign-in page: a link the program prints is
+    #: passed to the page only when its host is one of these (or under one).
+    page_hosts: tuple[str, ...] = ()
+    #: What a code from the sign-in page looks like (checked before it is sent).
+    code_pattern: str = r"[A-Za-z0-9._~+/=-]{8,2048}"
 
 
 @dataclass(frozen=True)
@@ -138,6 +152,9 @@ CLAUDE_AGENT = AgentSpec(
     status_args=("auth", "status", "--json"),
     login_args=("auth", "login", "--claudeai"),
     install_url="https://code.claude.com/docs/en/setup",
+    page_hosts=("claude.com", "claude.ai", "anthropic.com"),
+    # Claude Code's page shows ``<code>#<state>``; it takes the two together.
+    code_pattern=r"[A-Za-z0-9._~+/=-]{4,1024}#[A-Za-z0-9._~+/=-]{4,1024}",
 )
 
 METHODS: tuple[Method, ...] = (
@@ -790,6 +807,16 @@ class Login:
     proc: Any
     started: float = field(default_factory=time.monotonic)
     error: str | None = None
+    #: Whether the page opens the sign-in page (the program cannot).
+    page: bool = False
+    #: The provider's sign-in page the program printed (checked: its site).
+    url: str | None = None
+    #: Set once ``url`` is known or the program's output ended.
+    seen: Any = None
+    #: Whether a code was written to the program.
+    code_sent: bool = False
+    #: Held while writing to the program's input.
+    lock: Any = None
 
     @property
     def running(self) -> bool:
@@ -799,14 +826,76 @@ class Login:
 
 _LOGINS: dict[str, Login] = {}
 
+#: Seconds ``POST /assistant/signin`` waits for the program to print its page.
+PAGE_WAIT_SECONDS = 45.0
+
+
+def browser_here() -> bool:
+    """Whether an agent's program can open a browser the user sees.
+
+    Not when Bowser was started over SSH (the browser is on the user's own
+    computer, reaching Bowser through port forwarding), and not on Linux
+    without a display. Then the page opens the sign-in page itself.
+    """
+    if os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_TTY"):
+        return False
+    if not sys.platform.startswith("linux"):
+        return True
+    return any(os.environ.get(v) for v in ("DISPLAY", "WAYLAND_DISPLAY"))
+
+
+#: A link in a program's output; it ends at a space, a quote or a control
+#: character (such as a terminal escape).
+_URL = re.compile(r"https://[^\s\"'<>\x00-\x1f]+")
+
+
+def sign_in_page(text: str, hosts: tuple[str, ...]) -> str | None:
+    """Return the first ``https://`` link in ``text`` on one of ``hosts``, or None.
+
+    A host matches itself and its subdomains. Links with a user name, a port
+    or on any other site are skipped.
+    """
+    from urllib.parse import urlsplit  # noqa: PLC0415
+
+    for found in _URL.finditer(text):
+        url = found.group(0).rstrip(".,;)")
+        try:
+            parts = urlsplit(url)
+            port = parts.port
+        except ValueError:
+            continue
+        host = (parts.hostname or "").lower()
+        if (
+            parts.scheme == "https"
+            and not parts.username
+            and not parts.password
+            and port is None
+            and "@" not in parts.netloc
+            and any(host == h or host.endswith("." + h) for h in hosts)
+        ):
+            return url
+    return None
+
+
+def _login_env(page: bool) -> dict[str, str]:
+    """Return the sign-in program's environment (no browser where the page opens it)."""
+    env = agent_env()
+    if page:
+        for name in ("DISPLAY", "WAYLAND_DISPLAY", "BROWSER"):
+            env.pop(name, None)
+    return env
+
 
 def start_login(m: Method) -> None:
-    """Start the agent program's own sign-in (it opens the provider's page).
+    """Start the agent program's own sign-in.
 
-    Bowser only starts the program and waits for it to end: it reads nothing
-    the program prints and passes nothing to it.
+    Where it can open a browser, it opens the provider's page itself. Else
+    (:func:`browser_here`) it prints its page's link, which the tab opens, and
+    waits for the code that page shows (:func:`send_code`). Bowser reads only
+    that link and whether the program signed in.
     """
     import subprocess  # noqa: PLC0415
+    import threading  # noqa: PLC0415
 
     spec = m.agent
     assert spec is not None
@@ -816,15 +905,114 @@ def start_login(m: Method) -> None:
     program = find_program(spec.program)
     if program is None:
         raise SignInError(f"{spec.program} is not installed.")
+    page = not browser_here()
     proc = subprocess.Popen(  # noqa: S603  (the user's own program, fixed args)
         [program, *spec.login_args],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        env=agent_env(),
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        env=_login_env(page),
         start_new_session=sys.platform != "win32",
     )
-    _LOGINS[m.id] = Login(proc)
+    login = Login(proc, page=page, seen=threading.Event(), lock=threading.Lock())
+    _LOGINS[m.id] = login
+    threading.Thread(
+        target=_follow_login,
+        args=(login, spec),
+        name=f"signin-{m.id}",
+        daemon=True,
+    ).start()
+
+
+def _follow_login(login: Login, spec: AgentSpec) -> None:
+    """Read a sign-in program's output for its page's link and its failure.
+
+    Only those are looked for; the output is not kept or logged (it may echo
+    the code).
+    """
+    name = spec.name or spec.program
+    out = login.proc.stdout
+    rest = b""
+    try:
+        while True:
+            chunk = out.read1(4096) if hasattr(out, "read1") else out.read(4096)
+            if not chunk:
+                break
+            *lines, rest = (rest + chunk).split(b"\n")
+            rest = rest[-4096:]
+            for raw in lines:
+                line = raw.decode(errors="replace")
+                url = sign_in_page(line, spec.page_hosts)
+                if url:
+                    login.url = url
+                    login.seen.set()
+                elif "Login failed" in line:
+                    login.error = (
+                        f"{name} could not sign in"
+                        f"{' with that code' if login.code_sent else ''}. Sign in "
+                        "again."
+                    )
+                    _kill_group(login.proc)
+    except (OSError, ValueError):
+        pass
+    finally:
+        login.seen.set()
+
+
+def wait_for_page(m: Method, timeout: float | None = None) -> str | None:
+    """Wait for the running sign-in's page (where the tab opens it); return it.
+
+    None when the program opens the browser itself, ended (it was signed in
+    already, or failed) or printed no page in time.
+    """
+    login = _LOGINS.get(m.id)
+    if login is None or not login.page:
+        return None
+    login.seen.wait(PAGE_WAIT_SECONDS if timeout is None else timeout)
+    return login.url if login.running and not login.error else None
+
+
+def send_code(m: Method, code: str) -> None:
+    """Write the code from the sign-in page to the waiting program, once.
+
+    The code goes only to the program's input: it is not kept or logged.
+    Raises SignInError when no sign-in waits for a code or it is not one.
+    """
+    spec = m.agent
+    login = _LOGINS.get(m.id)
+    if (
+        spec is None
+        or login is None
+        or not login.page
+        or not login.url
+        or not login.running
+        or login.error
+    ):
+        raise SignInError("No sign-in is waiting for a code; sign in again.")
+    code = code.strip() if isinstance(code, str) else ""
+    name = spec.name or spec.program
+    if len(code) > 2048 or not re.fullmatch(spec.code_pattern, code):
+        raise SignInError(
+            f"That is not a whole code from {name}'s sign-in page; copy it again."
+        )
+    try:
+        with login.lock:
+            login.proc.stdin.write(code.encode("ascii") + b"\n")
+            login.proc.stdin.flush()
+    except (OSError, ValueError) as e:
+        raise SignInError(f"{name} is no longer waiting; sign in again.") from e
+    login.code_sent = True
+
+
+def _kill_group(proc: Any) -> None:
+    """End a sign-in program and what it started."""
+    import signal  # noqa: PLC0415
+
+    with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
+        if sys.platform == "win32":
+            proc.kill()
+        else:
+            os.killpg(proc.pid, signal.SIGKILL)
 
 
 def login_state(m: Method) -> Login | None:
@@ -833,8 +1021,7 @@ def login_state(m: Method) -> Login | None:
     if login is None:
         return None
     if login.running and time.monotonic() - login.started > PENDING_SECONDS:
-        with contextlib.suppress(OSError):
-            login.proc.kill()
+        _kill_group(login.proc)
         login.error = "Signing in took too long."
     return login
 
@@ -842,10 +1029,16 @@ def login_state(m: Method) -> Login | None:
 def end_login(m: Method) -> None:
     """Stop and forget ``m``'s sign-in program."""
     login = _LOGINS.pop(m.id, None)
-    if login and login.running:
+    if login is None:
+        return
+    if login.running:
+        _kill_group(login.proc)
+    with contextlib.suppress(Exception):
+        login.proc.wait(5)
+    for pipe in (login.proc.stdin, login.proc.stdout):
         with contextlib.suppress(OSError):
-            login.proc.kill()
-            login.proc.wait(5)
+            if pipe is not None:
+                pipe.close()
 
 
 # --- the agent's ACP adapter, installed once ----------------------------------------

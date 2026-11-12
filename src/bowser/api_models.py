@@ -652,8 +652,20 @@ ROUTES: dict[str, dict[str, Any]] = {
         "OpenAI's page for the browser, which comes back to GET /auth/callback. "
         "`claude`: Bowser runs the user's Claude Code, which signs in on "
         "Anthropic's page if it is not signed in yet (Bowser never sees its "
-        "credentials). 403 unless `BOWSER_ASSISTANT_PAGE_KEYS` is set and the "
-        "request comes from this computer.",
+        "credentials). Where Claude Code cannot open a browser (no display, or "
+        "Bowser started over SSH), `sign_in_url` is Claude Code's own sign-in "
+        "page, for the page to open; the code that page shows goes to POST "
+        "/assistant/signin/code. 403 unless `BOWSER_ASSISTANT_PAGE_KEYS` is set "
+        "and the request comes from this computer.",
+        "tags": [ASSISTANT],
+    },
+    "POST /assistant/signin/code": {
+        "summary": "Pass a sign-in code to the agent",
+        "description": '`{"method", "code"}`: the code the agent\'s sign-in '
+        "page showed (`sign_in.methods[].code` is true while it waits for "
+        "one). Bowser writes it to the waiting program's input once and keeps "
+        "or logs nothing of it. 409 when no sign-in waits for a code or it is "
+        "not one. Same conditions as POST /assistant/signin.",
         "tags": [ASSISTANT],
     },
     "DELETE /assistant/signin": {
@@ -962,6 +974,19 @@ class SignInMethod(_Fixed):
     usage_url: Optional[str] = Field(None, description="Where to manage usage.")
     model: str = Field(description="Default model; empty for an agent.")
     models: list[str]
+    page_opens: bool = Field(
+        False,
+        description="Whether the page opens the sign-in page itself (else the "
+        "agent's program opens the browser).",
+    )
+    sign_in_url: Optional[str] = Field(
+        None, description="While pending: the agent's sign-in page, for the page."
+    )
+    code: bool = Field(
+        False,
+        description="While pending: the agent waits for the code its sign-in "
+        "page shows (POST /assistant/signin/code).",
+    )
 
 
 class SignInStatus(_Fixed):
