@@ -209,10 +209,15 @@ def test_unapplied_masks_cannot_be_claimed_in_successful_exports(exports, mode, 
     assert exports[f"{mode}_{case}"]["status"] == 422
 
 
-def test_preserve_md_max_and_primary_and_reject_unsupported_cog_max(exports):
+def test_preserve_md_max_and_primary_and_apply_cog_max(exports):
     assert exports["md_max"]["status"] == 200
     assert not exports["md_max"]["valid"][0][2]
-    assert exports["cog_max"]["status"] == 422
+    case = exports["cog_max"]
+    assert case["status"] == 200
+    assert case["valid"][0][1] and case["values"][0][1] == 0
+    assert not case["valid"][0][2]
+    info = json.loads(case["tags"]["BOWSER_EXPORT_PROVENANCE"])
+    assert info["masks"]["applied"][0]["operator"] == "<="
     case = exports["md_primary"]
     assert not case["valid"][0][1]  # primary is strict > .5, unlike MD layer min
     info = json.loads(case["tags"]["BOWSER_EXPORT_PROVENANCE"])
