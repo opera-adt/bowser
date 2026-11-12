@@ -53,6 +53,9 @@ TOOLS = {
     "infrastructure_in_area",
     "deformation_zones",
     "site_context",
+    "load_gnss_csv",
+    "list_gnss_stations",
+    "convert_to_cog",
 }
 #: The page tools: they act on the open page through the server's page channel.
 PAGE_TOOLS = {
@@ -318,7 +321,11 @@ def test_server_info_and_layers(answers):
     assert info["server"] == which
     assert info["polygon_stats"] == api["config"]["polygon_stats"]
     assert info["geotiff_export"] == api["config"]["geotiff_export"]
-    expected = [] if which == "full" else ["polygon_statistics", "export_geotiff"]
+    expected = (
+        []
+        if which == "full"
+        else ["polygon_statistics", "export_geotiff", "convert_to_cog"]
+    )
     assert info["unsupported_tools"] == expected
     # What the values measure, from the cube (the same on both servers): the
     # layer's long_name says LOS, the look vector gives the sensitivity, and the

@@ -113,10 +113,18 @@ a point outside the cube is refused rather than read at the nearest edge pixel.
 | `infrastructure_at` | Roads, buildings, rail, bridges, pipelines, dams and levees within `radius_m` of a point: counts, length by class, building footprint and types, named features (OpenStreetMap) | `POST /infrastructure` |
 | `infrastructure_in_area` | The same in a GeoJSON polygon, a bbox, a shape drawn on the page or a chart area (`area`), or a zone (`zone: "Z1"`) | `POST /infrastructure` |
 | `site_context` | What is on the ground at a point: land cover, geology, wetlands, soil, slope and how much of a downslope motion the radar sees, nearby infrastructure, and the cube's coherence and phase similarity there | `GET /site_context`, `POST /infrastructure`, `GET /point` |
+| `load_gnss_csv` | Read a GNSS station time series from a CSV file on the server (also NGL `.tenv3`, EarthScope CSV): stations with rows read and skipped, units and where they came from, time span and straight-line rates; kept for the session and shown in the page's GNSS tab ([gnss.md](gnss.md)). Needs `BOWSER_ALLOW_OPEN` | `POST /gnss/custom` |
+| `list_gnss_stations` | The stations loaded from files, and with a `bbox` the public UNR stations in it (MIDAS velocities) | `GET /gnss/custom`, `GET /gnss/stations` |
+| `convert_to_cog` | A Cloud-Optimized GeoTIFF of a raster on the server: its path, size and whether the file already was one (used as it is); others are converted once into the conversion cache, never next to the file. Full server, `BOWSER_ALLOW_OPEN` | `POST /data`, `GET /data/{id}` |
 
-On bowser-lite, `polygon_statistics` and `export_geotiff` return a tool error
-that says the full server is needed; `server_info` lists them under
-`unsupported_tools`.
+On bowser-lite, `polygon_statistics`, `export_geotiff` and `convert_to_cog`
+return a tool error that says the full server is needed; `server_info` lists
+them under `unsupported_tools`.
+
+`load_gnss_csv` and `convert_to_cog` read a path on the server's computer only
+where the page could (`BOWSER_ALLOW_OPEN`, on for `bowser run` and `bowser
+lite` on your own computer and in the desktop app); elsewhere they answer
+HTTP 403. `bowser mcp --stack-file` starts bowser-lite without it.
 
 `point_timeseries`, `multi_point_timeseries` and `trend_at_point` apply the
 open page's layer masks by default (`use_page_masks`), so their answers match

@@ -15,12 +15,40 @@ export interface GnssStation {
   vn_mm_yr: number;
   vu_mm_yr: number;
   sigma_vu_mm_yr: number;
+  /** Read from the user's own file (POST /gnss/custom): rates are a straight-line fit, not MIDAS. */
+  custom?: boolean;
+}
+
+/** A station read from the user's file: GET /gnss/custom. */
+export interface CustomGnssStation extends GnssStation {
+  custom: true;
+  name: string;
+  first_date: string;
+  last_date: string;
+  rows: number;
+  skipped: number;
+  units: 'm' | 'mm' | 'cm';
+  units_from: 'header' | 'file' | 'option' | 'guessed';
+  date_format: string | null;
+  components: string[];
+  source: string;
+  frame: string;
+  warnings: string[];
+}
+
+/** POST /gnss/custom: what one file gave. */
+export interface GnssCsvLoaded {
+  file: string;
+  rows: number;
+  skipped: number;
+  stations: CustomGnssStation[];
 }
 
 export interface GnssSeries {
   station: string;
   frame: string;
-  station_page: string;
+  /** UNR's page for the station; null for a station from the user's file. */
+  station_page: string | null;
   dates: string[];
   east_mm: number[];
   north_mm: number[];
@@ -58,6 +86,55 @@ type Enu = { east: number; north: number; up: number };
 
 /** The overlay that shows the stations found in the GNSS tab. */
 export const GNSS_LAYER_ID = 'gnss_stations';
+/** The overlay of the stations read from the user's files. */
+export const GNSS_CUSTOM_LAYER_ID = 'gnss_custom';
+
+/** Where a station's daily record is read: UNR's through /gnss/series, a file's through /gnss/custom. */
+export function gnssSeriesUrl(s: Pick<GnssStation, 'id' | 'custom'>): string {
+  return s.custom ? `/gnss/custom/${encodeURIComponent(s.id)}` : `/gnss/series/${s.id}`;
+}
+
+/** A key that keeps a UNR station and a file's station of the same name apart. */
+export const gnssKey = (s: Pick<GnssStation, 'id' | 'custom'>) => `${s.custom ? 'file' : 'unr'}:${s.id}`;
+
+/** Where the rates come from, for labels. */
+export const rateSource = (s: Pick<GnssStation, 'custom'>) => (s.custom ? 'linear fit' : 'MIDAS');
+
+async function json<T>(res: Response): Promise<T> {
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.detail ?? `HTTP ${res.status}`);
+  return body as T;
+}
+
+/** The stations read from files in this server session. */
+export async function fetchCustomStations(): Promise<CustomGnssStation[]> {
+  return (await json<{ stations: CustomGnssStation[] }>(await fetch('/gnss/custom'))).stations;
+}
+
+/** Read one file: its text from this computer, or its path on the server. */
+export async function loadGnssFile(
+  source: { text: string; name: string } | { path: string },
+  units: 'auto' | 'm' | 'mm' | 'cm' = 'auto',
+): Promise<GnssCsvLoaded> {
+  return json<GnssCsvLoaded>(await fetch('/gnss/custom', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...source, units }),
+  }));
+}
+
+/** Forget a station read from a file. */
+export async function removeCustomStation(id: string): Promise<void> {
+  await json(await fetch(`/gnss/custom/${encodeURIComponent(id)}`, { method: 'DELETE' }));
+}
+
+/** One line on what a file gave: stations, rows, skipped rows, units and span. */
+export function describeLoad(r: GnssCsvLoaded): string {
+  const names = r.stations.map(s => s.id).join(', ');
+  const s0 = r.stations[0];
+  const units = s0 ? ` in ${s0.units}${s0.units_from === 'guessed' ? ' (guessed)' : ''}` : '';
+  const first = r.stations.map(s => s.first_date).sort()[0];
+  const last = r.stations.map(s => s.last_date).sort().slice(-1)[0];
+  return `${r.file || 'File'}: ${names}, ${r.rows} rows${r.skipped ? ` (${r.skipped} skipped)` : ''}${units}, ${first} – ${last}`;
+}
 
 /** The ground-to-satellite unit vector, or null when the cube has none. */
 export function losVector(m: LosMetadata | null | undefined): Enu | null {

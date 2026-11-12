@@ -79,6 +79,10 @@ are indexes into a layer's `x_values`.
 | | `/overlay/*` (full only) | TiTiler routes for uploaded overlays |
 | Context | `GET /gnss/stations` | UNR GNSS stations in a box, with velocities |
 | | `GET /gnss/series/{station}` | A station's daily positions |
+| | `POST /gnss/custom` | Read a GNSS station series from your file (text, or a server path with `BOWSER_ALLOW_OPEN`); see [gnss.md](gnss.md) |
+| | `GET /gnss/custom` | The stations read from files this session |
+| | `GET /gnss/custom/{station_id}` | One of them: east, north, up from its first date |
+| | `DELETE /gnss/custom/{station_id}` | Forget one |
 | | `GET /wms_capabilities` | Named layers of a WMS |
 
 ## Added files
@@ -96,7 +100,9 @@ with `BOWSER_ALLOW_OPEN`, any server path are allowed; other paths get 403.
   smaller one becomes a GeoJSON in WGS84 that the page holds whole. The page
   reads vector files under the threshold itself and never sends them.
 - Conversions run in a background thread; poll `GET /data/{id}` while `status`
-  is `converting`. `/config` says what the server converts:
+  is `converting`. A ready raster gives its COG's path (`cog`), size
+  (`cog_bytes`) and whether it was converted (`converted: false` when the file
+  already was a COG). `/config` says what the server converts:
   `data_conversion: {cog, pmtiles, pmtiles_min_mb}`.
 - `GET /files?dir=<folder>` lists one server folder for Overlays › Load file ›
   Browse: its sub-folders, then the files `POST /data` adds, with sizes

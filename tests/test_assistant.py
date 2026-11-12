@@ -473,7 +473,8 @@ def test_tools_sent_to_the_model_are_the_mcp_tools(tmp_path, monkeypatch):
             "input_schema": t.input_schema,
         }
 
-    # A hosted server (no page keys) leaves out the tool that writes files.
+    # A hosted server (no page keys) leaves out the tools that write files or read
+    # server paths into the session.
     hosted = ScriptedProvider([Turn("Hi.", [], "end")])
     monkeypatch.setattr(relay, "open_provider", lambda *_a, **_k: hosted)
     s = settings(
@@ -486,7 +487,7 @@ def test_tools_sent_to_the_model_are_the_mcp_tools(tmp_path, monkeypatch):
         json={"provider": "ollama", "messages": [{"role": "user", "content": "hi"}]},
     )
     names = {t["name"] for t in hosted.sent[0]["tools"]}
-    assert names == set(sent) - {"export_geotiff"}
+    assert names == set(sent) - {"export_geotiff", "convert_to_cog", "load_gnss_csv"}
 
 
 # --- the page's context, the tool budget, finding a place --------------------------

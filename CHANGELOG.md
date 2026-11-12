@@ -8,6 +8,21 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- GNSS tab › *Load local GNSS file*: load station time series from your own CSV
+  files (picked on your computer, or a server path with `BOWSER_ALLOW_OPEN`).
+  Dates as ISO, YYYYMMDD, decimal year or MJD; east, north and up in m, mm or
+  cm (from the header, a `# units:` line, a Units choice, or guessed and said
+  so); station and lon/lat as columns or `# key: value` lines; NGL `.tenv3`
+  and EarthScope CSVs too. Unreadable rows are skipped and counted. The
+  stations show on the map as amber squares with their own legend entry, and
+  compare with InSAR along the line of sight like UNR's. Kept for the server
+  session (`POST/GET/DELETE /gnss/custom`), on the full server and
+  bowser-lite. See [docs/gnss.md](docs/gnss.md).
+- MCP and Assistant tools `load_gnss_csv`, `list_gnss_stations` (files and
+  UNR) and `convert_to_cog` (a raster on the server to a Cloud-Optimized
+  GeoTIFF in the conversion cache; full server). Server paths are read only
+  where the page could (`BOWSER_ALLOW_OPEN`). `GET /data/{id}` gives a ready
+  raster's `cog_bytes`.
 - `bowser add-histograms CUBE.zarr` stores every date's colour histogram in an
   existing GeoZarr cube (`bowser_histogram`, the attribute the converter
   writes), computed in one pass over the stack from a coarse pyramid level
