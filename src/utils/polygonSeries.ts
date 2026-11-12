@@ -140,7 +140,7 @@ export function polygonRequestBody(variable: string, geometry: ChartArea['geomet
   return { variable, geometry, support: 'common' as const, percentiles: [...AREA_PERCENTILES] };
 }
 
-/** A short message for a failed request (422 bad or too-large polygon, 501 on bowser-lite). */
+/** A short message for a failed request (422 bad or too-large polygon, 501 without the route). */
 export function polygonErrorMessage(status: number, body: unknown): string {
   if (status === 501) return 'needs the full Bowser server';
   const detail = (body as { detail?: unknown } | null)?.detail;

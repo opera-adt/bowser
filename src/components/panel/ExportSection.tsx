@@ -54,7 +54,7 @@ export default function ExportSection() {
   const [exportError, setExportError] = useState<string | null>(null);
   const abortRef = useRef<{ controller: AbortController; reason: 'cancel' | 'timeout' | null } | null>(null);
   useEffect(() => () => { abortRef.current?.controller.abort(); }, []);
-  // bowser-lite (the desktop app's server) can't write GeoTIFFs: /config says so.
+  // A server that can't write GeoTIFFs says so in /config (geotiff_export: false).
   const [canExport, setCanExport] = useState(true);
   useEffect(() => {
     let live = true;
@@ -147,7 +147,7 @@ export default function ExportSection() {
             disabled={!state.currentDataset || exporting || !canExport}
             title={canExport
               ? 'Download native values with active masks and the selected spatial reference; reference details are saved in the GeoTIFF'
-              : 'GeoTIFF export needs the full Bowser server (bowser run)'}
+              : 'This server cannot export GeoTIFFs'}
             onClick={handleExportGeoTIFF}>
             <i className={`fa-solid ${exporting ? 'fa-spinner fa-spin' : 'fa-download'}`} style={{ marginRight: 6 }}></i>
             {exporting ? 'Exporting…' : 'Data layer (GeoTIFF)'}
@@ -168,7 +168,7 @@ export default function ExportSection() {
           )}
           {!canExport && (
             <div className="row-label" style={{ fontSize: '0.72em', textAlign: 'center' }}>
-              GeoTIFF export needs the full Bowser server (<code>bowser run</code>)
+              This server cannot export GeoTIFFs
             </div>
           )}
           {canExport && (state.layerMasks.length > 0 || state.customMaskPath) && (

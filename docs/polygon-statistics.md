@@ -1,6 +1,6 @@
 # Native polygon statistics API
 
-The full server provides `POST /polygon_timeseries` for read-only summaries of
+The full server and bowser-lite provide `POST /polygon_timeseries` for read-only summaries of
 stored GeoZarr or single-band GeoTIFF values inside one WGS84 GeoJSON Polygon
 or MultiPolygon. The time-series chart uses it for areas (see below); the
 polygons come from the existing drawing and file-import tools.
@@ -42,7 +42,8 @@ When the viewer's reference is on for the layer, the chart subtracts the same
 reference value per date that the map and the point series use, so areas and
 points can be compared ("relative to the reference" in the tooltip). The
 optional masks are not applied to areas; the chart says so when masks are on.
-Bowser-lite reports `polygon_stats: false` in `/config` and the button is off.
+Bowser-lite has the same button and gives the same numbers (see
+[Bowser-lite](#bowser-lite)).
 
 ## Selection and calculations
 
@@ -111,11 +112,42 @@ GeoTIFF reads use a raster window. Lazy GeoZarr reads evaluate only intersecting
 native chunks, though compressed chunk/block transfers can be larger than the
 polygon window. No claim of arbitrary byte-level subsetting is made.
 
-Bowser-lite explicitly returns 501 and does not import the full-server
-geometry/raster stack. No package pins or installed environments change:
-Shapely is already required by the full server's existing `opera-utils`
-dependency. This module uses it to validate topology rather than repairing or
-simplifying a user's geometry.
+On the full server no package pins or installed environments change: Shapely
+is already required by its existing `opera-utils` dependency. This module uses
+it to validate topology rather than repairing or simplifying a user's geometry.
+
+## Bowser-lite
+
+Bowser-lite (and so the desktop app) answers the same request with the same
+response, for GeoZarr cubes, without GDAL or Shapely
+(`bowser.lite.polygon`): the request model, limits, statistics, warnings and
+error messages are the full server's code, and three steps are redone with
+pyproj and numpy:
+
+- the polygon's vertices are reprojected to the cube's CRS with pyproj;
+- validity is checked with the OGC rules Shapely applies (rings that cross or
+  touch themselves, holes outside their exterior or inside one another,
+  overlapping parts, two rings of a polygon touching at more than one point).
+  The check uses plain floating point, so it can differ from Shapely for rings
+  that touch within rounding, and it does not look for an interior cut in two
+  by a chain of three or more touching rings;
+- the pixels are selected by a scanline fill that follows GDAL's
+  (`all_touched=False`): a pixel is in when its centre is inside, even-odd over
+  all rings. Centres exactly on an edge follow GDAL's rule as built for Linux
+  x86-64: on a north-up grid a centre on a left edge is out and one on a right
+  edge is in, and rows of centres on a horizontal edge are in. Lite computes
+  this with plain double arithmetic, so its answer for given vertices is the
+  same on every platform (the desktop app on a Mac included). GDAL's own answer
+  for such ties can differ by platform and build (its arm64 builds round the
+  pixel coordinates differently), so on those the full server may differ from
+  lite in pixels whose centre lies on an edge, and only in those.
+
+Only the polygon's window is read, in blocks of time steps that follow the
+cube's time chunks (at most 16 million values at once), each block once per
+pass. The request runs in a worker thread, so the page stays responsive. The
+tests compare both servers on every kind of polygon (convex, concave, holes,
+several parts, partly outside, inside one pixel, on the grid's edge, edges
+through pixel centres) and compare the fill with rasterio on random polygons.
 
 ## Validation
 
@@ -123,4 +155,5 @@ Synthetic tests cover known summaries and support, stationary zero values,
 nodata and missing-value sentinels, holes, multiple polygon parts, reversed and
 transposed axes, clipping, absent data, mixed units/grids, unsupported fields,
 lazy GeoZarr chunk reads, windowed GeoTIFF reads, catalog isolation, actual
-HTTP responses and lite dependency isolation. They require no real data.
+HTTP responses, lite dependency isolation and the equality of bowser-lite's
+answers with the full server's. They require no real data.
