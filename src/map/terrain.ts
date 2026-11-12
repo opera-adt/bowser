@@ -36,20 +36,16 @@ export function terrainSpec(enabled: boolean, exaggeration: number): { source: s
 /** Tilting past this (degrees) counts as going 3D. */
 export const TILT_ON = 10;
 
-/**
- * Turn terrain on when a flat map is tilted, unless it is already on, or the GPU
- * renderer is chosen (its layer draws a tilted map but not terrain, so terrain would
- * send the data back to tiles; the terrain button still turns it on).
- */
+/** Turn terrain on when a flat map is tilted, unless it is already on. */
+export function terrainOnTilt(wasFlat: boolean, pitch: number, enabled: boolean): boolean {
+  return wasFlat && pitch >= TILT_ON && !enabled;
+}
+
 /**
  * When the GPU renderer gets chosen, turn off a 3D terrain left on from an earlier visit
- * (remembered, often from a tilt): it would keep the data on tiles. A DEM overlay used
- * for terrain keeps it; the terrain button turns it on again in this visit.
+ * (remembered, often from a tilt), so the page opens flat and the GPU draws. A DEM overlay
+ * used for terrain keeps it; tilting or the terrain button turn it on again.
  */
 export function terrainOffForGpu(gpuChosen: boolean, enabled: boolean, demTerrain: boolean): boolean {
   return gpuChosen && enabled && !demTerrain;
-}
-
-export function terrainOnTilt(wasFlat: boolean, pitch: number, enabled: boolean, gpuChosen = false): boolean {
-  return wasFlat && pitch >= TILT_ON && !enabled && !gpuChosen;
 }

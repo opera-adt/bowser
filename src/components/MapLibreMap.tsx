@@ -252,9 +252,6 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
   };
   // Tilting a flat map turns 3D terrain on; turning it off while tilted stays off.
   const terrainRef = useRef(terrain);
-  // Set below from the GPU renderer: while it is chosen, tilting doesn't turn 3D terrain on
-  // (the GPU layer draws a tilted map, not terrain); the terrain button still does.
-  const gpuChosenRef = useRef(false);
   terrainRef.current = terrain;
   useEffect(() => {
     const map = mapRef.current;
@@ -262,9 +259,7 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
     let flat = map.getPitch() < TILT_ON;
     const onPitchEnd = () => {
       const pitch = map.getPitch();
-      if (terrainOnTilt(flat, pitch, terrainRef.current.enabled, gpuChosenRef.current)) {
-        setTerrainState(true, terrainRef.current.exaggeration);
-      }
+      if (terrainOnTilt(flat, pitch, terrainRef.current.enabled)) setTerrainState(true, terrainRef.current.exaggeration);
       flat = pitch < TILT_ON;
     };
     map.on('pitchend', onPitchEnd);
@@ -337,9 +332,9 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
   // layer stays empty. Its layer is flat, so 3D terrain keeps tiles.
   const gpuRender = useGpuRender(mapRef.current, ready,
     () => (mapRef.current ? firstAboveDataId(mapRef.current) : undefined), terrain.enabled ? '3D terrain' : null);
-  gpuChosenRef.current = gpuRender.chosen;
   // Once, when the GPU renderer is chosen: a terrain remembered from an earlier visit
-  // goes off, so the GPU draws (only this change of `chosen` runs it, not later clicks).
+  // goes off, so the page opens flat and the GPU draws. Tilting turns it on again, as
+  // always (the data then drapes over it with tiles).
   useEffect(() => {
     if (terrainOffForGpu(gpuRender.chosen, terrainRef.current.enabled, !!terrainDemId)) {
       setTerrainState(false, terrainRef.current.exaggeration);
