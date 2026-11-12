@@ -611,8 +611,8 @@ class CustomReader(BaseReader):
         self.close()
 
     def info(self) -> Info:
-        # could return self.dataset.info()
-        raise NotImplementedError
+        """Expose source metadata required by TileJSON without reading pixels."""
+        return self.dataset.info()
 
     def statistics(self, *args, **kwargs) -> dict[str, BandStatistics]:
         # could return self.dataset.statistics(*args, **kwargs)
