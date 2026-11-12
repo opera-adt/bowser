@@ -60,9 +60,43 @@ def smoke_test(cube: str) -> int:
             f"smoke test {'passed' if ok else 'FAILED'}: {variable}, "
             f"{len(json.loads(series))} values, tile {len(tile)} bytes"
         )
-        return 0 if ok else 1
+        return 0 if ok and assistant_check(call) else 1
     finally:
         server.stop()
+
+
+#: What the Assistant tab loads only when it is used: missing from the frozen app,
+#: they would fail on the user's first question, not at start.
+ASSISTANT_MODULES = (
+    "anthropic",
+    "httpx",
+    "keyring",
+    "jwt",
+    "mcp.server.mcpserver",
+    "bowser.mcp_server",
+    "bowser.assistant.providers",
+    "bowser.assistant.signin",
+)
+
+
+def assistant_check(call) -> bool:
+    """The Assistant is on in the app, and everything it loads later is packed."""
+    import importlib  # noqa: PLC0415
+
+    _, status = call("/assistant/status")
+    enabled = bool(json.loads(status).get("enabled"))
+    missing = []
+    for name in ASSISTANT_MODULES:
+        try:
+            importlib.import_module(name)
+        except Exception as e:  # noqa: BLE001  (any failure means it is not usable)
+            missing.append(f"{name} ({type(e).__name__}: {e})")
+    ok = enabled and not missing
+    print(
+        f"assistant check {'passed' if ok else 'FAILED'}: enabled={enabled}"
+        + (f", cannot import {'; '.join(missing)}" if missing else "")
+    )
+    return ok
 
 
 def main() -> int:

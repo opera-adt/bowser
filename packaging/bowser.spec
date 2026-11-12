@@ -5,7 +5,7 @@
 import sys
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules, copy_metadata
 
 ROOT = Path(SPECPATH).parent
 HEAVY = [
@@ -15,6 +15,9 @@ HEAVY = [
 
 datas = collect_data_files("bowser", includes=["dist/**/*", "static/**/*", "lite/*.npz", "lite/*.json"])
 datas += collect_data_files("pyproj")  # PROJ's database, for UTM <-> lon/lat
+# Packages that read their own version or entry points at run time.
+for _pkg in ("mcp", "keyring", "anthropic"):
+    datas += copy_metadata(_pkg)
 
 a = Analysis(
     [str(ROOT / "packaging" / "bowser_app.py")],
@@ -23,7 +26,11 @@ a = Analysis(
     hiddenimports=collect_submodules("uvicorn")
     + collect_submodules("bowser.lite")
     + collect_submodules("s3fs")  # fsspec loads it by name for s3:// URIs
-    + ["bowser.desktop", "fsspec.implementations.local"],
+    # The Assistant tab: its modules load providers and the MCP server when used,
+    # and keyring finds its system backends by name.
+    + collect_submodules("bowser.assistant")
+    + collect_submodules("keyring.backends")
+    + ["bowser.desktop", "bowser.mcp_server", "fsspec.implementations.local"],
     excludes=HEAVY,
     noarchive=False,
 )

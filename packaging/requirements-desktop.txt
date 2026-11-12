@@ -9,5 +9,14 @@ uvicorn
 pydantic-settings
 fsspec
 s3fs  # s3:// cubes
+# The Assistant tab (bowser-lite imports bowser.assistant at start): the same
+# packages as the "assistant" extra in pyproject.toml. Keep the two in step;
+# the smoke test imports each of them in the frozen app.
+anthropic>=2.8,<3
+httpx
+keyring
+pyjwt[crypto]>=2.10
+mcp==2.2.0
+certifi  # CA bundle for GNSS and WMS requests
 pywebview
 pyinstaller
