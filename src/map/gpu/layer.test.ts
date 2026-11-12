@@ -178,6 +178,22 @@ describe('GpuCubeLayer', () => {
     expect(calls.length).toBeLessThan(8 * perBlock);
   });
 
+  it('uploads chunks that arrive after the view moved on, rather than fetching them again', async () => {
+    const { gl, layer, calls } = setup(512 * MB);
+    layer.setParams(params({ timeIdx: 0 }), 1);
+    layer.render(gl, render);
+    await settle();                 // the variable's shape is known
+    layer.render(gl, render);       // block 0 requested
+    layer.setParams(params({ timeIdx: 8 }), 1);
+    await frames(layer, gl);        // block 0 arrives while block 1 is shown
+    layer.setParams(params({ timeIdx: 0 }), 1);
+    await frames(layer, gl);
+    const block0 = calls.filter(c => c.tb === 0);
+    expect(block0.length).toBeGreaterThan(0);
+    // Each chunk of block 0 was fetched once: the late ones were kept.
+    expect(new Set(block0.map(c => `${c.cy}|${c.cx}`)).size).toBe(block0.length);
+  });
+
   it('falls back when the decoder workers fail, and stops them when closed', async () => {
     const { layer, onFailure, workerDies, cube } = setup(512 * MB);
     workerDies('decoder worker failed: boom');

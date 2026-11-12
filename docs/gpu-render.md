@@ -89,9 +89,10 @@ more by the map; the value drawn at a cube pixel is the same.
   2048 MB). Above it, chunks away from the view are dropped first, then the
   view's other dates, the least recently used first, down to 80% of the
   budget. What the current frame draws is always kept, so a very large view
-  can go over the budget by that much. Chunks the view stopped needing before
-  they arrived (dates played past) are not uploaded, and those still queued
-  are not fetched.
+  can go over the budget by that much. Chunks the view stopped needing while
+  still queued (dates played past, places panned away from) are not fetched;
+  those already on their way are still uploaded, after the view's own, so
+  coming back to them needs no second fetch.
 
 ## Which renderer is drawing
 

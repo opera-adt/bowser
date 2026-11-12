@@ -339,13 +339,14 @@ export class GpuCubeLayer implements maplibregl.CustomLayerInterface {
   }
 
   /**
-   * Forget chunks this frame no longer asks for that are queued or decoded but not
-   * uploaded (dates played past, places panned away from), so neither the network
-   * nor memory goes to them. Chunks being fetched finish, then go the same way.
+   * Forget queued chunks this frame no longer asks for (dates played past, places
+   * panned away from), so the network doesn't go to them. Chunks already fetched or
+   * being fetched are still uploaded (one per frame, after the view's own), so coming
+   * back to them needs no second fetch; the budget evicts them like any other.
    */
   private dropStale(since: number) {
     for (const [k, e] of this.textures) {
-      if ((e.state === 'queued' || e.state === 'decoded') && e.lastUsed <= since) {
+      if (e.state === 'queued' && e.lastUsed <= since) {
         this.textures.delete(k);
         this.counts.dropped++;
       }
