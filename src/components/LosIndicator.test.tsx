@@ -57,3 +57,49 @@ describe('LOS metadata availability', () => {
     expect(screen.queryByText(/Manual illustration/)).toBeNull();
   });
 });
+
+describe('LOS polarity describes the layer, not its reference capability', () => {
+  const measurement = (kind: string, positive_direction: string | null) => {
+    Object.assign(state.datasetInfo.displacement, { measurement: { kind, positive_direction } });
+  };
+  it.each(['vertical', 'east_west', 'north_south', 'unknown', 'downslope'])('does not label %s values as toward/away LOS', kind => {
+    measurement(kind, 'towards the satellite');
+    render(<LosIndicator />);
+    expect(screen.queryByText('+')).toBeNull();
+    expect(screen.queryByText('−')).toBeNull();
+    expect(screen.getByText('Geometry from supplied metadata')).toBeTruthy();
+  });
+  it('does not invent a sign when metadata is absent', () => {
+    render(<LosIndicator />);
+    expect(screen.queryByText('+')).toBeNull();
+    expect(screen.queryByText('−')).toBeNull();
+  });
+  it.each([null, 'unknown', 'up'])('does not invent a LOS sign from %s', positive => {
+    measurement('line_of_sight', positive);
+    render(<LosIndicator />);
+    expect(screen.queryByText('+')).toBeNull();
+    expect(screen.queryByText('−')).toBeNull();
+  });
+  it.each([
+    ['towards the satellite', '+', '−'],
+    ['away from the satellite', '−', '+'],
+  ])('uses the documented %s convention even without a moving reference', (positive, toward, away) => {
+    measurement('line_of_sight', positive);
+    state.datasetInfo.displacement.uses_spatial_ref = false;
+    render(<LosIndicator />);
+    expect(screen.getByLabelText(`Toward satellite: ${toward}`).textContent).toBe(toward);
+    expect(screen.getByLabelText(`Away from satellite: ${away}`).textContent).toBe(away);
+  });
+});
+
+it('updates sign labels when the active layer changes without changing its geometry', () => {
+  Object.assign(state.datasetInfo.displacement, { measurement: { kind: 'line_of_sight', positive_direction: 'towards the satellite' } });
+  const view = render(<LosIndicator />);
+  expect(screen.getByLabelText('Toward satellite: +')).toBeTruthy();
+  state = { ...state, currentDataset: 'vertical', datasetInfo: { ...state.datasetInfo,
+    vertical: { ...state.datasetInfo.displacement, measurement: { kind: 'vertical', positive_direction: 'up' } } } };
+  view.rerender(<LosIndicator />);
+  expect(screen.queryByText('+')).toBeNull();
+  expect(screen.queryByText('−')).toBeNull();
+  expect(screen.getByText('Geometry from supplied metadata')).toBeTruthy();
+});

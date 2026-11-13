@@ -21,3 +21,21 @@ or its positive/negative sign convention. Re-referencing capability alone does
 not prove that a layer is LOS: ENU, map-grid offsets and downslope products need
 their own quantity/sign interpretation. That broader metadata/polarity audit
 remains separate work.
+
+
+## Geometry is independent of what a layer measures
+
+The same viewing geometry can accompany LOS motion, east/north/up components,
+derived downslope motion and quality layers. `uses_spatial_ref` only says the
+layer can be re-referenced; it does not establish a direction or sign.
+
+The LOS widget uses the existing backend `measurement.kind` and
+`measurement.positive_direction`. It shows plus/minus labels only for
+`line_of_sight` with the documented canonical sign “towards the satellite” or
+“away from the satellite”. Positive-away data reverses the labels; values are
+never negated or converted. Unknown sign hides labels, rather than assuming a
+sensor convention. Geometry remains available as context for other/unknown
+quantities. Legacy responses without measurement metadata retain the geometry
+but omit unverified sign labels. Sign metadata is independent of whether the
+moving reference is enabled. Manual geometry stays explicitly illustrative and
+does not establish a layer's quantity/sign.

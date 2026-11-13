@@ -6,6 +6,7 @@ import { downloadElementAsPng } from '../utils/screenshot';
 
 type Direction = 'ascending' | 'descending';
 type Looking = 'right' | 'left';
+type LosPositiveDirection = 'towards the satellite' | 'away from the satellite';
 
 const DEG = Math.PI / 180;
 
@@ -163,7 +164,7 @@ function FlightCompass({ geom }: { geom: Geometry }) {
  * and the line back to the satellite. Under a flat-earth assumption this
  * equals the look angle at the sensor, which is what we draw with.
  */
-function SideView({ geom, showPolarity }: { geom: Geometry; showPolarity: boolean }) {
+function SideView({ geom, positiveDirection }: { geom: Geometry; positiveDirection: LosPositiveDirection | null }) {
   const w = 150;
   const h = 100;
   const satX = w / 2;
@@ -220,7 +221,9 @@ function SideView({ geom, showPolarity }: { geom: Geometry; showPolarity: boolea
   // goes in the caption below the icon.
   const incLabel = `${Math.round(inc)}°`;
 
-  // +/- along the center slant: + near satellite (toward), − near ground (away).
+  // Positions are physical directions; the layer metadata determines their sign.
+  const towardSymbol = positiveDirection === 'towards the satellite' ? '+' : '−';
+  const awaySymbol = positiveDirection === 'towards the satellite' ? '−' : '+';
   const slantDx = centerTipX - satX;
   const slantDy = groundY - satY;
   const slantLen = Math.hypot(slantDx, slantDy);
@@ -259,12 +262,14 @@ function SideView({ geom, showPolarity }: { geom: Geometry; showPolarity: boolea
       <text x={labX} y={labY} textAnchor="middle" fontSize={9} fill="currentColor">
         {incLabel}
       </text>
-      {showPolarity && (
+      {positiveDirection && (
         <>
           <text x={plusX} y={plusY} textAnchor="middle" fontSize={11}
-            fontWeight="bold" fill={LOOK_COLOR}>+</text>
+            aria-label={`Toward satellite: ${towardSymbol}`}
+            fontWeight="bold" fill={LOOK_COLOR}>{towardSymbol}</text>
           <text x={minusX} y={minusY} textAnchor="middle" fontSize={11}
-            fontWeight="bold" fill={LOOK_COLOR}>−</text>
+            aria-label={`Away from satellite: ${awaySymbol}`}
+            fontWeight="bold" fill={LOOK_COLOR}>{awaySymbol}</text>
         </>
       )}
     </svg>
@@ -299,9 +304,12 @@ export default function LosIndicator() {
     return null;
   }, [suppliedGeometry, manualOn, direction, looking, incidence]);
 
-  // Polarity annotation only makes sense for signed LOS data (displacement,
-  // velocity). Coherence/amplitude have no toward/away meaning.
-  const showPolarity = !!dsInfo?.uses_spatial_ref;
+  // Re-referencing also applies to ENU/downslope/map offsets. It says nothing
+  // about measurement direction or sign; use the shared backend metadata.
+  const measurement = dsInfo?.measurement;
+  const statedSign = measurement?.positive_direction;
+  const positiveDirection: LosPositiveDirection | null = measurement?.kind === 'line_of_sight'
+    && (statedSign === 'towards the satellite' || statedSign === 'away from the satellite') ? statedSign : null;
 
   if (!state.showLosIndicator) return null;
 
@@ -376,7 +384,7 @@ export default function LosIndicator() {
                 </div>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                <SideView geom={geom} showPolarity={showPolarity} />
+                <SideView geom={geom} positiveDirection={positiveDirection} />
                 <div style={{ fontSize: '0.7em', color: 'var(--sb-muted)', marginTop: 2 }}>
                   Incidence {(geom.incidenceNear !== undefined && geom.incidenceFar !== undefined)
                     ? `${geom.incidenceNear.toFixed(1)}°–${geom.incidenceFar.toFixed(1)}°`
@@ -390,6 +398,11 @@ export default function LosIndicator() {
               textTransform: 'capitalize',
             }}>
               {geom.direction} · {geom.looking}-looking
+              <div style={{ textTransform: 'none', marginTop: 3 }}>
+                {positiveDirection ? `Positive values: ${positiveDirection}`
+                  : measurement?.kind === 'line_of_sight' ? 'Layer sign is unspecified.'
+                    : 'Viewing geometry only.'}
+              </div>
             </div>
           </>
         ) : (

@@ -6,6 +6,13 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- LOS widget sign labels now use the existing per-layer measurement direction
+  and sign, independently of re-referencing support. Positive-away labels are
+  reversed; non-LOS/unknown layers retain geometry without misleading signs.
+  Stored values and viewing geometry are unchanged.
+
 ### Added
 
 - Scientific colour maps (Crameri): `batlow`, `lajolla`, `oslo`, `vik`, `roma`,
