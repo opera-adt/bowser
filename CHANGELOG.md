@@ -341,6 +341,13 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Masking: a mask added, or moved to another layer, takes that layer's own
+  default threshold once the layer's range is known. Before, the threshold
+  stayed at 0.5 or at the previous layer's value, in the wrong units (it hid
+  everything for a velocity mask, nothing for an amplitude one). Under the
+  slider, a small histogram of the mask's layer shows the part the threshold
+  keeps, with "Keeps N% of this layer's pixels".
+
 - Esri basemaps (Satellite, Topo, Dark, Light, Hillshade, Relief) no longer show
   Esri's grey "Map data not yet available" tiles. How deep Esri's tiles go
   depends on the place (Satellite stops at zoom 14 offshore and on ice sheets,
