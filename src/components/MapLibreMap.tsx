@@ -42,6 +42,7 @@ import { RenderLabel } from '../map/gpu/RenderLabel';
 import { useDrawTools } from './drawTools';
 import { useIdentify } from './identifyTool';
 import { registerPmtiles } from '../map/pmtiles';
+import { registerEsriTiles } from '../map/esriTiles';
 import { registerNavigator, whenMoved } from '../map/navigator';
 import { registerDemTerrain, terrainDem, terrainSourceFor } from '../map/demTerrain';
 
@@ -49,6 +50,8 @@ import { registerDemTerrain, terrainDem, terrainSourceFor } from '../map/demTerr
 registerPmtiles(maplibregl.addProtocol as never);
 // A DEM used for 3D terrain is merged into the global terrain through bowserdem://.
 registerDemTerrain(maplibregl.addProtocol as never);
+// Esri basemaps go through esritiles://, so a missing tile shows the ones above it.
+registerEsriTiles(maplibregl.addProtocol as never);
 import { MapLeftToolbar, MapTopRightToolbar, type MapFeature } from './MapToolbars';
 import MapLibreProfile from './MapLibreProfile';
 import MapLibreMeasure from './MapLibreMeasure';

@@ -335,6 +335,16 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   thread pool as on bowser-lite; `/upload_raster` computes its statistics in a
   worker thread. Answers are unchanged.
 
+### Fixed
+
+- Esri basemaps (Satellite, Topo, Dark, Light, Hillshade, Relief) no longer show
+  Esri's grey "Map data not yet available" tiles. How deep Esri's tiles go
+  depends on the place (Satellite stops at zoom 14 offshore and on ice sheets,
+  Hillshade at 14-15 at high latitudes, Relief at 11), so a fixed zoom limit
+  per basemap was wrong in many areas. The tiles are now asked for with
+  `blankTile=false`, and where one is missing the map shows the last real
+  tiles, upscaled.
+
 ## [0.6.1] - 2026-11-05
 
 First release with desktop installers attached.

@@ -36,6 +36,15 @@ describe('basemap sources for MapLibre', () => {
   // sources stop there and MapLibre / Leaflet upscale the last real tiles.
   const NATIVE = { esriDark: 16, esriLight: 16, esriHillshade: 16, shadedRelief: 13 } as const;
 
+  it('asks Esri for 404 instead of its "Map data not yet available" tile', () => {
+    const esri = Object.entries(baseMaps).filter(([, item]) => item.url.includes('arcgisonline.com'));
+    expect(esri.length).toBeGreaterThanOrEqual(6);
+    for (const [key, item] of esri) {
+      expect(item.url, key).toMatch(/\/tile\/\{z\}\/\{y\}\/\{x\}\?blankTile=false$/);
+      expect(basemapSource(item).tiles[0], key).toContain('blankTile=false');
+    }
+  });
+
   it('draws Relief from Esri World Shaded Relief, not a copy of Hillshade', () => {
     expect(baseMaps.shadedRelief.url).toContain('World_Shaded_Relief');
     expect(baseMaps.shadedRelief.url).not.toBe(baseMaps.esriHillshade.url);
