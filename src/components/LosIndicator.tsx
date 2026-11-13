@@ -291,6 +291,7 @@ export default function LosIndicator() {
     initialBottom: 40,
     minWidth: 240,
     minHeight: 180,
+    fitContent: true,
   });
 
   const dsInfo = state.currentDataset ? state.datasetInfo[state.currentDataset] : undefined;

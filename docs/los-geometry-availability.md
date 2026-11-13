@@ -39,3 +39,6 @@ quantities. Legacy responses without measurement metadata retain the geometry
 but omit unverified sign labels. Sign metadata is independent of whether the
 moving reference is enabled. Manual geometry stays explicitly illustrative and
 does not establish a layer's quantity/sign.
+
+The widget uses the existing content-fitting panel behavior so sign captions and
+manual controls remain inside the resizable, on-screen panel.
