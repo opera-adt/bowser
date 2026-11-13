@@ -44,13 +44,22 @@ interface Requests { revision: number; entries: Map<string, Request> }
 const requests = new WeakMap<Dispatch, Requests>();
 let nextRequestId = 0;
 
-function maskError(dataset: string, options: AreaFetchOptions): string | null {
-  if (options.customMaskPath) return 'Area statistics do not yet support uploaded masks. Clear the uploaded mask to plot this area.';
-  if (options.dataMode === 'cog' && options.datasetInfo[dataset]?.mask_file_list?.some(Boolean)) {
-    return 'Area statistics do not yet support configured GeoTIFF masks. No unmasked curve is shown.';
-  }
+function maskError(options: AreaFetchOptions): string | null {
   if (options.layerMasks.some(m => !Number.isFinite(m.threshold))) return 'Area mask thresholds must be finite numbers.';
   return null;
+}
+
+/**
+ * Masks the map applies that the polygon endpoint cannot yet: an uploaded mask, and a GeoTIFF
+ * layer's configured mask file. The area is still drawn, from pixels the map may be hiding, so
+ * the chart says so (the masks chosen in Main > Masking are applied, or the area is refused).
+ */
+export function unappliedAreaMasks(datasets: string[], state: Pick<AppState, 'customMaskPath' | 'dataMode' | 'datasetInfo'>): string | null {
+  const kinds = [
+    ...(state.customMaskPath ? ['uploaded'] : []),
+    ...(state.dataMode === 'cog' && datasets.some(ds => state.datasetInfo[ds]?.mask_file_list?.some(Boolean)) ? ['configured'] : []),
+  ];
+  return kinds.length ? `Areas: ${kinds.join(' and ')} mask not applied` : null;
 }
 
 /** Run ``worker`` on every item, at most ``limit`` at a time, in order of start. */
@@ -129,7 +138,7 @@ export async function fetchAreaStats(
       if (!live()) continue; // Superseded queued work must not start another request.
       if (!record.promise) {
         record.promise = (async () => {
-          const error = maskError(ds, options);
+          const error = maskError(options);
           if (error) return { error };
           try {
             return toAreaStats(await fetchPolygon(ds, area.geometry, options.layerMasks, record.controller.signal));

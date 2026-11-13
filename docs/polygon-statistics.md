@@ -56,10 +56,18 @@ once in the chart, not again in the API.
 
 The server must confirm that requested quality masks were applied. A failed,
 empty or unconfirmed mask response clears the old curve and displays an error;
-there is no fallback to unmasked data. Uploaded external masks and configured
-GeoTIFF masks are not yet supported by this polygon workflow. If active, they give an explicit area error rather than a
-misleading unmasked curve. Clear an unsupported mask to recover a supported
-area chart. These limits do not claim to change point-chart or map behavior.
+there is no fallback to unmasked data for the masks chosen in Main > Masking.
+
+Two masks the map applies are not yet supported by this polygon workflow: an
+uploaded external mask, and a GeoTIFF layer's configured mask file. An area is
+still drawn while one of them is active, from pixels the map may be hiding, and
+the chart's footnote says so ("Areas: uploaded mask not applied", "Areas:
+configured mask not applied"). These limits do not claim to change point-chart
+or map behavior.
+
+While a mask slider is dragged the area requests are spaced: the first change
+asks at once, then at most once per 250 ms, always ending on the value the
+slider stopped at.
 Bowser-lite has the same button and gives the same numbers (see
 [Bowser-lite](#bowser-lite)).
 

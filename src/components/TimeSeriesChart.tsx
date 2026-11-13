@@ -22,7 +22,8 @@ import ChartAreaButton from './ChartAreaButton';
 import { AREA_BAND_LABELS, areaChartDatasets, areaStatsKey, type AreaBand } from '../utils/polygonSeries';
 import { useAreaReference } from '../hooks/useAreaReference';
 import { useAreaStatsFetch } from '../hooks/useAreaStatsFetch';
-import { useSpacedEffect } from '../hooks/useSpacedEffect';
+import { unappliedAreaMasks } from '../utils/zonalStats';
+import { REQUEST_GAP_MS, useSpacedEffect } from '../hooks/useSpacedEffect';
 import { readChartDisplayOpen, saveChartDisplayOpen } from '../utils/chartDisplayPref';
 import { refIndexOf, toIsoDate } from '../utils/areaStats';
 import { registerChart, type ChartSnapshot, type LayerDisplay, type SeriesTag } from '../assistant/chartView';
@@ -61,7 +62,7 @@ const linkedLegendPlugin = {
 };
 
 /** Least time between two rounds of chart requests (see useSpacedEffect). */
-export const CHART_REQUEST_GAP_MS = 250;
+export const CHART_REQUEST_GAP_MS = REQUEST_GAP_MS;
 
 ChartJS.register(linkedLegendPlugin);
 
@@ -1132,6 +1133,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
         <small>
           {picking ? `Click the chart where the ${picking} goes · ` : ''}Scroll to zoom · Drag to pan · Click points to sync map time
           {visibleAreas.length > 0 && <> · Areas use common valid pixels</>}
+          {visibleAreas.length > 0 && unappliedAreaMasks(activeDatasetsForChart, state) && <> · <strong>{unappliedAreaMasks(activeDatasetsForChart, state)}</strong></>}
           {visibleAreas.some(a => activeDatasetsForChart.some(ds => areaResults[areaStatsKey(ds, a.id)]?.data?.optional_masks_applied)) && <> · Area quality masks applied</>}
           {state.bufferEnabled && Object.keys(bufferData).length > 0 && (
             <> · Buffer: {Object.values(bufferData).map((b: any) => b.n_pixels).join(', ')} px</>

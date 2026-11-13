@@ -168,14 +168,18 @@ describe('polygon masking controls', () => {
     },
   );
 
-  it('clears curves for unsupported uploaded masks and recovers when cleared', async () => {
+  it('still draws an area under an uploaded mask, and says the mask is not applied to it', async () => {
     show();
     await waitFor(() => expect(medians()).toEqual([0, 9, 18]));
+    expect(screen.queryByText(/mask not applied/)).toBeNull();
     change({ type: 'SET_CUSTOM_MASK_PATH', payload: 'uploaded-mask.tif' });
-    await waitFor(() => expect(screen.getByText(/Area statistics do not yet support uploaded masks/)).toBeTruthy());
-    expect(current.areaStats['displacement::area']?.data).toBeUndefined();
-    expect(posted).toHaveLength(1);
+    await waitFor(() => expect(screen.getByText('Areas: uploaded mask not applied')).toBeTruthy());
+    // Asked for again (the summaries were dropped), and drawn: an area chart is not taken away.
+    await waitFor(() => expect(posted).toHaveLength(2));
+    await waitFor(() => expect(medians()).toEqual([0, 9, 18]));
+    expect(posted[1].body.layer_masks).toBeUndefined();
     change({ type: 'SET_CUSTOM_MASK_PATH', payload: null });
+    await waitFor(() => expect(screen.queryByText(/mask not applied/)).toBeNull());
     await waitFor(() => expect(medians()).toEqual([0, 9, 18]));
   });
 
@@ -191,14 +195,30 @@ describe('polygon masking controls', () => {
     expect(current.areaStats['displacement::area']).toBeUndefined();
   });
 
-  it('rejects an unsupported configured GeoTIFF mask without requesting unmasked statistics', async () => {
+  it('still draws an area on a GeoTIFF layer with a configured mask, and says it is not applied', async () => {
     show([
       { type: 'SET_DATA_MODE', payload: 'cog' },
       { type: 'SET_DATASETS', payload: { displacement: { ...layer, mask_file_list: ['mask.tif'] } } },
     ]);
-    await waitFor(() => expect(current.areaStats['displacement::area']?.error).toContain('configured GeoTIFF'));
-    expect(posted).toHaveLength(0);
+    await waitFor(() => expect(medians()).toEqual([0, 9, 18]));
+    expect(current.areaStats['displacement::area']?.error).toBeUndefined();
+    expect(screen.getByText('Areas: configured mask not applied')).toBeTruthy();
     expect(screen.queryByText(/Masking hides every date/)).toBeNull();
+  });
+
+  it('a dragged mask threshold asks a few times, not once per tick, and ends on the last value', async () => {
+    show([{ type: 'ADD_LAYER_MASK', payload: mask }]);
+    await waitFor(() => expect(medians()).toBeDefined());
+    const before = posted.length;
+    for (let i = 1; i <= 10; i++) {
+      change({ type: 'UPDATE_LAYER_MASK', payload: { id: 'q', updates: { threshold: 0.5 + i / 100 } } });
+      await act(async () => { await new Promise(done => setTimeout(done, 10)); });
+    }
+    await act(async () => { await new Promise(done => setTimeout(done, 400)); });
+    const asked = posted.slice(before);
+    expect(asked.length).toBeLessThanOrEqual(3);
+    expect(asked[asked.length - 1].body.layer_masks![0].threshold).toBe(0.6);
+    await waitFor(() => expect(medians()).toBeDefined());
   });
 
   it('sends a GeoTIFF upper bound and applies the spatial reference once', async () => {
