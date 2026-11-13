@@ -24,8 +24,9 @@ def _table(name: str) -> np.ndarray:
 
 
 def test_tables_equal_lites():
-    with np.load(ROOT / "src/bowser/lite/colormaps.npz") as f:
-        lite = {str(n): lut for n, lut in zip(f["names"], f["luts"])}
+    from bowser.lite.colormaps import get_lut
+
+    lite = {name: get_lut(name) for name in LUTS}
     assert len(LUTS) >= 60
     for name in LUTS:
         np.testing.assert_array_equal(_table(name), lite[name], err_msg=name)
@@ -33,6 +34,9 @@ def test_tables_equal_lites():
 
 def test_tables_equal_the_full_servers():
     cmap = pytest.importorskip("rio_tiler.colormap").cmap
+    from bowser.utils import register_custom_colormaps
+
+    register_custom_colormaps()
     for name in LUTS:
         # The full server adds these _r forms itself (register_custom_colormaps).
         own = name.endswith("_r") and name[:-2] in ("cfastie", "rplumbo", "schwarzwald")

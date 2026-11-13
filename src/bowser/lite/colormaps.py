@@ -2,11 +2,13 @@
 
 The tables are generated once by ``scripts/build_lite_colormaps.py`` from rio-tiler
 (the same tables the full server colours tiles with), so lite never imports
-rio-tiler or matplotlib.
+rio-tiler or matplotlib. The scientific palettes (``cmc_*``) are added from their
+pinned text files (``bowser.scientific_colormaps``), which need only numpy.
 """
 
 from __future__ import annotations
 
+import logging
 from functools import cache
 from pathlib import Path
 
@@ -14,11 +16,22 @@ import numpy as np
 
 TABLE_FILE = Path(__file__).with_name("colormaps.npz")
 
+logger = logging.getLogger("bowser")
+
 
 @cache
 def _tables() -> dict[str, np.ndarray]:
     with np.load(TABLE_FILE, allow_pickle=False) as f:
-        return {str(name): lut for name, lut in zip(f["names"], f["luts"])}
+        loaded = {str(name): lut for name, lut in zip(f["names"], f["luts"])}
+    # The scientific palettes are extra: without their files (a build that left
+    # them out) the tables above still colour every tile.
+    try:
+        from ..scientific_colormaps import tables
+
+        loaded.update(tables())
+    except (OSError, ValueError):
+        logger.warning("Scientific colour palettes are not available", exc_info=True)
+    return loaded
 
 
 def names() -> list[str]:

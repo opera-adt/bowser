@@ -1,0 +1,56 @@
+{
+  "author": "Fabio Crameri",
+  "distribution": "cmcrameri",
+  "revision": "87197e141a2c451691ec53fadc6da4d017f79a4c",
+  "project": "https://www.fabiocrameri.ch/colourmaps/",
+  "repository": "https://github.com/callumrollo/cmcrameri",
+  "license": "MIT; see LICENSE.txt",
+  "display_conversion": "RGB floats converted to uint8 with nearest-integer rounding; reverse palettes use the exact reversed table",
+  "files": {
+    "batlow": {
+      "url": "https://raw.githubusercontent.com/callumrollo/cmcrameri/87197e141a2c451691ec53fadc6da4d017f79a4c/cmcrameri/cmaps/batlow.txt",
+      "sha256": "918dd393177e126685437f234f4c1f7c8a446437c1c68820f3bc1a8423e91bd1",
+      "rows": 256
+    },
+    "oslo": {
+      "url": "https://raw.githubusercontent.com/callumrollo/cmcrameri/87197e141a2c451691ec53fadc6da4d017f79a4c/cmcrameri/cmaps/oslo.txt",
+      "sha256": "4e29e907d1a07e05481ee6856efe4b5266d85f89eea8c82affde764aacaf1f89",
+      "rows": 256
+    },
+    "lajolla": {
+      "url": "https://raw.githubusercontent.com/callumrollo/cmcrameri/87197e141a2c451691ec53fadc6da4d017f79a4c/cmcrameri/cmaps/lajolla.txt",
+      "sha256": "7541ff8f5267045b8fc716c53d2fa9153882fe23471c74f8c3692ff57aef1971",
+      "rows": 256
+    },
+    "vik": {
+      "url": "https://raw.githubusercontent.com/callumrollo/cmcrameri/87197e141a2c451691ec53fadc6da4d017f79a4c/cmcrameri/cmaps/vik.txt",
+      "sha256": "60c2abfbffdfd9e7567cfeea1387bfe270eb036efe7262fdd7bf713058bacae2",
+      "rows": 256
+    },
+    "roma": {
+      "url": "https://raw.githubusercontent.com/callumrollo/cmcrameri/87197e141a2c451691ec53fadc6da4d017f79a4c/cmcrameri/cmaps/roma.txt",
+      "sha256": "3b71680d6ea001c6186569aab00e12baf0a10a5ac2e4b6305c3d8163f630b8c0",
+      "rows": 256
+    },
+    "broc": {
+      "url": "https://raw.githubusercontent.com/callumrollo/cmcrameri/87197e141a2c451691ec53fadc6da4d017f79a4c/cmcrameri/cmaps/broc.txt",
+      "sha256": "f4404b8badae36fd33af4879e42bb27ce6c7c09496e5b85452ff6ebd2eac9f44",
+      "rows": 256
+    },
+    "berlin": {
+      "url": "https://raw.githubusercontent.com/callumrollo/cmcrameri/87197e141a2c451691ec53fadc6da4d017f79a4c/cmcrameri/cmaps/berlin.txt",
+      "sha256": "d66b056833f3f2ffed2889dc1d1143d23fc404e6c3b53299d3f939c61f557410",
+      "rows": 256
+    },
+    "bam": {
+      "url": "https://raw.githubusercontent.com/callumrollo/cmcrameri/87197e141a2c451691ec53fadc6da4d017f79a4c/cmcrameri/cmaps/bam.txt",
+      "sha256": "b45025db37b70695a5256c121965d0169bc10bd67fc921516b4b2c7e129f39e7",
+      "rows": 256
+    },
+    "romaO": {
+      "url": "https://raw.githubusercontent.com/callumrollo/cmcrameri/87197e141a2c451691ec53fadc6da4d017f79a4c/cmcrameri/cmaps/romaO.txt",
+      "sha256": "5946167e7ce80161f7f12c7ceae34730e06c42a31fa0000057b2bd785c04c74a",
+      "rows": 256
+    }
+  }
+}
