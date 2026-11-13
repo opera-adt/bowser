@@ -3,3 +3,4 @@ include src/bowser/dist/index.js
 include src/bowser/dist/index.css
 # Code-split chunks (e.g. the MapLibre worker) land in dist/assets/.
 recursive-include src/bowser/dist/assets *
+recursive-include src/bowser/palettes/crameri *.txt *.json

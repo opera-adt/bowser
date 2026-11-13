@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { useDraggableResizable } from '../hooks/useDraggableResizable';
 import { LosMetadata } from '../types';
@@ -47,22 +47,27 @@ function deriveLooking(heading: number, lookEast: number, lookNorth: number): Lo
   return cross > 0 ? 'left' : 'right';
 }
 
-function geometryFromMetadata(m: LosMetadata): Geometry {
+function geometryFromMetadata(m: LosMetadata): Geometry | null {
+  const vector = m.los_enu_ground_to_sat;
+  const angles = [m.incidence_deg, m.incidence_deg_near, m.incidence_deg_far].filter((v): v is number => v != null);
+  if (!Number.isFinite(m.heading_deg) || !Number.isFinite(m.incidence_deg) || angles.some(v => !Number.isFinite(v) || v < 0 || v > 90)
+    || !vector || ![vector.east, vector.north, vector.up].every(Number.isFinite)
+    || vector.up <= 0 || Math.hypot(vector.east, vector.north) === 0) return null;
   const heading = m.heading_deg;
   const direction = deriveDirection(heading);
   // ENU is required to say anything about the look vector; without it we refuse
   // to guess (prior behavior silently assumed right-looking).
   const los = m.los_enu_ground_to_sat;
   if (!los) {
-    throw new Error('LosMetadata without los_enu_ground_to_sat is unsupported');
+    return null;
   }
   const lookE = -los.east;
   const lookN = -los.north;
   return {
     heading,
     incidence: m.incidence_deg,
-    incidenceNear: m.incidence_deg_near,
-    incidenceFar: m.incidence_deg_far,
+    incidenceNear: m.incidence_deg_near ?? undefined,
+    incidenceFar: m.incidence_deg_far ?? undefined,
     direction,
     look: bearing(lookE, lookN),
     looking: deriveLooking(heading, lookE, lookN),
@@ -286,11 +291,13 @@ export default function LosIndicator() {
   const dsInfo = state.currentDataset ? state.datasetInfo[state.currentDataset] : undefined;
   const meta = dsInfo?.los_metadata;
 
+  const suppliedGeometry = useMemo(() => meta ? geometryFromMetadata(meta) : null, [meta]);
+  useEffect(() => { setManualOn(false); }, [state.currentDataset]);
   const geom = useMemo<Geometry | null>(() => {
-    if (meta) return geometryFromMetadata(meta);
+    if (suppliedGeometry) return suppliedGeometry;
     if (manualOn) return geometryFromManual(direction, looking, incidence);
     return null;
-  }, [meta, manualOn, direction, looking, incidence]);
+  }, [suppliedGeometry, manualOn, direction, looking, incidence]);
 
   // Polarity annotation only makes sense for signed LOS data (displacement,
   // velocity). Coherence/amplitude have no toward/away meaning.
@@ -388,7 +395,7 @@ export default function LosIndicator() {
         ) : (
           <div style={{ textAlign: 'center', padding: '8px 4px' }}>
             <div style={{ fontSize: '0.78em', color: 'var(--sb-muted)', marginBottom: 8 }}>
-              No LOS metadata for this dataset.
+              {meta ? 'LOS geometry is incomplete or invalid for this dataset.' : 'No LOS metadata for this dataset.'}
             </div>
             <button
               className="toggle-pill"
@@ -398,7 +405,10 @@ export default function LosIndicator() {
           </div>
         )}
 
-        {manualOn && !meta && (
+        {geom && <div style={{ fontSize: '0.7em', color: 'var(--sb-muted)' }}>
+          {suppliedGeometry ? 'Geometry from supplied metadata' : 'Manual illustration — approximate, not dataset metadata'}
+        </div>}
+        {manualOn && !suppliedGeometry && (
           <div style={{ borderTop: '1px solid var(--sb-border)', paddingTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
             <div style={{ display: 'flex', gap: 4 }}>
               <button

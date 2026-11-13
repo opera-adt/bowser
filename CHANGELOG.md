@@ -8,6 +8,12 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Scientific colour maps (Crameri): `batlow`, `lajolla`, `oslo`, `vik`, `roma`,
+  `berlin`, `broc`, `bam` and the cyclic `romaO`, each with its reverse, as
+  `cmc_*` in the colormap picker, on the full server, bowser-lite (and so the
+  desktop app) and the GPU renderer, with identical colours on all three. The
+  tables are vendored from cmcrameri at a pinned revision (MIT), checked by
+  SHA-256.
 - GeoTIFF export in bowser-lite and the desktop app: `GET /export/geotiff`
   (the Export button, the `export_geotiff` tool) now works without GDAL, with
   the full server's parameters, masks, reference handling, provenance tags and
@@ -256,6 +262,16 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Area (polygon) statistics on the full server read the cube in whole time
+  chunks, as bowser-lite does, instead of one date at a time, and keep a small
+  area's values between the two passes over the dates. A 3 km square of a
+  419-date DISP-S1 cube: 28.7 s to 2.4 s (with a quality mask 28.3 s to 3.5 s);
+  a 9 km square 42.8 s to 6.4 s. Same statistics.
+- Time-series chart: dragging a mask threshold, buffer radius or reference
+  radius slider no longer sends a round of chart requests for every tick (each
+  reads every date of every charted layer). The first change asks at once;
+  after that at most one round per 250 ms, always ending on the value the
+  slider stopped at.
 - MapLibre map: dragging a basemap opacity slider no longer removes and re-adds
   the basemap sources on every tick, which dropped the tiles already loaded and
   fetched every visible one again (on both maps in split screen). Opacity is
@@ -345,6 +361,19 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   worker thread. Answers are unchanged.
 
 ### Fixed
+
+- GNSS tab: the InSAR curve compared with a station follows the current
+  settings. It was fetched only when a station was picked or the reference
+  moved, so a changed mask, layer, reference switch or reference radius left
+  the old curve. It is fetched again for those (at most once per 250 ms while
+  a slider is dragged), a late answer no longer replaces a newer one, and
+  moving the reference no longer reloads the station's GNSS record.
+- Masking: a mask added, or moved to another layer, takes that layer's own
+  default threshold once the layer's range is known. Before, the threshold
+  stayed at 0.5 or at the previous layer's value, in the wrong units (it hid
+  everything for a velocity mask, nothing for an amplitude one). Under the
+  slider, a small histogram of the mask's layer shows the part the threshold
+  keeps, with "Keeps N% of this layer's pixels".
 
 - Esri basemaps (Satellite, Topo, Dark, Light, Hillshade, Relief) no longer show
   Esri's grey "Map data not yet available" tiles. How deep Esri's tiles go

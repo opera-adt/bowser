@@ -289,6 +289,9 @@ def register_custom_colormaps() -> None:
     except ImportError:
         return
 
+    from .scientific_colormaps import register
+
+    register()
     _NAMES = ("cfastie", "rplumbo", "schwarzwald")
 
     for name in _NAMES:

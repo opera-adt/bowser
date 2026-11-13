@@ -242,8 +242,57 @@ def test_geozarr_evaluates_only_intersecting_chunks(source):
         lazy, PolygonRequest(variable="field", geometry=geom), ["a", "b", "c"]
     )
     assert result["polygon_pixels"] == 1
-    assert len(reads) == 6
-    assert set(reads) == {(i, 2, 2) for i in range(3)}
+    # Each intersecting chunk once: a small area's values are kept for the
+    # summary's second pass over the dates.
+    assert sorted(reads) == [(i, 2, 2) for i in range(3)]
+
+
+def test_geozarr_reads_whole_time_chunks_once(source, monkeypatch):
+    """One date at a time decodes a chunk again for every date stored in it."""
+    import dask.array as da
+    from dask import delayed
+
+    import bowser.polygon as polygon
+
+    dates, per_chunk = 8, 4
+    values = np.stack([source.values[0] + 10 * i for i in range(dates)])
+    reads = []
+
+    def read(start):
+        reads.append(start)
+        return values[start : start + per_chunk]
+
+    stack = da.concatenate(
+        [
+            da.from_delayed(delayed(read)(start), (per_chunk, 8, 8), "float32")
+            for start in range(0, dates, per_chunk)
+        ],
+        axis=0,
+    )
+    plain = xr.DataArray(
+        values,
+        dims=("date", "y", "x"),
+        coords={"date": np.arange(dates), "x": source.x.values, "y": source.y.values},
+        attrs={"units": "meters"},
+    ).rio.write_crs(4326)
+    lazy = plain.copy(data=stack)
+    lazy.encoding["preferred_chunks"] = {"date": per_chunk, "y": 8, "x": 8}
+    labels = [str(i) for i in range(dates)]
+    request = PolygonRequest(variable="field", geometry=geometry())
+    expected = summarize_xarray(plain, request, labels)
+
+    assert summarize_xarray(lazy, request, labels) == expected
+    assert sorted(reads) == [0, 4]  # 2 chunks, not 8 dates x 2 passes
+    # An area too large to keep is read once per pass, still by whole chunks.
+    reads.clear()
+    monkeypatch.setattr(polygon, "KEEP_VALUES", 0)
+    assert summarize_xarray(lazy, request, labels) == expected
+    assert sorted(reads) == [0, 0, 4, 4]
+    # A window too large for whole chunks falls back to fewer dates at a time.
+    reads.clear()
+    monkeypatch.setattr(polygon, "READ_BLOCK", 1)
+    assert summarize_xarray(lazy, request, labels) == expected
+    assert len(reads) == 2 * dates
 
 
 @pytest.mark.parametrize(
