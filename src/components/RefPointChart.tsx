@@ -7,8 +7,8 @@ import { chartLayerFor } from '../utils/chartLayers';
 
 interface BufferResult {
   labels: string[];
-  median: number[];
-  samples: number[][];
+  median: Array<{ x: string; y: number }>;
+  samples: Array<Array<{ x: string; y: number }>>;
   n_pixels: number;
 }
 
@@ -17,6 +17,7 @@ export default function RefPointChart() {
   const { fetchBufferTimeSeries } = useApi();
   const [bufferData, setBufferData] = useState<BufferResult | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const { panelRef, panelStyle, onDragMouseDown, resizeGrip } = useDraggableResizable({
     defaultWidth: 520,
@@ -30,6 +31,8 @@ export default function RefPointChart() {
   useEffect(() => {
     if (!state.refBufferEnabled || !state.showRefChart || !chartDs) {
       setBufferData(null);
+      setError(null);
+      setLoading(false);
       return;
     }
 
@@ -40,10 +43,16 @@ export default function RefPointChart() {
     const [lat, lng] = state.refMarkerPosition;
 
     setLoading(true);
+    setBufferData(null);
+    setError(null);
     fetchBufferTimeSeries(lng, lat, chartDs, state.refBufferRadius, 20)
       .then(data => {
-        if (!ctrl.signal.aborted && data) setBufferData(data);
+        if (!ctrl.signal.aborted) {
+          if (data) setBufferData(data);
+          else setError('Could not load the reference-area summary. Try another area or check data availability.');
+        }
       })
+      .catch(() => { if (!ctrl.signal.aborted) setError('Could not load the reference-area summary. Try another area or check data availability.'); })
       .finally(() => { if (!ctrl.signal.aborted) setLoading(false); });
 
     return () => ctrl.abort();
@@ -53,6 +62,7 @@ export default function RefPointChart() {
     chartDs,
     state.refMarkerPosition,
     state.refBufferRadius,
+    fetchBufferTimeSeries,
   ]);
 
   if (!state.refBufferEnabled || !state.showRefChart) return null;
@@ -63,15 +73,21 @@ export default function RefPointChart() {
       </div>
     );
   }
+  if (error) return <div ref={panelRef} className="profile-panel" style={panelStyle} role="alert" onMouseDown={e => e.stopPropagation()}>{error}</div>;
   if (!bufferData || bufferData.labels.length === 0) return null;
-
-  const { median, samples } = bufferData;
 
   // Use dataset info x_values as the authoritative label source — identical to
   // what the main time series chart uses, guaranteeing the axes match.
   const rawLabels: string[] =
     ((chartDs && state.datasetInfo[chartDs]?.x_values) || bufferData.labels).map(String);
   const n = rawLabels.length;
+  // API observations retain their own saved labels. Missing epochs stay gaps.
+  const align = (series: Array<{ x: string; y: number }>) => {
+    const byLabel = new Map(series.map(point => [String(point.x), point.y]));
+    return rawLabels.map(label => byLabel.get(label) ?? NaN);
+  };
+  const median = align(bufferData.median);
+  const samples = bufferData.samples.map(align);
 
   const toDisplay = (l: string) => {
     const parts = l.split('_');
@@ -84,8 +100,8 @@ export default function RefPointChart() {
   const displayLabels = rawLabels.map(toDisplay);
 
   // Compute mean and std per date from samples
-  const mean: number[] = Array(n).fill(0);
-  const std: number[] = Array(n).fill(0);
+  const mean: number[] = Array(n).fill(NaN);
+  const std: number[] = Array(n).fill(NaN);
 
   if (samples.length > 0) {
     for (let t = 0; t < n; t++) {
