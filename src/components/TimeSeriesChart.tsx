@@ -22,6 +22,7 @@ import ChartAreaButton from './ChartAreaButton';
 import { AREA_BAND_LABELS, areaChartDatasets, areaStatsKey, type AreaBand } from '../utils/polygonSeries';
 import { useAreaReference } from '../hooks/useAreaReference';
 import { useAreaStatsFetch } from '../hooks/useAreaStatsFetch';
+import { useSpacedEffect } from '../hooks/useSpacedEffect';
 import { readChartDisplayOpen, saveChartDisplayOpen } from '../utils/chartDisplayPref';
 import { refIndexOf, toIsoDate } from '../utils/areaStats';
 import { registerChart, type ChartSnapshot, type LayerDisplay, type SeriesTag } from '../assistant/chartView';
@@ -58,6 +59,9 @@ const linkedLegendPlugin = {
     };
   },
 };
+
+/** Least time between two rounds of chart requests (see useSpacedEffect). */
+export const CHART_REQUEST_GAP_MS = 250;
 
 ChartJS.register(linkedLegendPlugin);
 
@@ -184,9 +188,12 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     ? winDsNames
     : (followedDs ? [followedDs] : []);
 
+  const pointRequest = useRef(0);
   const updateChart = useCallback(async () => {
+    const request = ++pointRequest.current;
+    setChartDataMap({});
     if (!state.showChart || !state.currentDataset || state.timeSeriesPoints.length === 0) {
-      setChartDataMap({});
+      setIsLoading(false);
       return;
     }
     setIsLoading(true);
@@ -229,11 +236,11 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
       results.forEach(({ dsName, tsData }) => {
         if (tsData) newMap[dsName] = tsData;
       });
-      setChartDataMap(newMap);
+      if (pointRequest.current === request) setChartDataMap(newMap);
     } catch (error) {
       console.error('Error updating chart:', error);
     } finally {
-      setIsLoading(false);
+      if (pointRequest.current === request) setIsLoading(false);
     }
   }, [
     state.showChart,
@@ -249,18 +256,26 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     fetchMultiPointTimeSeries,
   ]);
 
-  useEffect(() => { updateChart(); }, [updateChart]);
+  // Spaced: a mask or radius slider changes these on every tick, and each change
+  // is a request per charted layer that reads every date.
+  useSpacedEffect(() => {
+    void updateChart();
+    return () => { pointRequest.current += 1; };
+  }, [updateChart], CHART_REQUEST_GAP_MS, () => {
+    pointRequest.current += 1;
+    setChartDataMap({});
+    setIsLoading(true);
+  });
 
   // Fetch buffer data for each visible point × each active dataset
-  useEffect(() => {
-    if (!state.bufferEnabled || !state.showChart || !state.currentDataset) {
-      setBufferData({});
-      return;
-    }
+  useSpacedEffect(() => {
+    let current = true;
+    setBufferData({});
+    if (!state.bufferEnabled || !state.showChart || !state.currentDataset) return;
     const visiblePoints = state.timeSeriesPoints.filter(p => p.visible);
-    if (visiblePoints.length === 0) { setBufferData({}); return; }
+    if (visiblePoints.length === 0) return;
 
-    if (activeDatasetsForChart.length === 0) { setBufferData({}); return; }
+    if (activeDatasetsForChart.length === 0) return;
     Promise.all(
       activeDatasetsForChart.flatMap(dsName => {
         const dsInfo = state.datasetInfo[dsName];
@@ -282,10 +297,14 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
         });
       })
     ).then(results => {
+      if (!current) return;
       const newData: { [key: string]: any } = {};
       results.forEach(({ key, result }) => { if (result) newData[key] = result; });
       setBufferData(newData);
+    }).catch(error => {
+      if (current) console.error('Error updating buffer chart:', error);
     });
+    return () => { current = false; };
   }, [
     state.bufferEnabled,
     state.showChart,
@@ -297,10 +316,11 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     state.refBufferEnabled,
     state.refBufferRadius,
     state.layerMasks,
+    state.datasetInfo,
     JSON.stringify(state.timeSeriesPoints.map(p => ({ id: p.id, position: p.position, visible: p.visible }))),
     state.refMarkerPosition,
     fetchBufferTimeSeries,
-  ]);
+  ], CHART_REQUEST_GAP_MS, () => setBufferData({}));
 
   // ── Areas (+ Area): statistics per area × layer, fetched once (an area's polygon never changes) ──
   const visibleAreas = state.chartAreas.filter(a => a.visible);

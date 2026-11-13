@@ -175,11 +175,15 @@ def test_known_endpoint_statistics_labels_units_and_scope(responses, mode):
 
 
 @pytest.mark.parametrize("mode", ["md", "cog"])
-@pytest.mark.parametrize(
-    "case", ["reference", "masks", "custom", "bad_percentiles", "empty"]
-)
+@pytest.mark.parametrize("case", ["reference", "custom", "bad_percentiles", "empty"])
 def test_unsupported_arguments_not_silently_ignored(responses, mode, case):
     assert responses[f"{mode}_{case}"]["status"] == 422
+
+
+@pytest.mark.parametrize("mode", ["md", "cog"])
+def test_explicit_empty_masks_preserve_the_stored_summary(responses, mode):
+    assert responses[f"{mode}_masks"]["status"] == 200
+    assert responses[f"{mode}_masks"]["body"] == responses[f"{mode}_common"]["body"]
 
 
 def test_catalog_isolation_and_lite_scope(responses):

@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -253,7 +255,52 @@ def _dst_nodata(da: xr.DataArray) -> Any:
     return nodata
 
 
+#: Warp indices kept, newest last: they depend on the grid and the tile only, and
+#: the same tiles are asked for again at every date, mask and colour scale.
+_source_pixels: "OrderedDict[tuple, tuple[np.ndarray, np.ndarray, np.ndarray]]" = (
+    OrderedDict()
+)
+_source_pixels_lock = threading.Lock()
+#: Most bytes of them kept (0.6 MB for a 256 px tile, 2.4 MB for 512 px).
+SOURCE_PIXELS_CACHE_BYTES = 64 * 2**20
+
+
 def source_pixels(
+    cube: Cube,
+    tile: tuple[int, int, int],
+    tilesize: int,
+    grid: tuple[float, float, float, float],
+    shape: tuple[int, int],
+    pixel_bits: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return :func:`warp_source_pixels`, kept per grid and tile (read-only arrays).
+
+    Working it out is a third to a half of a tile's time, and stepping through
+    dates asks for the same tiles each time.
+    """
+    key = (cube.crs.to_wkt(), tile, tilesize, grid, shape, pixel_bits)
+    with _source_pixels_lock:
+        hit = _source_pixels.get(key)
+        if hit is not None:
+            _source_pixels.move_to_end(key)
+            return hit
+    col, row, inside = warp_source_pixels(cube, tile, tilesize, grid, shape, pixel_bits)
+    # A level has far fewer than 2**31 rows or columns: half the memory of intp.
+    out = (col.astype(np.int32), row.astype(np.int32), inside)
+    for a in out:
+        a.setflags(write=False)
+    with _source_pixels_lock:
+        _source_pixels[key] = out
+        while (
+            len(_source_pixels) > 1
+            and sum(a.nbytes for v in _source_pixels.values() for a in v)
+            > SOURCE_PIXELS_CACHE_BYTES
+        ):
+            _source_pixels.popitem(last=False)
+    return out
+
+
+def warp_source_pixels(
     cube: Cube,
     tile: tuple[int, int, int],
     tilesize: int,

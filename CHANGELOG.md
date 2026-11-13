@@ -8,6 +8,12 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Scientific colour maps (Crameri): `batlow`, `lajolla`, `oslo`, `vik`, `roma`,
+  `berlin`, `broc`, `bam` and the cyclic `romaO`, each with its reverse, as
+  `cmc_*` in the colormap picker, on the full server, bowser-lite (and so the
+  desktop app) and the GPU renderer, with identical colours on all three. The
+  tables are vendored from cmcrameri at a pinned revision (MIT), checked by
+  SHA-256.
 - GeoTIFF export in bowser-lite and the desktop app: `GET /export/geotiff`
   (the Export button, the `export_geotiff` tool) now works without GDAL, with
   the full server's parameters, masks, reference handling, provenance tags and
@@ -256,6 +262,38 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Area (polygon) statistics on the full server read the cube in whole time
+  chunks, as bowser-lite does, instead of one date at a time, and keep a small
+  area's values between the two passes over the dates. A 3 km square of a
+  419-date DISP-S1 cube: 28.7 s to 2.4 s (with a quality mask 28.3 s to 3.5 s);
+  a 9 km square 42.8 s to 6.4 s. Same statistics.
+- Time-series chart: dragging a mask threshold, buffer radius or reference
+  radius slider no longer sends a round of chart requests for every tick (each
+  reads every date of every charted layer). The first change asks at once;
+  after that at most one round per 250 ms, always ending on the value the
+  slider stopped at.
+- MapLibre map: dragging a basemap opacity slider no longer removes and re-adds
+  the basemap sources on every tick, which dropped the tiles already loaded and
+  fetched every visible one again (on both maps in split screen). Opacity is
+  now a paint property; the sources are rebuilt only when a basemap or the
+  swap changes.
+- bowser-lite keeps each tile's warp index (which source pixel each tile pixel
+  takes) for the tiles in view, within 64 MB, instead of working it out again
+  for every date, mask and colour scale. Stepping through dates: a 512 px tile
+  73 ms to 38 ms, a 256 px tile 36 ms to 27 ms; the tiles are the same.
+- Tiles with an uploaded custom mask no longer warp the mask file to the whole
+  pyramid level for every tile: the warped mask is kept per file and level
+  (up to 256 MB). A full-resolution tile of a DISP-S1 cube with a custom mask
+  went from 836 ms to 196 ms; the tiles are the same.
+- Time series at a point are read without dask on the full server (`/point`,
+  `/chart_point`, `/multi_point`, `/trend_analysis`), as bowser-lite reads
+  them. For a 419-date DISP-S1 cube: one series 149 ms to 54 ms, five points
+  and a reference 890 ms to 341 ms, the same with a layer mask 2.1 s to
+  0.3 s (the mask is now applied to the pixel, not to the layer). Same values.
+- The first request for a catalog entry (`?dataset=`) no longer holds up every
+  other request while its cube opens (seconds for a cube on S3, on the server's
+  event loop). Both servers open it in a worker thread, and once: a page
+  load's burst of first requests used to open the same cube several times.
 - `GET /deformation_zones` (and the Assistant's and MCP's zones tool) reads its
   layers in bands of rows instead of all at once, on both servers. Fitting a
   rate to a 419-date displacement stack over 800 x 600 pixels peaked at 5.2 GB
@@ -321,6 +359,29 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   request waited for them. They are plain functions now, run in FastAPI's
   thread pool as on bowser-lite; `/upload_raster` computes its statistics in a
   worker thread. Answers are unchanged.
+
+### Fixed
+
+- GNSS tab: the InSAR curve compared with a station follows the current
+  settings. It was fetched only when a station was picked or the reference
+  moved, so a changed mask, layer, reference switch or reference radius left
+  the old curve. It is fetched again for those (at most once per 250 ms while
+  a slider is dragged), a late answer no longer replaces a newer one, and
+  moving the reference no longer reloads the station's GNSS record.
+- Masking: a mask added, or moved to another layer, takes that layer's own
+  default threshold once the layer's range is known. Before, the threshold
+  stayed at 0.5 or at the previous layer's value, in the wrong units (it hid
+  everything for a velocity mask, nothing for an amplitude one). Under the
+  slider, a small histogram of the mask's layer shows the part the threshold
+  keeps, with "Keeps N% of this layer's pixels".
+
+- Esri basemaps (Satellite, Topo, Dark, Light, Hillshade, Relief) no longer show
+  Esri's grey "Map data not yet available" tiles. How deep Esri's tiles go
+  depends on the place (Satellite stops at zoom 14 offshore and on ice sheets,
+  Hillshade at 14-15 at high latitudes, Relief at 11), so a fixed zoom limit
+  per basemap was wrong in many areas. The tiles are now asked for with
+  `blankTile=false`, and where one is missing the map shows the last real
+  tiles, upscaled.
 
 ## [0.6.1] - 2026-11-05
 
