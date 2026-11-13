@@ -83,7 +83,11 @@ def test_at_most_one_request_per_second_and_a_cache():
     asyncio.run(three())
     assert len(sent) == 3
     gaps = [b - a for a, b in zip(g.sent, g.sent[1:])]
-    assert all(gap >= 0.99 for gap in gaps), gaps
+    # The turns are one second apart; a request leaves a little after its turn,
+    # by however long the event loop took to get to it (16 ms seen on a busy
+    # macOS runner), so two send times can be closer than the turns were.
+    assert all(gap >= 0.9 for gap in gaps), gaps
+    assert g.sent[-1] - g.sent[0] >= 1.9, gaps
     # Asked again (in any case and spacing): from the cache, no request.
     results, cached = asyncio.run(g.search("arkabutla  DAM"))
     assert cached and results[0]["kind"] == "dam"
