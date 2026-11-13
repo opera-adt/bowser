@@ -565,7 +565,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
                     ? ` (${trendMmPerYear.toFixed(rateUnit === 'in' ? 2 : 1)} ${rateUnit}/yr)` : '');
                   return {
                     text: displayText,
-                    pointStyle: (ds._area ? (ds.fill ? 'rect' : 'line') : (ds.pointStyle ?? 'circle')) as any,
+                    pointStyle: (ds._masked ? 'circle' : ds._area ? (ds.fill ? 'rect' : 'line') : (ds.pointStyle ?? 'circle')) as any,
                     fillStyle: ds._area && ds.fill ? ds.backgroundColor : ds.borderColor,
                     lineDash: ds._area ? ds.borderDash : undefined,
                     strokeStyle: ds.borderColor,
@@ -587,6 +587,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
               const unit = (ds as any)._unit || 'm';
               let label = `${(ds as any)._baseLabel || ds.label}: ${context.parsed.y.toFixed(4)} ${unit}`;
               if ((ds as any)._area) label = `${ds.label}: ${context.parsed.y.toFixed(4)} ${unit}`;
+              if ((ds as any)._masked) return `${ds.label}: no valid pixel on this date`;
               const mmPy = (ds as any)._trendMmPerYear;
               const rateUnit = (ds as any)._rateUnit ?? 'mm';
               if (mmPy !== undefined && state.showTrends) label += ` (${mmPy.toFixed(rateUnit === 'in' ? 2 : 1)} ${rateUnit}/yr)`;
@@ -1132,7 +1133,9 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
       <div className="chart-help">
         <small>
           {picking ? `Click the chart where the ${picking} goes · ` : ''}Scroll to zoom · Drag to pan · Click points to sync map time
-          {visibleAreas.length > 0 && <> · Areas use common valid pixels</>}
+          {visibleAreas.length > 0 && (visibleAreas.some(a => activeDatasetsForChart.some(ds => areaResults[areaStatsKey(ds, a.id)]?.data?.support === 'per_date'))
+            ? <> · Areas use the pixels valid on each date</>
+            : <> · Areas use common valid pixels</>)}
           {visibleAreas.length > 0 && unappliedAreaMasks(activeDatasetsForChart, state) && <> · <strong>{unappliedAreaMasks(activeDatasetsForChart, state)}</strong></>}
           {visibleAreas.some(a => activeDatasetsForChart.some(ds => areaResults[areaStatsKey(ds, a.id)]?.data?.optional_masks_applied)) && <> · Area quality masks applied</>}
           {state.bufferEnabled && Object.keys(bufferData).length > 0 && (

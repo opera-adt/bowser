@@ -45,6 +45,8 @@ export interface PolygonStatistics {
 
 export interface PolygonTimeSeries {
   optional_masks_applied?: boolean;
+  /** Which pixels each date uses: the same ones at every date, or those valid on that date. */
+  support?: 'common' | 'per_date';
   labels: string[];
   units: string | null;
   statistics: PolygonStatistics[];
@@ -146,7 +148,10 @@ export function polygonRequestBody(variable: string, geometry: ChartArea['geomet
   };
   return {
     variable, geometry: { ...geometry, coordinates: xy(geometry.coordinates) },
-    support: 'common' as const, percentiles: [...AREA_PERCENTILES],
+    // With a quality mask each date uses the pixels that pass on that date, as the map shows
+    // them: a mask that changes with date leaves few pixels, or none, passing on every date.
+    support: layerMasks.length ? 'per_date' as const : 'common' as const,
+    percentiles: [...AREA_PERCENTILES],
     ...(layerMasks.length ? { layer_masks: layerMasks.map(({ dataset, threshold, mode }) => ({ dataset, threshold, mode })) } : {}),
   };
 }
@@ -166,6 +171,9 @@ export function polygonErrorMessage(status: number, body: unknown): string {
 export function polygonEmptyMessage(result: PolygonTimeSeries): string | null {
   return result.statistics.some(r => r.count > 0 && r.median !== null) ? null : 'no valid pixels inside the area';
 }
+
+/** A date on which every pixel of an area is masked. */
+export const MASKED_DATE_COLOR = '#9aa0a6';
 
 export interface AreaSeriesOptions {
   result: PolygonTimeSeries;
@@ -247,5 +255,24 @@ export function areaChartDatasets(o: AreaSeriesOptions): Record<string, unknown>
     data: series(r => r.mean),
     fill: false, backgroundColor: 'transparent', borderWidth: look.lineWidth, borderDash: [6, 4], pointRadius: 0,
   };
-  return [...(look.showBand ? bandSets : []), median, ...(look.showMean ? [mean] : [])];
+  // Dates on which no pixel of the area is valid (all masked): a grey point on the line
+  // between its neighbours, so the gap is seen and the rest of the series is still drawn.
+  const at = (x: string) => Date.parse(x);
+  const drawn = median.data;
+  const empty = rows.filter(r => r.count === 0).map(r => o.toX(r.label)).filter(x => o.inRange(x)).flatMap(x => {
+    const t = at(x);
+    const before = [...drawn].reverse().find(p => at(p.x) <= t);
+    const after = drawn.find(p => at(p.x) >= t);
+    if (!before && !after) return [];
+    const [a, b] = [before ?? after!, after ?? before!];
+    const span = at(b.x) - at(a.x);
+    return [{ x, y: span > 0 ? a.y + (b.y - a.y) * (t - at(a.x)) / span : a.y }];
+  });
+  const masked = {
+    ...common, label: `${o.name} fully masked`, _baseLabel: `${o.name} fully masked`, _legend: `${o.name} fully masked`,
+    _masked: true, _note: undefined, data: empty,
+    showLine: false, fill: false, borderWidth: 0, borderColor: MASKED_DATE_COLOR, backgroundColor: MASKED_DATE_COLOR,
+    pointRadius: 3, pointHoverRadius: 4, pointStyle: 'circle', order: 0,
+  };
+  return [...(look.showBand ? bandSets : []), median, ...(look.showMean ? [mean] : []), ...(empty.length ? [masked] : [])];
 }

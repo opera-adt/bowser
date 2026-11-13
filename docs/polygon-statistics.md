@@ -65,6 +65,15 @@ the chart's footnote says so ("Areas: uploaded mask not applied", "Areas:
 configured mask not applied"). These limits do not claim to change point-chart
 or map behavior.
 
+With a quality mask on, each date uses the pixels that pass the mask on that
+date (`support: per_date`), as the map shows them; without masks the same
+pixels are used at every date (`common`). A mask that changes with date, such
+as `recommended_mask`, leaves few pixels, or none, passing on every date. A
+date on which no pixel of the area passes is drawn as a grey point on the line
+between its neighbours ("fully masked"), and the rest of the series is drawn.
+The chart's footnote says which rule is in use, and the Stats tab's Usable
+pixels gives the count for the date shown.
+
 While a mask slider is dragged the area requests are spaced: the first change
 asks at once, then at most once per 250 ms, always ending on the value the
 slider stopped at.

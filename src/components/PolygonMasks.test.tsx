@@ -87,7 +87,8 @@ describe('polygon masking controls', () => {
     show([{ type: 'ADD_LAYER_MASK', payload: mask }], true);
     await waitFor(() => expect(medians()).toEqual([0, 5, 10]));
     expect(posted).toHaveLength(1);
-    expect(posted[0].body).toEqual({ variable: 'displacement', geometry, support: 'common',
+    // With a mask, each date uses the pixels that pass on that date.
+    expect(posted[0].body).toEqual({ variable: 'displacement', geometry, support: 'per_date',
       percentiles: [10, 90], layer_masks: [{ dataset: 'quality', threshold: 0.5, mode: 'min' }] });
     const row = screen.getByRole('listitem', { name: 'Region' });
     expect(within(row).getByText('Usable pixels').nextElementSibling!.textContent).toBe('4');
