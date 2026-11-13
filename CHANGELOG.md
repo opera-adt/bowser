@@ -262,6 +262,11 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Area (polygon) statistics on the full server read the cube in whole time
+  chunks, as bowser-lite does, instead of one date at a time, and keep a small
+  area's values between the two passes over the dates. A 3 km square of a
+  419-date DISP-S1 cube: 28.7 s to 2.4 s (with a quality mask 28.3 s to 3.5 s);
+  a 9 km square 42.8 s to 6.4 s. Same statistics.
 - Time-series chart: dragging a mask threshold, buffer radius or reference
   radius slider no longer sends a round of chart requests for every tick (each
   reads every date of every charted layer). The first change asks at once;
