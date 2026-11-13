@@ -17,7 +17,9 @@ def tables() -> dict[str, np.ndarray]:
     sources = json.loads((DIRECTORY / "SOURCES.json").read_text())
     out = {}
     for original, source in sources["files"].items():
-        content = (DIRECTORY / f"{original}.txt").read_bytes()
+        # As in the pinned source (LF): a checkout that converts line endings
+        # must not look like a changed palette.
+        content = (DIRECTORY / f"{original}.txt").read_bytes().replace(b"\r\n", b"\n")
         if hashlib.sha256(content).hexdigest() != source["sha256"]:
             raise ValueError(f"Scientific colormap checksum mismatch: {original}")
         rgb = np.loadtxt(BytesIO(content))

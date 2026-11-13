@@ -69,3 +69,69 @@ def test_changed_source_cannot_silently_change_a_palette(tmp_path, monkeypatch):
             tables()
     finally:
         tables.cache_clear()
+
+
+def test_a_checkout_with_converted_line_endings_gives_the_same_tables(
+    tmp_path, monkeypatch
+):
+    import shutil
+
+    import bowser.scientific_colormaps as module
+
+    tables.cache_clear()
+    expected = tables()
+    for source in DIRECTORY.iterdir():
+        shutil.copy2(source, tmp_path / source.name)
+    for text in tmp_path.glob("*.txt"):
+        text.write_bytes(text.read_bytes().replace(b"\n", b"\r\n"))
+    monkeypatch.setattr(module, "DIRECTORY", tmp_path)
+    tables.cache_clear()
+    try:
+        crlf = tables()
+        assert crlf.keys() == expected.keys()
+        assert all(np.array_equal(crlf[name], expected[name]) for name in expected)
+    finally:
+        tables.cache_clear()
+
+
+def test_lite_keeps_its_own_tables_when_the_palette_files_are_missing(
+    tmp_path, monkeypatch
+):
+    """A build that left the palette files out must still colour every tile."""
+    import bowser.scientific_colormaps as module
+
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(module, "DIRECTORY", tmp_path / "absent")
+            tables.cache_clear()
+            colormaps._tables.cache_clear()
+            names = colormaps.names()
+            assert "viridis" in names and "rdbu" in names
+            assert not any(name.startswith("cmc_") for name in names)
+            assert colormaps.get_lut("viridis").shape == (256, 4)
+    finally:
+        tables.cache_clear()
+        colormaps._tables.cache_clear()
+    assert "cmc_vik" in colormaps.names()
+
+
+def test_the_desktop_app_bundles_the_palette_files():
+    """bowser-lite reads them at run time; the PyInstaller spec must collect them."""
+    import ast
+
+    root = Path(__file__).resolve().parents[1]
+    spec = ast.parse((root / "packaging" / "bowser.spec").read_text())
+    patterns = next(
+        ast.literal_eval(keyword.value)
+        for node in ast.walk(spec)
+        if isinstance(node, ast.Call)
+        and getattr(node.func, "id", "") == "collect_data_files"
+        and node.args
+        and ast.literal_eval(node.args[0]) == "bowser"
+        for keyword in node.keywords
+        if keyword.arg == "includes"
+    )
+    package = root / "src" / "bowser"
+    collected = {path for pattern in patterns for path in package.glob(pattern)}
+    assert set(DIRECTORY.iterdir()) <= collected
+    assert colormaps.TABLE_FILE in collected
