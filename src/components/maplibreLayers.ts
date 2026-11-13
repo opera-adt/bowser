@@ -32,17 +32,26 @@ export function firstAboveDataId(map: maplibregl.Map): string | undefined {
 
 const BASEMAP_IDS = ['basemap-bottom', 'basemap-top'] as const;
 
-/** Primary/secondary basemaps (swap, opacities) at the bottom of the layer stack. */
+/**
+ * Primary/secondary basemaps (swap, opacities) at the bottom of the layer stack.
+ * The sources are rebuilt only when a basemap or the swap changes; an opacity is a
+ * paint property. Rebuilding on every tick of the opacity slider dropped the tiles
+ * already loaded and fetched every visible one again.
+ */
 export function useBasemapLayers(map: maplibregl.Map | null, ready: boolean) {
   const { state } = useAppContext();
+  const primary = baseMaps[state.selectedBasemap] || baseMaps.esriSatellite;
+  const secondary = state.secondaryBasemap ? baseMaps[state.secondaryBasemap] : null;
+  const stack = basemapStack(primary, secondary, state.basemapSwapped, state.basemapOpacity,
+    state.secondaryBasemapOpacity);
+  const stackRef = useRef(stack);
+  stackRef.current = stack;
+
   useEffect(() => {
     if (!ready || !map) return;
-    const primary = baseMaps[state.selectedBasemap] || baseMaps.esriSatellite;
-    const secondary = state.secondaryBasemap ? baseMaps[state.secondaryBasemap] : null;
-    const stack = basemapStack(primary, secondary, state.basemapSwapped, state.basemapOpacity,
-      state.secondaryBasemapOpacity);
+    const { bottom, top, bottomOpacity, topOpacity } = stackRef.current;
     const firstOther = map.getStyle().layers.find((l: { id: string }) => !BASEMAP_IDS.includes(l.id as typeof BASEMAP_IDS[number]))?.id;
-    ([['basemap-bottom', stack.bottom, stack.bottomOpacity], ['basemap-top', stack.top, stack.topOpacity]] as const)
+    ([['basemap-bottom', bottom, bottomOpacity], ['basemap-top', top, topOpacity]] as const)
       .forEach(([id, item, opacity]) => {
         if (map.getLayer(id)) map.removeLayer(id);
         if (map.getSource(id)) map.removeSource(id);
@@ -50,8 +59,15 @@ export function useBasemapLayers(map: maplibregl.Map | null, ready: boolean) {
         map.addSource(id, basemapSource(item));
         map.addLayer({ id, type: 'raster', source: id, paint: { 'raster-opacity': opacity } }, firstOther);
       });
-  }, [ready, map, state.selectedBasemap, state.secondaryBasemap, state.basemapSwapped, state.basemapOpacity,
-    state.secondaryBasemapOpacity]);
+  }, [ready, map, state.selectedBasemap, state.secondaryBasemap, state.basemapSwapped]);
+
+  useEffect(() => {
+    if (!ready || !map) return;
+    ([['basemap-bottom', stack.bottomOpacity], ['basemap-top', stack.topOpacity]] as const)
+      .forEach(([id, opacity]) => {
+        if (map.getLayer(id)) map.setPaintProperty(id, 'raster-opacity', opacity);
+      });
+  }, [ready, map, stack.bottomOpacity, stack.topOpacity]);
 }
 
 /**

@@ -23,8 +23,10 @@ def main() -> None:
     picker = (ROOT / "src/utils/colormaps.ts").read_text()
     groups = picker.split("COLORMAP_GROUPS")[1].split("COLORMAP_OPTIONS")[0]
     words = {m.lower() for m in re.findall(r"'([A-Za-z_]+)'", groups)}
-    with np.load(ROOT / "src/bowser/lite/colormaps.npz") as f:
-        tables = {str(n): lut for n, lut in zip(f["names"], f["luts"])}
+    from bowser.lite.colormaps import get_lut
+    from bowser.lite.colormaps import names as table_names
+
+    tables = {name: get_lut(name) for name in table_names()}
     # The group labels (Diverging, ...) are words too; keep the colormaps.
     names = sorted(n for n in words if n in tables)
     out = {

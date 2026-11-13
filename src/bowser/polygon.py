@@ -20,6 +20,11 @@ if TYPE_CHECKING:
 MAX_VERTICES = 10_000
 MAX_WINDOW_PIXELS = 2_000_000
 MAX_PIXEL_EPOCHS = 50_000_000
+#: Source values read at once (whole time chunks when they fit): 64 MB as float32.
+READ_BLOCK = 16_000_000
+#: Selected values (pixels inside x dates) kept between the summary's two passes:
+#: 64 MB as float64. Larger areas are read twice.
+KEEP_VALUES = 8_000_000
 _ANGULAR_UNITS = {"degree", "degrees", "deg", "radian", "radians", "rad"}
 #: The first warning of a summary without masks (replaced when masks are applied).
 STORED_WARNING = (
@@ -295,10 +300,34 @@ def summarize_xarray(
         x=cols,
     )
 
+    # Whole time chunks at a time, as the masks and bowser-lite read: one date at
+    # a time decodes every date stored in its chunks again for each of them
+    # (eight times for 8-date chunks), in a dask graph per date.
+    chunk = 1
+    if dim:
+        stored = source.encoding.get("preferred_chunks", {}).get(dim) or 1
+        pixels = max(1, int(window.width * window.height))
+        chunk = max(1, min(int(stored), READ_BLOCK // pixels))
+    order = ([dim] if dim else []) + ["y", "x"]
+    block: dict[str, Any] = {"start": -1, "values": None}
+    # The summary goes over the dates twice (the common pixels, then the
+    # statistics): a small area's selected values are kept for the second pass.
+    keep = int(inside.sum()) * count <= KEEP_VALUES
+    frames: dict[int, np.ndarray] = {}
+
     def load(index: int) -> np.ndarray:
-        frame = subset.isel({dim: index}) if dim else subset
-        values = _values(frame.transpose("y", "x").values, source.attrs)
-        return masks.apply(index, rows, cols, values)[inside]
+        if index in frames:
+            return frames[index]
+        start = index - index % chunk
+        if block["start"] != start:
+            part = subset.isel({dim: slice(start, start + chunk)}) if dim else subset
+            read = np.asarray(part.transpose(*order).values)
+            block.update(start=start, values=read.reshape(-1, *inside.shape))
+        values = _values(block["values"][index - start], source.attrs)
+        selected = masks.apply(index, rows, cols, values)[inside]
+        if keep:
+            frames[index] = selected
+        return selected
 
     return masks.finish(
         _result(load, count, inside, clipped, grid, labels, units, request)
