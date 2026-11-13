@@ -25,10 +25,23 @@ The full server and bowser-lite also provide a [polygon statistics API](docs/pol
 
 ## Download
 
-- **Desktop app** for macOS (Apple silicon and Intel), Windows and Linux: [latest release](https://github.com/opera-adt/bowser/releases/latest). No Python needed. It opens local `.zarr` or `s3://` cubes with bowser-lite: area statistics and GeoTIFF export work, GeoTIFF upload needs the full server. The apps are not signed yet; the release notes say how to open them on macOS and Windows.
+- **Desktop app** for macOS (Apple silicon and Intel), Windows and Linux: [latest release](https://github.com/opera-adt/bowser/releases/latest). No Python needed. It opens local `.zarr` or `s3://` cubes with bowser-lite: area statistics and GeoTIFF export work, GeoTIFF upload needs the full server. The apps are not signed yet; see [opening the app the first time](#opening-the-desktop-app-the-first-time).
 - **Python package:** [`bowser-insar` on PyPI](https://pypi.org/project/bowser-insar/).
 - **Docker image:** [`ghcr.io/opera-adt/bowser`](https://github.com/opera-adt/bowser/pkgs/container/bowser).
 - **All releases and changes:** [Releases](https://github.com/opera-adt/bowser/releases) and the [changelog](CHANGELOG.md).
+
+### Opening the desktop app the first time
+
+The apps are not signed yet, so macOS and Windows ask before running them.
+
+- **macOS:** open the `.dmg`, drag **Bowser** to **Applications**, then run this once in Terminal:
+
+  ```bash
+  xattr -dr com.apple.quarantine /Applications/Bowser.app
+  ```
+
+  It removes the "downloaded from the internet" mark that makes macOS refuse the app (also when it says Bowser "is damaged and can't be opened"). Without Terminal: open Bowser once, then allow it under **System Settings › Privacy & Security › Open Anyway**.
+- **Windows:** if SmartScreen warns, choose **More info**, then **Run anyway**.
 
 ## Quickstart
 
