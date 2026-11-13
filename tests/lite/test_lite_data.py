@@ -339,6 +339,44 @@ def test_tile_source_reads_only_the_window_for_a_reference_step(regression_cube)
     assert got.encoding == da.encoding
 
 
+def test_warp_index_is_worked_out_once_per_tile(regression_cube, monkeypatch):
+    """The same tiles are asked for at every date: only the first one warps."""
+    c = lcube.open_cube(str(regression_cube))
+    monkeypatch.setattr(tiles, "_source_pixels", type(tiles._source_pixels)())
+    warped = []
+    warp = tiles.warp_source_pixels
+
+    def counted(*args):
+        warped.append(args[1])
+        return warp(*args)
+
+    monkeypatch.setattr(tiles, "warp_source_pixels", counted)
+    z, x, y = 16, 11345, 26188  # over the middle of the cube
+
+    def tile(step, x=x):
+        q = tiles.TileQuery(variable="displacement", time_idx=step)
+        return tiles.sample_tile(c, c.dataset, q, x, y, z)
+
+    first, again, other_date = tile(2), tile(2), tile(5)
+    assert warped == [(x, y, z)]
+    np.testing.assert_array_equal(first, again)
+    assert first.count() > 0 and not np.ma.allequal(first, other_date)
+    # As without the cache.
+    monkeypatch.setattr(tiles, "source_pixels", warp)
+    np.testing.assert_array_equal(tile(2), first)
+    np.testing.assert_array_equal(tile(2).mask, first.mask)
+    monkeypatch.undo()
+
+    # Kept read-only and within the budget, the newest last.
+    monkeypatch.setattr(tiles, "_source_pixels", type(tiles._source_pixels)())
+    tile(2)
+    ((col, row, inside),) = tiles._source_pixels.values()
+    assert not col.flags.writeable and not inside.flags.writeable
+    monkeypatch.setattr(tiles, "SOURCE_PIXELS_CACHE_BYTES", col.nbytes)
+    tile(2, x + 1)
+    assert [k[1] for k in tiles._source_pixels] == [(x + 1, y, z)]
+
+
 def test_datasets_carry_the_cubes_radar_wavelength(tmp_path):
     """``/datasets``: the radar wavelength a variable records, for the series checks."""
     c = lcube.open_cube(str(_plain_cube(tmp_path / "w.zarr")))

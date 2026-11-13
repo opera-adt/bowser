@@ -256,6 +256,10 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- bowser-lite keeps each tile's warp index (which source pixel each tile pixel
+  takes) for the tiles in view, within 64 MB, instead of working it out again
+  for every date, mask and colour scale. Stepping through dates: a 512 px tile
+  73 ms to 38 ms, a 256 px tile 36 ms to 27 ms; the tiles are the same.
 - Tiles with an uploaded custom mask no longer warp the mask file to the whole
   pyramid level for every tile: the warped mask is kept per file and level
   (up to 256 MB). A full-resolution tile of a DISP-S1 cube with a custom mask
