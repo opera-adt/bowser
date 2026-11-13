@@ -71,25 +71,27 @@ def test_single_slice_reads_only_requested_data_and_mask(inputs, monkeypatch):
     groups, transform = inputs
     sampler = CogSampler(groups["data"], groups, [{"dataset": "quality"}])
     calls = []
-    original = sampler._read
+    original = rasterio.open
 
-    def record(path, window, *args, **kwargs):
-        calls.append((path, window.width, window.height))
-        return original(path, window, *args, **kwargs)
+    def record(path, *args, **kwargs):
+        calls.append(str(path))
+        return original(path, *args, **kwargs)
 
-    monkeypatch.setattr(sampler, "_read", record)
+    monkeypatch.setattr(rasterio, "open", record)
     assert sampler.point(*position(transform), index=2).tolist() == [0]
-    assert calls == [
-        (groups["data"].file_list[2], 1, 1),
-        (groups["quality"].file_list[2], 1, 1),
-    ]
+    assert sorted(calls) == sorted(
+        [
+            groups["data"].file_list[2],
+            groups["quality"].file_list[2],
+        ]
+    )
 
 
 @pytest.mark.parametrize(
     "change", ["short", "reversed", "empty", "static_data_dynamic_mask"]
 )
 def test_axes_not_guessed(inputs, change):
-    groups, _ = inputs
+    groups, transform = inputs
     if change == "short":
         groups["quality"].file_list = groups["quality"].file_list[:2]
     if change == "reversed":
@@ -99,8 +101,13 @@ def test_axes_not_guessed(inputs, change):
     if change == "static_data_dynamic_mask":
         groups["data"].file_list = groups["data"].file_list[:1]
         groups["data"].x_values = ["a"]
-    with pytest.raises(ValueError):
-        CogSampler(groups["data"], groups, [{"dataset": "quality"}])
+    sampler = CogSampler(groups["data"], groups, [{"dataset": "quality"}])
+    assert len(sampler.warnings) == 1
+    assert "not applied" in sampler.warnings[0]
+    assert sampler.masks.records == []
+    np.testing.assert_equal(
+        sampler.point(*position(transform)), np.zeros(len(groups["data"].file_list))
+    )
 
 
 def test_static_mask_reused_and_all_nodata_stays_missing(inputs):
@@ -211,14 +218,17 @@ def test_buffer_uses_native_affine_for_reversed_or_rotated_grids(inputs, transfo
     )
 
 
-def test_geographic_degrees_are_not_interpreted_as_meters(inputs):
+def test_geographic_circle_uses_meter_distances(inputs):
     groups, _ = inputs
+    transform = from_origin(3, 45.0005, 0.0001, 0.0001)
     for path in groups["data"].file_list:
         with rasterio.open(path, "r+") as src:
             src.crs = "EPSG:4326"
+            src.transform = transform
+    lon, lat = transform * (2.5, 2.5)
     sampler = CogSampler(groups["data"], groups, [])
-    with pytest.raises(ValueError, match="projected CRS in meters"):
-        sampler.buffer(10, 20, 11)
+    # East/west neighbors are ~7.9 m away; north/south ~11.1 m.
+    np.testing.assert_array_equal(sampler.buffer(lon, lat, 9)[0], [11, 0, 13])
 
 
 @pytest.mark.parametrize(
@@ -236,3 +246,89 @@ def test_invalid_mask_specs_are_rejected(inputs, masks):
     groups, _ = inputs
     with pytest.raises(ValueError):
         CogSampler(groups["data"], groups, masks)
+
+
+def test_static_mask_window_is_opened_once(inputs, monkeypatch):
+    groups, transform = inputs
+    groups["quality"].file_list = groups["quality"].file_list[:1]
+    sampler = CogSampler(groups["data"], groups, [{"dataset": "quality"}])
+    calls = []
+    original = rasterio.open
+
+    def record(path, *args, **kwargs):
+        calls.append(str(path))
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(rasterio, "open", record)
+    sampler.buffer(*position(transform), 11)
+    assert calls.count(groups["quality"].file_list[0]) == 1
+    assert len(calls) == 4
+
+
+def test_unmasked_point_reads_three_dates_concurrently(inputs, monkeypatch):
+    from threading import Barrier
+
+    groups, transform = inputs
+    sampler = CogSampler(groups["data"], groups, [])
+    barrier = Barrier(3, timeout=5)
+    original = sampler._read
+
+    def wait_for_other_readers(*args, **kwargs):
+        barrier.wait()
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(sampler, "_read", wait_for_other_readers)
+    np.testing.assert_equal(sampler.point(*position(transform)), [0, 0, 0])
+
+
+def test_geographic_circle_counts_match_geodesic_truth(inputs):
+    groups, _ = inputs
+    transform = from_origin(-118.4, 33.8, 0.0001, 0.0001)
+    for path in groups["data"].file_list:
+        with rasterio.open(path, "r+") as src:
+            src.crs = "EPSG:4326"
+            src.transform = transform
+    lon, lat = transform * (2.5, 2.5)
+    rows, cols = np.meshgrid(np.arange(5) + 0.5, np.arange(5) + 0.5, indexing="ij")
+    xx, yy = transform * (cols, rows)
+    from pyproj import Geod
+
+    distance = Geod(ellps="WGS84").inv(
+        np.full_like(xx, lon), np.full_like(yy, lat), xx, yy
+    )[2]
+    inside = distance <= 16
+    with rasterio.open(groups["data"].file_list[0]) as src:
+        expected = src.read(1)[inside]
+    sampler = CogSampler(groups["data"], groups, [])
+    np.testing.assert_array_equal(sampler.buffer(lon, lat, 16)[0], expected)
+
+
+def test_native_buffer_limit_prevents_oversized_ui_requests(tmp_path):
+    path = tmp_path / "large.tif"
+    # Sparse metadata-only GeoTIFF; no multi-million-pixel array is allocated.
+    with rasterio.open(
+        path,
+        "w",
+        driver="GTiff",
+        width=3000,
+        height=3000,
+        count=1,
+        dtype="float32",
+        crs=32631,
+        transform=from_origin(500000, 15000, 5, 5),
+        tiled=True,
+        sparse_ok=True,
+    ):
+        pass
+    group = SimpleNamespace(
+        file_list=[str(path)] * 300, x_values=list(range(300)), nodata=None
+    )
+    limit = cog_sampling.buffer_limit(group)
+    assert 0 < limit < 5000
+    sampler = CogSampler(group, {}, [])
+    lon, lat = Transformer.from_crs(32631, 4326, always_xy=True).transform(507500, 7500)
+    # Independently check the conservative square bound for ten dynamic masks.
+    pixels = (int(np.ceil(2 * limit / 5)) + 2) ** 2
+    assert pixels * 300 * 11 <= cog_sampling.MAX_PIXEL_EPOCHS
+    with pytest.raises(ValueError, match="budget"):
+        sampler.buffer(lon, lat, 5000)

@@ -206,17 +206,21 @@ def test_mismatched_temporal_axis_is_rejected(inputs, storage):
         run(storage, ds, groups, {**body, "layer_masks": [{"dataset": "wrong_dates"}]})
 
 
-def test_cog_upper_bound_is_rejected_until_map_parity_is_repaired(inputs):
+def test_cog_upper_bound_matches_known_native_support(inputs):
     ds, groups, body = inputs
-    with pytest.raises(
-        ValueError, match="GeoTIFF polygon masks currently support only min"
-    ):
-        run(
-            "cog",
-            ds,
-            groups,
-            {**body, "layer_masks": [{"dataset": "quality", "mode": "max"}]},
-        )
+    result = run(
+        "cog",
+        ds,
+        groups,
+        {
+            **body,
+            "layer_masks": [{"dataset": "quality", "mode": "max", "threshold": 0.5}],
+            "support": "per_date",
+        },
+    )
+    assert result["optional_masks_applied"] is True
+    assert result["masks"][0]["operator"] == "<="
+    assert [r["count"] for r in result["statistics"]] == [1, 2, 1]
 
 
 @pytest.mark.parametrize("storage", ["md", "lite", "cog"])

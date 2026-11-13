@@ -104,3 +104,32 @@ describe('Main tab › masking', () => {
     await waitFor(() => expect(screen.getByText(/Keeps/).textContent).toBe("Keeps 70% of this layer's pixels"));
   });
 });
+
+
+it('bounds both chart radius sliders by the advertised native read budget', async () => {
+  function BudgetSeed() {
+    const { dispatch } = useAppContext();
+    useEffect(() => {
+      dispatch({ type: 'SET_DATASETS', payload: { data: {
+        name: 'data', chart_buffer_max_m: 100, file_list: [], mask_file_list: [],
+        mask_min_value: 0, nodata: null, uses_spatial_ref: false, algorithm: null,
+        x_values: [0, 1], latlon_bounds: [0, 0, 1, 1], available_mask_vars: [],
+      } } });
+      dispatch({ type: 'SET_CURRENT_DATASET', payload: 'data' });
+      dispatch({ type: 'TOGGLE_REF_BUFFER' });
+      dispatch({ type: 'TOGGLE_BUFFER' });
+      dispatch({ type: 'SET_REF_BUFFER_RADIUS', payload: 5000 });
+      dispatch({ type: 'SET_BUFFER_RADIUS', payload: 5000 });
+    }, [dispatch]);
+    return <MainTab />;
+  }
+  render(<AppProvider><BudgetSeed /></AppProvider>);
+  fireEvent.click(screen.getByText('Point Buffer'));
+  await waitFor(() => {
+    const sliders = Array.from(document.querySelectorAll<HTMLInputElement>('input[type=range]'))
+      .filter(s => s.max === '100');
+    expect(sliders).toHaveLength(2);
+    expect(sliders.map(s => s.value)).toEqual(['100', '100']);
+  });
+  expect(screen.getByText(/Native chart radius limit: 100 m/)).toBeTruthy();
+});

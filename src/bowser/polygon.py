@@ -350,7 +350,7 @@ def summarize_rasters(
     with rasterio.open(group.file_list[0]) as first:
         grid = NativeGrid(first.crs, first.transform, first.width, first.height)
     labels = [str(v) for v in group.x_values]
-    masks = raster_masks(mask_groups, request, labels, grid)
+    masks = raster_masks(mask_groups, request.layer_masks, labels, grid)
     window, inside, clipped = _selection(
         grid, request.geometry, masks.work(len(group.file_list))
     )

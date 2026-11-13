@@ -6,6 +6,18 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- GeoTIFF point/radius charts now honor explicit quality masks and requested
+  reference circles using shared native-grid mask readers. Static masks are
+  cached per window and point reads retain three-worker concurrency. Geographic
+  and projected-foot circles use meter distances; radius controls reflect
+  native read budgets. Unavailable mask layers/axes and reference-circle
+  fallbacks are disclosed on charts. Source nodata/GDAL validity and valid zeros
+  are preserved. Sampling uses float64; tiny trend differences from float32
+  rounding are possible without changing the fitting method. GeoTIFF references
+  use source support before display masks; GeoZarr reference policy is unchanged.
+
 ### Added
 
 - Scientific colour maps (Crameri): `batlow`, `lajolla`, `oslo`, `vik`, `roma`,

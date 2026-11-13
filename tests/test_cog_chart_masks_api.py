@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -45,7 +46,7 @@ def _exercise(work: Path) -> None:
         },
     ).rio.write_crs(32631)
     ds.to_zarr(work / "cube.zarr", consolidated=False)
-    files = {}
+    files: dict[str, list[str]] = {}
     for name in ("displacement", "quality"):
         files[name] = []
         for index, date in enumerate(("20260101", "20260113", "20260125")):
@@ -83,7 +84,7 @@ def _exercise(work: Path) -> None:
     source_hashes = {
         p: hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in work.glob("*.tif*")
     }
-    result = {}
+    result: dict[str, Any] = {}
     for name, mode in (
         ("quality", "min"),
         ("quality", "max"),
@@ -143,7 +144,7 @@ def _exercise(work: Path) -> None:
                 if valid.size:
                     expected.append(
                         {
-                            "x": groups["displacement"].x_values[index],
+                            "x": groups["displacement"].model_dump()["x_values"][index],
                             "y": float(np.median(valid)),
                         }
                     )
@@ -176,7 +177,10 @@ def _exercise(work: Path) -> None:
                     "layer_masks": [{"dataset": name}],
                 },
             )
-            result[f"invalid_{route}_{name}"] = response.status_code
+            result[f"invalid_{route}_{name}"] = {
+                "status": response.status_code,
+                "body": response.json(),
+            }
     # The reference is a stored datum, not a quality-screened observation.
     for radius in (0, 11):
         response = client.post(
@@ -208,6 +212,49 @@ def _exercise(work: Path) -> None:
         )
         assert response.status_code == 200, response.text
         result[f"point_{key}"] = response.json()
+    # A circle that is too expensive falls back only for the reference,
+    # never for an observation buffer, and the response discloses that datum.
+    from bowser import cog_sampling
+
+    old_budget = cog_sampling.MAX_WINDOW_PIXELS
+    cog_sampling.MAX_WINDOW_PIXELS = 1
+    fallback = client.post(
+        "/multi_point",
+        json={
+            "dataset_name": "displacement",
+            "points": [{"id": "a", "lon": lon, "lat": lat}],
+            "ref_lon": ref_lon,
+            "ref_lat": ref_lat,
+            "ref_buffer_m": 11,
+        },
+    )
+    result["reference_budget_fallback"] = {
+        "status": fallback.status_code,
+        "body": fallback.json(),
+    }
+    cog_sampling.MAX_WINDOW_PIXELS = old_budget
+    # Actual HTTP geographic buffer and reference circle, not just a helper.
+    geographic = []
+    for index in range(3):
+        path = work / f"geographic_{index}.tif"
+        ds.displacement.isel(time=index).assign_coords(
+            x=3.00005 + 0.0001 * np.arange(12), y=45.00115 - 0.0001 * np.arange(12)
+        ).rio.write_crs(4326).rio.write_nodata(np.nan).rio.to_raster(path)
+        geographic.append(str(path))
+    groups["geographic"] = RasterGroup(name="geographic", file_list=geographic)
+    geo = client.post(
+        "/buffer_timeseries",
+        json={
+            "dataset_name": "geographic",
+            "lon": 3.00085,
+            "lat": 45.00035,
+            "buffer_m": 9,
+            "ref_lon": 3.00045,
+            "ref_lat": 45.00075,
+            "ref_buffer_m": 9,
+        },
+    )
+    result["geographic_buffer"] = {"status": geo.status_code, "body": geo.json()}
     assert source_hashes == {
         p: hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in source_hashes
     }
@@ -269,7 +316,19 @@ def test_reference_uses_requested_point_or_buffer(responses, radius, expected):
 @pytest.mark.parametrize("name", ["wrong_dates", "short", "shifted", "missing"])
 @pytest.mark.parametrize("route", ["multi_point", "buffer_timeseries"])
 def test_invalid_mask_alignment_is_reported(responses, name, route):
-    assert responses[f"invalid_{route}_{name}"] == 422
+    result = responses[f"invalid_{route}_{name}"]
+    if name == "shifted":
+        assert result["status"] == 422
+    else:
+        assert result["status"] == 200
+        assert len(result["body"]["warnings"]) == 1
+        assert "not applied" in result["body"]["warnings"][0]
+        series = (
+            result["body"]["datasets"][0]["data"]
+            if route == "multi_point"
+            else result["body"]["median"]
+        )
+        assert len(series) == 3
 
 
 @pytest.mark.parametrize("radius,expected", [(0, [0, -9, -18]), (11, [0, 88, 176])])
@@ -281,6 +340,20 @@ def test_display_mask_does_not_change_stored_reference(responses, radius, expect
 def test_unmasked_points_preserve_gdal_validity_and_zero(responses):
     assert responses["point_invalid"] == [None, None, None]
     assert responses["point_zero"] == [0, 0, 0]
+
+
+def test_reference_budget_fallback_is_disclosed(responses):
+    response = responses["reference_budget_fallback"]
+    assert response["status"] == 200
+    assert [p["y"] for p in response["body"]["datasets"][0]["data"]] == [0, -95, -190]
+    assert "containing pixel used" in response["body"]["warnings"][0]
+
+
+def test_geographic_http_circle_and_reference_are_supported(responses):
+    response = responses["geographic_buffer"]
+    assert response["status"] == 200
+    assert response["body"]["n_pixels"] == 3
+    assert [p["y"] for p in response["body"]["median"]] == [0, 100, 200]
 
 
 if __name__ == "__main__":

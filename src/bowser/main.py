@@ -572,11 +572,14 @@ def xarray_dataset_info(ds: xr.Dataset) -> dict:
 
 def create_rastergroup_dataset_info(raster_groups: dict) -> dict:
     """Create dataset info structure from RasterGroups."""
+    from .cog_sampling import buffer_limit  # noqa: PLC0415
+
     dataset_info = {}
     for name, rg in raster_groups.items():
         dataset_info[name] = {
             "name": rg.name,
             "file_list": [str(f) for f in rg.file_list],
+            "chart_buffer_max_m": buffer_limit(rg),
             "mask_file_list": [str(f) for f in rg.mask_file_list],
             "mask_min_value": rg.mask_min_value,
             "nodata": rg.nodata,
@@ -922,9 +925,15 @@ def _get_cog_samples(
     *,
     radius: float | None = None,
     time_idx: int | None = None,
+    reference_fallback: bool = False,
+    warnings: list[str] | None = None,
 ) -> np.ndarray:
     """Read bounded native chart samples with explicitly aligned GeoTIFF masks."""
-    from .cog_sampling import CogSampler, OutsideRasterError  # noqa: PLC0415
+    from .cog_sampling import (  # noqa: PLC0415
+        ChartBudgetError,
+        CogSampler,
+        OutsideRasterError,
+    )
 
     if dataset_name not in state.raster_groups:
         raise HTTPException(status_code=404, detail=f"Dataset {dataset_name} not found")
@@ -932,11 +941,21 @@ def _get_cog_samples(
         sampler = CogSampler(
             state.raster_groups[dataset_name], state.raster_groups, layer_masks
         )
-        return (
-            sampler.point(lon, lat, time_idx)
-            if radius is None
-            else sampler.buffer(lon, lat, radius)
-        )
+        if warnings is not None:
+            warnings.extend(sampler.warnings)
+        if radius is None:
+            return sampler.point(lon, lat, time_idx)
+        try:
+            return sampler.buffer(lon, lat, radius)
+        except (ChartBudgetError, OutsideRasterError):
+            if not reference_fallback:
+                raise
+            if warnings is not None:
+                warnings.append(
+                    "Reference circle unavailable or over budget; "
+                    "containing pixel used."
+                )
+            return sampler.point(lon, lat)[:, np.newaxis]
     except OutsideRasterError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (ValueError, TypeError) as exc:
@@ -953,6 +972,7 @@ def _get_ref_median(
     lat: float,
     buffer_m: float = 0.0,
     layer_masks: list[dict] | None = None,
+    warnings: list[str] | None = None,
 ) -> np.ndarray:
     """Return reference time series.
 
@@ -964,7 +984,15 @@ def _get_ref_median(
             raise HTTPException(status_code=422, detail="Invalid reference radius")
         if buffer_m > 0:
             return reference_median(
-                _get_cog_samples(dataset_name, lon, lat, [], radius=buffer_m)
+                _get_cog_samples(
+                    dataset_name,
+                    lon,
+                    lat,
+                    [],
+                    radius=buffer_m,
+                    reference_fallback=True,
+                    warnings=warnings,
+                )
             )
         return _get_point_values(dataset_name, lon, lat)
     layer_masks = layer_masks or []
@@ -1211,6 +1239,16 @@ def multi_point(
         rg = state.raster_groups[dataset_name]
         x_values = rg.x_values
 
+    warnings: list[str] = []
+    if state.mode == "cog":
+        from .cog_sampling import available_masks  # noqa: PLC0415
+
+        try:
+            specs, warnings = available_masks(rg, state.raster_groups, layer_masks)
+            layer_masks = [spec.model_dump() for spec in specs]
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     # Get reference values if provided (use buffer median when ref_buffer_m > 0)
     ref_values = None
     if ref_lon is not None and ref_lat is not None:
@@ -1220,6 +1258,7 @@ def multi_point(
             ref_lat,
             ref_buffer_m,
             layer_masks,
+            warnings,
         )
 
     # Process each point
@@ -1294,6 +1333,7 @@ def multi_point(
         {
             "labels": x_values,
             "datasets": results,
+            **({"warnings": warnings} if warnings else {}),
         }
     )
 
@@ -1609,6 +1649,7 @@ def buffer_timeseries(
     ref_buffer_m: float = Body(0.0, **api.PARAMS["ref_buffer_m"]),
 ):
     """Collect all pixels within a circular buffer, return median + random samples."""
+    warnings: list[str] = []
     if state.mode == "md":
         if dataset_name not in state.dataset.data_vars:
             raise HTTPException(
@@ -1654,11 +1695,11 @@ def buffer_timeseries(
         x_values = rg.x_values
 
         flat = _get_cog_samples(
-            dataset_name, lon, lat, layer_masks, radius=buffer_m
+            dataset_name, lon, lat, layer_masks, radius=buffer_m, warnings=warnings
         )
         if ref_lon is not None and ref_lat is not None:
             ref_vals = _get_ref_median(
-                dataset_name, ref_lon, ref_lat, ref_buffer_m, layer_masks
+                dataset_name, ref_lon, ref_lat, ref_buffer_m, layer_masks, warnings
             )
             flat = flat - ref_vals[:, np.newaxis]
 
@@ -1693,6 +1734,7 @@ def buffer_timeseries(
                 for ts in samples
             ],
             "n_pixels": int(flat.shape[1]),
+            **({"warnings": warnings} if warnings else {}),
         }
     )
 

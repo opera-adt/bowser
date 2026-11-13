@@ -13,7 +13,7 @@ import numpy as np
 from pyproj import CRS
 from pyproj.exceptions import CRSError
 
-from .polygon import STORED_WARNING, NativeGrid, _linear, _values
+from .polygon import STORED_WARNING, NativeGrid, PolygonMask, _linear, _values
 
 if TYPE_CHECKING:
     import xarray as xr
@@ -184,7 +184,7 @@ def xarray_masks(
 
 def raster_masks(
     groups: dict | None,
-    request: PolygonRequest,
+    specs: list[PolygonMask],
     labels: list[str],
     grid: NativeGrid,
 ) -> PolygonMasks:
@@ -193,13 +193,11 @@ def raster_masks(
     from rasterio.windows import Window  # noqa: PLC0415
 
     masks = PolygonMasks()
-    if not request.layer_masks:
+    if not specs:
         return masks
     if groups is None:
         raise ValueError("Requested masks require an explicit mask source context")
-    for spec in request.layer_masks:
-        if spec.mode != "min":
-            raise ValueError("GeoTIFF polygon masks currently support only min")
+    for spec in specs:
         if spec.dataset not in groups:
             raise ValueError(f"Unknown mask layer: {spec.dataset}")
         group = groups[spec.dataset]
@@ -241,7 +239,7 @@ def raster_masks(
             {
                 "dataset": spec.dataset,
                 "threshold": spec.threshold,
-                "operator": ">",
+                "operator": "<=" if spec.mode == "max" else ">",
                 "temporal_support": "matching_axis" if len(paths) > 1 else "static",
             }
         )
