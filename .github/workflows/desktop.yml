@@ -119,6 +119,6 @@ jobs:
             gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
               --title "$TAG" --notes "Desktop builds are attached below. They are not signed yet:
           - Windows: if SmartScreen warns, choose More info, then Run anyway.
-          - macOS: the first time, right-click Bowser.app and choose Open."
+          - macOS: drag Bowser to Applications, then run once in Terminal: xattr -dr com.apple.quarantine /Applications/Bowser.app (or open it once and allow it under System Settings, Privacy & Security, Open Anyway)."
           fi
           gh release upload "$TAG" release/* --repo "$GITHUB_REPOSITORY" --clobber

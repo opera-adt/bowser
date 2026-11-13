@@ -256,6 +256,20 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Time-series chart: dragging a mask threshold, buffer radius or reference
+  radius slider no longer sends a round of chart requests for every tick (each
+  reads every date of every charted layer). The first change asks at once;
+  after that at most one round per 250 ms, always ending on the value the
+  slider stopped at.
+- MapLibre map: dragging a basemap opacity slider no longer removes and re-adds
+  the basemap sources on every tick, which dropped the tiles already loaded and
+  fetched every visible one again (on both maps in split screen). Opacity is
+  now a paint property; the sources are rebuilt only when a basemap or the
+  swap changes.
+- bowser-lite keeps each tile's warp index (which source pixel each tile pixel
+  takes) for the tiles in view, within 64 MB, instead of working it out again
+  for every date, mask and colour scale. Stepping through dates: a 512 px tile
+  73 ms to 38 ms, a 256 px tile 36 ms to 27 ms; the tiles are the same.
 - Tiles with an uploaded custom mask no longer warp the mask file to the whole
   pyramid level for every tile: the warped mask is kept per file and level
   (up to 256 MB). A full-resolution tile of a DISP-S1 cube with a custom mask
@@ -336,6 +350,19 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   worker thread. Answers are unchanged.
 
 ### Fixed
+
+- GNSS tab: the InSAR curve compared with a station follows the current
+  settings. It was fetched only when a station was picked or the reference
+  moved, so a changed mask, layer, reference switch or reference radius left
+  the old curve. It is fetched again for those (at most once per 250 ms while
+  a slider is dragged), a late answer no longer replaces a newer one, and
+  moving the reference no longer reloads the station's GNSS record.
+- Masking: a mask added, or moved to another layer, takes that layer's own
+  default threshold once the layer's range is known. Before, the threshold
+  stayed at 0.5 or at the previous layer's value, in the wrong units (it hid
+  everything for a velocity mask, nothing for an amplitude one). Under the
+  slider, a small histogram of the mask's layer shows the part the threshold
+  keeps, with "Keeps N% of this layer's pixels".
 
 - Esri basemaps (Satellite, Topo, Dark, Light, Hillshade, Relief) no longer show
   Esri's grey "Map data not yet available" tiles. How deep Esri's tiles go

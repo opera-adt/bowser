@@ -88,3 +88,42 @@ def test_spatial_ref_is_a_coordinate_on_every_level(tmp_path, pyramid):
     lite = lcube.open_cube(str(path))
     assert lcube.spatial_ref_attrs(lite.dataset)["GeoTransform"] == GEO_TRANSFORM
     assert list(ds.rio.bounds()) == list(lite.bounds())
+
+
+_NO_PLUGIN = """
+import importlib.metadata as md, sys
+
+entry_points = md.entry_points
+
+
+def without_rioxarray(**kw):
+    found = entry_points(**kw)
+    return type(found)(e for e in found if "rioxarray" not in e.value)
+
+
+# As an xarray that does not load every backend plugin to open a zarr store.
+md.entry_points = without_rioxarray
+from bowser.state import _open_md
+
+ds, _, levels = _open_md(sys.argv[1])
+assert ds.rio.crs is not None and all(lv.dataset.rio.crs for lv in levels)
+print("OK")
+"""
+
+
+def test_open_md_does_not_rely_on_xarray_importing_rioxarray(tmp_path):
+    """``_open_md`` uses ``.rio``: it imports rioxarray itself."""
+    import os
+    import subprocess
+    import sys
+
+    path = _store(tmp_path / "cube.zarr", True)
+    env = {k: v for k, v in os.environ.items() if not k.startswith("BOWSER_")}
+    r = subprocess.run(
+        [sys.executable, "-c", _NO_PLUGIN, str(path)],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode == 0, r.stderr[-3000:]
+    assert r.stdout.strip().endswith("OK")

@@ -190,6 +190,34 @@ describe('MapLibreMap', () => {
     expect(map.getLayer('data-1')!.paint['raster-opacity']).toBe(0.8);
   });
 
+  it('basemap opacity is a paint property: the sources and their loaded tiles stay', async () => {
+    mockState.secondaryBasemap = 'esriDark';
+    const { view, map } = await mount();
+    const bottom = map.sources.get('basemap-bottom'), top = map.sources.get('basemap-top');
+    const added = vi.spyOn(map, 'addSource'), removed = vi.spyOn(map, 'removeSource');
+    const opacity = (id: string) => map.getLayer(id)!.paint['raster-opacity'];
+    expect([opacity('basemap-bottom'), opacity('basemap-top')]).toEqual([1, 0.5]);
+    // Each tick of a slider.
+    for (const [primary, second] of [[0.9, 0.5], [0.8, 0.5], [0.8, 0.3], [0.8, 0.1]]) {
+      mockState.basemapOpacity = primary; mockState.secondaryBasemapOpacity = second;
+      view.rerender(<MapLibreMap />);
+      expect([opacity('basemap-bottom'), opacity('basemap-top')]).toEqual([primary, second]);
+    }
+    const basemap = (calls: unknown[][]) => calls.filter(c => String(c[0]).startsWith('basemap-'));
+    expect(basemap(added.mock.calls)).toEqual([]);
+    expect(basemap(removed.mock.calls)).toEqual([]);
+    expect(map.sources.get('basemap-bottom')).toBe(bottom);
+    expect(map.sources.get('basemap-top')).toBe(top);
+    // A swap does rebuild, and each basemap keeps its own opacity.
+    mockState.basemapSwapped = true;
+    view.rerender(<MapLibreMap />);
+    expect(map.sources.get('basemap-bottom').tiles[0]).toContain('World_Dark_Gray_Base');
+    expect([opacity('basemap-bottom'), opacity('basemap-top')]).toEqual([0.1, 0.8]);
+    mockState.basemapOpacity = 0.6;
+    view.rerender(<MapLibreMap />);
+    expect([opacity('basemap-bottom'), opacity('basemap-top')]).toEqual([0.1, 0.6]);
+  });
+
   it('keeps the old raster until the new one has loaded, then drops it', async () => {
     const { view, map } = await mount();
     mockState.currentTimeIndex = 0;

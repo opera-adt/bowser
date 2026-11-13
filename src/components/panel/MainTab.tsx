@@ -8,6 +8,8 @@ import TimeStepper from './TimeStepper';
 import RefDatePicker from './RefDatePicker';
 import ReferenceCandidates from './ReferenceCandidates';
 import CustomMaskUpload from './CustomMaskUpload';
+import MaskHistogram from './MaskHistogram';
+import { defaultThreshold } from '../../utils/maskThreshold';
 import { displayUnit } from '../../utils/units';
 import { readLayerInfoShown, saveLayerInfoShown } from '../../utils/layerInfoPref';
 import { baseColormap } from '../../utils/colormaps';
@@ -62,6 +64,19 @@ export default function MainTab() {
       } catch { /* ignore */ }
     });
   }, [state.layerMasks, datasetRanges]);
+
+  // Masks added or moved to a layer whose range was not known yet: their threshold
+  // is set to that layer's default when the range arrives (a threshold left over
+  // from the previous layer, or 0.5, means nothing in another layer's units).
+  const awaitingDefault = useRef(new Set<string>());
+  useEffect(() => {
+    for (const mask of state.layerMasks) {
+      const range = datasetRanges[mask.dataset];
+      if (!range || !awaitingDefault.current.has(mask.id)) continue;
+      awaitingDefault.current.delete(mask.id);
+      dispatch({ type: 'UPDATE_LAYER_MASK', payload: { id: mask.id, updates: { threshold: defaultThreshold(range, mask.mode) } } });
+    }
+  }, [state.layerMasks, datasetRanges, dispatch]);
 
   useEffect(() => {
     setDraftRefLat(state.refMarkerPosition[0].toFixed(6));
@@ -492,10 +507,11 @@ export default function MainTab() {
                       onChange={e => {
                         const ds = e.target.value;
                         const newRange = datasetRanges[ds];
-                        const defaultThreshold = newRange
-                          ? (mask.mode === 'max' ? (newRange.p98 ?? newRange.max) : (newRange.p2 ?? newRange.min)) ?? 0.5
-                          : 0.5;
-                        dispatch({ type: 'UPDATE_LAYER_MASK', payload: { id: mask.id, updates: { dataset: ds, threshold: defaultThreshold } } });
+                        if (newRange) awaitingDefault.current.delete(mask.id);
+                        else awaitingDefault.current.add(mask.id);   // set when its range arrives
+                        dispatch({ type: 'UPDATE_LAYER_MASK', payload: { id: mask.id, updates: {
+                          dataset: ds, threshold: newRange ? defaultThreshold(newRange, mask.mode) : mask.threshold,
+                        } } });
                       }}>
                       <LayerOptions names={Object.keys(state.datasetInfo)} />
                     </select>
@@ -504,9 +520,7 @@ export default function MainTab() {
                       onChange={e => {
                         const newMode = e.target.value as 'min' | 'max';
                         const r = datasetRanges[mask.dataset];
-                        const newThreshold = r
-                          ? (newMode === 'max' ? (r.p98 ?? r.max) : (r.p2 ?? r.min)) ?? mask.threshold
-                          : mask.threshold;
+                        const newThreshold = r ? defaultThreshold(r, newMode) : mask.threshold;
                         dispatch({ type: 'UPDATE_LAYER_MASK', payload: { id: mask.id, updates: { mode: newMode, threshold: newThreshold } } });
                       }}>
                       <option value="min">≥</option>
@@ -532,6 +546,11 @@ export default function MainTab() {
                   <input type="range" className="sidebar-range"
                     min={rMin} max={rMax} step={step} value={mask.threshold}
                     onChange={e => dispatch({ type: 'UPDATE_LAYER_MASK', payload: { id: mask.id, updates: { threshold: parseFloat(e.target.value) } } })} />
+                  {range && (
+                    <MaskHistogram dataset={mask.dataset} threshold={mask.threshold} mode={mask.mode} lo={rMin} hi={rMax}
+                      timeIndex={(state.datasetInfo[mask.dataset]?.x_values?.length ?? 0) > 1 ? state.currentTimeIndex : 0}
+                      paused={state.playing} />
+                  )}
                 </div>
               );
             })}
@@ -540,10 +559,12 @@ export default function MainTab() {
                 onClick={() => {
                   const firstDataset = Object.keys(state.datasetInfo)[0];
                   const range = datasetRanges[firstDataset];
+                  const id = `mask_${Date.now()}`;
+                  if (!range) awaitingDefault.current.add(id);   // set when its range arrives
                   dispatch({
                     type: 'ADD_LAYER_MASK', payload: {
-                      id: `mask_${Date.now()}`, dataset: firstDataset,
-                      threshold: range ? (range.p2 ?? range.min) : 0.5, mode: 'min',
+                      id, dataset: firstDataset,
+                      threshold: range ? defaultThreshold(range, 'min') : 0.5, mode: 'min',
                     }
                   });
                 }}>
