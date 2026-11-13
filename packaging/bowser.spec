@@ -13,7 +13,11 @@ HEAVY = [
     "boto3", "opera_utils", "geopandas", "shapely", "pyarrow", "IPython",
 ]
 
-datas = collect_data_files("bowser", includes=["dist/**/*", "static/**/*", "lite/*.npz", "lite/*.json"])
+# palettes/: bowser-lite reads the scientific colour tables next to its own (lite/colormaps.py).
+datas = collect_data_files(
+    "bowser",
+    includes=["dist/**/*", "static/**/*", "lite/*.npz", "lite/*.json", "palettes/**/*"],
+)
 datas += collect_data_files("pyproj")  # PROJ's database, for UTM <-> lon/lat
 # Packages that read their own version or entry points at run time.
 for _pkg in ("mcp", "keyring", "anthropic"):

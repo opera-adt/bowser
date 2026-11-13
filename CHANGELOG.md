@@ -8,6 +8,12 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Scientific colour maps (Crameri): `batlow`, `lajolla`, `oslo`, `vik`, `roma`,
+  `berlin`, `broc`, `bam` and the cyclic `romaO`, each with its reverse, as
+  `cmc_*` in the colormap picker, on the full server, bowser-lite (and so the
+  desktop app) and the GPU renderer, with identical colours on all three. The
+  tables are vendored from cmcrameri at a pinned revision (MIT), checked by
+  SHA-256.
 - GeoTIFF export in bowser-lite and the desktop app: `GET /export/geotiff`
   (the Export button, the `export_geotiff` tool) now works without GDAL, with
   the full server's parameters, masks, reference handling, provenance tags and
