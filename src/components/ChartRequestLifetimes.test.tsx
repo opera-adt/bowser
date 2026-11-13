@@ -108,4 +108,24 @@ describe('chart request lifetimes', () => {
     if (ok) expect(median()).toEqual([0, 2, 4]);
     else expect(median()).toBeUndefined();
   });
+
+  it('a dragged radius asks a few times, not once per tick, and ends on the last value', async () => {
+    deferPoints = false; show(true);
+    await waitFor(() => expect(pending).toHaveLength(1));
+    await finish(pending[0], 1); await waitFor(() => expect(median()).toEqual([0, 1, 2]));
+    const radii = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
+    for (const r of radii) {
+      change({ type: 'SET_BUFFER_RADIUS', payload: r });
+      await act(async () => { await new Promise(done => setTimeout(done, 10)); });
+    }
+    // The old band is gone at once, while the request waits its turn.
+    expect(median()).toBeUndefined();
+    await waitFor(() => expect(pending[pending.length - 1].body.buffer_m).toBe(20));
+    await act(async () => { await new Promise(done => setTimeout(done, 300)); });
+    const asked = pending.slice(1).map(p => p.body.buffer_m);
+    expect(asked.length).toBeLessThanOrEqual(3);            // ten ticks in about 100 ms
+    expect(asked[asked.length - 1]).toBe(20);
+    await finish(pending[pending.length - 1], 2);
+    await waitFor(() => expect(median()).toEqual([0, 2, 4]));
+  });
 });
