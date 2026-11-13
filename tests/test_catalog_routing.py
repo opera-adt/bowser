@@ -57,6 +57,7 @@ SCRIPT = textwrap.dedent(
         "title": "Cube B",
         "opera_logo": False,
         "geotiff_export": True,
+        "raster_animation": True,
         "polygon_stats": True,
         "assistant": {
         "enabled": False,

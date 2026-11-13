@@ -5,6 +5,8 @@ environments:
     - url: https://conda.anaconda.org/conda-forge/
     indexes:
     - https://pypi.org/simple
+    options:
+      pypi-prerelease-mode: if-necessary-or-explicit
     packages:
       linux-64:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_libgcc_mutex-0.1-conda_forge.tar.bz2
@@ -728,6 +730,8 @@ environments:
     - url: https://conda.anaconda.org/conda-forge/
     indexes:
     - https://pypi.org/simple
+    options:
+      pypi-prerelease-mode: if-necessary-or-explicit
     packages:
       linux-64:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_libgcc_mutex-0.1-conda_forge.tar.bz2
@@ -1354,6 +1358,8 @@ environments:
     - url: https://conda.anaconda.org/conda-forge/
     indexes:
     - https://pypi.org/simple
+    options:
+      pypi-prerelease-mode: if-necessary-or-explicit
     packages:
       linux-64:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_libgcc_mutex-0.1-conda_forge.tar.bz2
@@ -2022,6 +2028,8 @@ environments:
     - url: https://conda.anaconda.org/conda-forge/
     indexes:
     - https://pypi.org/simple
+    options:
+      pypi-prerelease-mode: if-necessary-or-explicit
     packages:
       linux-64:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda
@@ -4456,8 +4464,8 @@ packages:
   timestamp: 1773797822026
 - pypi: ./
   name: bowser-insar
-  version: 0.6.1.post1.dev169+g1cc2b335a.d20261111
-  sha256: 6b1abccfc64f112b5b8620e44baea1ad65f870f0de47f565f0ef9afaa8499a66
+  version: 0.6.1.post1.dev440+g53ffde434.d20261113
+  sha256: 0e8468163b7108ed0477512ebab32d1382051b05eb532ab07a54fb33537f441a
   requires_dist:
   - titiler-xarray>=2.4,<3
   - fsspec
@@ -4472,6 +4480,7 @@ packages:
   - rioxarray
   - shapely
   - matplotlib
+  - pillow>=9.1
   - pydantic-settings
   - rich
   - s3fs>=2024.1.0
@@ -4492,7 +4501,6 @@ packages:
   - pyjwt[crypto]>=2.10 ; extra == 'assistant'
   - mcp==2.2.0 ; extra == 'assistant'
   requires_python: '>=3.12'
-  editable: true
 - conda: https://conda.anaconda.org/conda-forge/linux-64/brotli-1.1.0-hb9d3cd8_3.conda
   sha256: c969baaa5d7a21afb5ed4b8dd830f82b78e425caaa13d717766ed07a61630bec
   md5: 5d08a0ac29e6a5a984817584775d4131

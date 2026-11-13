@@ -82,7 +82,8 @@ def exercise(work, mode):
             for name, files in paths.items()
         }
         main._default_state = BowserState(mode="cog", raster_groups=groups)
-    client = TestClient(main.app)
+    client = TestClient(main.app, raise_server_exceptions=False)
+    assert client.get("/config").json()["raster_animation"] is True
     assert client.get("/export/animation").json()["supported"] is True
     body = {
         "variable": "displacement",
@@ -159,7 +160,21 @@ def exercise(work, mode):
             "/export/animation",
             json={**body, "layer_masks": [{"dataset": "wrong_quality"}]},
         )
-        assert wrong.status_code == 422
+        native = client.get(
+            "/export/geotiff",
+            params={
+                "variable": "displacement",
+                "time_idx": 1,
+                "layer_masks": json.dumps([{"dataset": "wrong_quality"}]),
+            },
+        )
+        assert wrong.status_code == native.status_code  # no independent GIF mask policy
+    nan = client.post(
+        "/export/animation",
+        content=json.dumps({**body, "vmin": float("nan")}),
+        headers={"Content-Type": "application/json"},
+    )
+    assert nan.status_code == 422, nan.text
     assert RENDER_LOCK.acquire(False)
     try:
         assert client.post("/export/animation", json=body).status_code == 409

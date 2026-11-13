@@ -160,6 +160,17 @@ def _requests(tmp: Path) -> dict[str, tuple[str, bytes | None, dict]]:
             },
         ),
         "upload_raster": _tif_upload(tmp),
+        "export_animation": _post(
+            "/export/animation",
+            {
+                "variable": "displacement",
+                "start_index": 0,
+                "end_index": 1,
+                "vmin": -0.01,
+                "vmax": 0.01,
+                "width": 64,
+            },
+        ),
     }
 
 

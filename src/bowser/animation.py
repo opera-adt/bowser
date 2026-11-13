@@ -4,14 +4,15 @@ import json
 import re
 import threading
 import time
+from dataclasses import dataclass
 from io import BytesIO
 from typing import Any, Callable
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .polygon import NativeGrid, PolygonMask
-from .polygon_masks import _axis, raster_masks, xarray_masks
+from .polygon import PolygonMask
+from .polygon_masks import _axis
 
 MAX_FRAMES = 90
 MAX_NATIVE_PIXELS = 2_000_000
@@ -63,7 +64,7 @@ class AnimationRequest(BaseModel):
 
 
 def source_info(target, request):
-    """Validate scalar source/mask metadata before reading frame arrays."""
+    """Validate scalar source metadata before reading frame arrays."""
     name = request.variable
     indices = list(range(request.start_index, request.end_index + 1))
     if target.mode == "md":
@@ -80,12 +81,11 @@ def source_info(target, request):
             raise ValueError("Animation needs a real-valued scalar layer")
         if not {"x", "y"}.issubset(source.dims):
             raise ValueError("Animation needs spatial x/y dimensions")
-        width, height = source.sizes["x"], source.sizes["y"]
+        _width, _height = source.sizes["x"], source.sizes["y"]
         transform, crs = (
             source.rio.transform(),
             source.rio.crs or target.dataset.rio.crs,
         )
-        xarray_masks(source, target.dataset, request, crs)
     else:
         import rasterio
 
@@ -102,21 +102,14 @@ def source_info(target, request):
         with rasterio.open(group.file_list[0]) as source:
             if source.count != 1 or np.dtype(source.dtypes[0]).kind not in "biuf":
                 raise ValueError("Animation needs a single-band real-valued layer")
-            width, height, transform, crs = (
+            _width, _height, transform, crs = (
                 source.width,
                 source.height,
                 source.transform,
                 source.crs,
             )
-        masks = raster_masks(
-            target.raster_groups,
-            request,
-            labels,
-            NativeGrid(crs, transform, width, height),
-        )
-        for index in indices:
-            if index < len(labels):
-                masks.valid(index, slice(0, 1), slice(0, 1), (1, 1))
+    if _width < 1 or _height < 1:
+        raise ValueError("Animation needs a nonempty spatial grid")
     if request.end_index >= len(labels) or len(labels) < 2:
         raise ValueError("Epoch range is outside the saved source record")
     if len(set(labels)) != len(labels) or any(len(v) > 256 for v in labels):
@@ -125,28 +118,267 @@ def source_info(target, request):
         raise ValueError("Reference epoch is outside the saved record")
     if not crs or transform.b or transform.d or transform.a <= 0 or transform.e >= 0:
         raise ValueError("Raster GIF currently requires a north-up georeferenced grid")
-    if (
-        width * height > MAX_NATIVE_PIXELS
-        or width * height * len(indices) > MAX_PIXEL_EPOCHS
-    ):
-        raise ValueError(
-            "Source exceeds raster GIF pixel budget; "
-            "use a smaller prepared subset or fewer epochs"
-        )
     return labels, indices
+
+
+@dataclass
+class RenderPlan:
+    """Metadata-only display read plan; source reference support stays native."""
+
+    labels: list[str]
+    indices: list[int]
+    dataset: Any
+    window: tuple[int, int, int, int]
+    level: str
+    native_grid: tuple
+    size: tuple[int, int]
+
+    def summary(self) -> dict:
+        """Return bounded public provenance without source paths."""
+        r0, r1, c0, c1 = self.window
+        return {
+            "level": self.level,
+            "read_width": c1 - c0,
+            "read_height": r1 - r0,
+            "output_width": self.size[0],
+            "output_height": self.size[1] + 48,
+            "frames": len(self.indices),
+        }
+
+
+def _window(width, height, transform, crs, bounds):
+    from rasterio.warp import transform_bounds
+    from rasterio.windows import from_bounds
+
+    if bounds is None:
+        return (0, height, 0, width)
+    box = transform_bounds(4326, crs, *bounds, densify_pts=21)
+    if not np.isfinite(box).all():
+        raise ValueError("Viewport cannot be projected to the source grid")
+    win = from_bounds(*box, transform=transform)
+    r0, r1 = (
+        max(0, int(np.floor(win.row_off))),
+        min(height, int(np.ceil(win.row_off + win.height))),
+    )
+    c0, c1 = (
+        max(0, int(np.floor(win.col_off))),
+        min(width, int(np.ceil(win.col_off + win.width))),
+    )
+    if r0 >= r1 or c0 >= c1:
+        raise ValueError("Viewport does not overlap a usable raster window")
+    return (r0, r1, c0, c1)
+
+
+def _reference_work(grid, request, count):
+    """Bound native reference IO independently of a cropped/display-level view."""
+    if request.ref_lon is None:
+        return 0
+    crs, transform, width, height = grid
+    from pyproj import CRS, Transformer
+
+    cx, cy = Transformer.from_crs(4326, crs, always_xy=True).transform(
+        request.ref_lon, request.ref_lat
+    )
+    col, row = ~transform * (cx, cy)
+    if not (0 <= col <= width and 0 <= row <= height):
+        raise ValueError("Reference position is outside the source raster")
+    radius = request.ref_buffer_m
+    if radius:
+        projected = CRS.from_user_input(crs)
+        if not projected.is_projected or any(
+            a.unit_conversion_factor != 1 for a in projected.axis_info[:2]
+        ):
+            raise ValueError(
+                "Median reference buffers require a projected CRS in meters"
+            )
+        corners = [
+            ~transform * (x, y)
+            for x in (cx - radius, cx + radius)
+            for y in (cy - radius, cy + radius)
+        ]
+        c0, c1 = (
+            max(0, int(np.floor(min(c[0] for c in corners)))),
+            min(width, int(np.ceil(max(c[0] for c in corners)))),
+        )
+        r0, r1 = (
+            max(0, int(np.floor(min(c[1] for c in corners)))),
+            min(height, int(np.ceil(max(c[1] for c in corners)))),
+        )
+        pixels = max(0, c1 - c0) * max(0, r1 - r0)
+    else:
+        pixels = 1
+    work = pixels * count * (2 if request.ref_time_idx is not None else 1)
+    if pixels > MAX_NATIVE_PIXELS or work > MAX_PIXEL_EPOCHS:
+        raise ValueError(
+            "Native reference window exceeds raster GIF pixel budget; "
+            "reduce radius or epochs"
+        )
+    return work
+
+
+def plan_render(target: Any, request: AnimationRequest) -> RenderPlan:
+    """Budget the actual read footprint and all display frames before pixel IO."""
+    labels, indices = source_info(target, request)
+    candidates = []
+    if target.mode == "md":
+        levels = [("native", target.dataset)]
+        levels += [
+            (f"pyramid:{i}", level.dataset)
+            for i, level in enumerate(target.levels or [])
+            if level.dataset is not target.dataset
+        ]
+        for name, ds in levels:
+            if request.variable not in ds or any(
+                m.dataset not in ds for m in request.layer_masks
+            ):
+                continue
+            source = ds[request.variable]
+            if source.dtype.kind not in "biuf" or source.attrs.get(
+                "units"
+            ) != target.dataset[request.variable].attrs.get("units"):
+                continue
+            dim = _axis(source)
+            from .lite.meta import dim_labels
+
+            if dim is None or list(map(str, dim_labels(source, dim))) != labels:
+                continue  # A pyramid may not change or guess the saved epochs.
+            transform, crs = (
+                source.rio.transform(recalc=True),
+                source.rio.crs or ds.rio.crs,
+            )
+            if (
+                not crs
+                or transform.b
+                or transform.d
+                or transform.a <= 0
+                or transform.e >= 0
+            ):
+                continue
+            native_source = target.dataset[request.variable]
+            if name != "native":
+                if crs != (native_source.rio.crs or target.dataset.rio.crs):
+                    continue
+                left, bottom, right, top = source.rio.bounds(recalc=True)
+                nl, nb, nr, nt = native_source.rio.bounds(recalc=True)
+                tolerance = max(abs(transform.a), abs(transform.e))
+                if (
+                    left > nl + tolerance
+                    or bottom > nb + tolerance
+                    or right < nr - tolerance
+                    or top < nt - tolerance
+                ):
+                    continue  # A partial-area raster is not a full-source pyramid.
+            win = _window(
+                source.sizes["x"], source.sizes["y"], transform, crs, request.bounds
+            )
+            candidates.append(
+                (name, ds, win, (crs, transform, source.sizes["x"], source.sizes["y"]))
+            )
+    else:
+        import rasterio
+
+        with rasterio.open(target.raster_groups[request.variable].file_list[0]) as src:
+            grid = (src.crs, src.transform, src.width, src.height)
+            candidates.append(
+                (
+                    "native",
+                    None,
+                    _window(
+                        src.width, src.height, src.transform, src.crs, request.bounds
+                    ),
+                    grid,
+                )
+            )
+            for i, _factor in enumerate(src.overviews(1)):
+                with rasterio.open(src.name, OVERVIEW_LEVEL=str(i)) as overview:
+                    ov_grid = (
+                        overview.crs,
+                        overview.transform,
+                        overview.width,
+                        overview.height,
+                    )
+                    candidates.append(
+                        (
+                            f"overview:{i}",
+                            None,
+                            _window(
+                                overview.width,
+                                overview.height,
+                                overview.transform,
+                                overview.crs,
+                                request.bounds,
+                            ),
+                            ov_grid,
+                        )
+                    )
+    if not candidates:
+        raise ValueError("No compatible saved display grid is available")
+
+    # A small native crop remains native. Full views prefer the finest existing
+    # pyramid fitting the display; no new data pyramid or averaged product is made.
+    def pixels(item):
+        _, _, (r0, r1, c0, c1), _ = item
+        return (r1 - r0) * (c1 - c0)
+
+    reference_work = _reference_work(candidates[0][3], request, len(indices))
+
+    def bounded(item):
+        return (
+            pixels(item) <= MAX_NATIVE_PIXELS
+            and pixels(item) * len(indices) * (1 + len(request.layer_masks))
+            + reference_work
+            <= MAX_PIXEL_EPOCHS
+        )
+
+    native = candidates[0]
+    if request.bounds and bounded(native):
+        chosen = native
+    else:
+        fitting = [
+            c
+            for c in candidates
+            if bounded(c)
+            and c[2][3] - c[2][2] <= request.width
+            and c[2][1] - c[2][0] <= 1024
+        ]
+        allowed = fitting or [c for c in candidates if bounded(c)]
+        if not allowed:
+            raise ValueError(
+                "Selected read window exceeds raster GIF pixel budget; "
+                "crop further, use fewer epochs, or provide a display pyramid"
+            )
+        chosen = max(fitting, key=pixels) if fitting else min(allowed, key=pixels)
+    name, ds, win, grid = chosen
+    r0, r1, c0, c1 = win
+    w, h = c1 - c0, r1 - r0
+    factor = min(request.width / w, 1024 / h)
+    size = max(1, round(w * factor)), max(1, round(h * factor))
+    if size[0] * (size[1] + 48) * len(indices) > MAX_DISPLAY_PIXELS:
+        raise ValueError("Display exceeds GIF pixel budget; reduce width or epochs")
+    if ds is not None:
+        from rasterio.windows import Window
+        from rasterio.windows import transform as window_transform
+
+        cropped = ds.isel(y=slice(r0, r1), x=slice(c0, c1))
+        cropped = cropped.rio.write_transform(
+            window_transform(Window(c0, r0, w, h), grid[1])
+        )
+    else:
+        cropped = None
+    return RenderPlan(labels, indices, cropped, win, name, candidates[0][3], size)
 
 
 def render(request: AnimationRequest, target: Any, prepare: Callable):
     """Render nearest-neighbor display images; never modify source measurements."""
     from PIL import Image, ImageDraw
-    from rasterio.warp import transform_bounds
     from rio_tiler.colormap import cmap, make_lut
 
     try:
         lut = make_lut(cmap.get(request.colormap.lower()))
     except Exception as exc:
         raise ValueError("Unknown animation colormap") from exc
-    labels, indices = source_info(target, request)
+    plan = plan_render(target, request)
+    labels, indices = plan.labels, plan.indices
     # Reserve two colors for nodata/header text. This display quantization is
     # constant for every frame; it does not affect native data or color limits.
     palette = np.vstack(
@@ -155,7 +387,8 @@ def render(request: AnimationRequest, target: Any, prepare: Callable):
             [[255, 255, 255], [0, 0, 0]],
         )
     ).astype("uint8")
-    frames, support, references = [], [], []
+    frames: list[Image.Image] = []
+    support, references = [], []
     units = "stored units (not supplied)"
     started = time.monotonic()
     grid = None
@@ -163,24 +396,20 @@ def render(request: AnimationRequest, target: Any, prepare: Callable):
     for index in indices:
         if time.monotonic() - started > 120:
             raise ValueError("Raster GIF exceeded the rendering time budget")
-        da, _ = prepare(index, masks)
+        if target.mode == "cog":
+            import rasterio
+
+            with rasterio.open(
+                target.raster_groups[request.variable].file_list[index]
+            ) as src:
+                if (src.crs, src.transform, src.width, src.height) != plan.native_grid:
+                    raise ValueError("Animation frames must share the same native grid")
+        da, _ = prepare(index, masks, plan)
         try:
             native = (da.rio.crs, da.rio.transform(), da.sizes["x"], da.sizes["y"])
             if grid is not None and native != grid:
                 raise ValueError("Animation frames must share the same native grid")
             grid = native
-            if request.bounds:
-                box = transform_bounds(
-                    4326, da.rio.crs, *request.bounds, densify_pts=21
-                )
-                from rioxarray.exceptions import RioXarrayError
-
-                try:
-                    da = da.rio.clip_box(*box, allow_one_dimensional_raster=True)
-                except RioXarrayError as exc:
-                    raise ValueError(
-                        "Viewport does not overlap a usable raster window"
-                    ) from exc
             values = np.asarray(da.transpose("y", "x").values)
             valid = np.isfinite(values)
             support.append(int(valid.sum()))
@@ -191,13 +420,7 @@ def render(request: AnimationRequest, target: Any, prepare: Callable):
             if frames and current_units != units:
                 raise ValueError("Animation frames must retain consistent units")
             units = current_units
-            h, w = values.shape
-            factor = min(request.width / w, 1024 / h)
-            size = (max(1, round(w * factor)), max(1, round(h * factor)))
-            if size[0] * size[1] * len(indices) > MAX_DISPLAY_PIXELS:
-                raise ValueError(
-                    "Display exceeds GIF pixel budget; reduce width or epochs"
-                )
+            size = plan.size
             scaled = np.clip(
                 (np.where(valid, values, request.vmin) - request.vmin)
                 / (request.vmax - request.vmin),
@@ -236,7 +459,11 @@ def render(request: AnimationRequest, target: Any, prepare: Callable):
         "frame_duration_ms": duration,
         "units": units,
         "bounds_wgs84": request.bounds,
-        "valid_native_pixels": support,
+        "display_read": plan.summary(),
+        "reference_resolution": "native source",
+        "valid_native_pixels": support if plan.level == "native" else None,
+        "valid_display_pixels": support,
+        "support_resolution": "selected display grid",
         "reference": {
             "lon": request.ref_lon,
             "lat": request.ref_lat,

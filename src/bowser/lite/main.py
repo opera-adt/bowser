@@ -237,6 +237,7 @@ def get_config(
         "title": entry.name if entry is not None else settings.BOWSER_TITLE,
         "opera_logo": settings.BOWSER_OPERA_LOGO,
         "geotiff_export": True,
+        "raster_animation": False,
         "polygon_stats": True,
         "assistant": assistant_config(settings),
         "geotiff_upload": False,

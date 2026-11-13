@@ -19,9 +19,10 @@ measurements. Use GeoTIFF export for those.
 The exporter reuses native GeoTIFF preparation. Explicit named quality masks,
 intrinsic nodata, and supported point/area and epoch references are applied to
 the measurements before rendering. Reference offsets use the existing native
-export policy; quality masks do not redefine the reference sample. Masks must
-have the same grid and compatible saved-epoch labels. There is no mask
-resampling or inference of a matching ministack.
+export policy; quality masks do not redefine the reference sample. Masks use the same strict preparation and saved-epoch handling as GeoTIFF
+export; GIF export does not impose a separate mask-selection policy. On saved
+pyramids, the requested quality layers must also exist on that display grid.
+COG display windows use the native exporter’s nearest-neighbor mask alignment.
 
 Uploaded masks and configured primary GeoTIFF masks are **not supported yet**;
 the controls disable export and the API rejects these settings. Rewrapped and
@@ -38,10 +39,17 @@ fitting, baseline adjustment or inferred initial epoch is added.
 ## Limits and provenance
 
 - Two to 90 consecutive saved epochs on a north-up georeferenced grid.
-- At most two million source pixels and 50 million source pixel-epochs. Viewport
-  cropping does not bypass the native-source budget.
+- At most two million pixels in the selected read window and 50 million
+  pixel-epochs including named-mask and native-reference work. Cropping a large
+  source reads only the intersecting window. For larger views, compatible saved
+  GeoZarr pyramids or COG overviews are used when available; the exporter does
+  not generate a new pyramid. Unsupported large views fail before pixel reads.
+- Point/area reference offsets are always evaluated on the original native
+  grid, with their own bounded footprint, even when the display is coarser.
 - Output width 64–1024 pixels, height at most 1024 raster pixels, and at most
-  24 million display pixel-epochs, plus small text headers/footers.
+  24 million display pixel-epochs including the text headers/footers. Limits
+  are checked before preparing any frame. They do not bound physical storage
+  chunk decoding, remote latency or concurrent browser requests.
 - One render per server process; a second concurrent request receives HTTP 409.
   Rendering checks a 120-second deadline between frames, not during blocked IO
   or GIF encoding. The budgets bound array/display work, not remote IO latency.
@@ -49,12 +57,20 @@ fitting, baseline adjustment or inferred initial epoch is added.
   cancellation of a render already executing on the server.
 
 The GIF comment contains JSON with layer, saved indices/labels, units, limits,
-palette, requested speed, encoded duration, crop bounds, masks, valid native
-pixel counts, reference coordinates/epoch/offsets and display limitations.
+palette, requested speed, encoded duration, crop bounds, masks, selected display
+level/read dimensions, valid display pixel counts (and native counts only for
+native reads), reference coordinates/epoch/offsets and display limitations.
 The filename includes the layer and first/last saved labels. Local source paths
 and credentials are not included by this exporter.
 
-`GET /export/animation` reports capability. `POST /export/animation` accepts JSON:
+`GET /config` reports `raster_animation`; unsupported clients hide the controls.
+`GET /export/animation` retains the capability response for older clients.
+`POST /export/animation/plan` accepts the same request as rendering and returns
+metadata-only dimensions, frame count and selected level. The UI checks this
+plan before enabling download, reports elapsed time, and offers Cancel.
+Pillow is a declared direct dependency.
+
+`POST /export/animation` accepts JSON:
 
 ```json
 {

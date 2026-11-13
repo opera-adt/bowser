@@ -19,8 +19,9 @@ beforeEach(() => {
   customMaskPath: null, wrapEnabled: false } as unknown as AppState;
   reply = new Response(new Blob(['GIF89a']), { status: 200, headers: { 'Content-Type': 'image/gif',
     'Content-Disposition': 'attachment; filename="displacement_20260101_20260125.gif"' } });
-  vi.stubGlobal('fetch', vi.fn(async (_url, init) => init?.method === 'POST'
-    ? reply : new Response(JSON.stringify({ supported }))));
+  vi.stubGlobal('fetch', vi.fn(async (url, init) => String(url).includes('/animation/plan')
+    ? new Response(JSON.stringify({output_width:512,output_height:560}))
+    : init?.method === 'POST' ? reply : new Response(JSON.stringify({ raster_animation: supported }))));
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.clearAllMocks(); window.history.replaceState({}, '', '/'); });
 const button = () => screen.getByRole('button', { name: 'Download raster GIF' });
@@ -32,9 +33,10 @@ describe('raster GIF export controls', () => {
     render(<AnimationExport />);
     await waitFor(() => expect((button() as HTMLButtonElement).disabled).toBe(false));
     fireEvent.change(screen.getByLabelText('GIF first epoch'), { target: { value: '1' } });
+    await waitFor(() => expect((button() as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(button());
     await waitFor(() => expect(saveFile).toHaveBeenCalled());
-    const call = vi.mocked(fetch).mock.calls.find(([, init]) => init?.method === 'POST')!;
+    const call = vi.mocked(fetch).mock.calls.find(([url, init]) => init?.method === 'POST' && !String(url).includes('/plan'))!;
     expect(call[0]).toBe('/export/animation?dataset=example');
     expect(JSON.parse(String(call[1]?.body))).toMatchObject({ variable: 'displacement', start_index: 1,
       end_index: 2, vmin: -1, vmax: 2, colormap: 'viridis', fps: 2, bounds: [3, 0, 4, 1],
@@ -47,7 +49,8 @@ describe('raster GIF export controls', () => {
     supported = false;
     render(<AnimationExport />);
     await act(async () => {});
-    expect(screen.getByText(/currently needs the full server/)).toBeTruthy();
+    expect(screen.queryByText(/needs the full server/)).toBeNull();
+    expect(vi.mocked(fetch).mock.calls.every(([url]) => url === '/config')).toBe(true);
     expect(screen.queryByRole('button', { name: 'Download raster GIF' })).toBeNull();
   });
   it('does not pretend rewrapped or complex data are scalar native exports', async () => {
@@ -78,4 +81,30 @@ describe('raster GIF export controls', () => {
     expect((await screen.findByRole('alert')).textContent).toContain('Source exceeds pixel budget');
     expect(saveFile).not.toHaveBeenCalled();
   });
+});
+
+
+it('keeps rendering disabled when the metadata preflight exceeds a budget', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url) => String(url).includes('/plan')
+    ? new Response(JSON.stringify({detail:'Selected read window exceeds pixel budget'}), {status:422})
+    : new Response(JSON.stringify({raster_animation:true}))));
+  render(<AnimationExport />);
+  expect((await screen.findByRole('alert')).textContent).toContain('pixel budget');
+  expect((button() as HTMLButtonElement).disabled).toBe(true);
+  expect(saveFile).not.toHaveBeenCalled();
+});
+
+it('shows elapsed rendering time and Cancel aborts the download', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+    if (String(url).includes('/plan')) return new Response(JSON.stringify({output_width:512,output_height:560}));
+    if (init?.method !== 'POST') return new Response(JSON.stringify({raster_animation:true}));
+    return new Promise<Response>((_resolve,reject)=>init.signal.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError'))));
+  }));
+  render(<AnimationExport />);
+  await waitFor(() => expect((button() as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(button());
+  expect(screen.getByText('Rendering… 0 s')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button',{name:'Cancel'}));
+  expect((await screen.findByRole('alert')).textContent).toContain('canceled');
+  expect(saveFile).not.toHaveBeenCalled();
 });

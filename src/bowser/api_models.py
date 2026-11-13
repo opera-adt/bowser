@@ -588,6 +588,12 @@ ROUTES: dict[str, dict[str, Any]] = {
         "The full server supports it; lite explicitly reports unsupported.",
         "tags": [EXPORT],
     },
+    "POST /export/animation/plan": {
+        "tags": [EXPORT],
+        "summary": "Check raster GIF read and display budgets",
+        "description": "Metadata-only preflight: select a cropped native window or "
+        "saved display pyramid before any frame is read. References stay native.",
+    },
     "POST /export/animation": {
         "summary": "Export saved scalar epochs as a raster GIF",
         "description": "Fixed color limits and named quality masks, with the "
@@ -966,8 +972,21 @@ class AnimationCapabilities(_Fixed):
     scope: str
 
 
+class AnimationPlanInfo(_Fixed):
+    """The bounded read/display footprint of a GIF request, with no paths."""
+
+    level: str
+    read_width: int
+    read_height: int
+    output_width: int
+    output_height: int
+    frames: int
+
+
 class ConfigInfo(_Fixed):
     """``GET /config``."""
+
+    raster_animation: bool = False
 
     title: str = Field(description="Page title; empty for the default.")
     opera_logo: bool
