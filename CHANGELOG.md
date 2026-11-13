@@ -351,6 +351,12 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- GNSS tab: the InSAR curve compared with a station follows the current
+  settings. It was fetched only when a station was picked or the reference
+  moved, so a changed mask, layer, reference switch or reference radius left
+  the old curve. It is fetched again for those (at most once per 250 ms while
+  a slider is dragged), a late answer no longer replaces a newer one, and
+  moving the reference no longer reloads the station's GNSS record.
 - Masking: a mask added, or moved to another layer, takes that layer's own
   default threshold once the layer's range is known. Before, the threshold
   stayed at 0.5 or at the previous layer's value, in the wrong units (it hid

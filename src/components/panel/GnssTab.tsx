@@ -4,6 +4,8 @@ import { Chart as ChartJS, Legend, LinearScale, LineElement, PointElement, TimeS
 import 'chartjs-adapter-date-fns';
 import { useAppContext } from '../../context/AppContext';
 import { useApi } from '../../hooks/useApi';
+import { useSpacedEffect } from '../../hooks/useSpacedEffect';
+import { CHART_REQUEST_GAP_MS } from '../TimeSeriesChart';
 import { refDragEnd } from '../../map/interactions';
 import { chartLayerFor } from '../../utils/chartLayers';
 import {
@@ -158,17 +160,18 @@ export default function GnssTab() {
     dispatch({ type: 'APPLY_VIEW_BOUNDS', payload: [s.lat - ZOOM_DEG, s.lon - ZOOM_DEG, s.lat + ZOOM_DEG, s.lon + ZOOM_DEG] });
   };
 
+  // The radius in use: 0 while the reference buffer is off, so its slider then asks for nothing.
+  const refRadius = state.refEnabled && state.refBufferEnabled ? state.refBufferRadius : 0;
   const fetchSelectedInsar = useCallback(async () => {
     if (!ds || !selected) return null;
     const ref = info?.uses_spatial_ref && state.refEnabled ? state.refMarkerPosition : null;
     const r = await fetchMultiPointTimeSeries(
       [{ id: selected.id, lat: selected.lat, lon: selected.lon, color: '#5bc0be', name: selected.id }],
-      ds, ref?.[1], ref?.[0], false, state.layerMasks,
-      state.refEnabled && state.refBufferEnabled ? state.refBufferRadius : 0,
+      ds, ref?.[1], ref?.[0], false, state.layerMasks, refRadius,
     );
     return r?.datasets[0]?.data ?? null;
   }, [ds, selected, info?.uses_spatial_ref, state.refEnabled, state.refMarkerPosition,
-    state.layerMasks, state.refBufferEnabled, state.refBufferRadius, fetchMultiPointTimeSeries]);
+    state.layerMasks, refRadius, fetchMultiPointTimeSeries]);
 
   const [cx, cy] = state.viewBounds
     ? [(state.viewBounds[1] + state.viewBounds[3]) / 2, (state.viewBounds[0] + state.viewBounds[2]) / 2]
@@ -355,7 +358,9 @@ function StationCompare({ station: s, dataset, los, unit, fetchInsar, onAddPoint
     return () => { cancelled = true; };
   }, [s]);
 
-  useEffect(() => {
+  // Spaced: every tab stays mounted, so a mask or radius slider dragged in the Main tab
+  // changes fetchInsar on every tick, and each request reads every date.
+  useSpacedEffect(() => {
     let cancelled = false;
     setInsar(null);
     setInsarError(null);
@@ -367,7 +372,7 @@ function StationCompare({ station: s, dataset, los, unit, fetchInsar, onAddPoint
       if (!cancelled) setInsarError('InSAR comparison unavailable for the current settings.');
     });
     return () => { cancelled = true; };
-  }, [fetchInsar]);
+  }, [fetchInsar], CHART_REQUEST_GAP_MS, () => { setInsar(null); setInsarError(null); });
 
   const insarMm = insar && scale !== null ? insar.filter(p => Number.isFinite(p.y)).map(p => ({ x: String(p.x).slice(0, 10), y: p.y * scale })) : null;
   const insarStart = insarMm?.[0];
@@ -394,7 +399,7 @@ function StationCompare({ station: s, dataset, los, unit, fetchInsar, onAddPoint
         {series?.station_page && <> · <a href={series.station_page} target="_blank" rel="noopener noreferrer">UNR station page</a></>}
       </div>
       {error && <div className="row-label" style={{ fontSize: '0.76em', color: 'var(--sb-red)' }}>{error}</div>}
-      {insarError && <div role="status" className="row-label">{insarError}</div>}
+      {insarError && <div role="status" className="row-label" style={{ fontSize: '0.76em' }}>{insarError}</div>}
       {!los && <div className="row-label" style={{ fontSize: '0.76em' }}>This cube has no line-of-sight vector, so GNSS can't be projected to compare.</div>}
       {los && scale === null && dataset && <div className="row-label" style={{ fontSize: '0.76em' }}>{dataset} is in {unit || 'unknown units'}, not metres, so it isn't compared in mm.</div>}
       {los && !series && !error && <div className="row-label">Loading the record…</div>}

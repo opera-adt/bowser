@@ -48,8 +48,11 @@ describe('GNSS comparison refresh', () => {
     let finish!: (r: MultiPointTimeSeriesData) => void;
     mocks.points.mockReturnValueOnce(new Promise(r => { finish = r; }));
     state = { ...state, layerMasks: [{ id: 'q', dataset: 'quality', mode: 'min', threshold: 0.5 }] };
+    const asked = mocks.points.mock.calls.length;
     view.rerender(<GnssTab />);
     await waitFor(() => expect(screen.queryByTestId('comparison')).toBeNull());
+    // Requests are spaced (useSpacedEffect): wait until this one has left.
+    await waitFor(() => expect(mocks.points.mock.calls.length).toBe(asked + 1));
     mocks.points.mockResolvedValue(result(0.006));
     state = { ...state, layerMasks: [] }; view.rerender(<GnssTab />);
     await waitFor(() => expect(insar()).toEqual([0, 6]));
@@ -61,5 +64,23 @@ describe('GNSS comparison refresh', () => {
     state = { ...state, refEnabled: false }; view.rerender(<GnssTab />);
     await waitFor(() => expect(screen.queryByTestId('comparison')).toBeNull());
     expect(await screen.findByText(/InSAR comparison unavailable/)).toBeTruthy();
+  });
+  it('a dragged mask threshold asks a few times, not once per tick, and ends on the last value', async () => {
+    const view = await select();
+    const before = mocks.points.mock.calls.length;
+    for (let i = 1; i <= 10; i++) {
+      state = { ...state, layerMasks: [{ id: 'q', dataset: 'quality', mode: 'min', threshold: 0.5 + i / 100 }] };
+      view.rerender(<GnssTab />);
+      await act(async () => { await new Promise(done => setTimeout(done, 10)); });
+    }
+    await act(async () => { await new Promise(done => setTimeout(done, 300)); });
+    const calls = mocks.points.mock.calls.slice(before);
+    expect(calls.length).toBeLessThanOrEqual(3);
+    expect(calls[calls.length - 1][5]).toEqual(state.layerMasks);
+    // The reference radius asks for nothing while the reference buffer is off.
+    const quiet = mocks.points.mock.calls.length;
+    state = { ...state, refBufferRadius: 80 }; view.rerender(<GnssTab />);
+    await act(async () => { await new Promise(done => setTimeout(done, 300)); });
+    expect(mocks.points.mock.calls.length).toBe(quiet);
   });
 });
