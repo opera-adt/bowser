@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -63,7 +64,12 @@ def _exercise(work: Path, server: str) -> None:
         from bowser.lite.main import app
     client = TestClient(app, raise_server_exceptions=False)
     lon, lat = Transformer.from_crs(3857, 4326, always_xy=True).transform(x[8], y[8])
-    result = {"server": server}
+    result: dict[str, Any] = {"server": server}
+    result["layer_info"] = client.get("/datasets").json()
+    result["empty_masks"] = client.get(
+        "/export/geotiff",
+        params={"variable": "displacement", "time_idx": 1, "layer_masks": ""},
+    ).status_code
     if server == "full":
         import bowser.main as full
 
@@ -223,6 +229,37 @@ def _exercise(work: Path, server: str) -> None:
         },
     )
     result["invalid_static_dynamic"] = response.status_code
+    if server == "full":
+        import dask.array as darr
+
+        graph_results = []
+        for n_dates in (5, 50):
+            lazy = xr.Dataset(
+                {
+                    "d": (
+                        ("time", "y", "x"),
+                        darr.ones((n_dates, 128, 128), chunks=(1, 32, 32)),
+                    ),
+                    "q": (
+                        ("time", "y", "x"),
+                        darr.ones((n_dates, 128, 128), chunks=(1, 32, 32)),
+                    ),
+                },
+                coords={
+                    "time": np.arange(n_dates),
+                    "x": np.arange(128),
+                    "y": np.arange(128)[::-1],
+                },
+            ).rio.write_crs(32631)
+            selected = full._build_masked_md_dataarray(
+                lazy, "d", 2, None, 0.5, json.dumps([{"dataset": "q"}]), None
+            )
+            where_tasks = sum(
+                str(k[0]).startswith("where-") for k in selected.data.__dask_graph__()
+            )
+            graph_results.append({"dates": n_dates, "where_tasks": where_tasks})
+            np.testing.assert_array_equal(selected.compute(), np.ones((128, 128)))
+        result["graph_counts"] = graph_results
     (work / "results.json").write_text(json.dumps(result))
 
 
@@ -274,6 +311,23 @@ def test_incompatible_mask_axes_are_explicit_errors(responses, name, route):
 
 def test_dynamic_mask_not_guessed_for_static_velocity(responses):
     assert responses["invalid_static_dynamic"] == 422
+
+
+def test_mask_metadata_explains_axes_and_static_summaries(responses):
+    layers = responses["layer_info"]
+    assert layers["displacement"]["mask_compatibility"]["quality"] is None
+    assert layers["displacement"]["mask_compatibility"]["static_quality"] is None
+    assert "Dynamic" in layers["displacement"]["mask_compatibility"]["short_quality"]
+    assert "Dynamic" in layers["velocity"]["mask_compatibility"]["quality"]
+    assert layers["velocity"]["mask_compatibility"]["static_quality"] is None
+    assert responses["empty_masks"] == 200
+
+
+def test_mask_where_graph_does_not_scale_with_unrequested_dates(responses):
+    if responses["server"] != "full":
+        return
+    counts = responses["graph_counts"]
+    assert [row["where_tasks"] for row in counts] == [16, 16]
 
 
 if __name__ == "__main__":

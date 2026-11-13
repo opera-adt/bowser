@@ -34,7 +34,9 @@ defaults. No date, spatial coordinate or measurement is invented or interpolated
   mask nodata, declared missing-value sentinels and nonfinite samples are
   excluded. Legitimate zero data and zero mask values remain valid when the
   selected comparison permits them.
-- Multiple masks combine with AND. Masking remains opt-in.
+- Multiple masks combine with AND. The existing recommended-mask startup
+  selection is retained only when compatible with the initial layer. No new
+  processing masks, static reductions or thresholds are introduced.
 
 Malformed masks, unknown layers, invalid thresholds/modes and incompatible
 axes return HTTP 422. Point-chart request validation failures propagate instead
@@ -53,9 +55,10 @@ Catalog resolution remains isolated.
 Polygon statistics already validate dynamic coordinate support and retain their
 existing endpoint contract, including its grid/CRS checks. This contribution
 does not introduce a general acquisition-to-ministack mapping, a connected-
-component policy, GeoTIFF point/radius masking, or improved browser error UI.
-The strict spatial check here concerns source coordinate grids within the
-selected dataset; it is not a new CRS repair/reprojection system.
+component policy or GeoTIFF point/radius masking.
+The validator shares the polygon reader's CRS metadata checks; it never
+reprojects or repairs incompatible masks. Full-server direct point reads now
+normalize the stored CRS variable to a coordinate, like the lazy/lite readers.
 
 Legacy chart reference samples continue to use their existing requested masks,
 now aligned by date. Reference-aware exports and native polygon summaries
@@ -63,9 +66,44 @@ continue to sample raw source reference support before optional display masks.
 This repair does not unify or otherwise change those reference policies.
 
 The shared validator reads coordinate metadata, not raster arrays. Full-server
-mask expressions stay lazy; selecting one date can discard other date tasks.
+paths validate complete source axes, **then select a date/point/circle window
+before** comparisons and `where`. This avoids constructing full-record masking
+graphs for individual tiles. Buffer/reference window geometry is unchanged;
+unrequested data are not averaged, filtered or interpolated.
 Lite continues to select the requested point/window before loading values and
 imports no full-server geospatial stack. No installed dependency changes.
+
+## Viewer compatibility controls
+
+`GET /datasets` includes a `mask_compatibility` map for each GeoZarr layer.
+`null` means compatible; text explains an incompatible grid, CRS, data type or
+axis. Full and lite use the same metadata-only validator. The Masking picker
+only offers compatible layers. A restored or previously selected incompatible
+mask remains visible as a disabled option, with a persistent explanation and
+instructions to remove it or select a static summary—even when the panel is
+collapsed. Adding a new mask selects from compatible options only.
+
+When switching from displacement to velocity, a previously selected dynamic
+mask can become incompatible. It is **not silently removed**: the user sees the
+warning and chooses a static summary or removes it. Such explicit API requests
+still return 422. This implements the review's UI option, not its alternative of
+retaining legacy temporal clamping. It does not make a ministack index an
+acquisition index or decide an all-record/percentile summary on the user's behalf.
+Ministack quality layers remain viewable as layers. To mask acquisition dates,
+they require an explicit, validated date mapping, which this PR does not invent.
+Split/comparison layers are still validated separately by the server.
+
+GPU rendering requires the server's coordinate-compatibility proof for a mask;
+otherwise it falls back to server tiles. A dynamic mask uses the resolved source
+index directly, with a defensive matching-axis-size check, rather than separately
+clamping its own index. Static masks use frame zero. Nonfinite mask values are
+rejected consistently. This does not certify every GPU/nodata convention or
+unsupported pyramid layout; these paths retain their existing limitations.
+
+`layer_masks=""` means no explicit masks, like an omitted parameter.
+The shared mask validation/comparison helpers are also used by polygon statistics;
+polygon endpoint support rules and references remain unchanged. Golden response
+updates add only compatibility metadata: measurement values are checked unchanged.
 
 ## Validation
 
@@ -80,6 +118,8 @@ nonfinite values, malformed requests and source immutability. Lazy tests prove
 that a selected date evaluates only that date's data/mask tasks, and that axis
 validation itself does not read raster values.
 
-These are synthetic numeric/API tests, not real-data or graphical-browser
-acceptance. Source labels, native units, stored reference datum and scientific
+The revision adds actual Chrome full/lite point/radius checks and UI tests for
+incompatible selections and static-summary replacements. A read-only benchmark
+on an existing 315-date cube compares identical masked-array byte hashes before
+and after; its timing is a local example, not a remote-service guarantee. Source labels, native units, stored reference datum and scientific
 processing remain unchanged.

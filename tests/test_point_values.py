@@ -32,6 +32,7 @@ SCRIPT = textwrap.dedent(
 
     st = m._default_state
     direct = st.point_dataset()
+    assert direct is not None and "spatial_ref" in direct.coords
     assert direct is not None and direct["displacement"].chunks is None
     assert st.dataset["displacement"].chunks is not None   # tiles stay on dask
     assert st.point_dataset() is direct                    # opened once

@@ -673,8 +673,7 @@ ROUTES: dict[str, dict[str, Any]] = {
     },
     "DELETE /assistant/key": {
         "summary": "Remove a provider's key",
-        "description": "Forget the key saved for `provider` (same conditions as "
-        "PUT).",
+        "description": "Forget the key saved for `provider` (same conditions as PUT).",
         "tags": [ASSISTANT],
     },
     "POST /assistant/signin": {
@@ -1298,6 +1297,7 @@ class DatasetInfo(_Fixed):
     Bowser guidance; ``metadata_notes`` only for some GeoTIFF groups.
     """
 
+    mask_compatibility: Optional[dict[str, Optional[str]]] = None
     name: str
     file_list: Optional[list[str]] = Field(
         default=None, description="GeoTIFF mode only: one file per time step."

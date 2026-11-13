@@ -104,3 +104,28 @@ describe('Main tab › masking', () => {
     await waitFor(() => expect(screen.getByText(/Keeps/).textContent).toBe("Keeps 70% of this layer's pixels"));
   });
 });
+
+
+it('explains restored incompatible masks even with the panel collapsed', async () => {
+  function MaskSeed() {
+    const { dispatch } = useAppContext();
+    useEffect(() => {
+      const layer = { name: 'velocity', x_values: [], mask_compatibility: {
+        quality: 'Dynamic mask requires matching acquisition coordinates', static_quality: null,
+      } } as unknown as RasterGroup;
+      dispatch({ type:'SET_DATASETS', payload:{ velocity:layer, quality:layer, static_quality:layer } });
+      dispatch({ type:'SET_CURRENT_DATASET', payload:'velocity' });
+      dispatch({ type:'ADD_LAYER_MASK', payload:{ id:'q', dataset:'quality', threshold:.5, mode:'min' } });
+    }, [dispatch]);
+    return <MainTab />;
+  }
+  render(<AppProvider><MaskSeed /></AppProvider>);
+  await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Remove this mask'));
+  fireEvent.click(screen.getByText('Masking · 1 on'));
+  const options = Array.from(document.querySelectorAll<HTMLSelectElement>('.layer-mask-row select'))[0].options;
+  expect(Array.from(options).find(o=>o.value==='quality')?.disabled).toBe(true);
+  expect(Array.from(options).find(o=>o.value==='static_quality')?.disabled).toBe(false);
+  fireEvent.click(document.querySelector('.layer-mask-row button')!);
+  fireEvent.click(screen.getByText('Add layer mask'));
+  expect((document.querySelector('.layer-mask-row select') as HTMLSelectElement).value).toBe('static_quality');
+});

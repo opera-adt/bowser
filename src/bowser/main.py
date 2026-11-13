@@ -487,6 +487,8 @@ def _reference_lonlat(ds: "xr.Dataset") -> list[float] | None:
 
 def create_xarray_dataset_info(ds: xr.Dataset) -> dict:
     """Create dataset info structure from Xarray Dataset."""
+    from .mask_alignment import compatibility  # noqa: PLC0415
+
     bounds = ds.rio.bounds()
     if ds.rio.crs != rasterio.crs.CRS.from_epsg(4326):
         mdim_vars = [v for v in ds.data_vars.values() if v.ndim >= 2]
@@ -521,6 +523,7 @@ def create_xarray_dataset_info(ds: xr.Dataset) -> dict:
         n = len(labels) if dim is not None else 1
         attrs = dict(var.attrs)
         dataset_info[var_name] = {
+            "mask_compatibility": compatibility(ds, var),
             "name": var_name,
             # Tiles are asked for by variable + time_idx; only COG mode has files.
             "n_time_steps": n,
@@ -874,14 +877,18 @@ def _apply_layer_masks_md(
     da: "xr.DataArray",
     layer_masks: str | list[dict] | None,
     source_ds: "xr.Dataset | None" = None,
+    *,
+    source: "xr.DataArray | None" = None,
+    select=None,
 ) -> "xr.DataArray":
     """Apply a list of layer mask dicts to a DataArray (MD mode).
 
     Each dict has keys: dataset (str), threshold (float), mode ('min'|'max').
     threshold is an absolute value in the mask layer's data units.
     'min' keeps pixels >= threshold; 'max' keeps pixels <= threshold.
-    Pass the complete layer before slicing: dynamic masks follow every matching
-    coordinate, static masks broadcast, and unrelated axes return HTTP 422.
+    Validate the complete layer via ``source`` when values are preselected;
+    ``select`` picks the same window/date from each validated mask before where.
+    Static masks broadcast; unrelated axes return HTTP 422.
 
     ``source_ds`` is the Dataset to look up mask variables in. Tile-rendering
     callers MUST pass the same pyramid-level Dataset that ``da`` came from —
@@ -894,17 +901,29 @@ def _apply_layer_masks_md(
     from .mask_alignment import align_mask, mask_condition, parse_layer_masks
 
     ds = source_ds if source_ds is not None else state.dataset
+    source = source if source is not None else da
     try:
         for mask in parse_layer_masks(layer_masks):
             var = mask["dataset"]
             if var not in ds.data_vars:
                 raise ValueError(f"Unknown mask layer: {var}")
-            aligned = align_mask(da, ds[var])
+            aligned = align_mask(source, ds[var])
+            if select is not None:
+                aligned = select(aligned)
             operator = "<=" if mask["mode"] == "max" else ">="
             da = da.where(mask_condition(aligned, mask["threshold"], operator))
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return da
+
+
+def _circle_window(source, cx, cy, radius):
+    """Return the viewer circle's metadata-only window selector (no raster read)."""
+    dx = float(abs(source.x[1] - source.x[0])) if source.x.size > 1 else 1.0
+    dy = float(abs(source.y[1] - source.y[0])) if source.y.size > 1 else 1.0
+    xs = source.x.sel(x=slice(cx - radius - dx, cx + radius + dx))
+    ys = source.y.sel(y=slice(cy + radius + dy, cy - radius - dy))
+    return lambda array: array.sel(x=xs, y=ys)
 
 
 def _get_ref_median(
@@ -929,11 +948,13 @@ def _get_ref_median(
 
     from pyproj import Transformer as _T  # noqa: PLC0415, N814
 
-    da = state.dataset[dataset_name]
-    da = _apply_layer_masks_md(da, layer_masks)
-
+    source = state.dataset[dataset_name]
     tr = _T.from_crs(4326, state.dataset.rio.crs, always_xy=True)
     cx, cy = tr.transform(lon, lat)
+    select = _circle_window(source, cx, cy, buffer_m)
+    da = _apply_layer_masks_md(
+        select(source), layer_masks, source=source, select=select
+    )
     circle = select_circle(da, cx, cy, buffer_m, margin_window=True, sqrt_distance=True)
     if circle is None:
         return _get_point_values(dataset_name, lon, lat, layer_masks)
@@ -1008,14 +1029,18 @@ def _get_point_values(
             return _point_values_direct(
                 direct, dataset_name, x, y, layer_masks or [], time_idx
             )
-        da = state.dataset[dataset_name]
-        da = _apply_layer_masks_md(da, layer_masks or [])
-        # Select the single time step before reading so only its chunk is fetched.
-        if time_idx is not None:
-            dim = _non_spatial_dim(da)
-            if dim is not None:
-                da = da.isel({dim: max(0, min(time_idx, da.sizes[dim] - 1))})
-        return np.atleast_1d(select_point(da, x, y, "nearest").values[..., 0, 0])
+        source = state.dataset[dataset_name]
+        dim = _non_spatial_dim(source)
+
+        def select(array):
+            if time_idx is not None and dim is not None and dim in array.dims:
+                array = array.isel({dim: max(0, min(time_idx, source.sizes[dim] - 1))})
+            return array.sel(x=x, y=y, method="nearest")
+
+        da = _apply_layer_masks_md(
+            select(source), layer_masks or [], source=source, select=select
+        )
+        return np.atleast_1d(da.values)
     else:  # cog mode
         if dataset_name not in state.raster_groups:
             raise HTTPException(
@@ -1574,8 +1599,8 @@ def buffer_timeseries(
             raise HTTPException(
                 status_code=404, detail=f"Variable {dataset_name} not found"
             )
-        da = state.dataset[dataset_name]
-        da = _apply_layer_masks_md(da, layer_masks)
+        source = state.dataset[dataset_name]
+        da = source
         dim = _non_spatial_dim(da)
         x_values: list = _dim_labels(da, dim) if dim is not None else []
 
@@ -1584,6 +1609,10 @@ def buffer_timeseries(
 
         tr = _T.from_crs(4326, state.dataset.rio.crs, always_xy=True)
         cx, cy = tr.transform(lon, lat)
+        select = _circle_window(source, cx, cy, buffer_m)
+        da = _apply_layer_masks_md(
+            select(source), layer_masks, source=source, select=select
+        )
 
         # The same circle a buffered reference selects (see _get_ref_median).
         circle = select_circle(
@@ -2788,33 +2817,29 @@ def _build_masked_md_dataarray(
     else:
         mask_da = None
 
-    # Validate complete axes before selecting a frame. Masks must not be
-    # independently clamped or broadcast from the first date.
+    source = da
+    dim = _non_spatial_dim(source)
 
+    def select(array):
+        if time_idx is not None and dim is not None and dim in array.dims:
+            return array.isel({dim: max(0, min(time_idx, source.sizes[dim] - 1))})
+        return array
+
+    da = select(source)
     if mask_da is not None:
         from .mask_alignment import align_mask, mask_condition
 
         try:
-            mask_da = align_mask(da, mask_da)
+            mask_da = select(align_mask(source, mask_da))
             da = da.where(mask_condition(mask_da, mask_min_value, ">"))
         except (ValueError, TypeError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-    # Apply layer masks. ``source_ds=ds`` is essential here — ``ds`` is the
-    # pyramid-level Dataset selected for ``tile_z``; if we let the helper
-    # default to state.dataset (level 0) the mask grid won't match ``da``'s
-    # grid at low zoom and rioxarray bounds resolution fails downstream.
-    if layer_masks is not None:
-        da = _apply_layer_masks_md(da, layer_masks, source_ds=ds)
-
-    if time_idx is not None:
-        dim = _non_spatial_dim(da)
-        if dim is not None:
-            da = da.isel({dim: max(0, min(time_idx, da.sizes[dim] - 1))})
-            if ref_time_idx is not None:
-                # Reference-date values stay raw, as before: display masks apply
-                # to the selected observation, not to the reference datum.
-                da = _minus_reference_step(da, ds[variable], dim, ref_time_idx)
+    da = _apply_layer_masks_md(
+        da, layer_masks, source_ds=ds, source=source, select=select
+    )
+    if time_idx is not None and dim is not None and ref_time_idx is not None:
+        # Only the observation is masked, preserving raw reference-date support.
+        da = _minus_reference_step(da, source, dim, ref_time_idx)
 
     # Custom mask (uploaded GeoTIFF) — reproject to match da
     if custom_mask_path and (strict_masks or Path(custom_mask_path).exists()):

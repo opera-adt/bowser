@@ -6,6 +6,17 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- GeoZarr quality masks follow matching acquisition coordinates in full-record
+  point and buffer charts. Native grids/CRS and axes are validated before
+  selecting the requested frame/window and applying masks, reducing full-cube
+  Dask masking graphs for tiles. The viewer offers compatible masks and explains
+  incompatible selections; it does not infer ministack mappings or velocity
+  quality reductions. GPU masks no longer independently clamp a mismatched axis.
+  Empty explicit mask strings mean no masks. Source values, thresholds, fitting
+  and spatial/temporal reference policies are unchanged.
+
 ### Added
 
 - Scientific colour maps (Crameri): `batlow`, `lajolla`, `oslo`, `vik`, `roma`,

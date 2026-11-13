@@ -56,6 +56,7 @@ void main() {
   if (isnan(v)) discard;
   if (u_maskMode > 0) {
     float m = texelFetch(u_mask, ivec3(p, u_maskLayer), 0).r;
+    if (isnan(m) || isinf(m)) discard;
     bool keep = u_maskMode == 1 ? m >= u_maskThr : m <= u_maskThr;
     if (!keep) discard;      // NaN compares false: masked, as xarray's where()
   }
@@ -418,7 +419,9 @@ export class GpuCubeLayer implements maplibregl.CustomLayerInterface {
     const t = Math.max(0, Math.min(p.timeIdx, info.nTime - 1));
     const tb = Math.floor(t / info.tChunk);
     const tr = p.refTimeIdx !== null && info.ndim === 3 ? Math.max(0, Math.min(p.refTimeIdx, info.nTime - 1)) : null;
-    const mt = maskInfo ? Math.max(0, Math.min(t, maskInfo.nTime - 1)) : 0;
+    if (maskInfo?.ndim === 3 && (info.ndim !== 3 || maskInfo.nTime !== info.nTime))
+      throw new Error('Mask axis does not match the data; use a compatible static summary');
+    const mt = maskInfo?.ndim === 3 ? t : 0;
 
     const want: DrawItem[] = [];
     let complete = true;

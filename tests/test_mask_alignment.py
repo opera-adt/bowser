@@ -127,6 +127,7 @@ def test_defaults_native_thresholds_and_input_immutability():
         == -2
     )
     assert parse_layer_masks(None) == []
+    assert parse_layer_masks("") == []
 
 
 def test_selected_slice_does_not_read_other_mask_or_data_dates():

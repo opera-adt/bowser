@@ -221,7 +221,7 @@
  "dataset_range": {
   "body": {
    "max": 0.0,
-   "min": 0.0,
+   "min": -0.0,
    "p2": 0.0,
    "p5": 0.0,
    "p95": 0.0,
@@ -285,6 +285,14 @@
       "up": 0.811
      }
     },
+    "mask_compatibility": {
+     "amplitude_dispersion": null,
+     "displacement": "Dynamic mask axis and coordinates must match the selected layer exactly; use a static summary for a static layer",
+     "phase_similarity": "Dynamic mask axis and coordinates must match the selected layer exactly; use a static summary for a static layer",
+     "recommended_mask": "Dynamic mask axis and coordinates must match the selected layer exactly; use a static summary for a static layer",
+     "temporal_coherence": "Dynamic mask axis and coordinates must match the selected layer exactly; use a static summary for a static layer",
+     "velocity": null
+    },
     "mask_min_value": 0.1,
     "measurement": null,
     "n_time_steps": 1,
@@ -344,6 +352,14 @@
       "north": 0.146,
       "up": 0.811
      }
+    },
+    "mask_compatibility": {
+     "amplitude_dispersion": null,
+     "displacement": null,
+     "phase_similarity": null,
+     "recommended_mask": null,
+     "temporal_coherence": null,
+     "velocity": null
     },
     "mask_min_value": 0.1,
     "measurement": {
@@ -428,6 +444,14 @@
       "up": 0.811
      }
     },
+    "mask_compatibility": {
+     "amplitude_dispersion": null,
+     "displacement": null,
+     "phase_similarity": null,
+     "recommended_mask": null,
+     "temporal_coherence": null,
+     "velocity": null
+    },
     "mask_min_value": 0.1,
     "measurement": null,
     "n_time_steps": 6,
@@ -494,6 +518,14 @@
       "north": 0.146,
       "up": 0.811
      }
+    },
+    "mask_compatibility": {
+     "amplitude_dispersion": null,
+     "displacement": null,
+     "phase_similarity": null,
+     "recommended_mask": null,
+     "temporal_coherence": null,
+     "velocity": null
     },
     "mask_min_value": 0.1,
     "measurement": null,
@@ -562,6 +594,14 @@
       "up": 0.811
      }
     },
+    "mask_compatibility": {
+     "amplitude_dispersion": null,
+     "displacement": null,
+     "phase_similarity": null,
+     "recommended_mask": null,
+     "temporal_coherence": null,
+     "velocity": null
+    },
     "mask_min_value": 0.1,
     "measurement": null,
     "n_time_steps": 6,
@@ -628,6 +668,14 @@
       "north": 0.146,
       "up": 0.811
      }
+    },
+    "mask_compatibility": {
+     "amplitude_dispersion": null,
+     "displacement": "Dynamic mask axis and coordinates must match the selected layer exactly; use a static summary for a static layer",
+     "phase_similarity": "Dynamic mask axis and coordinates must match the selected layer exactly; use a static summary for a static layer",
+     "recommended_mask": "Dynamic mask axis and coordinates must match the selected layer exactly; use a static summary for a static layer",
+     "temporal_coherence": "Dynamic mask axis and coordinates must match the selected layer exactly; use a static summary for a static layer",
+     "velocity": null
     },
     "mask_min_value": 0.1,
     "measurement": {

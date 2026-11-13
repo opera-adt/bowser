@@ -190,12 +190,14 @@ class BowserState:
         if not (str(uri).endswith(".zarr") or "://" in str(uri)):
             return False
         try:
-            return xr.open_zarr(
-                uri,
-                group=self.levels[0].asset or None,
-                consolidated=False,
-                chunks=None,
-                storage_options=storage_options_for(uri),
+            return _spatial_ref_as_coord(
+                xr.open_zarr(
+                    uri,
+                    group=self.levels[0].asset or None,
+                    consolidated=False,
+                    chunks=None,
+                    storage_options=storage_options_for(uri),
+                )
             )
         except Exception:  # noqa: BLE001 — the dask dataset still answers
             logger.warning("No dask-less reader for %s", uri, exc_info=True)
@@ -339,8 +341,7 @@ class DatasetRegistry:
         """Return the BowserState for ``dataset_id``, loading on first access."""
         if dataset_id not in self.catalog:
             raise KeyError(
-                f"unknown dataset id {dataset_id!r}; "
-                f"catalog has {sorted(self.catalog)}"
+                f"unknown dataset id {dataset_id!r}; catalog has {sorted(self.catalog)}"
             )
         cached = self.cached(dataset_id)
         if cached is not None:

@@ -11,8 +11,8 @@ from typing import TYPE_CHECKING, Any, Callable
 
 import numpy as np
 from pyproj import CRS
-from pyproj.exceptions import CRSError
 
+from .mask_alignment import _axis, _crs, align_mask, mask_condition
 from .polygon import STORED_WARNING, NativeGrid, _linear, _values
 
 if TYPE_CHECKING:
@@ -44,10 +44,7 @@ class PolygonMasks:
             mask = read(index, rows, cols)
             if mask.shape != shape:
                 raise ValueError("Mask window must match the native data window")
-            compare = {">": np.greater, ">=": np.greater_equal, "<=": np.less_equal}[
-                record["operator"]
-            ]
-            keep &= np.isfinite(mask) & compare(mask, record["threshold"])
+            keep &= mask_condition(mask, record["threshold"], record["operator"])
         return keep
 
     def apply(
@@ -80,33 +77,6 @@ class PolygonMasks:
         return result
 
 
-def _axis(array: Any) -> str | None:
-    extra = [d for d in array.dims if d not in ("x", "y")]
-    if len(extra) > 1:
-        raise ValueError("Mask supports at most one non-spatial axis")
-    return extra[0] if extra else None
-
-
-def _crs(array: Any, fallback: Any) -> CRS:
-    declared = array.encoding.get("grid_mapping") or array.attrs.get("grid_mapping")
-    mapping = declared or "spatial_ref"
-    if not isinstance(mapping, str):
-        raise ValueError("Mask CRS coordinate name must be a string")
-    if declared and mapping not in array.coords:
-        raise ValueError("Mask declares a missing CRS coordinate")
-    try:
-        if mapping in array.coords:
-            attrs = array[mapping].attrs
-            if wkt := attrs.get("crs_wkt") or attrs.get("spatial_ref"):
-                return CRS.from_user_input(wkt)
-            if attrs.get("grid_mapping_name"):
-                return CRS.from_cf(attrs)
-        # Variables without a separate declaration inherit their opened cube's CRS.
-        return CRS.from_user_input(fallback)
-    except CRSError as exc:
-        raise ValueError("Mask has invalid CRS metadata") from exc
-
-
 def xarray_masks(
     source: xr.DataArray,
     dataset: xr.Dataset | None,
@@ -121,7 +91,7 @@ def xarray_masks(
         raise ValueError("Requested masks require an explicit mask source context")
     if crs is None:
         raise ValueError("A source CRS is required")
-    source_dim = _axis(source)
+    _axis(source)
     source = source.sortby("x").sortby("y", ascending=False)
     for spec in request.layer_masks:
         if spec.dataset not in dataset.data_vars:
@@ -131,20 +101,9 @@ def xarray_masks(
             raise ValueError("Mask requires explicit native x/y pixel centers")
         _linear(mask.dtype, None)
         dim = _axis(mask)
-        if dim is not None and (
-            dim != source_dim
-            or dim not in mask.coords
-            or dim not in source.coords
-            or not np.array_equal(mask[dim].values, source[dim].values)
-        ):
-            raise ValueError(
-                "Dynamic mask coordinates must match the selected axis exactly"
-            )
         mask = mask.sortby("x").sortby("y", ascending=False)
-        if _crs(mask, crs) != CRS.from_user_input(crs) or any(
-            not np.array_equal(mask[axis].values, source[axis].values)
-            for axis in ("x", "y")
-        ):
+        mask = align_mask(source, mask)
+        if _crs(mask, crs) != CRS.from_user_input(crs):
             raise ValueError("Masks must share the exact native data grid and CRS")
 
         stored = dataset[spec.dataset].encoding.get("preferred_chunks", {})

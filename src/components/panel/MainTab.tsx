@@ -13,6 +13,7 @@ import { defaultThreshold } from '../../utils/maskThreshold';
 import { displayUnit } from '../../utils/units';
 import { readLayerInfoShown, saveLayerInfoShown } from '../../utils/layerInfoPref';
 import { baseColormap } from '../../utils/colormaps';
+import { maskProblem, maskProblems } from '../../utils/maskCompatibility';
 import { LayerOptions, SectionHeader, Switch } from './controls';
 import { referenceValues } from '../../map/interactions';
 
@@ -29,6 +30,8 @@ const isCyclic = (colormap: string) => ['twilight', 'hsv'].includes(baseColormap
 export default function MainTab() {
   const { state, dispatch } = useAppContext();
   const { fetchPointTimeSeries, fetchBufferTimeSeries } = useApi();
+  const compatibleMasks = Object.keys(state.datasetInfo).filter(name =>
+    !maskProblem(state.datasetInfo[state.currentDataset], name));
   const [draftWrapWavelength, setDraftWrapWavelength] = useState(state.wrapWavelength !== null ? String(state.wrapWavelength) : '');
   const [draftWrapPeriod, setDraftWrapPeriod] = useState(String(state.wrapPeriod));
   const [draftRefLat, setDraftRefLat] = useState(String(state.refMarkerPosition[0]));
@@ -492,6 +495,8 @@ export default function MainTab() {
       {/* ── MASKING (collapsible) ── */}
       <div className="sidebar-section">
         <SectionHeader label={state.layerMasks.length ? `Masking · ${state.layerMasks.length} on` : 'Masking'} collapsed={collapsed.masking} onToggle={() => toggleSection('masking')} />
+        {maskProblems(state.datasetInfo[state.currentDataset], state.layerMasks).map(note =>
+          <div role="alert" className="chart-area-error" key={note}>{note}</div>)}
         {!collapsed.masking && (
           <>
             {state.layerMasks.map(mask => {
@@ -513,7 +518,9 @@ export default function MainTab() {
                           dataset: ds, threshold: newRange ? defaultThreshold(newRange, mask.mode) : mask.threshold,
                         } } });
                       }}>
-                      <LayerOptions names={Object.keys(state.datasetInfo)} />
+                      {maskProblem(state.datasetInfo[state.currentDataset], mask.dataset) &&
+                        <option value={mask.dataset} disabled>{mask.dataset} (incompatible)</option>}
+                      <LayerOptions names={compatibleMasks} />
                     </select>
                     <select className="sidebar-select" style={{ width: 56, fontSize: '0.78em', padding: '2px 4px' }}
                       value={mask.mode}
@@ -554,10 +561,10 @@ export default function MainTab() {
                 </div>
               );
             })}
-            {Object.keys(state.datasetInfo).length > 0 && (
+            {compatibleMasks.length > 0 && (
               <button className="hist-btn" style={{ width: '100%', marginTop: 4 }}
                 onClick={() => {
-                  const firstDataset = Object.keys(state.datasetInfo)[0];
+                  const firstDataset = compatibleMasks[0];
                   const range = datasetRanges[firstDataset];
                   const id = `mask_${Date.now()}`;
                   if (!range) awaitingDefault.current.add(id);   // set when its range arrives
