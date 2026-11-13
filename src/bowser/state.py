@@ -56,6 +56,11 @@ def _open_md(uri: str) -> tuple[xr.Dataset, Transformer, list["PyramidLevel"]]:
     whatever fsspec understands. For ``.zarr`` stores the pyramid layout is
     auto-detected and all levels are opened.
     """
+    # The ``.rio`` accessor used below exists once rioxarray is imported. Nothing
+    # else here imports it: it used to arrive as a side effect of xarray loading
+    # every backend plugin, which not every xarray version does.
+    import rioxarray  # noqa: F401, PLC0415
+
     from .geozarr import (  # noqa: PLC0415 — avoid import cycle
         data_group_name,
         load_pyramid_levels,
