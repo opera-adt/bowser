@@ -261,6 +261,11 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   reads every date of every charted layer). The first change asks at once;
   after that at most one round per 250 ms, always ending on the value the
   slider stopped at.
+- MapLibre map: dragging a basemap opacity slider no longer removes and re-adds
+  the basemap sources on every tick, which dropped the tiles already loaded and
+  fetched every visible one again (on both maps in split screen). Opacity is
+  now a paint property; the sources are rebuilt only when a basemap or the
+  swap changes.
 - bowser-lite keeps each tile's warp index (which source pixel each tile pixel
   takes) for the tiles in view, within 64 MB, instead of working it out again
   for every date, mask and colour scale. Stepping through dates: a 512 px tile
