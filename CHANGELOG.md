@@ -358,7 +358,8 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   masks, the source or the polygon change (at most once per 250 ms while a
   slider is dragged), and a late answer no longer replaces a newer one. With
   a mask, each date uses the pixels that pass on that date, and a date with
-  none is a grey point ("fully masked") instead of an empty chart. An
+  none is an unfilled, dashed marker ("fully masked") instead of an empty
+  chart. An
   uploaded mask and a GeoTIFF layer's configured mask are not applied to
   areas yet; the chart's footnote says so. The Stats tab shows the usable
   pixels of each summary.

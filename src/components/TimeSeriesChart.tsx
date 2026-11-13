@@ -565,8 +565,8 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
                     ? ` (${trendMmPerYear.toFixed(rateUnit === 'in' ? 2 : 1)} ${rateUnit}/yr)` : '');
                   return {
                     text: displayText,
-                    pointStyle: (ds._masked ? 'circle' : ds._area ? (ds.fill ? 'rect' : 'line') : (ds.pointStyle ?? 'circle')) as any,
-                    fillStyle: ds._area && ds.fill ? ds.backgroundColor : ds.borderColor,
+                    pointStyle: (ds._masked ? ds.pointStyle : ds._area ? (ds.fill ? 'rect' : 'line') : (ds.pointStyle ?? 'circle')) as any,
+                    fillStyle: ds._masked ? 'transparent' : ds._area && ds.fill ? ds.backgroundColor : ds.borderColor,
                     lineDash: ds._area ? ds.borderDash : undefined,
                     strokeStyle: ds.borderColor,
                     fontColor: textColor,

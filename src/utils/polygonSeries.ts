@@ -172,8 +172,39 @@ export function polygonEmptyMessage(result: PolygonTimeSeries): string | null {
   return result.statistics.some(r => r.count > 0 && r.median !== null) ? null : 'no valid pixels inside the area';
 }
 
-/** A date on which every pixel of an area is masked. */
-export const MASKED_DATE_COLOR = '#9aa0a6';
+/** Radius, in pixels, of the marker of a date on which every pixel of an area is masked. */
+export const MASKED_DATE_RADIUS = 4;
+
+const rings = new Map<string, HTMLCanvasElement | 'circle'>();
+
+/**
+ * The marker of a fully masked date: an unfilled circle with a dashed outline in the area's
+ * line colour. Chart.js points have no dash, so it is drawn once per colour on a small canvas
+ * (a plain hollow circle where there is no canvas to draw on).
+ */
+export function maskedDateMarker(color: string): HTMLCanvasElement | 'circle' {
+  const known = rings.get(color);
+  if (known) return known;
+  let marker: HTMLCanvasElement | 'circle' = 'circle';
+  const size = 2 * (MASKED_DATE_RADIUS + 1);
+  const canvas = typeof document !== 'undefined' ? document.createElement('canvas') : null;
+  let ctx: CanvasRenderingContext2D | null = null;
+  try { ctx = canvas?.getContext('2d') ?? null; } catch { ctx = null; }
+  if (canvas && ctx) {
+    // Chart.js draws an image marker at its own pixel size, so not scaled for the display.
+    canvas.width = size;
+    canvas.height = size;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([2.5, 2]);
+    ctx.beginPath();
+    ctx.arc(size / 2, size / 2, MASKED_DATE_RADIUS, 0, 2 * Math.PI);
+    ctx.stroke();
+    marker = canvas;
+  }
+  rings.set(color, marker);
+  return marker;
+}
 
 export interface AreaSeriesOptions {
   result: PolygonTimeSeries;
@@ -255,8 +286,8 @@ export function areaChartDatasets(o: AreaSeriesOptions): Record<string, unknown>
     data: series(r => r.mean),
     fill: false, backgroundColor: 'transparent', borderWidth: look.lineWidth, borderDash: [6, 4], pointRadius: 0,
   };
-  // Dates on which no pixel of the area is valid (all masked): a grey point on the line
-  // between its neighbours, so the gap is seen and the rest of the series is still drawn.
+  // Dates on which no pixel of the area is valid (all masked): a hollow, dashed marker on the
+  // line between its neighbours, so the gap is seen and the rest of the series is still drawn.
   const at = (x: string) => Date.parse(x);
   const drawn = median.data;
   const empty = rows.filter(r => r.count === 0).map(r => o.toX(r.label)).filter(x => o.inRange(x)).flatMap(x => {
@@ -271,8 +302,10 @@ export function areaChartDatasets(o: AreaSeriesOptions): Record<string, unknown>
   const masked = {
     ...common, label: `${o.name} fully masked`, _baseLabel: `${o.name} fully masked`, _legend: `${o.name} fully masked`,
     _masked: true, _note: undefined, data: empty,
-    showLine: false, fill: false, borderWidth: 0, borderColor: MASKED_DATE_COLOR, backgroundColor: MASKED_DATE_COLOR,
-    pointRadius: 3, pointHoverRadius: 4, pointStyle: 'circle', order: 0,
+    // Unfilled, with a dashed outline in the area's line colour.
+    showLine: false, fill: false, borderColor: o.color, backgroundColor: 'transparent',
+    pointBackgroundColor: 'transparent', pointBorderColor: o.color, pointBorderWidth: 1.5, borderDash: [2.5, 2],
+    pointRadius: MASKED_DATE_RADIUS, pointHoverRadius: MASKED_DATE_RADIUS + 1, pointStyle: maskedDateMarker(o.color), order: 0,
   };
   return [...(look.showBand ? bandSets : []), median, ...(look.showMean ? [mean] : []), ...(empty.length ? [masked] : [])];
 }

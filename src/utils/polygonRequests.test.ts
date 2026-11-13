@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ChartArea } from '../types';
 import { parseKml } from '../map/fileParsers';
-import { MASKED_DATE_COLOR, areaChartDatasets, polygonChoices, polygonRequestBody, type PolygonTimeSeries } from './polygonSeries';
+import { areaChartDatasets, polygonChoices, polygonRequestBody, type PolygonTimeSeries } from './polygonSeries';
 
 const outer = [[0, 0, 10], [2, 0, 20], [2, 2, 30], [0, 0, 10]];
 const hole = [[0.5, 0.5, 1], [1, 0.5, 2], [1, 1, 3], [0.5, 0.5, 1]];
@@ -51,12 +51,14 @@ describe('dates on which every pixel of an area is masked', () => {
     toX: (x: string) => x, inRange: () => true,
   });
 
-  it('are grey points on the line between their neighbours; the rest of the series is drawn', () => {
+  it('are hollow dashed markers on the line between their neighbours; the rest of the series is drawn', () => {
     const sets = series([0, null, 0.04, null, null, 0.1, null]);
     const median = sets.find(d => d.label === 'Dam median')!;
     expect((median.data as Array<{ y: number }>).map(p => p.y)).toEqual([0, 0.04, 0.1]);
     const masked = sets.find(d => d.label === 'Dam fully masked')!;
-    expect(masked).toMatchObject({ showLine: false, backgroundColor: MASKED_DATE_COLOR, _masked: true, _legend: 'Dam fully masked' });
+    // Unfilled, with a dashed outline in the area's line colour.
+    expect(masked).toMatchObject({ showLine: false, backgroundColor: 'transparent', pointBackgroundColor: 'transparent',
+      pointBorderColor: '#1f77b4', borderDash: [2.5, 2], _masked: true, _legend: 'Dam fully masked' });
     const points = masked.data as Array<{ x: string; y: number }>;
     expect(points.map(p => p.x)).toEqual([day(1), day(3), day(4), day(6)]);
     expect(points[0].y).toBeCloseTo(0.02, 10);            // halfway between 0 and 0.04
