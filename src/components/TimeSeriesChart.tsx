@@ -22,6 +22,7 @@ import ChartAreaButton from './ChartAreaButton';
 import { AREA_BAND_LABELS, areaChartDatasets, areaStatsKey, type AreaBand } from '../utils/polygonSeries';
 import { useAreaReference } from '../hooks/useAreaReference';
 import { useAreaStatsFetch } from '../hooks/useAreaStatsFetch';
+import { useSpacedEffect } from '../hooks/useSpacedEffect';
 import { readChartDisplayOpen, saveChartDisplayOpen } from '../utils/chartDisplayPref';
 import { refIndexOf, toIsoDate } from '../utils/areaStats';
 import { registerChart, type ChartSnapshot, type LayerDisplay, type SeriesTag } from '../assistant/chartView';
@@ -58,6 +59,9 @@ const linkedLegendPlugin = {
     };
   },
 };
+
+/** Least time between two rounds of chart requests (see useSpacedEffect). */
+export const CHART_REQUEST_GAP_MS = 250;
 
 ChartJS.register(linkedLegendPlugin);
 
@@ -252,13 +256,19 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     fetchMultiPointTimeSeries,
   ]);
 
-  useEffect(() => {
+  // Spaced: a mask or radius slider changes these on every tick, and each change
+  // is a request per charted layer that reads every date.
+  useSpacedEffect(() => {
     void updateChart();
     return () => { pointRequest.current += 1; };
-  }, [updateChart]);
+  }, [updateChart], CHART_REQUEST_GAP_MS, () => {
+    pointRequest.current += 1;
+    setChartDataMap({});
+    setIsLoading(true);
+  });
 
   // Fetch buffer data for each visible point × each active dataset
-  useEffect(() => {
+  useSpacedEffect(() => {
     let current = true;
     setBufferData({});
     if (!state.bufferEnabled || !state.showChart || !state.currentDataset) return;
@@ -310,7 +320,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     JSON.stringify(state.timeSeriesPoints.map(p => ({ id: p.id, position: p.position, visible: p.visible }))),
     state.refMarkerPosition,
     fetchBufferTimeSeries,
-  ]);
+  ], CHART_REQUEST_GAP_MS, () => setBufferData({}));
 
   // ── Areas (+ Area): statistics per area × layer, fetched once (an area's polygon never changes) ──
   const visibleAreas = state.chartAreas.filter(a => a.visible);

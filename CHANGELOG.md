@@ -256,6 +256,11 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Time-series chart: dragging a mask threshold, buffer radius or reference
+  radius slider no longer sends a round of chart requests for every tick (each
+  reads every date of every charted layer). The first change asks at once;
+  after that at most one round per 250 ms, always ending on the value the
+  slider stopped at.
 - MapLibre map: dragging a basemap opacity slider no longer removes and re-adds
   the basemap sources on every tick, which dropped the tiles already loaded and
   fetched every visible one again (on both maps in split screen). Opacity is
