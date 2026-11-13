@@ -18,7 +18,11 @@ TABLE_FILE = Path(__file__).with_name("colormaps.npz")
 @cache
 def _tables() -> dict[str, np.ndarray]:
     with np.load(TABLE_FILE, allow_pickle=False) as f:
-        return {str(name): lut for name, lut in zip(f["names"], f["luts"])}
+        loaded = {str(name): lut for name, lut in zip(f["names"], f["luts"])}
+    from ..scientific_colormaps import tables
+
+    loaded.update(tables())
+    return loaded
 
 
 def names() -> list[str]:

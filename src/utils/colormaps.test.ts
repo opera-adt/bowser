@@ -23,3 +23,12 @@ describe('colormaps', () => {
     expect(colormapLabel('saved_elsewhere')).toBe('saved_elsewhere');
   });
 });
+
+it('offers the nine pinned scientific palettes with useful labels and reversal', () => {
+  const scientific = COLORMAP_OPTIONS.filter(o => o.value.startsWith('cmc_'));
+  expect(scientific).toHaveLength(9);
+  for (const option of scientific) {
+    expect(option.label).toContain('Crameri');
+    expect(colormapLabel(withInvert(option.value, true))).toBe(option.label);
+  }
+});
