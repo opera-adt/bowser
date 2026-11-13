@@ -3184,13 +3184,65 @@ def export_geotiff(
     """
     import tempfile  # noqa: PLC0415
 
-    import rioxarray  # noqa: F401, PLC0415 — registers the .rio accessor
     from starlette.background import BackgroundTask  # noqa: PLC0415
     from starlette.responses import FileResponse  # noqa: PLC0415
 
-    from .export_provenance import export_provenance  # noqa: PLC0415
+    da, filename = _prepare_native_export(
+        variable,
+        dataset,
+        time_idx,
+        mask_variable,
+        mask_min_value,
+        layer_masks,
+        custom_mask_path,
+        ref_lon,
+        ref_lat,
+        ref_buffer_m,
+        ref_time_idx,
+    )
+    fd, tmp_path = tempfile.mkstemp(prefix="bowser_export_", suffix=".tif")
+    os.close(fd)
+    try:
+        da.rio.to_raster(tmp_path, driver="GTiff", compress="deflate")
+    except Exception as exc:  # noqa: BLE001
+        Path(tmp_path).unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=500, detail=f"GeoTIFF export failed: {exc}"
+        ) from exc
 
-    target = _resolve_state(dataset)
+    return FileResponse(
+        tmp_path,
+        media_type="image/tiff",
+        filename=filename,
+        background=BackgroundTask(lambda: Path(tmp_path).unlink(missing_ok=True)),
+    )
+
+
+def _prepare_native_export(
+    variable: str,
+    dataset: str | None,
+    time_idx: int | None,
+    mask_variable: str | None,
+    mask_min_value: float | None,
+    layer_masks: str | None,
+    custom_mask_path: str | None,
+    ref_lon: float | None,
+    ref_lat: float | None,
+    ref_buffer_m: float,
+    ref_time_idx: int | None,
+    *,
+    target: BowserState | None = None,
+) -> tuple[xr.DataArray, str]:
+    """Prepare native values/provenance shared by GeoTIFF and raster animation.
+
+    This is the existing GeoTIFF preparation, with no new reference/mask policy.
+    No output file is written here.
+    """
+    import rioxarray  # noqa: F401, PLC0415
+
+    from .export_provenance import export_provenance
+
+    target = target if target is not None else _resolve_state(dataset)
     reference_requested = (
         ref_lon is not None or ref_lat is not None or ref_buffer_m != 0
     )
@@ -3340,22 +3392,63 @@ def export_geotiff(
     )
     da.attrs.update(tags)
 
-    fd, tmp_path = tempfile.mkstemp(prefix="bowser_export_", suffix=".tif")
-    os.close(fd)
-    try:
-        da.rio.to_raster(tmp_path, driver="GTiff", compress="deflate")
-    except Exception as exc:  # noqa: BLE001
-        Path(tmp_path).unlink(missing_ok=True)
-        raise HTTPException(
-            status_code=500, detail=f"GeoTIFF export failed: {exc}"
-        ) from exc
+    return da, filename
 
-    return FileResponse(
-        tmp_path,
-        media_type="image/tiff",
-        filename=filename,
-        background=BackgroundTask(lambda: Path(tmp_path).unlink(missing_ok=True)),
-    )
+
+@app.get(
+    "/export/animation",
+    response_model=api.AnimationCapabilities,
+    **api.route_doc("GET /export/animation"),
+)
+def animation_capabilities():
+    """Raster GIF foundation; additional composition features remain separate."""
+    return {"supported": True, "max_frames": 90, "scope": "real-valued raster only"}
+
+
+from .animation import AnimationRequest  # noqa: E402
+
+
+@app.post(
+    "/export/animation",
+    response_class=Response,
+    responses=api.image_response("image/gif", "Saved scalar raster epochs"),
+    **api.route_doc("POST /export/animation"),
+)
+def export_animation(body: AnimationRequest, dataset: str | None = Query(None)):
+    """Download a bounded GIF of saved scalar epochs using native export values."""
+    from .animation import RENDER_LOCK, render
+
+    if not RENDER_LOCK.acquire(blocking=False):
+        raise HTTPException(409, "A raster GIF is already rendering; try again shortly")
+    try:
+        target = _resolve_state(dataset)
+
+        def prepare(index, masks):
+            return _prepare_native_export(
+                body.variable,
+                dataset,
+                index,
+                None,
+                None,
+                masks,
+                body.custom_mask_path,
+                body.ref_lon,
+                body.ref_lat,
+                body.ref_buffer_m,
+                body.ref_time_idx,
+                target=target,
+            )
+
+        content, filename = render(body, target, prepare)
+        return Response(
+            content,
+            media_type="image/gif",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except (ValueError, OSError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+    finally:
+        RENDER_LOCK.release()
 
 
 md_endpoints = TilerFactory(

@@ -582,6 +582,20 @@ ROUTES: dict[str, dict[str, Any]] = {
         "or the GeoJSON (`fmt=geojson`). 404 until the conversion is ready.",
         "tags": [FILES],
     },
+    "GET /export/animation": {
+        "summary": "Raster GIF capability",
+        "description": "Whether bounded scalar raster GIF export is supported. "
+        "The full server supports it; lite explicitly reports unsupported.",
+        "tags": [EXPORT],
+    },
+    "POST /export/animation": {
+        "summary": "Export saved scalar epochs as a raster GIF",
+        "description": "Fixed color limits and named quality masks, with the "
+        "native export reference. No interpolation or inferred zero epochs. "
+        "Raster-only: no context, annotations or linked plots. "
+        "Resource limits and unsupported settings return explicit errors.",
+        "tags": [EXPORT],
+    },
     "GET /export/geotiff": {
         "summary": "Export a layer as GeoTIFF",
         "description": "One time step of a layer as a GeoTIFF at native "
@@ -673,8 +687,7 @@ ROUTES: dict[str, dict[str, Any]] = {
     },
     "DELETE /assistant/key": {
         "summary": "Remove a provider's key",
-        "description": "Forget the key saved for `provider` (same conditions as "
-        "PUT).",
+        "description": "Forget the key saved for `provider` (same conditions as PUT).",
         "tags": [ASSISTANT],
     },
     "POST /assistant/signin": {
@@ -857,6 +870,7 @@ ROUTES: dict[str, dict[str, Any]] = {
 
 #: Routes that bowser-lite answers with 501 (they need GDAL).
 LITE_501 = (
+    "POST /export/animation",
     "POST /upload_mask",
     "POST /upload_raster",
     "POST /upload_data",
@@ -942,6 +956,14 @@ class AssistantFlag(_Fixed):
         description="Whether Bowser's tools may act on the page from this "
         "computer (GET /page/events).",
     )
+
+
+class AnimationCapabilities(_Fixed):
+    """The raster GIF foundation, distinguished from future composition tools."""
+
+    supported: bool
+    max_frames: int = 90
+    scope: str
 
 
 class ConfigInfo(_Fixed):

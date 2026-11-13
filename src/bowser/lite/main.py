@@ -668,6 +668,28 @@ def polygon_timeseries(
 
 
 @app.get(
+    "/export/animation",
+    response_model=api.AnimationCapabilities,
+    **api.route_doc("GET /export/animation"),
+)
+def animation_capabilities():
+    """GIF rendering currently requires the full server's plotting stack."""
+    return {"supported": False, "scope": "GIF export needs the full server"}
+
+
+@app.post(
+    "/export/animation",
+    responses=api.NOT_IN_LITE,
+    **api.route_doc("POST /export/animation", lite_stub=True),
+)
+def export_animation():
+    """No fallback or successful empty GIF for unsupported lightweight export."""
+    return JSONResponse(
+        {"detail": "Raster GIF export currently needs the full server"}, status_code=501
+    )
+
+
+@app.get(
     "/export/geotiff",
     response_class=Response,
     responses=api.image_response(
