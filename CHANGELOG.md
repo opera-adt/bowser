@@ -6,6 +6,13 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Concurrent first queries to a bowser-lite cube no longer race while pandas
+  initializes spatial coordinate-index caches. Initialize the caches while
+  opening each level, without reading measurement pixels, changing coordinates
+  or relaxing duplicate-coordinate checks.
+
 ### Added
 
 - Scientific colour maps (Crameri): `batlow`, `lajolla`, `oslo`, `vik`, `roma`,
