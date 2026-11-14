@@ -45,6 +45,17 @@ export default function MainTab() {
     return !shown;
   });
 
+  // Use the smallest layer budget so comparison charts stay within it too.
+  const chartRadiusMax = Math.min(5000, ...Object.values(state.datasetInfo)
+    .map(info => info.chart_buffer_max_m ?? 5000));
+  useEffect(() => {
+    if (chartRadiusMax < 5) return;
+    if (state.bufferRadius > chartRadiusMax)
+      dispatch({ type: 'SET_BUFFER_RADIUS', payload: chartRadiusMax });
+    if (state.refBufferRadius > chartRadiusMax)
+      dispatch({ type: 'SET_REF_BUFFER_RADIUS', payload: chartRadiusMax });
+  }, [chartRadiusMax, state.bufferRadius, state.refBufferRadius, dispatch]);
+
   // dataset range cache: { [datasetName]: { min, max, p2, p98 } }
   const [datasetRanges, setDatasetRanges] = useState<Record<string, { min: number; max: number; p2: number; p98: number }>>({});
 
@@ -482,10 +493,11 @@ export default function MainTab() {
               <span className="slider-value">{state.refBufferRadius} m</span>
             </div>
             <input type="range" className="sidebar-range"
-              min="5" max="5000" step="5" value={state.refBufferRadius}
+              min="5" max={Math.max(5, chartRadiusMax)} disabled={chartRadiusMax < 5} step="5" value={Math.min(state.refBufferRadius, Math.max(5, chartRadiusMax))}
               onChange={e => dispatch({ type: 'SET_REF_BUFFER_RADIUS', payload: parseInt(e.target.value) })} />
           </div>
         )}
+        {chartRadiusMax < 5000 && <small>Native chart radius limit: {chartRadiusMax} m (read budget).</small>}
         <ReferenceCandidates />
       </div>
 
@@ -592,7 +604,7 @@ export default function MainTab() {
                     <span>Radius</span><span className="slider-value">{state.bufferRadius} m</span>
                   </div>
                   <input type="range" className="sidebar-range"
-                    min="5" max="5000" step="5" value={state.bufferRadius}
+                    min="5" max={Math.max(5, chartRadiusMax)} disabled={chartRadiusMax < 5} step="5" value={Math.min(state.bufferRadius, Math.max(5, chartRadiusMax))}
                     onChange={e => dispatch({ type: 'SET_BUFFER_RADIUS', payload: parseInt(e.target.value) })} />
                 </div>
                 <div className="slider-group">

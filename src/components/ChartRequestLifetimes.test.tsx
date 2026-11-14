@@ -1,6 +1,6 @@
 /** A late point/radius response cannot replace the current chart settings. */
 import { useEffect } from 'react';
-import { act, cleanup, render, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppProvider, useAppContext } from '../context/AppContext';
 import type { AppAction, AppState, RasterGroup } from '../types';
@@ -65,6 +65,16 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe('chart request lifetimes', () => {
+  it('discloses an unavailable chart mask without hiding the curve', async () => {
+    show(); await waitFor(() => expect(pending).toHaveLength(1));
+    const data = await response(pending[0], 2).json();
+    await act(async () => pending[0].finish(new Response(JSON.stringify({
+      ...data, warnings: ["Chart mask 'quality' not applied: dates do not match this layer."],
+    }))));
+    await waitFor(() => expect(raw()).toEqual([0, 2, 4]));
+    expect(screen.getByRole('status').textContent).toContain('not applied');
+  });
+
   it('ignores a late point response after a mask change', async () => {
     show(); await waitFor(() => expect(pending).toHaveLength(1));
     change({ type: 'ADD_LAYER_MASK', payload: { id: 'q', dataset: 'quality', threshold: 0.5, mode: 'min' } });
