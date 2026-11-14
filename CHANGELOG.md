@@ -6,49 +6,10 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Fixed
+## [0.7.0] - 2026-11-14
 
-- The colorbar of 42 colormaps the full server offers for tiles but matplotlib
-  does not ship (rio-tiler's cmocean set: `algae`, `balance`, `thermal` and
-  others, with their `_r`) was a 500, so picking one drew the map with no
-  colorbar. It is now drawn from the tiler's own colour table.
-- GPU renderer: under memory pressure the layer could evict a texture it was
-  about to draw (the previous date, still shown while a new one loads, or
-  another zoom level underneath), fail with "can't access property tex,
-  this.textures.get(...) is undefined" and fall back to tiles. What a frame
-  draws is no longer evicted during that frame.
-- GeoZarr quality masks follow matching acquisition coordinates in full-record
-  point and buffer charts. Native grids/CRS and axes are validated before
-  selecting the requested frame/window and applying masks, reducing full-cube
-  Dask masking graphs for tiles. The viewer offers compatible masks and explains
-  incompatible selections; it does not infer ministack mappings or velocity
-  quality reductions. GPU masks no longer independently clamp a mismatched axis.
-  Empty explicit mask strings mean no masks. Source values, thresholds, fitting
-  and spatial/temporal reference policies are unchanged.
-  A mask that cannot apply to the selected layer (the default `recommended_mask`
-  on `velocity`, a ministack mask on `displacement`) is left out of that layer's
-  map, chart, GNSS, area and export requests, and the Masking panel says "not
-  applied to this layer"; the layer is then drawn without it. For direct API
-  callers such a mask, an unknown mask name or malformed `layer_masks` is now
-  a 422: before, a mismatched axis was matched by index and the others were
-  ignored.
-- GeoTIFF point/radius charts now honor explicit quality masks and requested
-  reference circles using shared native-grid mask readers. Static masks are
-  cached per window and point reads retain three-worker concurrency. Geographic
-  and projected-foot circles use meter distances; radius controls reflect
-  native read budgets. Unavailable mask layers/axes and reference-circle
-  fallbacks are disclosed on charts. Source nodata/GDAL validity and valid zeros
-  are preserved. Sampling uses float64; tiny trend differences from float32
-  rounding are possible without changing the fitting method. GeoTIFF references
-  use source support before display masks; GeoZarr reference policy is unchanged.
-- LOS widget sign labels now use the existing per-layer measurement direction
-  and sign, independently of re-referencing support. Positive-away labels are
-  reversed; non-LOS/unknown layers retain geometry without misleading signs.
-  Stored values and viewing geometry are unchanged.
-- Concurrent first queries to a bowser-lite cube no longer race while pandas
-  initializes spatial coordinate-index caches. Initialize the caches while
-  opening each level, without reading measurement pixels, changing coordinates
-  or relaxing duplicate-coordinate checks.
+Faster on large cubes, a renderer that uses the browser's GPU when it can, and quality
+masks that reach every chart and export.
 
 ### Added
 
@@ -431,6 +392,47 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The colorbar of 42 colormaps the full server offers for tiles but matplotlib
+  does not ship (rio-tiler's cmocean set: `algae`, `balance`, `thermal` and
+  others, with their `_r`) was a 500, so picking one drew the map with no
+  colorbar. It is now drawn from the tiler's own colour table.
+- GPU renderer: under memory pressure the layer could evict a texture it was
+  about to draw (the previous date, still shown while a new one loads, or
+  another zoom level underneath), fail with "can't access property tex,
+  this.textures.get(...) is undefined" and fall back to tiles. What a frame
+  draws is no longer evicted during that frame.
+- GeoZarr quality masks follow matching acquisition coordinates in full-record
+  point and buffer charts. Native grids/CRS and axes are validated before
+  selecting the requested frame/window and applying masks, reducing full-cube
+  Dask masking graphs for tiles. The viewer offers compatible masks and explains
+  incompatible selections; it does not infer ministack mappings or velocity
+  quality reductions. GPU masks no longer independently clamp a mismatched axis.
+  Empty explicit mask strings mean no masks. Source values, thresholds, fitting
+  and spatial/temporal reference policies are unchanged.
+  A mask that cannot apply to the selected layer (the default `recommended_mask`
+  on `velocity`, a ministack mask on `displacement`) is left out of that layer's
+  map, chart, GNSS, area and export requests, and the Masking panel says "not
+  applied to this layer"; the layer is then drawn without it. For direct API
+  callers such a mask, an unknown mask name or malformed `layer_masks` is now
+  a 422: before, a mismatched axis was matched by index and the others were
+  ignored.
+- GeoTIFF point/radius charts now honor explicit quality masks and requested
+  reference circles using shared native-grid mask readers. Static masks are
+  cached per window and point reads retain three-worker concurrency. Geographic
+  and projected-foot circles use meter distances; radius controls reflect
+  native read budgets. Unavailable mask layers/axes and reference-circle
+  fallbacks are disclosed on charts. Source nodata/GDAL validity and valid zeros
+  are preserved. Sampling uses float64; tiny trend differences from float32
+  rounding are possible without changing the fitting method. GeoTIFF references
+  use source support before display masks; GeoZarr reference policy is unchanged.
+- LOS widget sign labels now use the existing per-layer measurement direction
+  and sign, independently of re-referencing support. Positive-away labels are
+  reversed; non-LOS/unknown layers retain geometry without misleading signs.
+  Stored values and viewing geometry are unchanged.
+- Concurrent first queries to a bowser-lite cube no longer race while pandas
+  initializes spatial coordinate-index caches. Initialize the caches while
+  opening each level, without reading measurement pixels, changing coordinates
+  or relaxing duplicate-coordinate checks.
 - Area (polygon) charts and the Stats tab follow the masks chosen in Main >
   Masking. They kept showing the unmasked summary when a mask was added,
   changed or removed. The masks are now sent to `/polygon_timeseries`
@@ -701,7 +703,8 @@ the diff — see [`v0.4.0...v0.5.0`](https://github.com/opera-adt/bowser/compare
   dependency tree pulls them in, so a pip-only install of the writer extra will
   fail at run time.
 
-[Unreleased]: https://github.com/opera-adt/bowser/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/opera-adt/bowser/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/opera-adt/bowser/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/opera-adt/bowser/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/opera-adt/bowser/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/opera-adt/bowser/compare/v0.5.0...v0.5.1
