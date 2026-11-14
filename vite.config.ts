@@ -43,8 +43,10 @@ export default defineConfig({
 	},
 	build: {
 		outDir: 'src/bowser/dist/',
-		minify: false,
-		cssMinify: false,
+		// Minified: the page's main script is about 3.5 MB otherwise. No source maps are
+		// shipped; for readable code in the browser, build with `npx vite build --minify false`.
+		minify: true,
+		cssMinify: true,
 		rollupOptions: {
 			output: {
 				entryFileNames: `[name].js`,
