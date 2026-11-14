@@ -46,6 +46,11 @@ export interface RasterGroup {
   metadata_notes?: string[];
   reference_date?: string | null;
   los_metadata?: LosMetadata;
+  // Shared backend measurement metadata is independent of reference support.
+  measurement?: {
+    kind: string;
+    positive_direction: string | null;
+  };
   // Default spatial reference point [lon, lat] recorded in the cube (DISP-S1
   // reference_point / tifs-to-geozarr --reference-point). Seeds the moving
   // reference marker; null when the cube carries none.

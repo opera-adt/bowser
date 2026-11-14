@@ -8,6 +8,10 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- LOS widget sign labels now use the existing per-layer measurement direction
+  and sign, independently of re-referencing support. Positive-away labels are
+  reversed; non-LOS/unknown layers retain geometry without misleading signs.
+  Stored values and viewing geometry are unchanged.
 - Concurrent first queries to a bowser-lite cube no longer race while pandas
   initializes spatial coordinate-index caches. Initialize the caches while
   opening each level, without reading measurement pixels, changing coordinates
