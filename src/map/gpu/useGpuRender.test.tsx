@@ -6,6 +6,7 @@ import { AppProvider, useAppContext } from '../../context/AppContext';
 import type { RasterGroup } from '../../types';
 import { resetGpuCapsCache } from './capability';
 import { statsText, useGpuRender, type GpuRenderStatus } from './useGpuRender';
+import { RENDER_KEY, setRenderMode } from './renderMode';
 import { DEBUG_KEY, setDebug } from '../../utils/debug';
 
 // The GPU runtime (zarrita, colormap tables, the custom layer), as the hook loads it.
@@ -87,7 +88,7 @@ beforeEach(() => {
   sessionStorage.clear();
   resetGpuCapsCache();
 });
-afterEach(() => { cleanup(); window.history.replaceState({}, '', '/'); localStorage.removeItem(DEBUG_KEY); });
+afterEach(() => { cleanup(); window.history.replaceState({}, '', '/'); localStorage.removeItem(DEBUG_KEY); localStorage.removeItem(RENDER_KEY); });
 
 describe('useGpuRender', () => {
   it('keeps server tiles by default and never loads the GPU runtime', async () => {
@@ -128,6 +129,27 @@ describe('useGpuRender', () => {
     act(() => { dispatch({ type: 'SET_COLORMAP', payload: 'viridis' }); });
     await waitFor(() => expect(gl.setParams.mock.lastCall![0]).toMatchObject({ colormap: 'viridis' }));
     expect(map.addLayer).toHaveBeenCalledTimes(1);
+  });
+
+  it("the Project tab's renderer choice applies while the page is open, and is kept", async () => {
+    const { map } = start('/');
+    await act(async () => {});
+    expect(status.renderer).toBe('tiles');
+    expect(map.addLayer).not.toHaveBeenCalled();
+    // To the GPU: the layer is added without a reload.
+    act(() => setRenderMode('gpu'));
+    await waitFor(() => expect(rt.layers).toHaveLength(1));
+    expect(status).toMatchObject({ active: true, renderer: 'gpu', reason: 'render=gpu (forced)' });
+    expect(map.addLayer).toHaveBeenCalledTimes(1);
+    // Back to tiles: the GPU layer goes.
+    act(() => setRenderMode('tiles'));
+    await waitFor(() => expect(status.renderer).toBe('tiles'));
+    expect(map.removeLayer).toHaveBeenCalledTimes(1);
+    // Automatic, here without WebGL2: tiles, and it says why.
+    act(() => setRenderMode('auto'));
+    await waitFor(() => expect(status.reason).toBe('auto: no WebGL2'));
+    expect(status.renderer).toBe('tiles');
+    expect(localStorage.getItem(RENDER_KEY)).toBe('auto');
   });
 
   it('opens a catalog entry by its ?dataset= id', async () => {

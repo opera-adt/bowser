@@ -7,7 +7,10 @@ zarr chunks once (`/zarr/...`) and colours them in the browser's GPU, so
 stepping or playing through dates, changing the colormap or the range, and
 moving the reference date take a frame instead of a round trip to the server.
 
-It is off unless you ask for it in the page's address:
+It is off unless you ask for it. In the page, Project › *Appearance* has a
+button next to the bug icon that goes through server tiles, automatic and GPU;
+the choice applies at once and is kept in this browser. Or in the page's
+address, which decides for that visit whatever the button says:
 
 | Address | What draws the data layer |
 | --- | --- |

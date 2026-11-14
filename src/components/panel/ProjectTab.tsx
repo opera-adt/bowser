@@ -5,6 +5,7 @@ import { SectionHeader } from './controls';
 import ExportSection from './ExportSection';
 import { saveFile } from '../../utils/saveFile';
 import { setDebug, useDebug } from '../../utils/debug';
+import { RENDER_MODES, setRenderMode, useRenderMode } from '../../map/gpu/renderMode';
 
 const APPEARANCE: { value: ThemeChoice; label: string }[] = [
   { value: 'system', label: 'System' },
@@ -158,10 +159,18 @@ function OpenData() {
   );
 }
 
+/** The renderer button's icon and wording per mode (see map/gpu/renderMode.ts). */
+const RENDERER = {
+  tiles: { name: 'Server tiles', icon: 'fa-border-all', title: 'The server draws the data as tiles' },
+  auto: { name: 'Automatic', icon: 'fa-wand-magic-sparkles', title: 'This browser draws the data on its GPU when it has a capable one, else the server' },
+  gpu: { name: 'GPU', icon: 'fa-microchip', title: 'This browser draws the data on its GPU' },
+} as const;
+
 export default function ProjectTab() {
   const { state, dispatch } = useAppContext();
   const [theme, setTheme] = useState<ThemeChoice>(readThemeChoice);
   const debug = useDebug();
+  const renderer = useRenderMode();
   useEffect(() => {
     const follow = (e: Event) => setTheme((e as CustomEvent<ThemeChoice>).detail);
     window.addEventListener(THEME_EVENT, follow);
@@ -296,11 +305,19 @@ export default function ProjectTab() {
       <ExportSection />
       <div className="sidebar-section">
         <SectionHeader label="Appearance" action={
-          <button type="button" className={`ov-icon-btn${debug ? ' on' : ''}`} onClick={() => setDebug(!debug)}
-            aria-pressed={debug} aria-label="Diagnostics"
-            title={debug ? 'Diagnostics on: the map shows how it draws the data (click to turn off)' : 'Diagnostics: show how the map draws the data'}>
-            <i className="fa-solid fa-bug" aria-hidden="true"></i>
-          </button>
+          <span style={{ display: 'inline-flex', gap: 2 }}>
+            <button type="button" className={`ov-icon-btn${renderer !== 'tiles' ? ' on' : ''}`}
+              onClick={() => setRenderMode(RENDER_MODES[(RENDER_MODES.indexOf(renderer) + 1) % RENDER_MODES.length])}
+              aria-label={`Renderer: ${RENDERER[renderer].name}`}
+              title={`${RENDERER[renderer].title} (click for ${RENDERER[RENDER_MODES[(RENDER_MODES.indexOf(renderer) + 1) % RENDER_MODES.length]].name.toLowerCase()})`}>
+              <i className={`fa-solid ${RENDERER[renderer].icon}`} aria-hidden="true"></i>
+            </button>
+            <button type="button" className={`ov-icon-btn${debug ? ' on' : ''}`} onClick={() => setDebug(!debug)}
+              aria-pressed={debug} aria-label="Diagnostics"
+              title={debug ? 'Diagnostics on: the map shows how it draws the data (click to turn off)' : 'Diagnostics: show how the map draws the data'}>
+              <i className="fa-solid fa-bug" aria-hidden="true"></i>
+            </button>
+          </span>
         } />
         <div className="toggle-row" style={{ gap: 8 }}>
           <span className="row-label">Ground motion in</span>
