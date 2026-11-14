@@ -30,6 +30,8 @@ from fastapi import (
     UploadFile,
 )
 from fastapi import Path as PathParam
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from pyproj import CRS
 from starlette.datastructures import MutableHeaders
@@ -42,6 +44,7 @@ from starlette_cramjam.middleware import CompressionMiddleware
 
 from . import api_models as api
 from . import histograms
+from .animation import AnimationRequest
 from .assistant.page import router as page_router
 from .assistant.relay import assistant_config
 from .assistant.relay import router as assistant_router
@@ -3440,10 +3443,6 @@ def animation_capabilities():
     return {"supported": True, "max_frames": 90, "scope": "real-valued raster only"}
 
 
-from fastapi.exception_handlers import request_validation_exception_handler  # noqa: E402
-from fastapi.exceptions import RequestValidationError  # noqa: E402
-
-
 @app.exception_handler(RequestValidationError)
 async def animation_validation_error(request: Request, exc: RequestValidationError):
     """Return structured 422 without echoing NaN/Inf into invalid JSON."""
@@ -3458,9 +3457,6 @@ async def animation_validation_error(request: Request, exc: RequestValidationErr
             ]
         },
     )
-
-
-from .animation import AnimationRequest  # noqa: E402
 
 
 @app.post(
