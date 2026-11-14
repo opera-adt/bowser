@@ -321,6 +321,12 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The data layer's renderer is automatic by default: the browser's GPU when it
+  has a capable hardware one (and the view is one the GPU path draws), else
+  server tiles as before. It was server tiles unless `?render=auto` or
+  `?render=gpu` was in the address. The Project tab's renderer button now
+  goes through automatic, GPU and server tiles, and `?render=tiles` forces
+  tiles for a visit.
 - The page's scripts and styles are minified: the main script goes from 3.5 MB
   to 2.2 MB (811 kB to 638 kB compressed) and the whole bundle from 8.0 MB to
   5.6 MB, for the wheel, the Docker image and the desktop app too. For
