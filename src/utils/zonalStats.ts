@@ -6,6 +6,7 @@
  */
 import type { AppAction, AppState, AreaStats, ChartArea, LayerMask, RasterGroup } from '../types';
 import { chartLayerFor, timeSeriesLayers } from './chartLayers';
+import { applicableMasks } from './maskCompatibility';
 import { areaStatsKey, polygonEmptyMessage, type PolygonTimeSeries } from './polygonSeries';
 
 /** At most this many polygons, and this many points, from one layer per run. */
@@ -141,7 +142,8 @@ export async function fetchAreaStats(
           const error = maskError(options);
           if (error) return { error };
           try {
-            return toAreaStats(await fetchPolygon(ds, area.geometry, options.layerMasks, record.controller.signal));
+            const masks = applicableMasks(options.datasetInfo[ds], options.layerMasks);
+            return toAreaStats(await fetchPolygon(ds, area.geometry, masks, record.controller.signal));
           } catch {
             return { error: 'could not reach the server' };
           }

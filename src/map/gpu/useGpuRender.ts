@@ -86,7 +86,7 @@ export function useGpuRender(
       dataset, dsInfo, timeIndex: state.currentTimeIndex, vmin: state.vmin, vmax: state.vmax,
       colormap: state.colormap, state, datasetId,
     });
-    const r = gpuParamsFromTileQuery(q, state.dataMode);
+    const r = gpuParamsFromTileQuery(q, state.dataMode, state.datasetInfo);
     if (r.ok && runtime && !runtime.hasColormap(r.params.colormap)) {
       return { ok: false, reason: `colormap ${r.params.colormap} not on the GPU path yet` };
     }

@@ -8,6 +8,21 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- GeoZarr quality masks follow matching acquisition coordinates in full-record
+  point and buffer charts. Native grids/CRS and axes are validated before
+  selecting the requested frame/window and applying masks, reducing full-cube
+  Dask masking graphs for tiles. The viewer offers compatible masks and explains
+  incompatible selections; it does not infer ministack mappings or velocity
+  quality reductions. GPU masks no longer independently clamp a mismatched axis.
+  Empty explicit mask strings mean no masks. Source values, thresholds, fitting
+  and spatial/temporal reference policies are unchanged.
+  A mask that cannot apply to the selected layer (the default `recommended_mask`
+  on `velocity`, a ministack mask on `displacement`) is left out of that layer's
+  map, chart, GNSS, area and export requests, and the Masking panel says "not
+  applied to this layer"; the layer is then drawn without it. For direct API
+  callers such a mask, an unknown mask name or malformed `layer_masks` is now
+  a 422: before, a mismatched axis was matched by index and the others were
+  ignored.
 - GeoTIFF point/radius charts now honor explicit quality masks and requested
   reference circles using shared native-grid mask readers. Static masks are
   cached per window and point reads retain three-worker concurrency. Geographic

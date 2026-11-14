@@ -1,5 +1,6 @@
 import type { AppState, RasterGroup } from '../types';
 import { activeRefTime } from './refDate';
+import { applicableMasks } from './maskCompatibility';
 
 /** The parts of the app state that decide a raster tile request. */
 export type TileState = Pick<
@@ -94,9 +95,10 @@ export function buildTileRequest(req: TileRequest): { endpoint: string; params: 
     if (state.customMaskPath) params.custom_mask = state.customMaskPath;
   }
 
-  if (state.layerMasks.length > 0) {
+  const masks = applicableMasks(dsInfo, state.layerMasks);
+  if (masks.length > 0) {
     params.layer_masks = JSON.stringify(
-      state.layerMasks.map(m => ({ dataset: m.dataset, threshold: m.threshold, mode: m.mode }))
+      masks.map(m => ({ dataset: m.dataset, threshold: m.threshold, mode: m.mode }))
     );
   }
 

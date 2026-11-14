@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
 import { activeRefTime } from '../../utils/refDate';
+import { applicableMasks } from '../../utils/maskCompatibility';
 import { exportFilename } from '../../utils/exportFilename';
 import { saveFile } from '../../utils/saveFile';
 import { useSpacedEffect } from '../../hooks/useSpacedEffect';
@@ -43,7 +44,7 @@ export default function AnimationExport() {
     variable: layer, start_index: start, end_index: end, fps,
     vmin: state.vmin, vmax: state.vmax, colormap: state.colormap,
     bounds: b ? [b[1], b[0], b[3], b[2]] : null,
-    layer_masks: state.layerMasks.map(({ dataset, threshold, mode }) => ({ dataset, threshold, mode })),
+    layer_masks: applicableMasks(info, state.layerMasks).map(({ dataset, threshold, mode }) => ({ dataset, threshold, mode })),
     custom_mask_path: state.customMaskPath,
     ...(ref ? { ref_lon: state.refMarkerPosition[1], ref_lat: state.refMarkerPosition[0],
       ref_buffer_m: state.refBufferEnabled ? state.refBufferRadius : 0 } : {}),
