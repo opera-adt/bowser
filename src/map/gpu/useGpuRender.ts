@@ -14,7 +14,8 @@ import { useDebug } from '../../utils/debug';
 import type * as maplibregl from 'maplibre-gl';
 import { useAppContext } from '../../context/AppContext';
 import { buildTileRequest } from '../../utils/tileParams';
-import { chooseRenderer, gpuCaps, parseRenderMode, type Decision } from './capability';
+import { chooseRenderer, gpuCaps, type Decision } from './capability';
+import { useRenderMode } from './renderMode';
 import { gpuParamsFromTileQuery, type ParamsResult } from './params';
 import type { GpuCubeLayer, GpuLayerStats } from './layer';
 
@@ -60,9 +61,17 @@ export function useGpuRender(
 ): GpuRenderStatus {
   const { state } = useAppContext();
   const search = typeof window !== 'undefined' ? window.location.search : '';
-  const mode = useMemo(() => parseRenderMode(search), [search]);
+  const mode = useRenderMode();
   const datasetId = useMemo(() => new URLSearchParams(search).get('dataset'), [search]);
   const [decision, setDecision] = useState<Decision>(() => chooseRenderer(mode, gpuCaps));
+  // The Project tab's renderer button changes the mode while the page is open: decide again
+  // (the effects below add the GPU layer, or remove it and let tiles draw).
+  const decidedFor = useRef(mode);
+  useEffect(() => {
+    if (decidedFor.current === mode) return;
+    decidedFor.current = mode;
+    setDecision(chooseRenderer(mode, gpuCaps));
+  }, [mode]);
   const [runtime, setRuntime] = useState<Runtime | null>(null);
   const layerRef = useRef<GpuCubeLayer | null>(null);
   const [layerReady, setLayerReady] = useState(0);

@@ -19,6 +19,11 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Project tab › *Appearance*: a button next to the bug icon chooses how the
+  data layer is drawn: server tiles (the default), automatic (this browser's
+  GPU when it has a capable one, else tiles) or the GPU. It applies at once,
+  without reloading, and is kept in this browser. `?render=` in the address
+  still decides for that visit.
 - Bounded raster GIF export on the full server, with date labels, saved color
   limits, native-reference offsets, shared export masks, cropped reads and
   existing display pyramids/overviews. Metadata-only preflight, elapsed time
