@@ -317,6 +317,10 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The page's scripts and styles are minified: the main script goes from 3.5 MB
+  to 2.2 MB (811 kB to 638 kB compressed) and the whole bundle from 8.0 MB to
+  5.6 MB, for the wheel, the Docker image and the desktop app too. For
+  readable code in the browser, build with `npx vite build --minify false`.
 - Area (polygon) statistics on the full server read the cube in whole time
   chunks, as bowser-lite does, instead of one date at a time, and keep a small
   area's values between the two passes over the dates. A 3 km square of a
