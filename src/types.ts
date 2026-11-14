@@ -355,7 +355,6 @@ export interface AppState {
   pixelInspectEnabled: boolean;
   splitScreen: boolean;
   splitDataset: string | null;
-  splitPosition: number;
   splitColormap: string;
   splitVmin: number;
   splitVmax: number;
@@ -453,7 +452,6 @@ export type AppAction =
   | { type: 'TOGGLE_PIXEL_INSPECT' }
   | { type: 'TOGGLE_SPLIT_SCREEN' }
   | { type: 'SET_SPLIT_DATASET'; payload: string | null }
-  | { type: 'SET_SPLIT_POSITION'; payload: number }
   | { type: 'SET_SPLIT_COLORMAP'; payload: string }
   | { type: 'SET_SPLIT_VMIN'; payload: number }
   | { type: 'SET_SPLIT_VMAX'; payload: number }

@@ -11,6 +11,7 @@
 import { useEffect, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import { useAppContext } from '../context/AppContext';
+import { useSplitPosition } from '../map/splitPosition';
 import { useRasterTileUrl } from '../map/useRasterTileUrl';
 import { TERRAIN_SOURCE } from '../map/terrain';
 import { OVERLAY_PREFIX, applyTerrain, useBasemapLayers, useDataRaster, useOverlayLayers } from './maplibreLayers';
@@ -41,6 +42,7 @@ export default function MapLibreSplit({ main, mainReady, terrain }: {
   terrain: { enabled: boolean; exaggeration: number; source?: typeof TERRAIN_SOURCE };
 }) {
   const { state } = useAppContext();
+  const splitPosition = useSplitPosition();
   const containerRef = useRef<HTMLDivElement>(null);
   const [right, setRight] = useState<maplibregl.Map | null>(null);
   const [loadedMap, setLoadedMap] = useState<maplibregl.Map | null>(null);
@@ -90,7 +92,7 @@ export default function MapLibreSplit({ main, mainReady, terrain }: {
     <>
       <div data-testid="maplibre-split" style={{
         position: 'absolute', inset: 0, zIndex: 1, pointerEvents: 'none',
-        clipPath: `inset(0 0 0 ${(state.splitPosition * 100).toFixed(2)}%)`,
+        clipPath: `inset(0 0 0 ${(splitPosition * 100).toFixed(2)}%)`,
       }}>
         <div ref={containerRef} style={{ height: '100%', width: '100%' }} />
       </div>
