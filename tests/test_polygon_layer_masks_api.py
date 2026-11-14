@@ -11,12 +11,13 @@ from test_polygon_layer_masks import inputs  # noqa: F401  (a fixture)
 from bowser.catalog import CatalogEntry, save_catalog
 
 
-@pytest.fixture
-def responses(inputs, tmp_path):  # noqa: F811
+@pytest.fixture(params=["min", "max"])
+def responses(inputs, tmp_path, request):  # noqa: F811
+    mask_mode = request.param
     ds, groups, body = inputs
     ds.to_zarr(tmp_path / "cube.zarr", consolidated=False)
     alternate = ds.copy(deep=True)
-    alternate["quality"] = ds.quality * 0
+    alternate["quality"] = ds.quality * 0 + (1 if mask_mode == "max" else 0)
     alternate.to_zarr(tmp_path / "alternate.zarr", consolidated=False)
     save_catalog(
         [
@@ -31,6 +32,7 @@ def responses(inputs, tmp_path):  # noqa: F811
     )
     manifest = {
         "body": body,
+        "mask_mode": mask_mode,
         "files": {name: group.file_list for name, group in groups.items()},
     }
     (tmp_path / "inputs.json").write_text(json.dumps(manifest))
@@ -55,7 +57,7 @@ groups = {name: RasterGroup(name=name, file_list=paths)
           for name, paths in inputs['files'].items()}
 cog = BowserState(mode='cog', raster_groups=groups)
 results = {}
-mask = [{'dataset': 'quality', 'threshold': 0.5, 'mode': 'min'}]
+mask = [{'dataset': 'quality', 'threshold': 0.5, 'mode': inputs['mask_mode']}]
 for storage, state, app in [('md', md, main.app), ('cog', cog, main.app),
                             ('lite', None, lite_app)]:
     if state is not None:

@@ -1068,7 +1068,12 @@ def _alive(pid: int) -> bool:
         return False
     # A zombie still answers; read its state where we can.
     status = Path(f"/proc/{pid}/status")
-    return not (status.exists() and "\nState:\tZ" in status.read_text())
+    try:
+        return not (status.exists() and "\nState:\tZ" in status.read_text())
+    except (ProcessLookupError, FileNotFoundError):
+        # Gone between the two looks: reading /proc/<pid>/status of a process
+        # that has just been reaped fails with ESRCH (seen in CI).
+        return False
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="process groups")

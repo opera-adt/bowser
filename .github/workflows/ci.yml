@@ -3,7 +3,8 @@ name: CI
 on: [pull_request, push]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref }}
+  # github.head_ref is empty on push; keep unrelated branches independent.
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:

@@ -3,7 +3,7 @@ import { useAppContext } from '../context/AppContext';
 import { useApi } from './useApi';
 import { AREA_NEEDS_SERVER } from './usePolygonStats';
 import { pointChoices, polygonChoices } from '../utils/polygonSeries';
-import { chartDatasets, fetchAreaStats, ZONAL_MAX_FEATURES } from '../utils/zonalStats';
+import { areaFetchOptions, chartDatasets, fetchAreaStats, ZONAL_MAX_FEATURES } from '../utils/zonalStats';
 import type { Overlay } from '../types';
 
 export interface ZonalProgress {
@@ -58,7 +58,7 @@ export function useZonalStats(polygonStats: boolean) {
     }
     if (added && !state.showChart) dispatch({ type: 'TOGGLE_CHART' });
     await fetchAreaStats(areas, chartDatasets(state), fetchPolygonTimeSeries, dispatch,
-      (done, total) => onProgress({ done, total }));
+      (done, total) => onProgress({ done, total }), areaFetchOptions(state));
     return notes;
   }, [state, dispatch, fetchPolygonTimeSeries, polygonStats]);
 }

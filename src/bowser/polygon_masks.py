@@ -203,8 +203,6 @@ def raster_masks(
     if groups is None:
         raise ValueError("Requested masks require an explicit mask source context")
     for spec in request.layer_masks:
-        if spec.mode != "min":
-            raise ValueError("GeoTIFF polygon masks currently support only min")
         if spec.dataset not in groups:
             raise ValueError(f"Unknown mask layer: {spec.dataset}")
         group = groups[spec.dataset]
@@ -246,7 +244,7 @@ def raster_masks(
             {
                 "dataset": spec.dataset,
                 "threshold": spec.threshold,
-                "operator": ">",
+                "operator": "<=" if spec.mode == "max" else ">",
                 "temporal_support": "matching_axis" if len(paths) > 1 else "static",
             }
         )
