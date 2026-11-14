@@ -171,6 +171,29 @@ describe('GpuCubeLayer', () => {
     expect(layer.stats().textureBytes).toBeLessThanOrEqual(0.8 * (total - 1));
   });
 
+  it('never evicts what the frame still draws: the previous date shown while the new one loads', async () => {
+    const chunk = 8 * 256 * 256 * 2;
+    const { gl, layer, onFailure } = setup(1000 * chunk);
+    const textures = (layer as unknown as { textures: Map<string, { state: string }> }).textures;
+    const shown = () => [...textures].filter(([k, e]) => e.state === 'ready' && k.startsWith('0|displacement|0|')).length;
+    layer.setParams(params({ timeIdx: 0 }), 1);
+    await frames(layer, gl);
+    const first = shown();
+    expect(first).toBeGreaterThan(0);
+    // A date in a block not loaded yet, with the memory budget far exceeded: the first frame
+    // still draws the old date. Evicting it there made the draw read a texture that was gone
+    // ("can't access property tex, this.textures.get(...) is undefined").
+    (layer as unknown as { budget: number }).budget = chunk;
+    layer.setParams(params({ timeIdx: 17 }), 1);
+    expect(() => layer.render(gl, render)).not.toThrow();
+    expect(shown()).toBe(first);
+    expect(onFailure).not.toHaveBeenCalled();
+    // Once the new date has drawn, the old one is no longer shown and goes.
+    await frames(layer, gl);
+    expect(shown()).toBe(0);
+    expect(onFailure).not.toHaveBeenCalled();
+  });
+
   it('drops queued chunks for dates played past before fetching them', async () => {
     const { gl, layer, calls } = setup(512 * MB, 0.15);
     layer.setParams(params({ timeIdx: 0 }), 1);
