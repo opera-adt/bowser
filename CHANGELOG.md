@@ -19,6 +19,12 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Bounded raster GIF export on the full server, with date labels, saved color
+  limits, native-reference offsets, shared export masks, cropped reads and
+  existing display pyramids/overviews. Metadata-only preflight, elapsed time
+  and Cancel controls are available in Project → Export. See
+  [docs/raster-animation.md](docs/raster-animation.md) for display limitations.
+
 - Scientific colour maps (Crameri): `batlow`, `lajolla`, `oslo`, `vik`, `roma`,
   `berlin`, `broc`, `bam` and the cyclic `romaO`, each with its reverse, as
   `cmc_*` in the colormap picker, on the full server, bowser-lite (and so the

@@ -7,7 +7,7 @@ bowser-lite and do not require GDAL. No mask resampling or date inference occurs
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, Protocol
 
 import numpy as np
 from pyproj import CRS
@@ -18,7 +18,12 @@ from .polygon import STORED_WARNING, NativeGrid, _linear, _values
 if TYPE_CHECKING:
     import xarray as xr
 
-    from .polygon import PolygonRequest
+    from .polygon import PolygonMask
+
+
+class _MaskRequest(Protocol):
+    layer_masks: list[PolygonMask]
+
 
 Reader = Callable[[int, slice, slice], np.ndarray]
 
@@ -110,7 +115,7 @@ def _crs(array: Any, fallback: Any) -> CRS:
 def xarray_masks(
     source: xr.DataArray,
     dataset: xr.Dataset | None,
-    request: PolygonRequest,
+    request: _MaskRequest,
     crs: Any,
 ) -> PolygonMasks:
     """Prepare static or exact-axis GeoZarr masks on canonical native grids."""
@@ -184,7 +189,7 @@ def xarray_masks(
 
 def raster_masks(
     groups: dict | None,
-    request: PolygonRequest,
+    request: _MaskRequest,
     labels: list[str],
     grid: NativeGrid,
 ) -> PolygonMasks:

@@ -582,6 +582,26 @@ ROUTES: dict[str, dict[str, Any]] = {
         "or the GeoJSON (`fmt=geojson`). 404 until the conversion is ready.",
         "tags": [FILES],
     },
+    "GET /export/animation": {
+        "summary": "Raster GIF capability",
+        "description": "Whether bounded scalar raster GIF export is supported. "
+        "The full server supports it; lite explicitly reports unsupported.",
+        "tags": [EXPORT],
+    },
+    "POST /export/animation/plan": {
+        "tags": [EXPORT],
+        "summary": "Check raster GIF read and display budgets",
+        "description": "Metadata-only preflight: select a cropped native window or "
+        "saved display pyramid before any frame is read. References stay native.",
+    },
+    "POST /export/animation": {
+        "summary": "Export saved scalar epochs as a raster GIF",
+        "description": "Fixed color limits and named quality masks, with the "
+        "native export reference. No interpolation or inferred zero epochs. "
+        "Raster-only: no context, annotations or linked plots. "
+        "Resource limits and unsupported settings return explicit errors.",
+        "tags": [EXPORT],
+    },
     "GET /export/geotiff": {
         "summary": "Export a layer as GeoTIFF",
         "description": "One time step of a layer as a GeoTIFF at native "
@@ -673,8 +693,7 @@ ROUTES: dict[str, dict[str, Any]] = {
     },
     "DELETE /assistant/key": {
         "summary": "Remove a provider's key",
-        "description": "Forget the key saved for `provider` (same conditions as "
-        "PUT).",
+        "description": "Forget the key saved for `provider` (same conditions as PUT).",
         "tags": [ASSISTANT],
     },
     "POST /assistant/signin": {
@@ -857,6 +876,7 @@ ROUTES: dict[str, dict[str, Any]] = {
 
 #: Routes that bowser-lite answers with 501 (they need GDAL).
 LITE_501 = (
+    "POST /export/animation",
     "POST /upload_mask",
     "POST /upload_raster",
     "POST /upload_data",
@@ -944,8 +964,29 @@ class AssistantFlag(_Fixed):
     )
 
 
+class AnimationCapabilities(_Fixed):
+    """The raster GIF foundation, distinguished from future composition tools."""
+
+    supported: bool
+    max_frames: int = 90
+    scope: str
+
+
+class AnimationPlanInfo(_Fixed):
+    """The bounded read/display footprint of a GIF request, with no paths."""
+
+    level: str
+    read_width: int
+    read_height: int
+    output_width: int
+    output_height: int
+    frames: int
+
+
 class ConfigInfo(_Fixed):
     """``GET /config``."""
+
+    raster_animation: bool = False
 
     title: str = Field(description="Page title; empty for the default.")
     opera_logo: bool
