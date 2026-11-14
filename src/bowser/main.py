@@ -30,6 +30,8 @@ from fastapi import (
     UploadFile,
 )
 from fastapi import Path as PathParam
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from pyproj import CRS
 from starlette.datastructures import MutableHeaders
@@ -42,6 +44,7 @@ from starlette_cramjam.middleware import CompressionMiddleware
 
 from . import api_models as api
 from . import histograms
+from .animation import AnimationRequest
 from .assistant.page import router as page_router
 from .assistant.relay import assistant_config
 from .assistant.relay import router as assistant_router
@@ -658,6 +661,7 @@ async def get_config(
         "title": entry.name if entry is not None else settings.BOWSER_TITLE,
         "opera_logo": settings.BOWSER_OPERA_LOGO,
         "geotiff_export": True,
+        "raster_animation": True,
         "polygon_stats": True,
         "assistant": assistant_config(settings),
         "geotiff_upload": True,
@@ -2891,6 +2895,8 @@ def _build_masked_cog_dataarray(
     custom_mask_path: Optional[str],
     *,
     strict_masks: bool = False,
+    display_window: tuple[int, int, int, int] | None = None,
+    overview: int | None = None,
 ) -> "xr.DataArray":
     """Build the masked 2-D DataArray for a COG-mode RasterGroup at ``time_idx``.
 
@@ -2910,9 +2916,36 @@ def _build_masked_cog_dataarray(
         raise HTTPException(status_code=404, detail=f"No files for dataset {variable}")
     idx = 0 if time_idx is None else max(0, min(time_idx, len(rg.file_list) - 1))
 
-    da = rxr.open_rasterio(rg.file_list[idx], masked=True).squeeze("band", drop=True)
+    options = {"OVERVIEW_LEVEL": str(overview)} if overview is not None else {}
+    da = rxr.open_rasterio(rg.file_list[idx], masked=True, **options).squeeze(
+        "band", drop=True
+    )
+    if display_window is not None:
+        r0, r1, c0, c1 = display_window
+        da = da.isel(y=slice(r0, r1), x=slice(c0, c1))
 
     def _keep(da_, path, thr, inclusive=False, mode="min"):
+        if display_window is not None:
+            # GIF-only bounded destination read, including masks with another
+            # grid. Native GeoTIFF exports retain their existing preparation.
+            import rasterio  # noqa: PLC0415
+            from rasterio.vrt import WarpedVRT  # noqa: PLC0415
+
+            with (
+                rasterio.open(path) as src,
+                WarpedVRT(
+                    src,
+                    crs=da_.rio.crs,
+                    transform=da_.rio.transform(),
+                    width=da_.sizes["x"],
+                    height=da_.sizes["y"],
+                ) as vrt,
+            ):
+                values = vrt.read(1, masked=True).astype(float).filled(np.nan)
+            m = xr.DataArray(values, dims=("y", "x"), coords={"y": da_.y, "x": da_.x})
+            if inclusive:
+                return da_.where(m >= thr)
+            return da_.where(np.isfinite(m) & (m <= thr if mode == "max" else m > thr))
         m = rxr.open_rasterio(path, masked=True).squeeze("band", drop=True)
         if (
             m.rio.crs != da_.rio.crs
@@ -3230,13 +3263,68 @@ def export_geotiff(
     """
     import tempfile  # noqa: PLC0415
 
-    import rioxarray  # noqa: F401, PLC0415 — registers the .rio accessor
     from starlette.background import BackgroundTask  # noqa: PLC0415
     from starlette.responses import FileResponse  # noqa: PLC0415
 
-    from .export_provenance import export_provenance  # noqa: PLC0415
+    da, filename = _prepare_native_export(
+        variable,
+        dataset,
+        time_idx,
+        mask_variable,
+        mask_min_value,
+        layer_masks,
+        custom_mask_path,
+        ref_lon,
+        ref_lat,
+        ref_buffer_m,
+        ref_time_idx,
+    )
+    fd, tmp_path = tempfile.mkstemp(prefix="bowser_export_", suffix=".tif")
+    os.close(fd)
+    try:
+        da.rio.to_raster(tmp_path, driver="GTiff", compress="deflate")
+    except Exception as exc:  # noqa: BLE001
+        Path(tmp_path).unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=500, detail=f"GeoTIFF export failed: {exc}"
+        ) from exc
 
-    target = _resolve_state(dataset)
+    return FileResponse(
+        tmp_path,
+        media_type="image/tiff",
+        filename=filename,
+        background=BackgroundTask(lambda: Path(tmp_path).unlink(missing_ok=True)),
+    )
+
+
+def _prepare_native_export(
+    variable: str,
+    dataset: str | None,
+    time_idx: int | None,
+    mask_variable: str | None,
+    mask_min_value: float | None,
+    layer_masks: str | None,
+    custom_mask_path: str | None,
+    ref_lon: float | None,
+    ref_lat: float | None,
+    ref_buffer_m: float,
+    ref_time_idx: int | None,
+    *,
+    target: BowserState | None = None,
+    display_dataset: xr.Dataset | None = None,
+    cog_window: tuple[int, int, int, int] | None = None,
+    cog_overview: int | None = None,
+) -> tuple[xr.DataArray, str]:
+    """Prepare native values/provenance shared by GeoTIFF and raster animation.
+
+    This is the existing GeoTIFF preparation, with no new reference/mask policy.
+    No output file is written here.
+    """
+    import rioxarray  # noqa: F401, PLC0415
+
+    from .export_provenance import export_provenance
+
+    target = target if target is not None else _resolve_state(dataset)
     reference_requested = (
         ref_lon is not None or ref_lat is not None or ref_buffer_m != 0
     )
@@ -3254,7 +3342,7 @@ def export_geotiff(
     )
     if target.mode == "md":
         da = _build_masked_md_dataarray(
-            target.dataset,
+            display_dataset if display_dataset is not None else target.dataset,
             variable,
             time_idx,
             mask_variable,
@@ -3274,6 +3362,8 @@ def export_geotiff(
             layer_masks,
             custom_mask_path,
             strict_masks=True,
+            display_window=cog_window,
+            overview=cog_overview,
         )
         fallback_crs = None
 
@@ -3386,22 +3476,96 @@ def export_geotiff(
     )
     da.attrs.update(tags)
 
-    fd, tmp_path = tempfile.mkstemp(prefix="bowser_export_", suffix=".tif")
-    os.close(fd)
-    try:
-        da.rio.to_raster(tmp_path, driver="GTiff", compress="deflate")
-    except Exception as exc:  # noqa: BLE001
-        Path(tmp_path).unlink(missing_ok=True)
-        raise HTTPException(
-            status_code=500, detail=f"GeoTIFF export failed: {exc}"
-        ) from exc
+    return da, filename
 
-    return FileResponse(
-        tmp_path,
-        media_type="image/tiff",
-        filename=filename,
-        background=BackgroundTask(lambda: Path(tmp_path).unlink(missing_ok=True)),
+
+@app.get(
+    "/export/animation",
+    response_model=api.AnimationCapabilities,
+    **api.route_doc("GET /export/animation"),
+)
+def animation_capabilities():
+    """Raster GIF foundation; additional composition features remain separate."""
+    return {"supported": True, "max_frames": 90, "scope": "real-valued raster only"}
+
+
+@app.exception_handler(RequestValidationError)
+async def animation_validation_error(request: Request, exc: RequestValidationError):
+    """Return structured 422 without echoing NaN/Inf into invalid JSON."""
+    if request.url.path not in ("/export/animation", "/export/animation/plan"):
+        return await request_validation_exception_handler(request, exc)
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": [
+                {"loc": list(e["loc"]), "msg": e["msg"], "type": e["type"]}
+                for e in exc.errors()
+            ]
+        },
     )
+
+
+@app.post(
+    "/export/animation/plan",
+    response_model=api.AnimationPlanInfo,
+    **api.route_doc("POST /export/animation/plan"),
+)
+def animation_plan(body: AnimationRequest, dataset: str | None = Query(None)):
+    """Validate the metadata-only read/display budget without raster IO."""
+    from .animation import plan_render  # noqa: PLC0415
+
+    try:
+        return plan_render(_resolve_state(dataset), body).summary()
+    except (ValueError, OSError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@app.post(
+    "/export/animation",
+    response_class=Response,
+    responses=api.image_response("image/gif", "Saved scalar raster epochs"),
+    **api.route_doc("POST /export/animation"),
+)
+def export_animation(body: AnimationRequest, dataset: str | None = Query(None)):
+    """Download a bounded GIF of saved scalar epochs using native export values."""
+    from .animation import RENDER_LOCK, render
+
+    if not RENDER_LOCK.acquire(blocking=False):
+        raise HTTPException(409, "A raster GIF is already rendering; try again shortly")
+    try:
+        target = _resolve_state(dataset)
+
+        def prepare(index, masks, plan):
+            return _prepare_native_export(
+                body.variable,
+                dataset,
+                index,
+                None,
+                None,
+                masks,
+                body.custom_mask_path,
+                body.ref_lon,
+                body.ref_lat,
+                body.ref_buffer_m,
+                body.ref_time_idx,
+                target=target,
+                display_dataset=plan.dataset,
+                cog_window=plan.window if target.mode == "cog" else None,
+                cog_overview=int(plan.level.split(":")[1])
+                if plan.level.startswith("overview:")
+                else None,
+            )
+
+        content, filename = render(body, target, prepare)
+        return Response(
+            content,
+            media_type="image/gif",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except (ValueError, OSError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+    finally:
+        RENDER_LOCK.release()
 
 
 md_endpoints = TilerFactory(

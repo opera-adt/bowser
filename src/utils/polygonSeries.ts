@@ -7,7 +7,7 @@
  * subtracted here, so an area and a point are on the same footing. Subtracting one number per
  * date shifts the median, mean and every percentile by that number; the spread is unchanged.
  */
-import type { ChartArea, Overlay } from '../types';
+import type { ChartArea, LayerMask, Overlay } from '../types';
 
 import { AREA_PERCENTILES, areaRows, type AreaRow } from './areaStats';
 import { areaStyle, withOpacity, type AreaStyle } from '../map/seriesStyle';
@@ -44,6 +44,9 @@ export interface PolygonStatistics {
 }
 
 export interface PolygonTimeSeries {
+  optional_masks_applied?: boolean;
+  /** Which pixels each date uses: the same ones at every date, or those valid on that date. */
+  support?: 'common' | 'per_date';
   labels: string[];
   units: string | null;
   statistics: PolygonStatistics[];
@@ -136,8 +139,21 @@ export function zonalKinds(o: Overlay): { polygons: number; points: number } {
 export const areaStatsKey = (dataset: string, areaId: string) => `${dataset}::${areaId}`;
 
 /** The request body: the cube's own values on the dates' common pixels. */
-export function polygonRequestBody(variable: string, geometry: ChartArea['geometry']) {
-  return { variable, geometry, support: 'common' as const, percentiles: [...AREA_PERCENTILES] };
+export function polygonRequestBody(variable: string, geometry: ChartArea['geometry'], layerMasks: LayerMask[] = []) {
+  // KML/GeoJSON may retain altitude. Raster selection needs XY, preserving rings/parts.
+  const xy = (coordinates: unknown): unknown => {
+    if (!Array.isArray(coordinates)) return coordinates;
+    return typeof coordinates[0] === 'number' && typeof coordinates[1] === 'number'
+      ? coordinates.slice(0, 2) : coordinates.map(xy);
+  };
+  return {
+    variable, geometry: { ...geometry, coordinates: xy(geometry.coordinates) },
+    // With a quality mask each date uses the pixels that pass on that date, as the map shows
+    // them: a mask that changes with date leaves few pixels, or none, passing on every date.
+    support: layerMasks.length ? 'per_date' as const : 'common' as const,
+    percentiles: [...AREA_PERCENTILES],
+    ...(layerMasks.length ? { layer_masks: layerMasks.map(({ dataset, threshold, mode }) => ({ dataset, threshold, mode })) } : {}),
+  };
 }
 
 /** A short message for a failed request (422 bad or too-large polygon, 501 without the route). */
@@ -154,6 +170,40 @@ export function polygonErrorMessage(status: number, body: unknown): string {
 /** Why an answer can't be drawn (no pixel had a value), or null when it can. */
 export function polygonEmptyMessage(result: PolygonTimeSeries): string | null {
   return result.statistics.some(r => r.count > 0 && r.median !== null) ? null : 'no valid pixels inside the area';
+}
+
+/** Radius, in pixels, of the marker of a date on which every pixel of an area is masked. */
+export const MASKED_DATE_RADIUS = 4;
+
+const rings = new Map<string, HTMLCanvasElement | 'circle'>();
+
+/**
+ * The marker of a fully masked date: an unfilled circle with a dashed outline in the area's
+ * line colour. Chart.js points have no dash, so it is drawn once per colour on a small canvas
+ * (a plain hollow circle where there is no canvas to draw on).
+ */
+export function maskedDateMarker(color: string): HTMLCanvasElement | 'circle' {
+  const known = rings.get(color);
+  if (known) return known;
+  let marker: HTMLCanvasElement | 'circle' = 'circle';
+  const size = 2 * (MASKED_DATE_RADIUS + 1);
+  const canvas = typeof document !== 'undefined' ? document.createElement('canvas') : null;
+  let ctx: CanvasRenderingContext2D | null = null;
+  try { ctx = canvas?.getContext('2d') ?? null; } catch { ctx = null; }
+  if (canvas && ctx) {
+    // Chart.js draws an image marker at its own pixel size, so not scaled for the display.
+    canvas.width = size;
+    canvas.height = size;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([2.5, 2]);
+    ctx.beginPath();
+    ctx.arc(size / 2, size / 2, MASKED_DATE_RADIUS, 0, 2 * Math.PI);
+    ctx.stroke();
+    marker = canvas;
+  }
+  rings.set(color, marker);
+  return marker;
 }
 
 export interface AreaSeriesOptions {
@@ -236,5 +286,26 @@ export function areaChartDatasets(o: AreaSeriesOptions): Record<string, unknown>
     data: series(r => r.mean),
     fill: false, backgroundColor: 'transparent', borderWidth: look.lineWidth, borderDash: [6, 4], pointRadius: 0,
   };
-  return [...(look.showBand ? bandSets : []), median, ...(look.showMean ? [mean] : [])];
+  // Dates on which no pixel of the area is valid (all masked): a hollow, dashed marker on the
+  // line between its neighbours, so the gap is seen and the rest of the series is still drawn.
+  const at = (x: string) => Date.parse(x);
+  const drawn = median.data;
+  const empty = rows.filter(r => r.count === 0).map(r => o.toX(r.label)).filter(x => o.inRange(x)).flatMap(x => {
+    const t = at(x);
+    const before = [...drawn].reverse().find(p => at(p.x) <= t);
+    const after = drawn.find(p => at(p.x) >= t);
+    if (!before && !after) return [];
+    const [a, b] = [before ?? after!, after ?? before!];
+    const span = at(b.x) - at(a.x);
+    return [{ x, y: span > 0 ? a.y + (b.y - a.y) * (t - at(a.x)) / span : a.y }];
+  });
+  const masked = {
+    ...common, label: `${o.name} fully masked`, _baseLabel: `${o.name} fully masked`, _legend: `${o.name} fully masked`,
+    _masked: true, _note: undefined, data: empty,
+    // Unfilled, with a dashed outline in the area's line colour.
+    showLine: false, fill: false, borderColor: o.color, backgroundColor: 'transparent',
+    pointBackgroundColor: 'transparent', pointBorderColor: o.color, pointBorderWidth: 1.5, borderDash: [2.5, 2],
+    pointRadius: MASKED_DATE_RADIUS, pointHoverRadius: MASKED_DATE_RADIUS + 1, pointStyle: maskedDateMarker(o.color), order: 0,
+  };
+  return [...(look.showBand ? bandSets : []), median, ...(look.showMean ? [mean] : []), ...(empty.length ? [masked] : [])];
 }

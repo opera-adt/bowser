@@ -14,3 +14,8 @@ describe('GeoTIFF server filenames', () => {
     expect(exportFilename(header, 'Velocity')).toBe('Velocity.tif');
   });
 });
+
+it('retains a safe GIF filename when explicitly requested, without accepting it as a numeric TIFF', () => {
+  expect(exportFilename('attachment; filename="motion_20260101_20260125.gif"', 'motion', 'gif')).toBe('motion_20260101_20260125.gif');
+  expect(exportFilename('attachment; filename="motion.gif"', 'motion')).toBe('motion.tif');
+});

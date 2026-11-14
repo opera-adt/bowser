@@ -22,7 +22,8 @@ import ChartAreaButton from './ChartAreaButton';
 import { AREA_BAND_LABELS, areaChartDatasets, areaStatsKey, type AreaBand } from '../utils/polygonSeries';
 import { useAreaReference } from '../hooks/useAreaReference';
 import { useAreaStatsFetch } from '../hooks/useAreaStatsFetch';
-import { useSpacedEffect } from '../hooks/useSpacedEffect';
+import { unappliedAreaMasks } from '../utils/zonalStats';
+import { REQUEST_GAP_MS, useSpacedEffect } from '../hooks/useSpacedEffect';
 import { readChartDisplayOpen, saveChartDisplayOpen } from '../utils/chartDisplayPref';
 import { refIndexOf, toIsoDate } from '../utils/areaStats';
 import { registerChart, type ChartSnapshot, type LayerDisplay, type SeriesTag } from '../assistant/chartView';
@@ -61,7 +62,7 @@ const linkedLegendPlugin = {
 };
 
 /** Least time between two rounds of chart requests (see useSpacedEffect). */
-export const CHART_REQUEST_GAP_MS = 250;
+export const CHART_REQUEST_GAP_MS = REQUEST_GAP_MS;
 
 ChartJS.register(linkedLegendPlugin);
 
@@ -323,7 +324,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     fetchBufferTimeSeries,
   ], CHART_REQUEST_GAP_MS, () => setBufferData({}));
 
-  // ── Areas (+ Area): statistics per area × layer, fetched once (an area's polygon never changes) ──
+  // ── Areas (+ Area): native summaries shared with Stats, refreshed when masks change ──
   const visibleAreas = state.chartAreas.filter(a => a.visible);
   // Kept in AppState (the Stats tab lists them too); Zonal stats may have asked already.
   const areaResults = state.areaStats;
@@ -565,8 +566,8 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
                     ? ` (${trendMmPerYear.toFixed(rateUnit === 'in' ? 2 : 1)} ${rateUnit}/yr)` : '');
                   return {
                     text: displayText,
-                    pointStyle: (ds._area ? (ds.fill ? 'rect' : 'line') : (ds.pointStyle ?? 'circle')) as any,
-                    fillStyle: ds._area && ds.fill ? ds.backgroundColor : ds.borderColor,
+                    pointStyle: (ds._masked ? ds.pointStyle : ds._area ? (ds.fill ? 'rect' : 'line') : (ds.pointStyle ?? 'circle')) as any,
+                    fillStyle: ds._masked ? 'transparent' : ds._area && ds.fill ? ds.backgroundColor : ds.borderColor,
                     lineDash: ds._area ? ds.borderDash : undefined,
                     strokeStyle: ds.borderColor,
                     fontColor: textColor,
@@ -587,6 +588,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
               const unit = (ds as any)._unit || 'm';
               let label = `${(ds as any)._baseLabel || ds.label}: ${context.parsed.y.toFixed(4)} ${unit}`;
               if ((ds as any)._area) label = `${ds.label}: ${context.parsed.y.toFixed(4)} ${unit}`;
+              if ((ds as any)._masked) return `${ds.label}: no valid pixel on this date`;
               const mmPy = (ds as any)._trendMmPerYear;
               const rateUnit = (ds as any)._rateUnit ?? 'mm';
               if (mmPy !== undefined && state.showTrends) label += ` (${mmPy.toFixed(rateUnit === 'in' ? 2 : 1)} ${rateUnit}/yr)`;
@@ -839,6 +841,8 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
         <div className="chart-placeholder">
           {activeDatasetsForChart.length === 0
             ? <p>No layer here has a time dimension.</p>
+            : areaErrors.length > 0 && visibleAreas.length > 0
+              ? <p>No valid area summary is available. See the area message above.</p>
             : state.layerMasks.length > 0
               ? (
                 <>
@@ -1134,7 +1138,11 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
       <div className="chart-help">
         <small>
           {picking ? `Click the chart where the ${picking} goes · ` : ''}Scroll to zoom · Drag to pan · Click points to sync map time
-          {visibleAreas.length > 0 && state.layerMasks.length > 0 && <> · Areas: masks not applied</>}
+          {visibleAreas.length > 0 && (visibleAreas.some(a => activeDatasetsForChart.some(ds => areaResults[areaStatsKey(ds, a.id)]?.data?.support === 'per_date'))
+            ? <> · Areas use the pixels valid on each date</>
+            : <> · Areas use common valid pixels</>)}
+          {visibleAreas.length > 0 && unappliedAreaMasks(activeDatasetsForChart, state) && <> · <strong>{unappliedAreaMasks(activeDatasetsForChart, state)}</strong></>}
+          {visibleAreas.some(a => activeDatasetsForChart.some(ds => areaResults[areaStatsKey(ds, a.id)]?.data?.optional_masks_applied)) && <> · Area quality masks applied</>}
           {state.bufferEnabled && Object.keys(bufferData).length > 0 && (
             <> · Buffer: {Object.values(bufferData).map((b: any) => b.n_pixels).join(', ')} px</>
           )}

@@ -5,6 +5,7 @@ import { SectionHeader } from './controls';
 import { exportFilename } from '../../utils/exportFilename';
 import { saveFile } from '../../utils/saveFile';
 import { activeRefTime } from '../../utils/refDate';
+import AnimationExport from './AnimationExport';
 
 const FORMATS: { value: ExportFormat; label: string }[] = [
   { value: 'geojson', label: 'GeoJSON' }, { value: 'csv', label: 'CSV' }, { value: 'kml', label: 'KML' }, { value: 'shapefile', label: 'Shapefile (.zip)' },
@@ -174,6 +175,7 @@ export default function ExportSection() {
           {canExport && (state.layerMasks.length > 0 || state.customMaskPath) && (
             <div className="row-label" style={{ fontSize: '0.72em', textAlign: 'center' }}>masking will be applied</div>
           )}
+          <AnimationExport />
           <div className="minmax-label" style={{ marginTop: 4 }}>Vector layers</div>
           {vectors.length === 0 ? (
             <div className="row-label" style={{ fontSize: '0.74em' }}>Files you add and shapes you draw can be saved here.</div>

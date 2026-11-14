@@ -114,6 +114,15 @@ def _normalise(ds: xr.Dataset) -> xr.Dataset:
             attrs = dict(var.attrs)
             attrs.pop("grid_mapping")
             ds[name].attrs = attrs
+    # pandas lazily builds mutable index-engine caches on first .sel().
+    # Build them while opening the cube, before it is shared by request threads.
+    # Coordinates are already loaded; no measurement arrays are touched.
+    for dim in ("x", "y"):
+        if dim in ds.indexes:
+            index = ds.indexes[dim]
+            _ = index.is_unique
+            _ = index.is_monotonic_increasing
+            _ = index.is_monotonic_decreasing
     return ds
 
 

@@ -153,6 +153,7 @@ export default function StatsTab() {
                   <div className="row-label" style={{ fontSize: '0.72em' }}>{entry?.pending || !entry ? 'Working…' : 'No value on this date'}</div>
                 ) : (
                   <dl className="zs-stats">
+                    <div title="Pixels contributing to this summary after source validity and requested quality masks"><dt>Usable pixels</dt><dd>{stats.count}</dd></div>
                     <div><dt>Mean</dt><dd>{fmt(stats.mean)}</dd></div>
                     <div><dt>Median</dt><dd>{fmt(stats.median)}</dd></div>
                     <div><dt>Std</dt><dd>{fmt(stats.std)}</dd></div>

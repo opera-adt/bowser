@@ -237,6 +237,7 @@ def get_config(
         "title": entry.name if entry is not None else settings.BOWSER_TITLE,
         "opera_logo": settings.BOWSER_OPERA_LOGO,
         "geotiff_export": True,
+        "raster_animation": False,
         "polygon_stats": True,
         "assistant": assistant_config(settings),
         "geotiff_upload": False,
@@ -665,6 +666,28 @@ def polygon_timeseries(
             status_code=422, detail="Could not read polygon-analysis source"
         ) from exc
     return JSONResponse(result)
+
+
+@app.get(
+    "/export/animation",
+    response_model=api.AnimationCapabilities,
+    **api.route_doc("GET /export/animation"),
+)
+def animation_capabilities():
+    """GIF rendering currently requires the full server's plotting stack."""
+    return {"supported": False, "scope": "GIF export needs the full server"}
+
+
+@app.post(
+    "/export/animation",
+    responses=api.NOT_IN_LITE,
+    **api.route_doc("POST /export/animation", lite_stub=True),
+)
+def export_animation():
+    """No fallback or successful empty GIF for unsupported lightweight export."""
+    return JSONResponse(
+        {"detail": "Raster GIF export currently needs the full server"}, status_code=501
+    )
 
 
 @app.get(

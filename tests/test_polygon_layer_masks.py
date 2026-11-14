@@ -206,7 +206,9 @@ def test_mismatched_temporal_axis_is_rejected(inputs, storage):
         run(storage, ds, groups, {**body, "layer_masks": [{"dataset": "wrong_dates"}]})
 
 
-def test_cog_upper_bound_matches_known_native_support(inputs):
+@pytest.mark.parametrize("mask_name", ["quality", "static_quality"])
+@pytest.mark.parametrize("support", ["common", "per_date"])
+def test_cog_upper_bound_counts_and_medians(inputs, mask_name, support):
     ds, groups, body = inputs
     result = run(
         "cog",
@@ -214,13 +216,22 @@ def test_cog_upper_bound_matches_known_native_support(inputs):
         groups,
         {
             **body,
-            "layer_masks": [{"dataset": "quality", "mode": "max", "threshold": 0.5}],
-            "support": "per_date",
+            "support": support,
+            "layer_masks": [{"dataset": mask_name, "mode": "max", "threshold": 0.5}],
         },
     )
-    assert result["optional_masks_applied"] is True
+    counts = [1, 2, 1] if mask_name == "quality" else [1, 1, 1]
+    assert result["valid_per_date"] == counts
+    assert result["common_pixels"] == 1
+    assert [r["count"] for r in result["statistics"]] == (
+        counts if support == "per_date" else [1, 1, 1]
+    )
+    assert [r["median"] for r in result["statistics"]] == (
+        [1, 21.5, 33]
+        if support == "per_date" and mask_name == "quality"
+        else [1, 17, 33]
+    )
     assert result["masks"][0]["operator"] == "<="
-    assert [r["count"] for r in result["statistics"]] == [1, 2, 1]
 
 
 @pytest.mark.parametrize("storage", ["md", "lite", "cog"])
