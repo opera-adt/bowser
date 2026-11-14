@@ -335,7 +335,9 @@ export interface AppState {
   markerSize: number;
   dateRangeStart: string | null;
   dateRangeEnd: string | null;
-  viewBounds: [number, number, number, number] | null; // [south, west, north, east]
+  // Where the map was last asked to go, [south, west, north, east]. Where it *is* lives in
+  // map/viewBounds.ts, outside this state, since it changes on every move.
+  viewBoundsRequest: [number, number, number, number] | null;
   // Incremented each time the user explicitly applies bounds (sidebar Apply /
   // Dataset buttons). The map's flyTo effect watches this, not viewBounds
   // itself — otherwise moveend → SET_VIEW_BOUNDS → effect → setView forms a
@@ -432,7 +434,6 @@ export type AppAction =
   | { type: 'SET_MARKER_SIZE'; payload: number }
   | { type: 'SET_DATE_RANGE_START'; payload: string | null }
   | { type: 'SET_DATE_RANGE_END'; payload: string | null }
-  | { type: 'SET_VIEW_BOUNDS'; payload: [number, number, number, number] | null }
   | { type: 'APPLY_VIEW_BOUNDS'; payload: [number, number, number, number] }
   | { type: 'TOGGLE_COLORBAR' }
   | { type: 'TOGGLE_LOS_INDICATOR' }

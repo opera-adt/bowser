@@ -4,7 +4,8 @@
  * All six tabs stay mounted (ControlPanel hides the inactive ones) and every one reads the
  * single app context, whose value is a new object on each dispatch. So a map move, a tick
  * of a slider or a step of the date player renders all of them again. What changes on every
- * mouse move (the split divider) is kept in a store of its own for that reason.
+ * mouse move or map move (the split divider, the view's bounds) is kept in a store of its own
+ * for that reason.
  *
  * This file pins that, action by action: RERENDERS says which tabs render again for one
  * dispatch. Work on the context (selectors, state moved out of the reducer) shows up here
@@ -16,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppProvider, useAppContext } from './AppContext';
 import type { AppAction, RasterGroup } from '../types';
 import { DEFAULT_SPLIT_POSITION, setSplitPosition } from '../map/splitPosition';
+import { setViewBounds } from '../map/viewBounds';
 import MainTab from '../components/panel/MainTab';
 import OverlaysTab from '../components/panel/OverlaysTab';
 import StatsTab from '../components/panel/StatsTab';
@@ -41,8 +43,6 @@ const layer = (name: string, over: Partial<RasterGroup> = {}): RasterGroup => ({
  * which tab the action is for; every other name in a list is a render that buys nothing.
  */
 const RERENDERS: Record<string, { action: AppAction; tabs: Tab[] }> = {
-  // The map was moved (every moveend). Read on demand by Overlays and GNSS.
-  'a map move': { action: { type: 'SET_VIEW_BOUNDS', payload: [0.1, 0.1, 0.9, 0.9] }, tabs: ALL },
   // A tick of the data layer's opacity slider (a map toolbar, not a tab).
   'an opacity tick': { action: { type: 'SET_OPACITY', payload: 0.6 }, tabs: ALL },
   // A step of the date player. Main shows the date; Stats the values at it.
@@ -97,6 +97,15 @@ describe('side-panel tabs rendered again by an action', () => {
     rendered.clear();
     act(() => dispatch(action));
     expect([...rendered].sort()).toEqual([...tabs].sort());
+  });
+
+  // GNSS lists each station's distance from the view; Project's GIF export crops to it.
+  it('a map move renders only the two tabs that show something of the view', async () => {
+    await mount();
+    rendered.clear();
+    act(() => setViewBounds([0.1, 0.1, 0.9, 0.9]));
+    expect([...rendered].sort()).toEqual(['gnss', 'project']);
+    setViewBounds(null);
   });
 
   it('a divider drag renders nothing: its position is not in the context', async () => {

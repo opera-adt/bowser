@@ -18,6 +18,7 @@ import {
   addService, clearHighlights, drawResult, isHighlight, listServices, removeService,
 } from '../map/contextServices';
 import { DRAWINGS_ID, drawingName } from '../map/overlays';
+import { getViewBounds } from '../map/viewBounds';
 import { runChartTool } from './chartTools';
 import { CHART_TOOL_NAMES } from './chartView';
 
@@ -143,8 +144,8 @@ function view(ctx: PageContext): Record<string, unknown> {
       pitch: round(v.pitch, 1), bounds: v.bounds.map(b => round(b)), map: v.map,
     });
     out.terrain = nav.terrain ? nav.terrain.get() : { enabled: false, note: '3D terrain needs the MapLibre map.' };
-  } else if (s.viewBounds) {
-    const [so, w, n, e] = s.viewBounds;
+  } else if (getViewBounds()) {
+    const [so, w, n, e] = getViewBounds()!;
     out.bounds = [w, so, e, n].map(b => round(b));
     out.center = [round((w + e) / 2), round((so + n) / 2)];
   }
@@ -770,8 +771,8 @@ export function pageState(state: AppState, dataset: string | null): Record<strin
     out.view = { center: [r5(v.center[0]), r5(v.center[1])], zoom: Math.round(v.zoom * 10) / 10, bounds: v.bounds.map(r5) };
     const t = nav.terrain?.get();
     if (t?.enabled) out.terrain = { exaggeration: t.exaggeration, pitch: Math.round(v.pitch) };
-  } else if (state.viewBounds) {
-    const [so, w, n, e] = state.viewBounds;
+  } else if (getViewBounds()) {
+    const [so, w, n, e] = getViewBounds()!;
     out.view = { bounds: [r5(w), r5(so), r5(e), r5(n)], center: [r5((w + e) / 2), r5((so + n) / 2)] };
   }
   if (state.splitScreen) out.split_screen = { left_layer: ds || null, right_layer: state.splitDataset };

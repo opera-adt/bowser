@@ -6,6 +6,7 @@
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SPLIT_POSITION, setSplitPosition } from '../map/splitPosition';
+import { getViewBounds, setViewBounds } from '../map/viewBounds';
 
 
 const { FakeMap, FakeMarker, FakePopup, dispatch, mockState } = vi.hoisted(() => {
@@ -131,14 +132,14 @@ beforeEach(() => {
     timeSeriesPoints: [], selectedPointId: null, refMarkerVisible: true, annotationMode: false, annotations: [], overlays: [], bufferEnabled: false, bufferRadius: 0,
     pointPickingEnabled: true, showChart: false, pixelInspectEnabled: false, splitScreen: false,
     splitDataset: null, splitTimeIndex: 0, refBufferEnabled: false, refBufferRadius: 0, refCandidates: [],
-    viewBounds: null, viewBoundsApplySeq: 0, showColorbar: false, showLosIndicator: false, graticuleMode: 'off',
+    viewBoundsRequest: null, viewBoundsApplySeq: 0, showColorbar: false, showLosIndicator: false, graticuleMode: 'off',
   });
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     if (url.startsWith('/md/')) return new Response(JSON.stringify({ tiles: [`http://h/t/{z}/{x}/{y}.png?v=${++tile}`] }));
     return new Response(JSON.stringify([0, 0.001]));
   }));
 });
-afterEach(() => { cleanup(); setSplitPosition(DEFAULT_SPLIT_POSITION); vi.unstubAllGlobals(); vi.useRealTimers(); vi.restoreAllMocks(); localStorage.clear(); });
+afterEach(() => { cleanup(); setSplitPosition(DEFAULT_SPLIT_POSITION); setViewBounds(null); vi.unstubAllGlobals(); vi.useRealTimers(); vi.restoreAllMocks(); localStorage.clear(); });
 
 async function mount() {
   const view = render(<MapLibreMap />);
@@ -384,14 +385,15 @@ describe('MapLibreMap', () => {
 
   it('view sync: "fit to dataset" moves the camera, panning reports the bounds', async () => {
     const { view, map } = await mount();
-    mockState.viewBounds = [33.9, -117.7, 34.0, -117.6];
+    mockState.viewBoundsRequest = [33.9, -117.7, 34.0, -117.6];
     mockState.viewBoundsApplySeq = 1;
     view.rerender(<MapLibreMap />);
     await act(async () => { await vi.advanceTimersByTimeAsync(10); });
     expect(map.fitted).toEqual([[-117.7, 33.9], [-117.6, 34.0]]);
     dispatch.mockReset();
     act(() => map.fire('moveend', {}));
-    expect(dispatch).toHaveBeenCalledWith({ type: 'SET_VIEW_BOUNDS', payload: [33.951235, -117.69, 33.97, -117.65] });
+    expect(getViewBounds()).toEqual([33.951235, -117.69, 33.97, -117.65]);
+    expect(dispatch).not.toHaveBeenCalled();   // a move is not an action: it renders nothing
   });
 
   it('measure: clicks add points with a running total instead of picking, double-click ends it and keeps it', async () => {

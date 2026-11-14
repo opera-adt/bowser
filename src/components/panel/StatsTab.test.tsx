@@ -114,7 +114,7 @@ describe('Stats tab', () => {
     fireEvent.click(within(row('Dam area')).getByTitle('Hide in the chart'));
     expect(stateRef.chartAreas[0].visible).toBe(false);
     fireEvent.click(within(row('Dam area')).getByTitle('Zoom to Dam area'));
-    expect(stateRef.viewBounds).toEqual([34.7, -90.12, 34.72, -90.11]);
+    expect(stateRef.viewBoundsRequest).toEqual([34.7, -90.12, 34.72, -90.11]);
     fireEvent.click(within(row('North shore')).getByTitle('Remove North shore'));
     expect(stateRef.chartAreas.map(a => a.name)).toEqual(['Dam area']);
     expect(Object.keys(stateRef.areaStats)).toEqual(['displacement::a1']);

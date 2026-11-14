@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
+import { getViewBounds } from '../../map/viewBounds';
 import { ACCEPT, useAddFiles, useDataConversion } from '../../hooks/useAddFiles';
 import { inspectPmtiles, pmtilesOverlay } from '../../map/pmtiles';
 import { CONTEXT_LAYERS, LAND_COVER_YEARS, type ContextKey } from '../../map/contextLayers';
@@ -136,7 +137,7 @@ function ContextView() {
   const [loadingSoils, setLoadingSoils] = useState(false);
   const toggleSoils = async () => {
     if (serviceOn('soils')) { removeService(env, 'soils'); return; }
-    if (!state.viewBounds || loadingSoils) return;
+    if (!getViewBounds() || loadingSoils) return;
     setLoadingSoils(true);
     try {
       await addService(env, 'soils');

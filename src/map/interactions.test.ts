@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AppAction, RasterGroup } from '../types';
 import {
   annotationAction, mapClickActions, markerPopupText, pixelInspectRequest, pixelInspectText,
-  pointClickActions, pointDoubleClickActions, pointDragEndActions, refDragEnd, viewBoundsAction,
+  pointClickActions, pointDoubleClickActions, pointDragEndActions, refDragEnd,
 } from './interactions';
 
 const P: [number, number] = [33.95859, -117.67462];   // [lat, lng]
@@ -176,13 +176,6 @@ describe('pixel inspect', () => {
   });
 });
 
-describe('view bounds', () => {
-  it('reports the visible area rounded to 6 decimals, south/west/north/east', () => {
-    expect(viewBoundsAction(33.951234567, -117.682345678, 33.97, -117.66)).toEqual({
-      type: 'SET_VIEW_BOUNDS', payload: [33.951235, -117.682346, 33.97, -117.66],
-    });
-  });
-});
 
 describe('map click while drawing', () => {
   it('leaves the click to the identify tool', () => {

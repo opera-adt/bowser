@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { setViewBounds } from '../../map/viewBounds';
 import type { AppState } from '../../types';
 import AnimationExport from './AnimationExport';
 import { saveFile } from '../../utils/saveFile';
@@ -10,11 +11,12 @@ vi.mock('../../utils/saveFile', () => ({ saveFile: vi.fn(async () => true) }));
 let supported: boolean;
 let reply: Response;
 beforeEach(() => {
+  setViewBounds([0, 3, 1, 4]);
   supported = true;
   state = { currentDataset: 'displacement', datasetInfo: { displacement: {
     x_values: ['2026-01-01', '2026-01-13', '2026-01-25'], uses_spatial_ref: true, algorithm: 'shift',
   } }, refEnabled: true, refMarkerPosition: [0.001, 3.001], refBufferEnabled: true, refBufferRadius: 20,
-  refTimeIndex: { displacement: 0 }, dataMode: 'md', viewBounds: [0, 3, 1, 4],
+  refTimeIndex: { displacement: 0 }, dataMode: 'md',
   vmin: -1, vmax: 2, colormap: 'viridis', layerMasks: [{ id: 'q', dataset: 'quality', threshold: 0.8, mode: 'min' }],
   customMaskPath: null, wrapEnabled: false } as unknown as AppState;
   reply = new Response(new Blob(['GIF89a']), { status: 200, headers: { 'Content-Type': 'image/gif',
@@ -23,7 +25,7 @@ beforeEach(() => {
     ? new Response(JSON.stringify({output_width:512,output_height:560}))
     : init?.method === 'POST' ? reply : new Response(JSON.stringify({ raster_animation: supported }))));
 });
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.clearAllMocks(); window.history.replaceState({}, '', '/'); });
+afterEach(() => { cleanup(); setViewBounds(null); vi.unstubAllGlobals(); vi.clearAllMocks(); window.history.replaceState({}, '', '/'); });
 const button = () => screen.getByRole('button', { name: 'Download raster GIF' });
 
 describe('raster GIF export controls', () => {

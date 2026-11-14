@@ -4,6 +4,7 @@
  * add_context_layer, remove_context_layer), so a tool does exactly what a toggle does. Also the
  * highlight layers the AI tools draw (infrastructure and deformation zones from the server).
  */
+import { getViewBounds } from './viewBounds';
 import type { AppAction, AppState, Overlay, OverlayFeatures } from '../types';
 import { CONTEXT_LAYERS, contextOverlay, LAND_COVER_YEARS, landCoverOverlay, type ContextKey } from './contextLayers';
 import { geologyOverlay, soilsOverlay } from './services';
@@ -88,9 +89,10 @@ function checkId(id: unknown): ServiceId {
 }
 
 /** The view as [west, south, east, north], or an error for the services that load for it. */
-function viewBox(state: AppState, what: string): [number, number, number, number] {
-  if (!state.viewBounds) throw new Error(`${what} load for the map's view, which is not known yet.`);
-  const [south, west, north, east] = state.viewBounds;
+function viewBox(what: string): [number, number, number, number] {
+  const view = getViewBounds();
+  if (!view) throw new Error(`${what} load for the map's view, which is not known yet.`);
+  const [south, west, north, east] = view;
   return [west, south, east, north];
 }
 
@@ -126,7 +128,7 @@ export async function addService(
     return { id, on: true, name: o.name };
   }
   if (id === 'soils') {
-    const view = viewBox(state, 'Soils');
+    const view = viewBox('Soils');
     dispatch({ type: 'SET_OVERLAY_MESSAGE', payload: 'Loading soils in this view…' });
     try {
       const { overlay, notes } = await soilsOverlay(view, `soils_${Date.now()}`);
@@ -144,7 +146,7 @@ export async function addService(
     }
   }
   if (id === 'gnss') {
-    const [west, south, east, north] = viewBox(state, 'GNSS stations');
+    const [west, south, east, north] = viewBox('GNSS stations');
     const q = new URLSearchParams({ west: String(west), south: String(south), east: String(east), north: String(north) });
     const res = await fetch(`/gnss/stations?${q}`);
     const body = await res.json().catch(() => ({}));

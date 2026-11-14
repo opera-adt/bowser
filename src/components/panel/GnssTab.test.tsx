@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { setViewBounds } from '../../map/viewBounds';
 import type { AppAction, AppState } from '../../types';
 import type { CustomGnssStation } from '../../map/gnss';
 import GnssTab from './GnssTab';
@@ -31,11 +32,11 @@ const ok = (body: unknown, status = 200) => ({ ok: status < 400, status, json: a
 const picked = (text: string, name: string) => Object.assign(new File([text], name), { text: async () => text });
 
 beforeEach(() => {
+  setViewBounds([33.9, -117.7, 34.0, -117.6]);
   state = {
     currentDataset: 'displacement',
     datasetInfo: { displacement: { x_values: ['2026-01-01', '2026-01-13'], unit: 'meters', uses_spatial_ref: true,
       los_metadata: { los_enu_ground_to_sat: { east: -0.6, north: -0.1, up: 0.78 } } } },
-    viewBounds: [33.9, -117.7, 34.0, -117.6],
     overlays: [], units: 'metric',
     refMarkerPosition: [33.96, -117.68], refEnabled: true, refBufferEnabled: false, refBufferRadius: 0, layerMasks: [],
   } as unknown as AppState;
@@ -65,7 +66,7 @@ beforeEach(() => {
   }));
 });
 
-afterEach(() => { cleanup(); dispatch.mockReset(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); setViewBounds(null); dispatch.mockReset(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 const overlaysAdded = () => dispatch.mock.calls.map(([a]) => a).filter(a => a.type === 'ADD_OVERLAY')
   .map(a => (a as { payload: { id: string; data: GeoJSON.FeatureCollection } }).payload);
