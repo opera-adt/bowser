@@ -2,7 +2,7 @@ import json
 import subprocess
 from datetime import datetime
 from functools import cache
-from typing import Sequence, TypeVar
+from typing import Any, Sequence, TypeVar
 
 import numpy as np
 import xarray as xr
@@ -226,6 +226,36 @@ def list_bucket(
 
 
 @cache
+def _colorbar_cmap(cmap_name: str) -> Any:
+    """Return the matplotlib colormap for ``cmap_name``, as the tiles are coloured.
+
+    Matplotlib's own when it has the name. The tiler also offers maps matplotlib
+    does not ship (rio-tiler's cmocean set: ``algae``, ``balance``, ``thermal``
+    and others, with their ``_r``): those are built from the tiler's own table,
+    so the bar shows the colours the map does.
+
+    Raises
+    ------
+    ValueError
+        If neither knows the name.
+
+    """
+    import matplotlib as mpl
+    from matplotlib.colors import ListedColormap
+
+    if cmap_name in mpl.colormaps:
+        return mpl.colormaps[cmap_name]
+    try:
+        from rio_tiler.colormap import cmap as rt_cmap
+    except ImportError:
+        rt_cmap = None
+    name = cmap_name.lower()
+    if rt_cmap is not None and name in rt_cmap.list():
+        table = rt_cmap.get(name)
+        return ListedColormap([[c / 255 for c in table[i]] for i in range(256)], name)
+    raise ValueError(f"Unknown colormap {cmap_name!r}")
+
+
 def generate_colorbar(cmap_name: str) -> bytes:
     """Generate a colorbar image using a specified matplotlib colormap.
 
@@ -245,15 +275,16 @@ def generate_colorbar(cmap_name: str) -> bytes:
     import matplotlib.pyplot as plt
     import numpy as np
 
+    cmap = _colorbar_cmap(cmap_name)
     gradient = np.array([[0, 1]])
     fig, ax = plt.subplots(figsize=(9, 1.5))
-    ax.imshow(gradient, cmap=cmap_name)
+    ax.imshow(gradient, cmap=cmap)
     ax.set_visible(False)
 
     # Create colorbar in a tightly fitted axis
     cax = fig.add_axes([0.05, 0.2, 0.9, 0.6])
     colorbar = plt.colorbar(
-        ax.imshow(gradient, cmap=cmap_name), cax=cax, orientation="horizontal"
+        ax.imshow(gradient, cmap=cmap), cax=cax, orientation="horizontal"
     )
     colorbar.set_ticks([])
 
