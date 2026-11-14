@@ -28,6 +28,7 @@ dependencies = [
   "rioxarray",
   "shapely",  # polygon statistics (src/bowser/polygon.py)
   "matplotlib",
+  "pillow>=9.1",  # GIF palette/Resampling API is used directly.
   "pydantic-settings",
   "rich",
   "s3fs>=2024.1.0",
@@ -124,6 +125,7 @@ tqdm = "*"
 opera-utils = "*"
 rioxarray = "*"
 matplotlib = "*"
+pillow = ">=9.1"
 pydantic-settings = "*"
 python-dateutil = ">=2.9.0.post0,<3"
 s3fs = ">=2024.1.0"

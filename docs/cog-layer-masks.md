@@ -35,11 +35,11 @@ point/radius chart parity: the current GeoTIFF point reader does not apply named
 layer masks, and the broader chart-mask routing fix is separate. Do not use a
 masked map as evidence that its point chart was masked identically.
 
-The native polygon-mask API and its frontend contribution are maintained
-separately while their upstream prerequisites are pending. Their GeoTIFF upper
-bound must be enabled and tested explicitly with this repair before the
-combined viewer is accepted; this standalone patch does not silently extend
-the stored-only upstream polygon endpoint.
+With the dependent native polygon-mask API and frontend enabled, upper bounds
+also apply to polygon summaries. Those masks must share the exact native grid
+and temporal labels; the polygon API still rejects shifted/resampled masks.
+Configured and uploaded polygon masks remain unsupported and give explicit
+errors. Point/radius chart mask routing remains separate.
 
 Time-index clamping, acquisition-label matching and reference sampling are not
 changed. Tests use matching temporal inputs; they do not establish arbitrary

@@ -7,7 +7,7 @@ bowser-lite and do not require GDAL. No mask resampling or date inference occurs
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, Protocol
 
 import numpy as np
 from pyproj import CRS
@@ -18,7 +18,12 @@ from .polygon import STORED_WARNING, NativeGrid, _linear, _values
 if TYPE_CHECKING:
     import xarray as xr
 
-    from .polygon import PolygonRequest
+    from .polygon import PolygonMask
+
+
+class _MaskRequest(Protocol):
+    layer_masks: list[PolygonMask]
+
 
 Reader = Callable[[int, slice, slice], np.ndarray]
 
@@ -80,7 +85,7 @@ class PolygonMasks:
 def xarray_masks(
     source: xr.DataArray,
     dataset: xr.Dataset | None,
-    request: PolygonRequest,
+    request: _MaskRequest,
     crs: Any,
 ) -> PolygonMasks:
     """Prepare static or exact-axis GeoZarr masks on canonical native grids."""
@@ -143,7 +148,7 @@ def xarray_masks(
 
 def raster_masks(
     groups: dict | None,
-    request: PolygonRequest,
+    request: _MaskRequest,
     labels: list[str],
     grid: NativeGrid,
 ) -> PolygonMasks:
@@ -157,8 +162,6 @@ def raster_masks(
     if groups is None:
         raise ValueError("Requested masks require an explicit mask source context")
     for spec in request.layer_masks:
-        if spec.mode != "min":
-            raise ValueError("GeoTIFF polygon masks currently support only min")
         if spec.dataset not in groups:
             raise ValueError(f"Unknown mask layer: {spec.dataset}")
         group = groups[spec.dataset]
@@ -200,7 +203,7 @@ def raster_masks(
             {
                 "dataset": spec.dataset,
                 "threshold": spec.threshold,
-                "operator": ">",
+                "operator": "<=" if spec.mode == "max" else ">",
                 "temporal_support": "matching_axis" if len(paths) > 1 else "static",
             }
         )

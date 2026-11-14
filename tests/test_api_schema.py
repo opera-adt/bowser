@@ -138,6 +138,12 @@ SCRIPT = textwrap.dedent(
     rlon, rlat = -117.67984, 33.96289
     edge = [-117.66939, 33.95429]
     check("config", "GET", "/config")
+    check("animation_capabilities", "GET", "/export/animation")
+    if which == "full":
+        check("animation_plan", "POST", "/export/animation/plan", json={
+            "variable": "displacement", "start_index": 0, "end_index": 2,
+            "vmin": -1, "vmax": 1, "width": 64,
+        })
     check("mode", "GET", "/mode")
     check("catalog", "GET", "/catalog")
     check("scan", "POST", "/catalog/scan", json={"dir": str(Path(cube).parent)})

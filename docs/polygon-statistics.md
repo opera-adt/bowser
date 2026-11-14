@@ -41,10 +41,43 @@ deviation would be. It is spatial spread, not measurement uncertainty.
 When the viewer's reference is on for the layer, the chart subtracts the same
 reference value per date that the map and the point series use, so areas and
 points can be compared ("relative to the reference" in the tooltip). The
-optional masks are not applied to areas; the chart says so when masks are on.
-The API now accepts explicit named layer masks, described below; forwarding the
-chart's mask controls and invalidating its cached area summaries is separate
-UI work. Merely enabling a map mask does not yet change an area chart.
+named quality masks from Main > Masking are sent explicitly to the polygon API.
+The chart and Stats tab share each native summary. Changing a layer mask, its
+threshold or comparison clears the old summaries immediately and requests new
+ones; clearing masks restores the unmasked stored support. The Stats tab's
+**Usable pixels** reports the pixels contributing to the current summary.
+
+Superseded requests are aborted and late responses cannot restore an older
+curve or a removed area. Queued work for superseded settings is not started.
+Changing the source, loading a project or editing the area's geometry also
+invalidates the summaries. Reference, reference-date, styling and date-slider
+changes reuse the native summary; the existing reference calculation is applied
+once in the chart, not again in the API.
+
+The server must confirm that requested quality masks were applied. A failed,
+empty or unconfirmed mask response clears the old curve and displays an error;
+there is no fallback to unmasked data for the masks chosen in Main > Masking.
+
+Two masks the map applies are not yet supported by this polygon workflow: an
+uploaded external mask, and a GeoTIFF layer's configured mask file. An area is
+still drawn while one of them is active, from pixels the map may be hiding, and
+the chart's footnote says so ("Areas: uploaded mask not applied", "Areas:
+configured mask not applied"). These limits do not claim to change point-chart
+or map behavior.
+
+With a quality mask on, each date uses the pixels that pass the mask on that
+date (`support: per_date`), as the map shows them; without masks the same
+pixels are used at every date (`common`). A mask that changes with date, such
+as `recommended_mask`, leaves few pixels, or none, passing on every date. A
+date on which no pixel of the area passes is drawn as an unfilled marker with a
+dashed outline in the area's colour, on the line between its neighbours ("fully
+masked"), and the rest of the series is drawn.
+The chart's footnote says which rule is in use, and the Stats tab's Usable
+pixels gives the count for the date shown.
+
+While a mask slider is dragged the area requests are spaced: the first change
+asks at once, then at most once per 250 ms, always ending on the value the
+slider stopped at.
 Bowser-lite has the same button and gives the same numbers (see
 [Bowser-lite](#bowser-lite)).
 
@@ -88,8 +121,8 @@ pixels, for example:
 The threshold is in the named layer's stored units. Up to ten masks are combined
 with AND, in addition to intrinsic source validity. GeoZarr (full and lite)
 supports inclusive `min` (`>=`) and `max` (`<=`). Direct GeoTIFF masks preserve
-the map reader's strict `min` (`>`) convention. GeoTIFF `max` is rejected until
-the map/export upper-bound support is repaired; it is never silently ignored.
+the map reader's strict `min` (`>`) convention and support inclusive `max` (`<=`).
+These are signed comparisons, not absolute-value bounds.
 Mask nodata, undecoded fill sentinels and nonfinite values are always excluded,
 even when a sentinel would satisfy the threshold. A legitimate displacement of
 zero remains valid if it passes the masks.
@@ -126,8 +159,8 @@ It therefore does not claim to reproduce a dynamically referenced/masked map.
 Reference coordinates, primary/configured mask options and external uploaded
 mask paths remain unsupported request fields and are rejected. The chart
 already subtracts its reference from stored summaries; no second reference
-subtraction is introduced here. Future chart mask wiring must send its options
-explicitly and invalidate old summaries when they change. Disconnected offsets can be
+subtraction is introduced here. The chart sends supported named masks explicitly
+and invalidates old summaries when they change. Disconnected offsets can be
 ambiguous; component numbers are never assumed comparable between pairs or
 dates. Spatial spread is not measurement uncertainty, and an apparent history
 does not establish reference stability or ground motion.

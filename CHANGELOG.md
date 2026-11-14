@@ -16,8 +16,22 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   quality reductions. GPU masks no longer independently clamp a mismatched axis.
   Empty explicit mask strings mean no masks. Source values, thresholds, fitting
   and spatial/temporal reference policies are unchanged.
+- LOS widget sign labels now use the existing per-layer measurement direction
+  and sign, independently of re-referencing support. Positive-away labels are
+  reversed; non-LOS/unknown layers retain geometry without misleading signs.
+  Stored values and viewing geometry are unchanged.
+- Concurrent first queries to a bowser-lite cube no longer race while pandas
+  initializes spatial coordinate-index caches. Initialize the caches while
+  opening each level, without reading measurement pixels, changing coordinates
+  or relaxing duplicate-coordinate checks.
 
 ### Added
+
+- Bounded raster GIF export on the full server, with date labels, saved color
+  limits, native-reference offsets, shared export masks, cropped reads and
+  existing display pyramids/overviews. Metadata-only preflight, elapsed time
+  and Cancel controls are available in Project → Export. See
+  [docs/raster-animation.md](docs/raster-animation.md) for display limitations.
 
 - Scientific colour maps (Crameri): `batlow`, `lajolla`, `oslo`, `vik`, `roma`,
   `berlin`, `broc`, `bam` and the cyclic `romaO`, each with its reverse, as
@@ -373,6 +387,18 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Area (polygon) charts and the Stats tab follow the masks chosen in Main >
+  Masking. They kept showing the unmasked summary when a mask was added,
+  changed or removed. The masks are now sent to `/polygon_timeseries`
+  (including `<=` for GeoTIFF layers), the summaries are refreshed when the
+  masks, the source or the polygon change (at most once per 250 ms while a
+  slider is dragged), and a late answer no longer replaces a newer one. With
+  a mask, each date uses the pixels that pass on that date, and a date with
+  none is an unfilled, dashed marker ("fully masked") instead of an empty
+  chart. An
+  uploaded mask and a GeoTIFF layer's configured mask are not applied to
+  areas yet; the chart's footnote says so. The Stats tab shows the usable
+  pixels of each summary.
 - GNSS tab: the InSAR curve compared with a station follows the current
   settings. It was fetched only when a station was picked or the reference
   moved, so a changed mask, layer, reference switch or reference radius left

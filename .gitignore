@@ -35,3 +35,6 @@ build/
 
 data/
 .ipynb_checkpoints
+
+# Local Pixi solve/build state, not source
+/.pixi/
