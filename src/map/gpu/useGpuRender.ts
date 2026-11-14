@@ -10,7 +10,7 @@
  * tiles while it lasts; the GPU layer stays, empty, and draws again afterwards.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useDebug } from '../../utils/debug';
+import { debugMessage, useDebug } from '../../utils/debug';
 import type * as maplibregl from 'maplibre-gl';
 import { useAppContext } from '../../context/AppContext';
 import { buildTileRequest } from '../../utils/tileParams';
@@ -45,11 +45,9 @@ export function statsText(s: GpuLayerStats): string {
     + `${s.drawMs != null ? ` · drawn in ${s.drawMs} ms` : ''}`;
 }
 
-let logged = '';
+/** Say it once: in the console and in the diagnostics list (the map label opens it). */
 function logOnce(msg: string, warn = false) {
-  if (logged === msg) return;
-  logged = msg;
-  (warn ? console.warn : console.info)(`[bowser] data layer: ${msg}`);
+  debugMessage(`data layer: ${msg}`, warn);
 }
 
 /**

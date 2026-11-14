@@ -24,6 +24,10 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   GPU when it has a capable one, else tiles) or the GPU. It applies at once,
   without reloading, and is kept in this browser. `?render=` in the address
   still decides for that visit.
+- With diagnostics on, a click on the map's renderer label opens every
+  diagnostic message so far above it, in full and with its time (the label
+  itself is one line, cut short): which renderer was chosen and why, and what
+  made it fall back.
 - Bounded raster GIF export on the full server, with date labels, saved color
   limits, native-reference offsets, shared export masks, cropped reads and
   existing display pyramids/overviews. Metadata-only preflight, elapsed time
