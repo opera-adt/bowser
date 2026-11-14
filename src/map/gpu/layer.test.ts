@@ -95,6 +95,15 @@ function setup(budgetBytes: number, span = 0.05) {
 const MB = 1024 * 1024;
 
 describe('GpuCubeLayer', () => {
+  it('rejects a mismatched dynamic mask instead of clamping its index', async () => {
+    const { gl, cube, layer, onFailure, calls } = setup(512 * MB);
+    cube.variable = async (...args: unknown[]) => ({ ndim: 3, tChunk: 8, nTime: args[1] === 'quality' ? 28 : 269 });
+    layer.setParams(params({ timeIdx: 200, mask: { dataset: 'quality', threshold: .5, mode: 'min' } }), 1);
+    await frames(layer, gl, 4);
+    expect(onFailure).toHaveBeenCalledWith(expect.stringContaining('Mask axis does not match'));
+    expect(calls.filter(c => c.variable === 'quality')).toHaveLength(0);
+  });
+
   it('uploads displacement as R16F (half the bytes) and the mask as R32F', async () => {
     const { gl, uploads, layer, calls } = setup(512 * MB);
     layer.setParams(params({ mask: { dataset: 'temporal_coherence', threshold: 0.7, mode: 'min' } }), 1);

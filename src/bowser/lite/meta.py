@@ -175,6 +175,8 @@ def latlon_bounds(cube: Cube) -> geo.Bounds:
 
 def dataset_info(cube: Cube, use_spatial_reference: bool) -> dict:
     """Return the ``/datasets`` body: one entry per variable with x and y dims."""
+    from ..mask_alignment import compatibility  # noqa: PLC0415
+
     ds = cube.dataset
     bounds = list(cube.bounds())
     ll_bounds = list(latlon_bounds(cube))
@@ -192,6 +194,7 @@ def dataset_info(cube: Cube, use_spatial_reference: bool) -> dict:
         n = len(labels) if dim is not None else 1
         attrs = dict(var.attrs)
         info[name] = {
+            "mask_compatibility": compatibility(ds, var),
             "name": name,
             "n_time_steps": n,
             "mask_min_value": 0.1,

@@ -1,3 +1,5 @@
+import type { RasterGroup } from '../../types';
+import { maskProblem } from '../../utils/maskCompatibility';
 /**
  * What the GPU draws, taken from the very query the tile path would send
  * (``buildTileRequest``), so both renderers read the same state the same way. A query
@@ -33,7 +35,7 @@ export type ParamsResult = { ok: true; params: GpuParams } | { ok: false; reason
  * GpuParams from the tile query parameters, or why the GPU path can't draw them yet
  * (those cases stay on server tiles).
  */
-export function gpuParamsFromTileQuery(params: Record<string, string>, dataMode: string | null): ParamsResult {
+export function gpuParamsFromTileQuery(params: Record<string, string>, dataMode: string | null, layers?: Record<string, RasterGroup>): ParamsResult {
   if (!dataMode) return { ok: false, reason: 'no data mode yet', wait: true };
   if (dataMode !== 'md') return { ok: false, reason: 'COG mode (not a zarr cube)' };
   if (params.algorithm && params.algorithm !== 'shift') return { ok: false, reason: `algorithm "${params.algorithm}" (rewrap, phase or amplitude) not on the GPU path yet` };
@@ -54,6 +56,12 @@ export function gpuParamsFromTileQuery(params: Record<string, string>, dataMode:
     if (masks.length > 1) return { ok: false, reason: 'more than one layer mask not on the GPU path yet' };
     if (masks.length === 1) {
       const m = masks[0];
+      if (layers) {
+        if (!layers[params.variable]?.mask_compatibility)
+          return { ok: false, reason: 'mask coordinate compatibility unavailable; using server tiles' };
+        const reason = maskProblem(layers[params.variable], m.dataset);
+        if (reason) return { ok: false, reason };
+      }
       mask = { dataset: m.dataset, threshold: Number(m.threshold ?? 0.5), mode: m.mode === 'max' ? 'max' : 'min' };
     }
   }
@@ -86,6 +94,7 @@ export function displayedValue(
   if (Number.isNaN(v)) return NaN;
   if (mask) {
     const m = f(mask.value);
+    if (!Number.isFinite(m)) return NaN;
     const keep = mask.mode === 'max' ? m <= f(mask.threshold) : m >= f(mask.threshold);
     if (!keep) return NaN;
   }

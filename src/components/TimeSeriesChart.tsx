@@ -6,6 +6,7 @@ import 'chartjs-adapter-date-fns';
 import zoomPlugin from 'chartjs-plugin-zoom';
 import { useAppContext } from '../context/AppContext';
 import { useApi } from '../hooks/useApi';
+import { applicableMasks } from '../utils/maskCompatibility';
 import { MultiPointTimeSeriesData } from '../types';
 import { downloadChartAsPng } from '../utils/screenshot';
 import { addChartLayer, chartLayerFor, timeSeriesLayers } from '../utils/chartLayers';
@@ -228,7 +229,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
           // Trends come from the model fitted below (fitSeries), not the server.
           const tsData = await fetchMultiPointTimeSeries(
             apiPoints, dsName, refLon, refLat, false,
-            state.layerMasks,
+            applicableMasks(dsInfo, state.layerMasks),
             state.refEnabled && state.refBufferEnabled ? state.refBufferRadius : 0,
           );
           return { dsName, tsData };
@@ -292,7 +293,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
             state.bufferRadius,
             state.bufferSamples,
             refLon, refLat,
-            state.layerMasks,
+            applicableMasks(dsInfo, state.layerMasks),
             state.refEnabled && state.refBufferEnabled ? state.refBufferRadius : 0,
           );
           return { key: `${dsName}::${p.id}`, result };

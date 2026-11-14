@@ -87,3 +87,21 @@ describe('colormap textures', () => {
     for (let i = 3; i < 1024; i += 4) expect(rdbu[i]).toBe(255);
   });
 });
+
+
+it('requires server-proven mask coordinates for GPU drawing', () => {
+  const q = query({ layerMasks: [{ dataset: 'quality', threshold: .5, mode: 'min' }] });
+  expect(gpuParamsFromTileQuery(q, 'md', { displacement: dsInfo }).ok).toBe(false);
+  expect(gpuParamsFromTileQuery(q, 'md', { displacement: {
+    ...dsInfo, mask_compatibility: { quality: 'Dynamic mask coordinates differ' },
+  } }).ok).toBe(false);
+  expect(gpuParamsFromTileQuery(q, 'md', { displacement: {
+    ...dsInfo, mask_compatibility: { quality: null },
+  } }).ok).toBe(true);
+});
+
+
+it.each(['min', 'max'] as const)('rejects infinite mask values like the server (%s)', mode => {
+  expect(displayedValue(1, null, 0, {value: Infinity, threshold: .5, mode})).toBeNaN();
+  expect(displayedValue(1, null, 0, {value: -Infinity, threshold: .5, mode})).toBeNaN();
+});
