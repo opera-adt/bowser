@@ -491,7 +491,12 @@ export class GpuCubeLayer implements maplibregl.CustomLayerInterface {
     this.dropStale(frameStart);
     this.pump();
     const pending = [...this.textures.values()].some(e => e.state !== 'ready' && e.state !== 'error');
-    this.evict(gl, keep, inView);
+    // What this frame draws is not evicted under it: besides the view's own chunks (keep),
+    // that is the previous date still shown while the new one loads, and other levels
+    // underneath. Evicting one of those left the draw below with no texture to bind.
+    const drawn = new Set(keep);
+    for (const it of [...under, ...items]) [it.data, it.ref, it.mask].forEach(k => k && drawn.add(k));
+    this.evict(gl, drawn, inView);
 
     this.ensureColormap(gl, p.colormap);
     gl.useProgram(this.program);
@@ -509,6 +514,10 @@ export class GpuCubeLayer implements maplibregl.CustomLayerInterface {
     gl.bindTexture(gl.TEXTURE_2D, this.cmapTex);
     const main = (options.defaultProjectionData?.mainMatrix ?? options.modelViewProjectionMatrix) as ArrayLike<number>;
     for (const it of [...under, ...items]) {
+      const data = this.textures.get(it.data)?.tex;
+      const ref = it.ref ? this.textures.get(it.ref)?.tex : this.dummyTex;
+      const mask = it.mask ? this.textures.get(it.mask)?.tex : this.dummyTex;
+      if (!data || !ref || !mask) continue;   // gone since the list was made: skip, never throw
       const m = this.mesh(gl, it.level, it.cy, it.cx);
       gl.uniformMatrix4fv(this.loc.u_matrix, false, translateMatrix(main, m.origin[0], m.origin[1]));
       gl.uniform2i(this.loc.u_size, m.size[1], m.size[0]);
@@ -516,11 +525,11 @@ export class GpuCubeLayer implements maplibregl.CustomLayerInterface {
       gl.uniform1i(this.loc.u_refLayer, it.ref ? it.refLayer : -1);
       gl.uniform1i(this.loc.u_maskLayer, it.maskLayer);
       gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D_ARRAY, this.textures.get(it.data)!.tex);
+      gl.bindTexture(gl.TEXTURE_2D_ARRAY, data);
       gl.activeTexture(gl.TEXTURE1);
-      gl.bindTexture(gl.TEXTURE_2D_ARRAY, it.ref ? this.textures.get(it.ref)!.tex : this.dummyTex);
+      gl.bindTexture(gl.TEXTURE_2D_ARRAY, ref);
       gl.activeTexture(gl.TEXTURE2);
-      gl.bindTexture(gl.TEXTURE_2D_ARRAY, it.mask ? this.textures.get(it.mask)!.tex : this.dummyTex);
+      gl.bindTexture(gl.TEXTURE_2D_ARRAY, mask);
       gl.bindVertexArray(m.vao);
       gl.drawElements(gl.TRIANGLES, m.count, gl.UNSIGNED_SHORT, 0);
     }

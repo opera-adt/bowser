@@ -8,6 +8,11 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- GPU renderer: under memory pressure the layer could evict a texture it was
+  about to draw (the previous date, still shown while a new one loads, or
+  another zoom level underneath), fail with "can't access property tex,
+  this.textures.get(...) is undefined" and fall back to tiles. What a frame
+  draws is no longer evicted during that frame.
 - GeoTIFF point/radius charts now honor explicit quality masks and requested
   reference circles using shared native-grid mask readers. Static masks are
   cached per window and point reads retain three-worker concurrency. Geographic
