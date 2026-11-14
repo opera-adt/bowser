@@ -362,6 +362,18 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Area (polygon) charts and the Stats tab follow the masks chosen in Main >
+  Masking. They kept showing the unmasked summary when a mask was added,
+  changed or removed. The masks are now sent to `/polygon_timeseries`
+  (including `<=` for GeoTIFF layers), the summaries are refreshed when the
+  masks, the source or the polygon change (at most once per 250 ms while a
+  slider is dragged), and a late answer no longer replaces a newer one. With
+  a mask, each date uses the pixels that pass on that date, and a date with
+  none is an unfilled, dashed marker ("fully masked") instead of an empty
+  chart. An
+  uploaded mask and a GeoTIFF layer's configured mask are not applied to
+  areas yet; the chart's footnote says so. The Stats tab shows the usable
+  pixels of each summary.
 - GNSS tab: the InSAR curve compared with a station follows the current
   settings. It was fetched only when a station was picked or the reference
   moved, so a changed mask, layer, reference switch or reference radius left

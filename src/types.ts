@@ -84,6 +84,8 @@ export interface ChartArea extends Partial<AreaStyle> {
 
 /** One area's statistics for one layer: waiting, the answer, or why there is none. */
 export interface AreaStats {
+  /** Identifies the request allowed to fill this cache entry. Not persisted. */
+  requestId?: number;
   pending?: boolean;
   data?: PolygonTimeSeries;
   error?: string;
@@ -265,6 +267,8 @@ export interface AppState {
   chartAreas: ChartArea[];
   /** Area statistics per layer and area, keyed areaStatsKey(dataset, areaId). */
   areaStats: { [key: string]: AreaStats };
+  /** Invalidates native summaries when masks, sources or geometries change. */
+  areaStatsRevision: number;
   /** The band around each area in the chart: mean ± 1 std or p10–p90. */
   areaBand: AreaBand;
   /** The side panel's tab (Main, Overlays, Stats, GNSS, Project). */
@@ -359,6 +363,8 @@ export type AppAction =
   | { type: 'SET_PANEL_TAB'; payload: string }
   | { type: 'SET_AREA_BAND'; payload: AreaBand }
   | { type: 'SET_AREA_STATS'; payload: { [key: string]: AreaStats } }
+  | { type: 'START_AREA_STATS'; payload: { revision: number; entries: Record<string, AreaStats> } }
+  | { type: 'FINISH_AREA_STATS'; payload: { revision: number; entries: Record<string, AreaStats> } }
   | { type: 'REMOVE_CHART_AREA'; payload: string }
   | { type: 'UPDATE_CHART_AREA'; payload: { id: string; updates: Partial<ChartArea> } }
   | { type: 'SET_AREA_DRAWING'; payload: boolean }

@@ -210,18 +210,25 @@ export function useApi() {
   const fetchPolygonTimeSeries = useCallback(async (
     datasetName: string,
     geometry: ChartArea['geometry'],
+    layerMasks: LayerMask[] = [],
+    signal?: AbortSignal,
   ): Promise<{ data: PolygonTimeSeries } | { error: string }> => {
     try {
       const qs = withDataset(new URLSearchParams()).toString();
       const response = await fetch(qs ? `/polygon_timeseries?${qs}` : '/polygon_timeseries', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(polygonRequestBody(datasetName, geometry)),
+        body: JSON.stringify(polygonRequestBody(datasetName, geometry, layerMasks)),
+        ...(signal ? { signal } : {}),
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) return { error: polygonErrorMessage(response.status, body) };
+      if (layerMasks.length && body?.optional_masks_applied !== true) {
+        return { error: 'The server did not confirm the requested polygon masks; no unmasked curve is shown.' };
+      }
       return { data: body as PolygonTimeSeries };
     } catch (error) {
+      if (signal?.aborted) return { error: 'request superseded' };
       console.error('Error fetching polygon statistics:', error);
       return { error: 'could not reach the server' };
     }
