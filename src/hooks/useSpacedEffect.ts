@@ -1,5 +1,8 @@
 import { useEffect, useRef, type DependencyList } from 'react';
 
+/** Least time between two rounds of requests a slider can set off. */
+export const REQUEST_GAP_MS = 250;
+
 /**
  * An effect that runs at most once per `gapMs`: at once if none ran in the last
  * `gapMs`, otherwise when that gap has passed, and only for the latest change (a

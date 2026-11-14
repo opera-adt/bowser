@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useReducer, ReactNode } from 'react';
-import { AppState, AppAction, LegacyAppAction, TimeSeriesPoint, ChartWindow, ChartArea } from '../types';
+import { AppState, AppAction, LegacyAppAction, TimeSeriesPoint, ChartWindow, ChartArea, AreaStats } from '../types';
 import { DRAWINGS_ID, drawingIndexOf, drawingName, renameDrawing, withDrawings } from '../map/overlays';
 import { DEFAULT_FIT } from '../map/fitSettings';
 import { readUnitSystem, saveUnitSystem } from '../utils/units';
@@ -35,6 +35,7 @@ const initialState: AppState = {
   timeSeriesPoints: [],
   chartAreas: [],
   areaStats: {},
+  areaStatsRevision: 0,
   panelTab: 'main',
   areaBand: readAreaBand(),
   areaDrawing: false,
@@ -106,10 +107,14 @@ const initialState: AppState = {
   splitTimeIndex: 0,
 };
 
+function invalidateAreaStats(state: AppState) {
+  return { areaStats: {}, areaStatsRevision: state.areaStatsRevision + 1 };
+}
+
 function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppState {
   switch (action.type) {
     case 'SET_DATASETS':
-      return { ...state, datasetInfo: action.payload };
+      return { ...state, datasetInfo: action.payload, ...invalidateAreaStats(state) };
 
     // Multi-point actions
     case 'ADD_TIME_SERIES_POINT': {
@@ -184,6 +189,16 @@ function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppSt
       return { ...state, panelTab: action.payload };
     case 'SET_AREA_STATS':
       return { ...state, areaStats: { ...state.areaStats, ...action.payload } };
+    case 'START_AREA_STATS':
+      if (action.payload.revision !== state.areaStatsRevision) return state;
+      return { ...state, areaStats: { ...state.areaStats, ...action.payload.entries } };
+    case 'FINISH_AREA_STATS': {
+      if (action.payload.revision !== state.areaStatsRevision) return state;
+      const entries = Object.fromEntries(Object.entries(action.payload.entries as Record<string, AreaStats>).filter(
+        ([key, value]) => value.requestId !== undefined && state.areaStats[key]?.requestId === value.requestId,
+      ));
+      return Object.keys(entries).length ? { ...state, areaStats: { ...state.areaStats, ...entries } } : state;
+    }
     case 'REMOVE_CHART_AREA':
       return {
         ...state,
@@ -197,6 +212,7 @@ function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppSt
       return {
         ...state,
         chartAreas: state.chartAreas.map(a => (a.id === action.payload.id ? { ...a, ...action.payload.updates } : a)),
+        ...(action.payload.updates.geometry ? invalidateAreaStats(state) : {}),
         overlays: drawn >= 0 ? withDrawingName(state, drawn, name!) : state.overlays,
       };
     }
@@ -316,7 +332,7 @@ function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppSt
     case 'TOGGLE_BASEMAP_SWAP':
       return { ...state, basemapSwapped: !state.basemapSwapped };
     case 'SET_DATA_MODE':
-      return { ...state, dataMode: action.payload };
+      return state.dataMode === action.payload ? state : { ...state, dataMode: action.payload, ...invalidateAreaStats(state) };
     case 'SET_COLORMAP':
       return { ...state, colormap: action.payload };
     case 'SET_VMIN':
@@ -328,21 +344,22 @@ function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppSt
     case 'TOGGLE_RESIDUALS':
       return { ...state, showResiduals: !state.showResiduals };
     case 'ADD_LAYER_MASK':
-      return { ...state, layerMasks: [...state.layerMasks, action.payload] };
+      return { ...state, layerMasks: [...state.layerMasks, action.payload], ...invalidateAreaStats(state) };
     case 'REMOVE_LAYER_MASK':
-      return { ...state, layerMasks: state.layerMasks.filter(m => m.id !== action.payload) };
+      return { ...state, layerMasks: state.layerMasks.filter(m => m.id !== action.payload), ...invalidateAreaStats(state) };
     case 'UPDATE_LAYER_MASK':
       return {
         ...state,
+        ...invalidateAreaStats(state),
         layerMasks: state.layerMasks.map(m =>
           m.id === action.payload.id ? { ...m, ...action.payload.updates } : m
         ),
       };
     case 'SET_CUSTOM_MASK_PATH':
-      return { ...state, customMaskPath: action.payload };
+      return { ...state, customMaskPath: action.payload, ...invalidateAreaStats(state) };
     case 'LOAD_PROJECT':
       // Restore a saved project — merge the saved slices over current state.
-      return { ...state, ...action.payload };
+      return { ...state, ...action.payload, ...invalidateAreaStats(state) };
     case 'ADD_OVERLAY':
       // A DEM goes to the bottom of the stack, just above the basemap: it is the ground the
       // other layers sit on. Everything else goes on top.

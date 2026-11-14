@@ -361,10 +361,13 @@ describe('areas in the time-series chart', () => {
     expect(median.data.map((p: any) => +p.y.toFixed(6))).toEqual([0, 0.006, 0.012]);
   });
 
-  it('says the areas ignore the masks the points use', async () => {
+  it('confirms applied area quality masks instead of showing the old ignore warning', async () => {
+    polygonReply = { status: 200, body: { ...RESULT, optional_masks_applied: true } };
     renderApp([...open, { type: 'ADD_LAYER_MASK', payload: { id: 'm', dataset: 'displacement', threshold: 0.5, mode: 'min' } }],
       <ChartOfFirstWindow />);
-    expect(await screen.findByText(/Areas: masks not applied/)).toBeTruthy();
+    expect(await screen.findByText(/Area quality masks applied/)).toBeTruthy();
+    expect(requests.find(r => r.url.startsWith('/polygon_timeseries'))?.body.layer_masks)
+      .toEqual([{ dataset: 'displacement', threshold: 0.5, mode: 'min' }]);
   });
 
   it('shows stored values when the reference is off', async () => {
