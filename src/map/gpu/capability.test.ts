@@ -29,9 +29,10 @@ describe('GPU capability', () => {
     expect(evaluateCaps({ ...good, benchMs: 40 }).reason).toMatch(/slow GPU/);
   });
 
-  it('keeps tiles unless ?render= asks otherwise', () => {
-    expect(parseRenderMode('')).toBe('tiles');
-    expect(parseRenderMode('?render=nonsense')).toBe('tiles');
+  it('is automatic unless ?render= asks otherwise', () => {
+    expect(parseRenderMode('')).toBe('auto');
+    expect(parseRenderMode('?render=nonsense')).toBe('auto');
+    expect(parseRenderMode('?render=tiles')).toBe('tiles');
     expect(parseRenderMode('?render=gpu')).toBe('gpu');
     expect(parseRenderMode('?x=1&render=auto')).toBe('auto');
   });

@@ -1,16 +1,17 @@
 /**
- * Which renderer draws the data layer: server tiles (the default) or the experimental
- * GPU path.
+ * Which renderer draws the data layer: server tiles or the GPU path.
  *
- * ``?render=tiles`` (the default) and ``?render=gpu`` force one; ``?render=auto`` uses
- * the GPU only when the browser has a capable, hardware GPU. The probe runs only for
- * ``auto``, once per browser session (cached in sessionStorage).
+ * ``auto`` (the default) uses the GPU only when the browser has a capable, hardware GPU,
+ * else server tiles; ``?render=tiles`` and ``?render=gpu`` force one. The probe runs only
+ * for ``auto``, once per browser session (cached in sessionStorage).
  *
  * This module is in the main bundle, so it stays small: the GPU runtime (zarrita, the
  * colormap tables, the custom layer) is loaded on demand by useGpuRender.
  */
 
 export type RenderMode = 'tiles' | 'gpu' | 'auto';
+/** What draws the data layer when nothing was chosen. */
+export const DEFAULT_RENDER_MODE: RenderMode = 'auto';
 export type Renderer = 'tiles' | 'gpu';
 
 export interface GpuCaps {
@@ -62,15 +63,15 @@ export function evaluateCaps(caps: GpuCaps, needs: GpuNeeds = GPU_NEEDS): { capa
   return { capable: true, reason: `capable GPU (${caps.renderer ?? 'unknown'})` };
 }
 
-/** ``?render=`` -> mode; anything else (or nothing) keeps today's tiles. */
+/** ``?render=`` -> mode; anything else (or nothing) is the default. */
 export function parseRenderMode(search: string): RenderMode {
   const v = new URLSearchParams(search).get('render');
-  return v === 'gpu' || v === 'auto' || v === 'tiles' ? v : 'tiles';
+  return v === 'gpu' || v === 'auto' || v === 'tiles' ? v : DEFAULT_RENDER_MODE;
 }
 
 /** The renderer for ``mode``; ``probe`` is only called for ``auto``. */
 export function chooseRenderer(mode: RenderMode, probe: () => GpuCaps): Decision {
-  if (mode === 'tiles') return { renderer: 'tiles', reason: 'render=tiles (default)' };
+  if (mode === 'tiles') return { renderer: 'tiles', reason: 'render=tiles (forced)' };
   if (mode === 'gpu') return { renderer: 'gpu', reason: 'render=gpu (forced)' };
   const { capable, reason } = evaluateCaps(probe());
   return { renderer: capable ? 'gpu' : 'tiles', reason: `auto: ${reason}` };

@@ -91,10 +91,10 @@ beforeEach(() => {
 afterEach(() => { cleanup(); window.history.replaceState({}, '', '/'); localStorage.removeItem(DEBUG_KEY); localStorage.removeItem(RENDER_KEY); });
 
 describe('useGpuRender', () => {
-  it('keeps server tiles by default and never loads the GPU runtime', async () => {
+  it('by default (automatic), a browser without a capable GPU keeps server tiles and never loads the GPU runtime', async () => {
     const { map } = start('/');
     await act(async () => {});
-    expect(status).toMatchObject({ active: false, chosen: false, renderer: 'tiles', showLabel: false });
+    expect(status).toMatchObject({ active: false, chosen: false, renderer: 'tiles', showLabel: false, reason: 'auto: no WebGL2' });
     expect(rt.loaded).toBe(0);
     expect(map.addLayer).not.toHaveBeenCalled();
     expect(info).not.toHaveBeenCalled();   // nothing in the console either
@@ -134,22 +134,24 @@ describe('useGpuRender', () => {
   it("the Project tab's renderer choice applies while the page is open, and is kept", async () => {
     const { map } = start('/');
     await act(async () => {});
-    expect(status.renderer).toBe('tiles');
+    // Automatic, here without WebGL2: tiles, and it says why.
+    expect(status).toMatchObject({ renderer: 'tiles', reason: 'auto: no WebGL2' });
     expect(map.addLayer).not.toHaveBeenCalled();
     // To the GPU: the layer is added without a reload.
     act(() => setRenderMode('gpu'));
     await waitFor(() => expect(rt.layers).toHaveLength(1));
     expect(status).toMatchObject({ active: true, renderer: 'gpu', reason: 'render=gpu (forced)' });
     expect(map.addLayer).toHaveBeenCalledTimes(1);
-    // Back to tiles: the GPU layer goes.
+    expect(localStorage.getItem(RENDER_KEY)).toBe('gpu');
+    // To server tiles: the GPU layer goes.
     act(() => setRenderMode('tiles'));
     await waitFor(() => expect(status.renderer).toBe('tiles'));
+    expect(status.reason).toBe('render=tiles (forced)');
     expect(map.removeLayer).toHaveBeenCalledTimes(1);
-    // Automatic, here without WebGL2: tiles, and it says why.
+    // Back to automatic: the default, so nothing is kept.
     act(() => setRenderMode('auto'));
     await waitFor(() => expect(status.reason).toBe('auto: no WebGL2'));
-    expect(status.renderer).toBe('tiles');
-    expect(localStorage.getItem(RENDER_KEY)).toBe('auto');
+    expect(localStorage.getItem(RENDER_KEY)).toBeNull();
   });
 
   it('opens a catalog entry by its ?dataset= id', async () => {

@@ -29,21 +29,21 @@ describe('Project tab › diagnostics', () => {
 describe('Project tab › renderer', () => {
   afterEach(() => { localStorage.removeItem(RENDER_KEY); });
 
-  it('a button next to the bug goes through server tiles, automatic and GPU; tiles by default', () => {
+  it('a button next to the bug goes through automatic, GPU and server tiles; automatic by default', () => {
     render(<ProjectTab />);
     const button = () => screen.getByRole('button', { name: /^Renderer: / });
-    expect(button().getAttribute('aria-label')).toBe('Renderer: Server tiles');
+    expect(button().getAttribute('aria-label')).toBe('Renderer: Automatic');
     expect(button().className).not.toContain(' on');
     expect(button().nextElementSibling).toBe(screen.getByRole('button', { name: 'Diagnostics' }));
     fireEvent.click(button());
-    expect(button().getAttribute('aria-label')).toBe('Renderer: Automatic');
-    expect(button().className).toContain(' on');
-    expect(localStorage.getItem(RENDER_KEY)).toBe('auto');
-    fireEvent.click(button());
     expect(button().getAttribute('aria-label')).toBe('Renderer: GPU');
+    expect(button().className).toContain(' on');
     expect(localStorage.getItem(RENDER_KEY)).toBe('gpu');
     fireEvent.click(button());
     expect(button().getAttribute('aria-label')).toBe('Renderer: Server tiles');
+    expect(localStorage.getItem(RENDER_KEY)).toBe('tiles');
+    fireEvent.click(button());
+    expect(button().getAttribute('aria-label')).toBe('Renderer: Automatic');
     expect(localStorage.getItem(RENDER_KEY)).toBeNull();
   });
 });

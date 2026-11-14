@@ -1,22 +1,24 @@
-# GPU rendering (experimental)
+# GPU rendering
 
-By default the map draws the data layer from **server tiles**: for every date,
-colormap, range or reference change, the server renders new PNG tiles
-(`/md/tiles/...`). The experimental **GPU renderer** instead reads the cube's
-zarr chunks once (`/zarr/...`) and colours them in the browser's GPU, so
-stepping or playing through dates, changing the colormap or the range, and
-moving the reference date take a frame instead of a round trip to the server.
+The map can draw the data layer in two ways. From **server tiles**: for every
+date, colormap, range or reference change, the server renders new PNG tiles
+(`/md/tiles/...`). Or with the **GPU renderer**, which reads the cube's zarr
+chunks once (`/zarr/...`) and colours them in the browser's GPU, so stepping or
+playing through dates, changing the colormap or the range, and moving the
+reference date take a frame instead of a round trip to the server.
 
-It is off unless you ask for it. In the page, Project › *Appearance* has a
-button next to the bug icon that goes through server tiles, automatic and GPU;
-the choice applies at once and is kept in this browser. Or in the page's
-address, which decides for that visit whatever the button says:
+By default the page chooses (**automatic**): the GPU when the browser has a
+capable hardware GPU and the view is one the GPU path draws, else server tiles.
+In the page, Project › *Appearance* has a button next to the bug icon that goes
+through automatic, GPU and server tiles; the choice applies at once and is kept
+in this browser. Or in the page's address, which decides for that visit
+whatever the button says:
 
 | Address | What draws the data layer |
 | --- | --- |
-| `/` or `?render=tiles` | Server tiles (the default; nothing changes). |
+| `/` or `?render=auto` | Automatic (the default): the GPU when the browser has a capable hardware GPU, else tiles. |
+| `?render=tiles` | Server tiles, always. |
 | `?render=gpu` | The GPU, whatever the browser's GPU is (for testing). |
-| `?render=auto` | The GPU when the browser has a capable hardware GPU, else tiles. |
 
 `auto` refuses: no WebGL2, a software renderer (SwiftShader, llvmpipe,
 Microsoft Basic Render Driver, ...), a context that only exists with a "major
@@ -24,7 +26,7 @@ performance caveat", no float textures, too few texture units or array layers,
 and a GPU slower than the budget on a short colormap benchmark. The probe runs
 once per browser session.
 
-Example: `http://127.0.0.1:8000/?render=auto`, or with a catalog,
+Example: `http://127.0.0.1:8000/?render=tiles`, or with a catalog,
 `http://127.0.0.1:8000/?dataset=my-cube&render=gpu`.
 
 `?gpu_mb=` sets the GPU memory the layer may keep chunks in (see below), for

@@ -6,6 +6,7 @@ import ExportSection from './ExportSection';
 import { saveFile } from '../../utils/saveFile';
 import { setDebug, useDebug } from '../../utils/debug';
 import { RENDER_MODES, setRenderMode, useRenderMode } from '../../map/gpu/renderMode';
+import { DEFAULT_RENDER_MODE } from '../../map/gpu/capability';
 
 const APPEARANCE: { value: ThemeChoice; label: string }[] = [
   { value: 'system', label: 'System' },
@@ -306,7 +307,7 @@ export default function ProjectTab() {
       <div className="sidebar-section">
         <SectionHeader label="Appearance" action={
           <span style={{ display: 'inline-flex', gap: 2 }}>
-            <button type="button" className={`ov-icon-btn${renderer !== 'tiles' ? ' on' : ''}`}
+            <button type="button" className={`ov-icon-btn${renderer !== DEFAULT_RENDER_MODE ? ' on' : ''}`}
               onClick={() => setRenderMode(RENDER_MODES[(RENDER_MODES.indexOf(renderer) + 1) % RENDER_MODES.length])}
               aria-label={`Renderer: ${RENDERER[renderer].name}`}
               title={`${RENDERER[renderer].title} (click for ${RENDERER[RENDER_MODES[(RENDER_MODES.indexOf(renderer) + 1) % RENDER_MODES.length]].name.toLowerCase()})`}>

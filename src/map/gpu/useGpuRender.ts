@@ -14,7 +14,7 @@ import { debugMessage, useDebug } from '../../utils/debug';
 import type * as maplibregl from 'maplibre-gl';
 import { useAppContext } from '../../context/AppContext';
 import { buildTileRequest } from '../../utils/tileParams';
-import { chooseRenderer, gpuCaps, type Decision } from './capability';
+import { DEFAULT_RENDER_MODE, chooseRenderer, gpuCaps, type Decision } from './capability';
 import { useRenderMode } from './renderMode';
 import { gpuParamsFromTileQuery, type ParamsResult } from './params';
 import type { GpuCubeLayer, GpuLayerStats } from './layer';
@@ -98,7 +98,7 @@ export function useGpuRender(
   // The label is a diagnostic: shown only with diagnostics on (Project tab, or ?debug=1).
   const showLabel = useDebug();
   useEffect(() => {
-    if (mode === 'tiles' && !showLabel) return;   // the default: nothing to say
+    if (mode === DEFAULT_RENDER_MODE && !showLabel) return;   // the default: nothing to say
     if (!wantGpu) logOnce(`tiles — ${decision.reason}`, decision.reason.startsWith('fell back'));
     else if (params.ok) logOnce(`GPU — ${decision.reason}`);
     else if (!params.wait) logOnce(`tiles for this view — ${params.reason}`);

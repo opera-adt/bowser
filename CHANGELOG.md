@@ -321,6 +321,12 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The data layer's renderer is automatic by default: the browser's GPU when it
+  has a capable hardware one (and the view is one the GPU path draws), else
+  server tiles as before. It was server tiles unless `?render=auto` or
+  `?render=gpu` was in the address. The Project tab's renderer button now
+  goes through automatic, GPU and server tiles, and `?render=tiles` forces
+  tiles for a visit.
 - Area (polygon) statistics on the full server read the cube in whole time
   chunks, as bowser-lite does, instead of one date at a time, and keep a small
   area's values between the two passes over the dates. A 3 km square of a
