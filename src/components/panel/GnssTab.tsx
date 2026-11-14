@@ -4,6 +4,7 @@ import { Chart as ChartJS, Legend, LinearScale, LineElement, PointElement, TimeS
 import 'chartjs-adapter-date-fns';
 import { useAppContext } from '../../context/AppContext';
 import { useApi } from '../../hooks/useApi';
+import { applicableMasks } from '../../utils/maskCompatibility';
 import { useSpacedEffect } from '../../hooks/useSpacedEffect';
 import { CHART_REQUEST_GAP_MS } from '../TimeSeriesChart';
 import { refDragEnd } from '../../map/interactions';
@@ -167,7 +168,7 @@ export default function GnssTab() {
     const ref = info?.uses_spatial_ref && state.refEnabled ? state.refMarkerPosition : null;
     const r = await fetchMultiPointTimeSeries(
       [{ id: selected.id, lat: selected.lat, lon: selected.lon, color: '#5bc0be', name: selected.id }],
-      ds, ref?.[1], ref?.[0], false, state.layerMasks, refRadius,
+      ds, ref?.[1], ref?.[0], false, applicableMasks(info ?? undefined, state.layerMasks), refRadius,
     );
     return r?.datasets[0]?.data ?? null;
   }, [ds, selected, info?.uses_spatial_ref, state.refEnabled, state.refMarkerPosition,

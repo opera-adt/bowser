@@ -496,7 +496,7 @@ export default function MainTab() {
       <div className="sidebar-section">
         <SectionHeader label={state.layerMasks.length ? `Masking · ${state.layerMasks.length} on` : 'Masking'} collapsed={collapsed.masking} onToggle={() => toggleSection('masking')} />
         {maskProblems(state.datasetInfo[state.currentDataset], state.layerMasks).map(note =>
-          <div role="alert" className="chart-area-error" key={note}>{note}</div>)}
+          <div role="status" className="row-label" style={{ fontSize: '0.76em' }} key={note}>{note}</div>)}
         {!collapsed.masking && (
           <>
             {state.layerMasks.map(mask => {

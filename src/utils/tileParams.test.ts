@@ -101,4 +101,26 @@ describe('buildTileRequest relative to another date', () => {
     expect(params({ refTimeIndex: { displacement: 1 } }, { dsInfo: info({ uses_spatial_ref: false }) }).has('ref_time_idx')).toBe(false);
     expect(params({ refTimeIndex: { displacement: 1 }, dataMode: 'cog' }).has('ref_time_idx')).toBe(false);
   });
+
+  it('leaves out the masks that cannot apply to the layer, so its map still draws', () => {
+    const masks = [
+      { id: 'r', dataset: 'recommended_mask', threshold: 0.5, mode: 'min' as const },
+      { id: 'c', dataset: 'temporal_coherence_min', threshold: 0.6, mode: 'min' as const },
+    ];
+    const sent = (dsInfo: RasterGroup) => new URLSearchParams(
+      req({ layerMasks: masks }, { dataset: dsInfo.name, dsInfo }).split('?')[1]).get('layer_masks');
+    // Displacement: both apply.
+    const displacement = info({ mask_compatibility: { recommended_mask: null, temporal_coherence_min: null } });
+    expect(JSON.parse(sent(displacement)!).map((m: { dataset: string }) => m.dataset))
+      .toEqual(['recommended_mask', 'temporal_coherence_min']);
+    // Velocity has no dates: the per-date recommended mask (on by default) is not sent.
+    const velocity = info({ name: 'velocity', x_values: [], mask_compatibility: {
+      recommended_mask: 'Dynamic mask requires matching acquisition coordinates', temporal_coherence_min: null } });
+    expect(JSON.parse(sent(velocity)!)).toEqual([{ dataset: 'temporal_coherence_min', threshold: 0.6, mode: 'min' }]);
+    // None applies: no layer_masks at all, not an empty list.
+    const none = info({ name: 'velocity', x_values: [], mask_compatibility: { recommended_mask: 'no', temporal_coherence_min: 'no' } });
+    expect(sent(none)).toBeNull();
+    // A server that does not say (GeoTIFF mode, an older server): sent as before.
+    expect(JSON.parse(sent(info())!)).toHaveLength(2);
+  });
 });

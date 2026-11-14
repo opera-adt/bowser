@@ -120,7 +120,10 @@ it('explains restored incompatible masks even with the panel collapsed', async (
     return <MainTab />;
   }
   render(<AppProvider><MaskSeed /></AppProvider>);
-  await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Remove this mask'));
+  // Left out of this layer's requests, and said so: not an error, the map still draws.
+  await waitFor(() => expect(screen.getByRole('status').textContent)
+    .toBe('quality is not applied to this layer: Dynamic mask requires matching acquisition coordinates.'));
+  expect(screen.queryByRole('alert')).toBeNull();
   fireEvent.click(screen.getByText('Masking · 1 on'));
   const options = Array.from(document.querySelectorAll<HTMLSelectElement>('.layer-mask-row select'))[0].options;
   expect(Array.from(options).find(o=>o.value==='quality')?.disabled).toBe(true);

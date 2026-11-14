@@ -16,6 +16,13 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   quality reductions. GPU masks no longer independently clamp a mismatched axis.
   Empty explicit mask strings mean no masks. Source values, thresholds, fitting
   and spatial/temporal reference policies are unchanged.
+  A mask that cannot apply to the selected layer (the default `recommended_mask`
+  on `velocity`, a ministack mask on `displacement`) is left out of that layer's
+  map, chart, GNSS, area and export requests, and the Masking panel says "not
+  applied to this layer"; the layer is then drawn without it. For direct API
+  callers such a mask, an unknown mask name or malformed `layer_masks` is now
+  a 422: before, a mismatched axis was matched by index and the others were
+  ignored.
 - LOS widget sign labels now use the existing per-layer measurement direction
   and sign, independently of re-referencing support. Positive-away labels are
   reversed; non-LOS/unknown layers retain geometry without misleading signs.
