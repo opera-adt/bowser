@@ -95,6 +95,7 @@ function areaRole(d: Record<string, unknown>): SeriesTag['role'] {
 }
 
 interface BufferResult {
+  warnings?: string[];
   labels: string[];
   median: Array<{ x: string; y: number }>;
   samples: Array<Array<{ x: string; y: number }>>;
@@ -1131,6 +1132,10 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
           })}
         </div>
       )}
+      {Array.from(new Set([
+        ...Object.values(fetchedDataMap).flatMap(d => d.warnings ?? []),
+        ...Object.values(fetchedBuffer).flatMap(d => d.warnings ?? []),
+      ])).map(note => <div className="chart-help" role="status" key={note}>{note}</div>)}
       <div className="chart-help">
         <small>
           {picking ? `Click the chart where the ${picking} goes · ` : ''}Scroll to zoom · Drag to pan · Click points to sync map time

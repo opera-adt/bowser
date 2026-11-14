@@ -13,7 +13,7 @@ import numpy as np
 from pyproj import CRS
 
 from .mask_alignment import _axis, _crs, align_mask, mask_condition
-from .polygon import STORED_WARNING, NativeGrid, _linear, _values
+from .polygon import STORED_WARNING, NativeGrid, PolygonMask, _linear, _values
 
 if TYPE_CHECKING:
     import xarray as xr
@@ -148,7 +148,7 @@ def xarray_masks(
 
 def raster_masks(
     groups: dict | None,
-    request: _MaskRequest,
+    specs: list[PolygonMask],
     labels: list[str],
     grid: NativeGrid,
 ) -> PolygonMasks:
@@ -157,11 +157,11 @@ def raster_masks(
     from rasterio.windows import Window  # noqa: PLC0415
 
     masks = PolygonMasks()
-    if not request.layer_masks:
+    if not specs:
         return masks
     if groups is None:
         raise ValueError("Requested masks require an explicit mask source context")
-    for spec in request.layer_masks:
+    for spec in specs:
         if spec.dataset not in groups:
             raise ValueError(f"Unknown mask layer: {spec.dataset}")
         group = groups[spec.dataset]

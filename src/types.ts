@@ -23,6 +23,8 @@ export interface LosMetadata {
 export interface RasterGroup {
   /** Exact native mask support; null means compatible, text explains refusal. */
   mask_compatibility?: Record<string, string | null>;
+  /** Conservative native chart radius budget; GeoTIFF layers only. */
+  chart_buffer_max_m?: number;
   name: string;
   // COG mode: one file (and optional mask file) per time step.
   file_list?: string[];
@@ -99,6 +101,7 @@ export interface AreaStats {
 }
 
 export interface MultiPointTimeSeriesData {
+  warnings?: string[];
   labels: string[];
   datasets: {
     label: string;
