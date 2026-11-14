@@ -21,6 +21,8 @@ export interface LosMetadata {
 }
 
 export interface RasterGroup {
+  /** Exact native mask support; null means compatible, text explains refusal. */
+  mask_compatibility?: Record<string, string | null>;
   /** Conservative native chart radius budget; GeoTIFF layers only. */
   chart_buffer_max_m?: number;
   name: string;

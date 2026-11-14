@@ -15,3 +15,9 @@ describe('defaultMasks', () => {
     expect(defaultMasks({ displacement: layer, temporal_coherence: layer })).toEqual([]);
   });
 });
+
+
+it('does not default to a time mask on a static layer', () => {
+  const velocity = { mask_compatibility: { recommended_mask: 'Dynamic mask cannot apply to static layer' } } as unknown as RasterGroup;
+  expect(defaultMasks({ velocity, recommended_mask: layer }, 'velocity')).toEqual([]);
+});

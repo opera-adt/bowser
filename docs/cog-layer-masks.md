@@ -27,6 +27,9 @@ raster's extent, transform and grid remain unchanged.
 
 ## Scope
 
+GeoZarr date alignment is covered separately in
+[the alignment guide](geozarr-mask-alignment.md).
+
 This repair changes map-tile and native-export handling. It does **not** claim
 point/radius chart parity: the current GeoTIFF point reader does not apply named
 layer masks, and the broader chart-mask routing fix is separate. Do not use a

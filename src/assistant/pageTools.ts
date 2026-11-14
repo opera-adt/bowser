@@ -554,7 +554,9 @@ export async function runPageTool(name: string, input: Record<string, unknown>, 
       if (!(RECOMMENDED in state.datasetInfo)) throw new Error('This cube has no recommended_mask layer.');
       if (typeof input.on !== 'boolean') throw new Error('Give on: true or false.');
       const there = state.layerMasks.filter(m => m.dataset === RECOMMENDED);
-      if (input.on && !there.length) ctx.dispatch({ type: 'ADD_LAYER_MASK', payload: defaultMasks(state.datasetInfo)[0] });
+      const initialMask = defaultMasks(state.datasetInfo, state.currentDataset)[0];
+      if (input.on && !initialMask) throw new Error('The recommended mask is not compatible with this layer. Choose a static summary or a matching acquisition axis.');
+      if (input.on && !there.length && initialMask) ctx.dispatch({ type: 'ADD_LAYER_MASK', payload: initialMask });
       if (!input.on) there.forEach(m => ctx.dispatch({ type: 'REMOVE_LAYER_MASK', payload: m.id }));
       return { ok: true, recommended_mask: input.on };
     }

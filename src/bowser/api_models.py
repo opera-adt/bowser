@@ -1340,6 +1340,7 @@ class DatasetInfo(_Fixed):
     Bowser guidance; ``metadata_notes`` only for some GeoTIFF groups.
     """
 
+    mask_compatibility: Optional[dict[str, Optional[str]]] = None
     chart_buffer_max_m: Optional[float] = None
     name: str
     file_list: Optional[list[str]] = Field(

@@ -65,10 +65,10 @@ function AppContent() {
 
         const datasets = await fetchDatasets();
         dispatch({ type: 'SET_DATASETS', payload: datasets });
-        defaultMasks(datasets).forEach(mask => dispatch({ type: 'ADD_LAYER_MASK', payload: mask }));
 
         // Open on displacement rather than whichever variable the cube lists first.
         const firstDataset = chartLayerFor('', datasets) ?? Object.keys(datasets)[0];
+        defaultMasks(datasets, firstDataset).forEach(mask => dispatch({ type: 'ADD_LAYER_MASK', payload: mask }));
         if (firstDataset) {
           dispatch({ type: 'SET_CURRENT_DATASET', payload: firstDataset });
 

@@ -545,6 +545,8 @@ def multi_point(
                     "y": xy[1] if xy else None,
                 }
             )
+        except HTTPException:
+            raise
         except Exception as e:  # noqa: BLE001
             logger.error(f"Error processing point {point_id}: {e}")
     return NanJSONResponse({"labels": x_values, "datasets": results})

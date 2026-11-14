@@ -5,6 +5,7 @@ import { SectionHeader } from './controls';
 import { exportFilename } from '../../utils/exportFilename';
 import { saveFile } from '../../utils/saveFile';
 import { activeRefTime } from '../../utils/refDate';
+import { applicableMasks } from '../../utils/maskCompatibility';
 import AnimationExport from './AnimationExport';
 
 const FORMATS: { value: ExportFormat; label: string }[] = [
@@ -85,9 +86,10 @@ export default function ExportSection() {
       params.set('time_idx', String(state.currentTimeIndex));
       const datasetId = new URLSearchParams(window.location.search).get('dataset');
       if (datasetId) params.set('dataset', datasetId);
-      if (state.layerMasks.length > 0) {
+      const masks = applicableMasks(state.datasetInfo[state.currentDataset], state.layerMasks);
+      if (masks.length > 0) {
         params.set('layer_masks', JSON.stringify(
-          state.layerMasks.map(m => ({ dataset: m.dataset, threshold: m.threshold, mode: m.mode }))
+          masks.map(m => ({ dataset: m.dataset, threshold: m.threshold, mode: m.mode }))
         ));
       }
       if (state.customMaskPath) params.set('custom_mask_path', state.customMaskPath);

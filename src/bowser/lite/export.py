@@ -27,6 +27,7 @@ from fastapi import HTTPException
 from xarray.conventions import encode_cf_variable
 
 from ..export_provenance import export_provenance
+from ..mask_alignment import align_mask, mask_condition
 from ..reference import SourceGrid, reference_offset
 from ..utils import _uses_spatial_reference
 from . import geo, geotiff
@@ -148,6 +149,7 @@ def mask_provenance(
             raise ValueError(f"Unknown mask layer: {name}")
         if not np.isfinite(threshold):
             raise ValueError("Mask thresholds must be finite")
+        align_mask(ds[variable], ds[name])
         context = time_context(ds, name, time_idx)
         details.append(
             {
@@ -211,17 +213,25 @@ def masked_slice(
         if time_idx is not None and ref_time_idx is not None:
             ref = full.isel({dim: _clamp(ref_time_idx, full.sizes[dim])}, drop=True)
             da = minus_reference_step(da, ref)
-    if mask_variable is not None:
-        mask = ds[mask_variable]
-        mdim = non_spatial_dim(mask)
-        if mdim is not None:
-            mask = mask.isel({mdim: _clamp(time_idx, mask.sizes[mdim])})
-        da = da.where(mask > mask_min_value)
-    for m in layer_masks:
-        mask = _mask_frame(ds[m["dataset"]], time_idx)
-        threshold = float(m.get("threshold", 0.5))
-        keep = mask <= threshold if m.get("mode", "min") == "max" else mask >= threshold
-        da = da.where(keep)
+    # Axes are validated against the complete source before selecting a date.
+    # Lite has no dask: select the matching frame before evaluating comparisons.
+    try:
+        for name, threshold, operator in (
+            [(mask_variable, mask_min_value, ">")] if mask_variable else []
+        ) + [
+            (
+                m["dataset"],
+                m["threshold"],
+                "<=" if m.get("mode", "min") == "max" else ">=",
+            )
+            for m in layer_masks
+        ]:
+            mask = align_mask(ds[variable], ds[name])
+            # An export with no explicit date selects the first source step.
+            mask = _mask_frame(mask, time_idx if time_idx is not None else 0)
+            da = da.where(mask_condition(mask, threshold, operator))
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return da.transpose("y", "x")
 
 

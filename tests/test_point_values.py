@@ -28,9 +28,11 @@ SCRIPT = textwrap.dedent(
     import itertools
     import numpy as np
     import bowser.main as m
+    from fastapi import HTTPException
 
     st = m._default_state
     direct = st.point_dataset()
+    assert direct is not None and "spatial_ref" in direct.coords
     assert direct is not None and direct["displacement"].chunks is None
     assert st.dataset["displacement"].chunks is not None   # tiles stay on dask
     assert st.point_dataset() is direct                    # opened once
@@ -64,16 +66,27 @@ SCRIPT = textwrap.dedent(
         for name, (lon, lat), lm, t in itertools.product(
             layers, points, masks, (None, 0, 3, 99)
         ):
-            out.append(m._get_point_values(name, lon, lat, lm, t))
+            try:
+                out.append(m._get_point_values(name, lon, lat, lm, t))
+            except HTTPException as exc:
+                assert exc.status_code == 422
+                out.append((exc.status_code, exc.detail))
         return out
 
     a, b = read(True), read(False)
     assert len(a) == len(layers) * len(points) * len(masks) * 4
     masked = 0
+    errors = 0
     for x, y in zip(a, b):
+        if isinstance(x, tuple):
+            assert x == y
+            errors += 1
+            continue
         assert x.dtype == y.dtype and x.shape == y.shape, (x.dtype, y.dtype)
         np.testing.assert_array_equal(x, y)
         masked += int(np.isnan(x.astype(float)).any())
+    # Unknown masks and dynamic masks on static layers fail explicitly.
+    assert errors > 0
     assert 0 < masked < len(a)   # the masks hide some points, not all
     print("OK", len(a), masked)
     """
