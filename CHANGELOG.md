@@ -8,6 +8,10 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The colorbar of 42 colormaps the full server offers for tiles but matplotlib
+  does not ship (rio-tiler's cmocean set: `algae`, `balance`, `thermal` and
+  others, with their `_r`) was a 500, so picking one drew the map with no
+  colorbar. It is now drawn from the tiler's own colour table.
 - GPU renderer: under memory pressure the layer could evict a texture it was
   about to draw (the previous date, still shown while a new one loads, or
   another zoom level underneath), fail with "can't access property tex,
