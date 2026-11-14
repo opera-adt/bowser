@@ -21,6 +21,8 @@ const CONVERSION = { cog: true, pmtiles: true, pmtiles_min_mb: 0.01 };  // 10 kB
 let config: Record<string, unknown>;
 let catalog: Record<string, unknown>;
 let dataReplies: Record<string, unknown>[];
+/** Ids of the conversions started in the test now running (see the fetch stub). */
+let issued = new Set<string>();
 let requests: string[];
 /** GET /files answers, by ``dir`` ('' for the server's default folder). */
 let folders: Record<string, unknown>;
@@ -30,6 +32,7 @@ beforeEach(() => {
   config = { polygon_stats: true, data_conversion: CONVERSION };
   catalog = { datasets: [], allow_open: false };
   dataReplies = [];
+  issued = new Set();
   requests = [];
   folders = {};
   filesStatus = null;
@@ -51,7 +54,13 @@ beforeEach(() => {
         : new Response(JSON.stringify({ detail: `${dir} is not a folder` }), { status: 400 });
     }
     if (url.startsWith('/data')) {
+      // A conversion left "converting" by an earlier test is still polled (every 1.5 s) while
+      // later tests run. Such a poll must not take a reply meant for the test now running:
+      // on a busy machine it did, and that test then saw the wrong answer.
+      const polled = init?.method === undefined ? url.slice('/data/'.length) : null;
+      if (polled && !issued.has(polled)) return new Response(JSON.stringify({ id: polled, status: 'converting' }));
       const reply = dataReplies.shift()!;
+      if (typeof reply.id === 'string') issued.add(reply.id);
       return new Response(JSON.stringify(reply), { status: (reply.http as number) ?? 200 });
     }
     return new Response('{}', { status: 404 });
