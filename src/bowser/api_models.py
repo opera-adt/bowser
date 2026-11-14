@@ -189,12 +189,13 @@ PARAMS: dict[str, dict[str, Any]] = {
     },
     "layer_masks": {
         "description": "Masks as {dataset, threshold, mode}: mode min keeps "
-        "pixels >= threshold, max keeps pixels <= threshold.",
+        "pixels >= threshold in cubes (> in GeoTIFFs), max keeps pixels <= threshold.",
         "examples": [_LAYER_MASKS],
     },
     "layer_masks_json": {
         "description": "JSON list of {dataset, threshold, mode} masks: mode min "
-        "keeps pixels >= threshold, max keeps pixels <= threshold.",
+        "keeps pixels >= threshold in cubes (> in GeoTIFFs), "
+        "max keeps pixels <= threshold.",
         "examples": [json.dumps(_LAYER_MASKS)],
     },
     "ref_buffer_m": {
@@ -1339,6 +1340,7 @@ class DatasetInfo(_Fixed):
     Bowser guidance; ``metadata_notes`` only for some GeoTIFF groups.
     """
 
+    chart_buffer_max_m: Optional[float] = None
     name: str
     file_list: Optional[list[str]] = Field(
         default=None, description="GeoTIFF mode only: one file per time step."
@@ -1507,6 +1509,7 @@ class PointSeries(_Fixed):
 class MultiPointSeries(_Fixed):
     """``POST /multi_point``."""
 
+    warnings: list[str] = Field(default_factory=list)
     labels: list[Union[str, int]]
     datasets: list[PointSeries]
 
@@ -1525,6 +1528,7 @@ class Trend(_Fixed):
 class BufferSeries(_Fixed):
     """``POST /buffer_timeseries``."""
 
+    warnings: list[str] = Field(default_factory=list)
     labels: list[Union[str, int]]
     median: list[ChartXY]
     samples: list[list[ChartXY]]
