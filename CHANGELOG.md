@@ -27,6 +27,9 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A mask of 0/1 flags masks again when re-added.** Adding the recommended mask back (or
+  a water mask) started at threshold 0, which keeps every pixel; it starts at 0.5. A threshold
+  typed while the layer's range was still loading is no longer replaced when it arrives.
 - **GNSS stations outside the North America plate.** *Find stations in this view* found
   none in Hawaii and other places off the plate, because it read UNR's North America
   fixed list, which leaves those stations out. Stations, velocities and daily positions

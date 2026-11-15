@@ -560,12 +560,17 @@ export default function MainTab() {
                       step={step} value={parseFloat(mask.threshold.toPrecision(4))}
                       onChange={e => {
                         const v = parseFloat(e.target.value);
-                        if (!isNaN(v)) dispatch({ type: 'UPDATE_LAYER_MASK', payload: { id: mask.id, updates: { threshold: v } } });
+                        if (isNaN(v)) return;
+                        awaitingDefault.current.delete(mask.id);   // a typed threshold is not replaced by the default
+                        dispatch({ type: 'UPDATE_LAYER_MASK', payload: { id: mask.id, updates: { threshold: v } } });
                       }} />
                   </div>
                   <input type="range" className="sidebar-range"
                     min={rMin} max={rMax} step={step} value={mask.threshold}
-                    onChange={e => dispatch({ type: 'UPDATE_LAYER_MASK', payload: { id: mask.id, updates: { threshold: parseFloat(e.target.value) } } })} />
+                    onChange={e => {
+                      awaitingDefault.current.delete(mask.id);
+                      dispatch({ type: 'UPDATE_LAYER_MASK', payload: { id: mask.id, updates: { threshold: parseFloat(e.target.value) } } });
+                    }} />
                   {range && (
                     <MaskHistogram dataset={mask.dataset} threshold={mask.threshold} mode={mask.mode} lo={rMin} hi={rMax}
                       timeIndex={(state.datasetInfo[mask.dataset]?.x_values?.length ?? 0) > 1 ? state.currentTimeIndex : 0}
