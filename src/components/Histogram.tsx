@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { displayUnit } from '../utils/units';
 import { Bar } from 'react-chartjs-2';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Tooltip } from 'chart.js';
 import { useAppDispatch, useAppFields } from '../context/AppContext';
@@ -23,7 +24,7 @@ interface HistogramProps {
 }
 
 export default function Histogram({ dataset, vmin, vmax, onSetVmin, onSetVmax }: HistogramProps = {}) {
-  const state = useAppFields('currentDataset', 'currentTimeIndex', 'datasetInfo', 'playing', 'vmax', 'vmin', 'wrapEnabled');
+  const state = useAppFields('currentDataset', 'currentTimeIndex', 'datasetInfo', 'playing', 'units', 'vmax', 'vmin', 'wrapEnabled');
   const dispatch = useAppDispatch();
   const [histData, setHistData] = useState<HistogramData | null>(null);
   // The layer the histogram is of (the shown one may still be the previous layer's).
@@ -133,14 +134,16 @@ export default function Histogram({ dataset, vmin, vmax, onSetVmin, onSetVmax }:
     scales: { x: { display: false }, y: { display: false } },
   };
 
+  const shown = displayUnit(state.datasetInfo[histDataset]?.unit, state.units);
   return (
     <div className="histogram-wrapper">
       <div className="histogram-chart-area">
         <Bar data={chartData} options={options as any} />
       </div>
       <div className="histogram-range">
-        <span className="hist-val">{histData.min.toFixed(3)}</span>
-        <span className="hist-val">{histData.max.toFixed(3)}</span>
+        {/* In the unit the colour range above is shown in (inches under Imperial). */}
+        <span className="hist-val">{(histData.min * shown.factor).toFixed(3)}</span>
+        <span className="hist-val">{(histData.max * shown.factor).toFixed(3)}</span>
       </div>
       <div className="histogram-buttons">
         <button className="hist-btn" onClick={handleAutoScale} title="2nd–98th percentile">

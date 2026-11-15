@@ -27,6 +27,9 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Imperial units reach the velocity layer and the histogram.** A layer in m/yr stayed in
+  m/yr (it shows in/yr), and the histogram's minimum and maximum stayed in the cube's unit
+  under a colour range shown in inches.
 - **GNSS stations outside the North America plate.** *Find stations in this view* found
   none in Hawaii and other places off the plate, because it read UNR's North America
   fixed list, which leaves those stations out. Stations, velocities and daily positions
