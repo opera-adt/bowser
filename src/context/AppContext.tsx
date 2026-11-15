@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useMemo, useState, useSyncExternalStore, ReactNode } from 'react';
+import React, { createContext, useContext, useMemo, useRef, useState, useSyncExternalStore, ReactNode } from 'react';
 import { AppState, AppAction, LegacyAppAction, TimeSeriesPoint, ChartWindow, ChartArea, AreaStats } from '../types';
 import { DRAWINGS_ID, drawingIndexOf, drawingName, renameDrawing, withDrawings } from '../map/overlays';
 import { DEFAULT_FIT } from '../map/fitSettings';
@@ -578,6 +578,24 @@ function useAppStore(): AppStore {
 export function useAppState<T>(selector: (state: AppState) => T): T {
   const store = useAppStore();
   return useSyncExternalStore(store.subscribe, () => selector(store.getState()));
+}
+
+/**
+ * Several fields at once: ``const state = useAppFields('overlays', 'identify')``. The component
+ * renders again only when one of them changes, and can read no other field: ask for it here.
+ */
+export function useAppFields<K extends keyof AppState>(...keys: K[]): Pick<AppState, K> {
+  const store = useAppStore();
+  const last = useRef<Pick<AppState, K> | null>(null);
+  return useSyncExternalStore(store.subscribe, () => {
+    const all = store.getState();
+    const before = last.current;
+    if (before && keys.every(k => before[k] === all[k])) return before;
+    const picked = {} as Pick<AppState, K>;
+    for (const k of keys) picked[k] = all[k];
+    last.current = picked;
+    return picked;
+  });
 }
 
 /** dispatch alone: never a reason to render again. */

@@ -5,7 +5,8 @@ import GnssTab from './GnssTab';
 
 let state: AppState;
 const mocks = vi.hoisted(() => ({ points: vi.fn(), point: vi.fn(), buffer: vi.fn(), dispatch: vi.fn(), chart: null as { datasets: Array<{ label: string; data: Array<{ x: number; y: number }> }> } | null }));
-vi.mock('../../context/AppContext', () => ({ useAppContext: () => ({ state, dispatch: mocks.dispatch }) }));
+vi.mock('../../context/AppContext', async () =>
+  (await import('../../test/appContextMock')).appContextMock(() => ({ state, dispatch: mocks.dispatch })));
 vi.mock('../../hooks/useApi', () => ({ useApi: () => ({ fetchMultiPointTimeSeries: mocks.points, fetchPointTimeSeries: mocks.point, fetchBufferTimeSeries: mocks.buffer }) }));
 vi.mock('react-chartjs-2', () => ({ Line: ({ data }: { data: NonNullable<typeof mocks.chart> }) => { mocks.chart = data; return <canvas data-testid="comparison" />; } }));
 const station = { id: 'TEST', custom: true, name: 'TEST', lon: 3, lat: 0.001, first: 2026, last: 2026.1, ve_mm_yr: 1, vn_mm_yr: 1, vu_mm_yr: 0, sigma_vu_mm_yr: 0.1, first_date: '2026-01-01', last_date: '2026-01-25', rows: 3, skipped: 0, units: 'mm', units_from: 'header', date_format: 'iso', components: ['east', 'north', 'up'], source: 'synthetic.csv', frame: 'local', warnings: [] };

@@ -1,10 +1,11 @@
 /** Split-screen divider (DOM, shared by both maps): drag to move, plus the right-panel dataset selector. */
 import { useEffect, useRef } from 'react';
-import { useAppContext } from '../context/AppContext';
+import { useAppDispatch, useAppFields } from '../context/AppContext';
 import { setSplitPosition, useSplitPosition } from '../map/splitPosition';
 
 export default function SplitDivider() {
-  const { state, dispatch } = useAppContext();
+  const state = useAppFields('datasetInfo', 'splitDataset');
+  const dispatch = useAppDispatch();
   const dragging = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
 

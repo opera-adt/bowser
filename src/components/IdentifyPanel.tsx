@@ -1,9 +1,10 @@
-import { useAppContext } from '../context/AppContext';
+import { useAppDispatch, useAppFields } from '../context/AppContext';
 import { useDraggableResizable } from '../hooks/useDraggableResizable';
 
 /** What the identify tool found at the last click. */
 export default function IdentifyPanel() {
-  const { state, dispatch } = useAppContext();
+  const state = useAppFields('identify', 'identifyEnabled');
+  const dispatch = useAppDispatch();
   const { panelRef, panelStyle, onDragMouseDown } = useDraggableResizable({
     defaultWidth: 320, defaultHeight: 300, initialRight: 100, initialBottom: 240,
   });

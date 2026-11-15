@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { useAppContext } from '../context/AppContext';
+import { useAppDispatch, useAppFields } from '../context/AppContext';
 import { useAddFiles } from '../hooks/useAddFiles';
 
 const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes('Files');
 
 /** Accepts files dropped on the map (a full-size hint while dragging) and shows what happened. */
 export default function FileDrop() {
-  const { state, dispatch } = useAppContext();
+  const state = useAppFields('overlayMessage');
+  const dispatch = useAppDispatch();
   const addFiles = useAddFiles();
   const [dragging, setDragging] = useState(false);
   const anchorRef = useRef<HTMLDivElement>(null);
