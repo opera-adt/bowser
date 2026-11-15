@@ -3,7 +3,7 @@
 The GNSS tab compares GNSS stations with the InSAR cube. Two kinds of station
 show there and on the map:
 
-- **Open-source GNSS stations** (*Find stations in this view*): public stations
+- **Open-source GNSS stations** (*Find stations in this view*, or by name): public stations
   from UNR, the Nevada Geodetic Laboratory (University of Nevada, Reno), with
   MIDAS velocities and daily positions in the global IGS20 frame (they include the plate's own motion) (`GET /gnss/stations`, `GET /gnss/series/{station}`).
 - **Load local GNSS file** (*Load GNSS files…*): station time series from your own

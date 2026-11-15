@@ -77,7 +77,7 @@ are indexes into a layer's `x_values`.
 | | `GET /data/{id}.{fmt}` | A converted vector: PMTiles (HTTP Range) or GeoJSON |
 | | `GET /files` | A server folder's sub-folders and addable files (`BOWSER_ALLOW_OPEN`) |
 | | `/overlay/*` (full only) | TiTiler routes for uploaded overlays |
-| Context | `GET /gnss/stations` | UNR GNSS stations in a box, with velocities |
+| Context | `GET /gnss/stations` | UNR GNSS stations in a box or by name, with velocities |
 | | `GET /gnss/series/{station}` | A station's daily positions |
 | | `POST /gnss/custom` | Read a GNSS station series from your file (text, or a server path with `BOWSER_ALLOW_OPEN`); see [gnss.md](gnss.md) |
 | | `GET /gnss/custom` | The stations read from files this session |

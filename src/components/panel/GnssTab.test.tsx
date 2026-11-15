@@ -119,6 +119,32 @@ describe('GNSS tab › Load local GNSS file', () => {
     expect(overlaysAdded().some(o => o.id === 'gnss_custom')).toBe(true);
   });
 
+  it('finds a station by name, anywhere, and puts it on the map', async () => {
+    const found = { id: 'MKEA', lon: -155.46, lat: 19.8, first: 1996.8, last: 2026.8, ve_mm_yr: -62.9, vn_mm_yr: 35.1, vu_mm_yr: -1.1, sigma_vu_mm_yr: 0.4 };
+    const asked: string[] = [];
+    const usual = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      if (String(url).startsWith('/gnss/stations?')) {
+        asked.push(String(url));
+        return { ok: true, json: async () => ({ source: 'unr', stations: String(url).includes('MKEA') ? [found] : [] }) } as Response;
+      }
+      return usual(url, init);
+    });
+    render(<GnssTab />);
+    const box = screen.getByRole('textbox', { name: 'GNSS station name' });
+    const go = screen.getByRole('button', { name: 'Find' });
+    expect((go as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(box, { target: { value: ' MKEA ' } });
+    fireEvent.click(go);
+    expect(await screen.findByRole('option', { name: /MKEA/ })).toBeTruthy();
+    expect(asked).toEqual(['/gnss/stations?name=MKEA']);
+    expect(overlaysAdded().some(o => o.id === 'gnss_stations')).toBe(true);
+
+    fireEvent.change(box, { target: { value: 'zzzz' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(await screen.findByText('No station with 3+ years of data is called ZZZZ.')).toBeTruthy();
+  });
+
   it('station names: the switch labels the stations on the map and keeps the choice', async () => {
     localStorage.clear();
     state = { ...state, overlays: [{ id: 'gnss_stations' }, { id: 'gnss_custom' }] } as unknown as AppState;
