@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useAppContext } from '../../context/AppContext';
+import { useAppDispatch, useAppFields } from '../../context/AppContext';
 
 /** Why Upload is off on bowser-lite (its /config says geotiff_upload: false). */
 export const MASK_UPLOAD_NEEDS_SERVER = 'Custom masks need the full Bowser server (bowser run)';
@@ -9,7 +9,8 @@ export const MASK_UPLOAD_NEEDS_SERVER = 'Custom masks need the full Bowser serve
  * server can't take uploads (bowser-lite); a refused upload says why instead of doing nothing.
  */
 export default function CustomMaskUpload() {
-  const { state, dispatch } = useAppContext();
+  const state = useAppFields('customMaskPath');
+  const dispatch = useAppDispatch();
   const inputRef = useRef<HTMLInputElement>(null);
   const [canUpload, setCanUpload] = useState(true);
   const [error, setError] = useState<string | null>(null);

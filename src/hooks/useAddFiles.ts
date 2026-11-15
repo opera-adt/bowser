@@ -8,7 +8,7 @@
  * map's message.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { useAppContext } from '../context/AppContext';
+import { useAppDispatch } from '../context/AppContext';
 import { featureBounds, fileKind, parseCsv, parseGeoJson, parseGpx, parseKml } from '../map/fileParsers';
 import { followData, overlayFromJob, SERVER_ONLY, startData, uploadData, type DataJob } from '../map/addData';
 import type { Overlay, OverlayFeatures } from '../types';
@@ -98,7 +98,7 @@ async function readShapefileParts(parts: File[]) {
  * the server is done. Returns the layer.
  */
 export function useAddServerData() {
-  const { dispatch } = useAppContext();
+  const dispatch = useAppDispatch();
   return useCallback((job: DataJob): Overlay => {
     const o = overlayFromJob(job, { id: nextId(), color: VECTOR_COLORS[added % VECTOR_COLORS.length], binColors: binColorsFor(5) });
     dispatch({ type: 'ADD_OVERLAY', payload: o });
@@ -108,7 +108,7 @@ export function useAddServerData() {
 }
 
 export function useAddFiles() {
-  const { dispatch } = useAppContext();
+  const dispatch = useAppDispatch();
   const conversion = useDataConversion();
   const addServerData = useAddServerData();
   return useCallback(async (files: FileList | File[]) => {

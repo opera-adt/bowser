@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useAppContext } from '../context/AppContext';
+import { useAppDispatch, useAppFields } from '../context/AppContext';
 import { AREA_WIDTHS, areaStyle, LINES, MARKERS, type LineStyle, type MarkerShape } from '../map/seriesStyle';
 import type { ChartArea, TimeSeriesPoint } from '../types';
 
@@ -13,7 +13,8 @@ const LINE_LABEL: Record<LineStyle, string> = { solid: 'line', dashed: 'dashed',
  * for each area its colour, median line, mean on or off and band on or off with its opacity.
  */
 export default function SeriesStylePopover() {
-  const { state, dispatch } = useAppContext();
+  const state = useAppFields('chartAreas', 'markerSize', 'timeSeriesPoints');
+  const dispatch = useAppDispatch();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const update = (id: string, updates: Partial<TimeSeriesPoint>) => dispatch({ type: 'UPDATE_TIME_SERIES_POINT', payload: { id, updates } });

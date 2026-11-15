@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AppProvider, useAppContext } from '../context/AppContext';
+import { AppProvider, useAppDispatch, useAppFields } from '../context/AppContext';
 import { useApi } from '../hooks/useApi';
 import MapContainer from './MapContainer';
 import MapLibreMap from './MapLibreMap';
@@ -31,7 +31,8 @@ import { ProfileProvider, ProfileChart } from './ProfileTool';
 import '../style.css';
 
 function AppContent() {
-  const { state, dispatch } = useAppContext();
+  const state = useAppFields('chartWindows', 'showChart');
+  const dispatch = useAppDispatch();
   const addServerData = useAddServerData();
   const { fetchDatasets, fetchDataMode, fetchConfig } = useApi();
   const [appTitle, setAppTitle] = useState('');

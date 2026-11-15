@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useAppContext } from '../context/AppContext';
+import { useAppDispatch, useAppFields } from '../context/AppContext';
 import { polygonChoices } from '../utils/polygonSeries';
 import { AREA_NEEDS_SERVER, usePolygonStats } from '../hooks/usePolygonStats';
 
@@ -11,7 +11,8 @@ export { AREA_NEEDS_SERVER };
  * area" last; with none it starts drawing a polygon on the map straight away.
  */
 export default function ChartAreaButton() {
-  const { state, dispatch } = useAppContext();
+  const state = useAppFields('areaDrawing', 'overlays');
+  const dispatch = useAppDispatch();
   const [open, setOpen] = useState(false);
   const supported = usePolygonStats();
   const rootRef = useRef<HTMLDivElement>(null);
