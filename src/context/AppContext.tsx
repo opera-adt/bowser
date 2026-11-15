@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useReducer, ReactNode } from 'react';
+import React, { createContext, useContext, useMemo, useState, useSyncExternalStore, ReactNode } from 'react';
 import { AppState, AppAction, LegacyAppAction, TimeSeriesPoint, ChartWindow, ChartArea, AreaStats } from '../types';
 import { DRAWINGS_ID, drawingIndexOf, drawingName, renameDrawing, withDrawings } from '../map/overlays';
 import { DEFAULT_FIT } from '../map/fitSettings';
@@ -510,23 +510,82 @@ interface AppContextType {
   dispatch: React.Dispatch<AppAction>;
 }
 
+/**
+ * The app's state, held outside React so that a component can follow one part of it
+ * (useAppState) instead of rendering again for every action, as readers of the whole state
+ * (useAppContext) do.
+ */
+interface AppStore {
+  getState: () => AppState;
+  dispatch: React.Dispatch<AppAction>;
+  subscribe: (listener: () => void) => () => void;
+}
+
+function createAppStore(initial: AppState): AppStore {
+  let state = initial;
+  const listeners = new Set<() => void>();
+  return {
+    getState: () => state,
+    dispatch: action => {
+      const next = appReducer(state, action);
+      if (next === state) return;   // an action that changes nothing renders nothing
+      state = next;
+      listeners.forEach(l => l());
+    },
+    subscribe: listener => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+  };
+}
+
 const AppContext = createContext<AppContextType | undefined>(undefined);
+const AppStoreContext = createContext<AppStore | undefined>(undefined);
 
 export function AppProvider({ children }: { children: ReactNode }) {
   // Per-viewer choices are read when the app starts, not when this module loads.
-  const [state, dispatch] = useReducer(appReducer, initialState, s => ({ ...s, areaBand: readAreaBand() }));
+  const [store] = useState(() => createAppStore({ ...initialState, areaBand: readAreaBand() }));
+  const state = useSyncExternalStore(store.subscribe, store.getState);
+  const value = useMemo(() => ({ state, dispatch: store.dispatch }), [state, store]);
 
   return (
-    <AppContext.Provider value={{ state, dispatch }}>
-      {children}
-    </AppContext.Provider>
+    <AppStoreContext.Provider value={store}>
+      <AppContext.Provider value={value}>
+        {children}
+      </AppContext.Provider>
+    </AppStoreContext.Provider>
   );
 }
 
+/** The whole state and dispatch. The component renders again for every action that changes anything. */
 export function useAppContext() {
   const context = useContext(AppContext);
   if (context === undefined) {
     throw new Error('useAppContext must be used within an AppProvider');
   }
   return context;
+}
+
+function useAppStore(): AppStore {
+  const store = useContext(AppStoreContext);
+  if (store === undefined) throw new Error('The app state must be used within an AppProvider');
+  return store;
+}
+
+/**
+ * One part of the state: ``useAppState(s => s.opacity)``. The component renders again only
+ * when that part changes, so select a stored value (a field, or a field of one) and derive
+ * from it in the component: a selector that builds a new object or list each time would
+ * render on every action, and React warns about it.
+ */
+export function useAppState<T>(selector: (state: AppState) => T): T {
+  const store = useAppStore();
+  return useSyncExternalStore(store.subscribe, () => selector(store.getState()));
+}
+
+/** dispatch alone: never a reason to render again. */
+export function useAppDispatch(): React.Dispatch<AppAction> {
+  return useAppStore().dispatch;
+}
+
+/** Read the state when something happens (a click, a reply), without following it. */
+export function useGetAppState(): () => AppState {
+  return useAppStore().getState;
 }

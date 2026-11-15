@@ -14,7 +14,7 @@
 import { Profiler, useEffect, type ReactNode } from 'react';
 import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AppProvider, useAppContext } from './AppContext';
+import { AppProvider, useAppContext, useAppDispatch, useAppState, useGetAppState } from './AppContext';
 import type { AppAction, RasterGroup } from '../types';
 import { DEFAULT_SPLIT_POSITION, setSplitPosition } from '../map/splitPosition';
 import { setViewBounds } from '../map/viewBounds';
@@ -121,5 +121,41 @@ describe('side-panel tabs rendered again by an action', () => {
     rendered.clear();
     act(() => dispatch({ type: 'NOT_AN_ACTION' } as unknown as AppAction));
     expect([...rendered]).toEqual([]);
+  });
+});
+
+describe('a component that follows one part of the state', () => {
+  const renders = { opacity: 0, dispatchOnly: 0 };
+  let read: () => { opacity: number; currentTimeIndex: number };
+  function Opacity() { renders.opacity++; return <span data-testid="opacity">{useAppState(s => s.opacity)}</span>; }
+  function DispatchOnly() { renders.dispatchOnly++; useAppDispatch(); read = useGetAppState(); return null; }
+
+  it('renders for its part only, and reads the rest when asked', () => {
+    const view = render(<AppProvider><Seed><Opacity /><DispatchOnly /></Seed></AppProvider>);
+    renders.opacity = renders.dispatchOnly = 0;
+    act(() => dispatch({ type: 'SET_TIME_INDEX', payload: 2 }));
+    act(() => dispatch({ type: 'TOGGLE_CHART' }));
+    expect(renders).toEqual({ opacity: 0, dispatchOnly: 0 });
+    act(() => dispatch({ type: 'SET_OPACITY', payload: 0.35 }));
+    expect(renders).toEqual({ opacity: 1, dispatchOnly: 0 });
+    expect(view.getByTestId('opacity').textContent).toBe('0.35');
+    expect(read()).toMatchObject({ opacity: 0.35, currentTimeIndex: 2 });
+  });
+
+  it('sees every action of one event together, as readers of the whole state do', () => {
+    const seen: string[] = [];
+    function Whole() { const { state } = useAppContext(); seen.push(`whole ${state.opacity}/${state.currentTimeIndex}`); return null; }
+    function Part() { seen.push(`part ${useAppState(s => s.opacity)}/${useAppState(s => s.currentTimeIndex)}`); return null; }
+    render(<AppProvider><Seed><Whole /><Part /></Seed></AppProvider>);
+    seen.length = 0;
+    act(() => { dispatch({ type: 'SET_OPACITY', payload: 0.2 }); dispatch({ type: 'SET_TIME_INDEX', payload: 1 }); });
+    expect(seen).toEqual(['whole 0.2/1', 'part 0.2/1']);
+  });
+
+  it('outside the provider says so', () => {
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    function Lost() { useAppState(s => s.opacity); return null; }
+    expect(() => render(<Lost />)).toThrow(/within an AppProvider/);
+    quiet.mockRestore();
   });
 });
