@@ -4,7 +4,7 @@ import { Chart as ChartJS, TimeScale, LinearScale, CategoryScale, PointElement, 
 import { Line } from 'react-chartjs-2';
 import 'chartjs-adapter-date-fns';
 import zoomPlugin from 'chartjs-plugin-zoom';
-import { useAppContext } from '../context/AppContext';
+import { useAppDispatch, useAppFields } from '../context/AppContext';
 import { useApi } from '../hooks/useApi';
 import { applicableMasks } from '../utils/maskCompatibility';
 import { MultiPointTimeSeriesData } from '../types';
@@ -103,7 +103,8 @@ interface BufferResult {
 }
 
 export default function TimeSeriesChart({ windowId }: { windowId: string }) {
-  const { state, dispatch } = useAppContext();
+  const state = useAppFields('areaBand', 'areaDrawing', 'areaStats', 'bufferEnabled', 'bufferRadius', 'bufferSamples', 'chartAreas', 'chartWindows', 'currentDataset', 'customMaskPath', 'dataMode', 'datasetInfo', 'dateRangeEnd', 'dateRangeStart', 'fitSettings', 'layerMasks', 'markerSize', 'refBufferEnabled', 'refBufferRadius', 'refEnabled', 'refMarkerPosition', 'refTimeIndex', 'showChart', 'showResiduals', 'showTrends', 'timeSeriesPoints', 'units', 'vmax', 'vmin');
+  const dispatch = useAppDispatch();
   const window_ = state.chartWindows.find(w => w.id === windowId);
   const { fetchMultiPointTimeSeries, fetchBufferTimeSeries } = useApi();
   const themeVersion = useThemeVersion();

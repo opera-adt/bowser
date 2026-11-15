@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { useAppContext } from '../../context/AppContext';
+import { useAppDispatch, useAppFields } from '../../context/AppContext';
 import { useApi, datasetRangeUrl } from '../../hooks/useApi';
 import Histogram from '../Histogram';
 import ColorScalePicker, { type RangeStats } from './ColorScalePicker';
@@ -28,7 +28,8 @@ const WRAP_COLORMAP = 'twilight';
 const isCyclic = (colormap: string) => ['twilight', 'hsv'].includes(baseColormap(colormap));
 
 export default function MainTab() {
-  const { state, dispatch } = useAppContext();
+  const state = useAppFields('bufferEnabled', 'bufferRadius', 'bufferSamples', 'colormap', 'complexMode', 'currentDataset', 'currentTimeIndex', 'dataMode', 'datasetInfo', 'dateBadge', 'layerMasks', 'opacity', 'playing', 'refBufferEnabled', 'refBufferRadius', 'refMarkerPosition', 'refTimeIndex', 'splitColormap', 'splitDataset', 'splitOpacity', 'splitScreen', 'splitTimeIndex', 'splitVmax', 'splitVmin', 'units', 'vmax', 'vmin', 'wrapEnabled', 'wrapPeriod', 'wrapWavelength');
+  const dispatch = useAppDispatch();
   const { fetchPointTimeSeries, fetchBufferTimeSeries } = useApi();
   const compatibleMasks = Object.keys(state.datasetInfo).filter(name =>
     !maskProblem(state.datasetInfo[state.currentDataset], name));

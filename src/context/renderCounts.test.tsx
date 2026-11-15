@@ -48,7 +48,7 @@ const RERENDERS: Record<string, { action: AppAction; tabs: Tab[] }> = {
   // A step of the date player. Main shows the date, Stats the values at it, Project's export its file name.
   'a date step': { action: { type: 'SET_TIME_INDEX', payload: 2 }, tabs: ['main', 'project', 'stats'] },
   // The chart panel is opened. Stats fetches for the chart's areas while it is open.
-  'opening the chart': { action: { type: 'TOGGLE_CHART' }, tabs: ['main', 'stats'] },
+  'opening the chart': { action: { type: 'TOGGLE_CHART' }, tabs: ['stats'] },
 };
 
 let dispatch: (a: AppAction) => void;

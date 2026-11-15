@@ -26,7 +26,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 
 maplibregl.setWorkerUrl(maplibreWorkerUrl);
-import { useAppContext } from '../context/AppContext';
+import { useAppDispatch, useAppFields, useGetAppState } from '../context/AppContext';
 import { roundedBounds, setViewBounds } from '../map/viewBounds';
 import { getSplitPosition } from '../map/splitPosition';
 import { useApi } from '../hooks/useApi';
@@ -122,7 +122,7 @@ function TerrainButton({ enabled, exaggeration, onChange }: {
 
 const EMPTY_STYLE: maplibregl.StyleSpecification = { version: 8, sources: {}, layers: [] };
 
-function datasetBounds(state: AppState): [number, number, number, number] | null {
+function datasetBounds(state: Pick<AppState, 'currentDataset' | 'datasetInfo'>): [number, number, number, number] | null {
   const info = (state.currentDataset && state.datasetInfo[state.currentDataset]) || Object.values(state.datasetInfo)[0];
   return info ? info.latlon_bounds : null;
 }
@@ -164,7 +164,8 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
   toolbarsVisible?: boolean;
   onToggleToolbars?: () => void;
 }) {
-  const { state, dispatch } = useAppContext();
+  const state = useAppFields('currentDataset', 'datasetInfo', 'graticuleMode', 'opacity', 'overlays', 'pixelInspectEnabled', 'refCandidates', 'refMarkerPosition', 'refMarkerVisible', 'selectedPointId', 'splitScreen', 'timeSeriesPoints', 'viewBoundsApplySeq', 'viewBoundsRequest');
+  const dispatch = useAppDispatch();
   const { fetchPointTimeSeries, fetchBufferTimeSeries } = useApi();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -175,8 +176,7 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
   const [loadedMap, setLoadedMap] = useState<maplibregl.Map | null>(null);
   const ready = loadedMap !== null && loadedMap === mapRef.current;
   const [mapError, setMapError] = useState<string | null>(null);
-  const stateRef = useRef(state);
-  stateRef.current = state;
+  const getState = useGetAppState();
   const { active: profileActive } = useProfileContext();
   const profileActiveRef = useRef(profileActive);
   profileActiveRef.current = profileActive;
@@ -365,7 +365,7 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
     const map = mapRef.current;
     if (!ready || !map) return;
     const onClick = (e: maplibregl.MapMouseEvent) => {
-      const decision = mapClickActions(stateRef.current, [e.lngLat.lat, e.lngLat.lng],
+      const decision = mapClickActions(getState(), [e.lngLat.lat, e.lngLat.lng],
         { toolActive: measureActiveRef.current, profileActive: profileActiveRef.current });
       if (decision.kind === 'actions') decision.actions.forEach(dispatch);
       if (decision.kind === 'annotate') openAnnotationCreate(map, decision.position, dispatch);
@@ -415,7 +415,7 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
     });
     marker.on('dragend', () => {
       const ll = marker.getLngLat();
-      void refDragEnd(stateRef.current, [ll.lat, ll.lng], { fetchPointTimeSeries, fetchBufferTimeSeries }, dispatch);
+      void refDragEnd(getState(), [ll.lat, ll.lng], { fetchPointTimeSeries, fetchBufferTimeSeries }, dispatch);
     });
     return () => { marker.remove(); };
   }, [ready, state.refMarkerVisible, state.refMarkerPosition, dispatch, fetchPointTimeSeries, fetchBufferTimeSeries]);
@@ -431,7 +431,7 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
       el.style.cursor = 'pointer';
       el.addEventListener('click', ev => {
         ev.stopPropagation();
-        void chooseCandidate(stateRef.current, c, { fetchPointTimeSeries, fetchBufferTimeSeries }, dispatch);
+        void chooseCandidate(getState(), c, { fetchPointTimeSeries, fetchBufferTimeSeries }, dispatch);
       });
       return new maplibregl.Marker({ element: el }).setLngLat([c.lon, c.lat]).addTo(map);
     });
@@ -449,7 +449,7 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
     const onMove = (e: maplibregl.MapMouseEvent) => {
       // as Leaflet's formatNum: 5 decimals, trailing zeros dropped
       cursorControl.current.el.textContent = `${+e.lngLat.lat.toFixed(5)} : ${+e.lngLat.lng.toFixed(5)}`;
-      const s = stateRef.current;
+      const s = getState();
       cancel();
       if (!s.pixelInspectEnabled) { setTooltip(null); return; }
       const req = pixelInspectRequest(s, getSplitPosition(), [e.lngLat.lat, e.lngLat.lng], e.point.x, map.getContainer().clientWidth);
