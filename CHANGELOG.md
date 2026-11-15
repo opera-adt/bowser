@@ -27,6 +27,8 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Turning Rewrap off brings the colour range back.** The colour map returned but the
+  range stayed at the wrap's ±π, so the layer drew in one colour until the range was reset.
 - **GNSS stations outside the North America plate.** *Find stations in this view* found
   none in Hawaii and other places off the plate, because it read UNR's North America
   fixed list, which leaves those stations out. Stations, velocities and daily positions
