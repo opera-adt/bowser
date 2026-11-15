@@ -6,11 +6,19 @@ import type { HistogramData } from './colorPresets';
 
 export interface ValueRange { min: number; max: number; p2?: number; p98?: number }
 
+/** True for a layer of 0/1 flags (a recommended, water or scatterer mask): nothing between the two. */
+function isFlags(range: ValueRange): boolean {
+  const ends = (v: number | undefined) => v === 0 || v === 1;
+  return range.min === 0 && range.max === 1 && ends(range.p2) && ends(range.p98);
+}
+
 /**
  * A mask's first threshold on a layer: the low end of its range for "≥" (keeps
  * everything, so the user tightens it), the high end for "≤". In the layer's units.
+ * A layer of 0/1 flags starts at 0.5: at either end it would keep every pixel and mask nothing.
  */
 export function defaultThreshold(range: ValueRange, mode: 'min' | 'max'): number {
+  if (isFlags(range)) return 0.5;
   return mode === 'max' ? (range.p98 ?? range.max) : (range.p2 ?? range.min);
 }
 

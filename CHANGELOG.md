@@ -27,6 +27,9 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A mask of 0/1 flags masks again when re-added.** Adding the recommended mask back (or
+  a water mask) started at threshold 0, which keeps every pixel; it starts at 0.5. A threshold
+  typed while the layer's range was still loading is no longer replaced when it arrives.
 - **The date badge's ✕ hides it.** It switched the badge to its date-only form, which has
   no ✕.
 - **The chart reopens after its close button.** After closing the chart window with its ✕,
