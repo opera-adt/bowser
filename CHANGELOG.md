@@ -27,6 +27,9 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Imperial units reach the velocity layer and the histogram.** A layer in m/yr stayed in
+  m/yr (it shows in/yr), and the histogram's minimum and maximum stayed in the cube's unit
+  under a colour range shown in inches.
 - **Turning Rewrap off brings the colour range back.** The colour map returned but the
   range stayed at the wrap's ±π, so the layer drew in one colour until the range was reset.
 - **A mask of 0/1 flags masks again when re-added.** Adding the recommended mask back (or
