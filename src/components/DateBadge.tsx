@@ -1,4 +1,4 @@
-import { useAppContext } from '../context/AppContext';
+import { useAppDispatch, useAppFields } from '../context/AppContext';
 import { clampTimeIndex } from '../utils/timeStep';
 
 /** A time label as shown: a date, or a "reference → secondary" pair. */
@@ -14,7 +14,8 @@ export function dateLabel(value: unknown): string {
  * (previous / next and a slider, the same time step as the panel's slider), the date alone, hidden.
  */
 export default function DateBadge() {
-  const { state, dispatch } = useAppContext();
+  const state = useAppFields('currentDataset', 'currentTimeIndex', 'datasetInfo', 'dateBadge');
+  const dispatch = useAppDispatch();
   const info = state.currentDataset ? state.datasetInfo[state.currentDataset] : null;
   const n = info?.x_values.length ?? 0;
   if (state.dateBadge === 'off' || n < 2) return null;

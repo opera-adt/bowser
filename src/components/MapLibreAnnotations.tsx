@@ -5,7 +5,7 @@
  */
 import { useEffect } from 'react';
 import * as maplibregl from 'maplibre-gl';
-import { useAppContext } from '../context/AppContext';
+import { useAppDispatch, useAppFields } from '../context/AppContext';
 import { annotationCreateForm, annotationEditForm, annotationLabelHtml } from '../map/annotationForms';
 import type { AppAction } from '../types';
 
@@ -18,7 +18,8 @@ export function openAnnotationCreate(map: maplibregl.Map, [lat, lng]: [number, n
 }
 
 export default function MapLibreAnnotations({ map, ready }: { map: maplibregl.Map | null; ready: boolean }) {
-  const { state, dispatch } = useAppContext();
+  const state = useAppFields('annotations');
+  const dispatch = useAppDispatch();
 
   useEffect(() => {
     if (!ready || !map) return;

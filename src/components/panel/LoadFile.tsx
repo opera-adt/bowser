@@ -5,7 +5,7 @@
  * like an upload. Pinned by AddData.test.tsx.
  */
 import { useEffect, useRef, useState } from 'react';
-import { useAppContext } from '../../context/AppContext';
+import { useAppDispatch } from '../../context/AppContext';
 import { useAddServerData } from '../../hooks/useAddFiles';
 import { HttpError, listFolder, startData, type FolderEntry, type FolderListing } from '../../map/addData';
 import { formatBytes } from './ExportSection';
@@ -28,7 +28,7 @@ const datasetParam = () => new URLSearchParams(window.location.search).get('data
 const entryIcon = (e: FolderEntry) => (e.type === 'dir' ? 'fa-folder' : e.kind === 'raster' ? 'fa-image' : 'fa-draw-polygon');
 
 export default function LoadFile() {
-  const { dispatch } = useAppContext();
+  const dispatch = useAppDispatch();
   const addServerData = useAddServerData();
   const [allowed, setAllowed] = useState(false);
   const [canBrowse, setCanBrowse] = useState(true);

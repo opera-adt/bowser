@@ -14,7 +14,7 @@
 import { Profiler, useEffect, type ReactNode } from 'react';
 import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AppProvider, useAppContext, useAppDispatch, useAppState, useGetAppState } from './AppContext';
+import { AppProvider, useAppContext, useAppDispatch, useAppFields, useAppState, useGetAppState } from './AppContext';
 import type { AppAction, RasterGroup } from '../types';
 import { DEFAULT_SPLIT_POSITION, setSplitPosition } from '../map/splitPosition';
 import { setViewBounds } from '../map/viewBounds';
@@ -150,6 +150,19 @@ describe('a component that follows one part of the state', () => {
     seen.length = 0;
     act(() => { dispatch({ type: 'SET_OPACITY', payload: 0.2 }); dispatch({ type: 'SET_TIME_INDEX', payload: 1 }); });
     expect(seen).toEqual(['whole 0.2/1', 'part 0.2/1']);
+  });
+
+  it('following several fields renders when one of them changes, and for nothing else', () => {
+    let count = 0;
+    function Two() { count++; const state = useAppFields('opacity', 'showChart'); return <span data-testid="two">{`${state.opacity} ${state.showChart}`}</span>; }
+    const view = render(<AppProvider><Seed><Two /></Seed></AppProvider>);
+    count = 0;
+    act(() => dispatch({ type: 'SET_TIME_INDEX', payload: 1 }));
+    expect(count).toBe(0);
+    act(() => dispatch({ type: 'SET_OPACITY', payload: 0.5 }));
+    act(() => dispatch({ type: 'TOGGLE_CHART' }));
+    expect(count).toBe(2);
+    expect(view.getByTestId('two').textContent).toBe('0.5 true');
   });
 
   it('outside the provider says so', () => {

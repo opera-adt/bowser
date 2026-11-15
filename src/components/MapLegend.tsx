@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useAppContext } from '../context/AppContext';
+import { useAppFields } from '../context/AppContext';
 import { GNSS_CUSTOM_LAYER_ID, GNSS_LAYER_ID } from '../map/gnss';
 import type { PointMarker } from '../map/markers';
 
@@ -10,7 +10,7 @@ const MARKER_GLYPH: Record<PointMarker, string> = { circle: '●', square: '■'
  * and geology, whose colours are per-map units, so it shows the unit the identify tool last found.
  */
 export default function MapLegend() {
-  const { state } = useAppContext();
+  const state = useAppFields('identify', 'overlays');
   const [collapsed, setCollapsed] = useState(false);
   const shown = state.overlays.filter(o => o.visible && (o.legend || o.serviceKey === 'geology' || o.id === GNSS_LAYER_ID || o.id === GNSS_CUSTOM_LAYER_ID)).reverse();
   if (!shown.length) return null;

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { applyTheme, shownTheme, THEME_EVENT } from '../utils/theme';
-import { useAppContext } from '../context/AppContext';
+import { useAppDispatch, useAppFields } from '../context/AppContext';
 import MainTab from './panel/MainTab';
 import OverlaysTab from './panel/OverlaysTab';
 import ProjectTab from './panel/ProjectTab';
@@ -37,7 +37,8 @@ const TAB_CONTENT: Record<TabId, () => JSX.Element> = {
 };
 
 export default function ControlPanel({ title, operaLogo }: { title: string; operaLogo: boolean }) {
-  const { state, dispatch } = useAppContext();
+  const state = useAppFields('panelTab', 'refBufferEnabled', 'showChart', 'showRefChart');
+  const dispatch = useAppDispatch();
   const tab: TabId = TABS.some(t => t.id === state.panelTab) ? state.panelTab as TabId : 'main';
   const setTab = (id: TabId) => dispatch({ type: 'SET_PANEL_TAB', payload: id });
   // The Assistant waits for an answer (a request to run a tool): say so on its rail icon.

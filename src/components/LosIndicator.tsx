@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useAppContext } from '../context/AppContext';
+import { useAppDispatch, useAppFields } from '../context/AppContext';
 import { useDraggableResizable } from '../hooks/useDraggableResizable';
 import { LosMetadata } from '../types';
 import { downloadElementAsPng } from '../utils/screenshot';
@@ -277,7 +277,8 @@ function SideView({ geom, positiveDirection }: { geom: Geometry; positiveDirecti
 }
 
 export default function LosIndicator() {
-  const { state, dispatch } = useAppContext();
+  const state = useAppFields('currentDataset', 'datasetInfo', 'showLosIndicator');
+  const dispatch = useAppDispatch();
   const [manualOn, setManualOn] = useState(false);
   const [direction, setDirection] = useState<Direction>('ascending');
   const [looking, setLooking] = useState<Looking>('right');

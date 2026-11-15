@@ -17,6 +17,7 @@ export function appContextMock(get: () => Given) {
   return {
     useAppContext: () => ({ state: get().state, dispatch: dispatch() }),
     useAppState: <T>(select: (state: never) => T): T => select(get().state as never),
+    useAppFields: () => get().state,
     useAppDispatch: dispatch,
     useGetAppState: () => () => get().state,
   };
