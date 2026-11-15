@@ -27,6 +27,11 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **An empty chart names a masked reference point.** A series is taken relative to the
+  reference point, so when the masks hide that point on every date every chart is empty,
+  wherever its points are; a cube that records no reference starts with it in the middle of
+  the data, which may be water. The chart said the masks hid the points. It now says the
+  reference point is masked and offers to move it to a stable place.
 - **Split screen's right-hand layer opens on its own colour range.** It started at 0–1, a
   solid block of one colour for most layers; it takes its 2–98 % range when chosen. Its
   histogram is also for its own date, not the left layer's.
