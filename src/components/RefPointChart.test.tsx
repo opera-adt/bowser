@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import RefPointChart from './RefPointChart';
 
 const ctx = vi.hoisted(() => ({ state: {} as Record<string, unknown>, fetch: vi.fn(), data: null as { datasets: Array<{ label: string; data: number[] }> } | null }));
-vi.mock('../context/AppContext', () => ({ useAppContext: () => ({ state: ctx.state }) }));
+vi.mock('../context/AppContext', async () =>
+  (await import('../test/appContextMock')).appContextMock(() => ({ state: ctx.state })));
 vi.mock('../hooks/useApi', () => ({ useApi: () => ({ fetchBufferTimeSeries: ctx.fetch }) }));
 vi.mock('../hooks/useDraggableResizable', () => ({ useDraggableResizable: () => ({ panelRef: { current: null }, panelStyle: {}, onDragMouseDown: vi.fn(), resizeGrip: null }) }));
 vi.mock('react-chartjs-2', () => ({ Line: ({ data }: { data: { datasets: Array<{ label: string; data: number[] }> } }) => { ctx.data = data; return <div data-testid="chart" />; } }));

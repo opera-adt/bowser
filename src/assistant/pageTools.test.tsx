@@ -7,7 +7,8 @@ import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { dispatch, mockState } = vi.hoisted(() => ({ dispatch: vi.fn(), mockState: {} as Record<string, any> }));
-vi.mock('../context/AppContext', () => ({ useAppContext: () => ({ state: mockState, dispatch }) }));
+vi.mock('../context/AppContext', async () =>
+  (await import('../test/appContextMock')).appContextMock(() => ({ state: mockState, dispatch })));
 vi.mock('react-chartjs-2', () => ({ Bar: () => null }));
 
 import { closeMatches, newDone, PAGE_TOOL_NAMES, runPageTool, toolStatus, type PageContext } from './pageTools';

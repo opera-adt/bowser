@@ -6,7 +6,8 @@ import MapLegend from './MapLegend';
 
 let state: AppState;
 const dispatch = vi.fn<(a: AppAction) => void>();
-vi.mock('../context/AppContext', () => ({ useAppContext: () => ({ state, dispatch }) }));
+vi.mock('../context/AppContext', async () =>
+  (await import('../test/appContextMock')).appContextMock(() => ({ state, dispatch })));
 vi.mock('react-chartjs-2', () => ({
   Line: ({ data }: { data: { datasets: { label: string }[] } }) => <div data-testid="gnss-panel">{data.datasets[0].label}</div>,
 }));

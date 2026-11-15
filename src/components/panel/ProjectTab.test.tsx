@@ -5,7 +5,8 @@ import { RENDER_KEY } from '../../map/gpu/renderMode';
 import ProjectTab from './ProjectTab';
 
 const state = { units: 'metric', datasetInfo: {}, currentDataset: null } as unknown as Record<string, unknown>;
-vi.mock('../../context/AppContext', () => ({ useAppContext: () => ({ state, dispatch: vi.fn() }) }));
+vi.mock('../../context/AppContext', async () =>
+  (await import('../../test/appContextMock')).appContextMock(() => ({ state })));
 vi.mock('./ExportSection', () => ({ default: () => null }));
 
 beforeEach(() => {

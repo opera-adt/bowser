@@ -5,7 +5,8 @@ import ReferenceCandidates from './ReferenceCandidates';
 
 let state: AppState;
 const dispatch = vi.fn<(a: AppAction) => void>();
-vi.mock('../../context/AppContext', () => ({ useAppContext: () => ({ state, dispatch }) }));
+vi.mock('../../context/AppContext', async () =>
+  (await import('../../test/appContextMock')).appContextMock(() => ({ state, dispatch })));
 
 const candidate = (rank: number, over: Partial<RefCandidate> = {}): RefCandidate => ({
   rank, lon: -90.12 + rank * 0.01, lat: 34.78, radius_m: 100,

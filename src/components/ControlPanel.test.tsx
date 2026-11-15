@@ -3,7 +3,8 @@ import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const { mockState } = vi.hoisted(() => ({ mockState: { panelTab: 'main', showChart: false, refBufferEnabled: false } as Record<string, unknown> }));
-vi.mock('../context/AppContext', () => ({ useAppContext: () => ({ state: mockState, dispatch: vi.fn() }) }));
+vi.mock('../context/AppContext', async () =>
+  (await import('../test/appContextMock')).appContextMock(() => ({ state: mockState })));
 vi.mock('./panel/MainTab', () => ({ default: () => null }));
 vi.mock('./panel/OverlaysTab', () => ({ default: () => null }));
 vi.mock('./panel/ProjectTab', () => ({ default: () => null }));

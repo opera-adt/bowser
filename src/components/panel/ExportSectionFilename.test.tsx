@@ -2,13 +2,13 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ExportSection from './ExportSection';
 
-vi.mock('../../context/AppContext', () => ({ useAppContext: () => ({
+vi.mock('../../context/AppContext', async () => (await import('../../test/appContextMock')).appContextMock(() => ({
   state: {
     currentDataset: 'displacement', currentTimeIndex: 900,
     datasetInfo: { displacement: { x_values: ['wrong-label'] } },
     layerMasks: [], customMaskPath: null, overlays: [],
   },
-}) }));
+})));
 
 let filename: string;
 beforeEach(() => {

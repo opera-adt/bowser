@@ -4,7 +4,8 @@ import type { AppState } from '../../types';
 import ExportSection, { EXPORT_TIMEOUT_MS } from './ExportSection';
 
 let state: AppState;
-vi.mock('../../context/AppContext', () => ({ useAppContext: () => ({ state }) }));
+vi.mock('../../context/AppContext', async () =>
+  (await import('../../test/appContextMock')).appContextMock(() => ({ state })));
 
 // The section asks /config whether the server can write GeoTIFFs, then the
 // button requests /export/geotiff. Answer each separately.

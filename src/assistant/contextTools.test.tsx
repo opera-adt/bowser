@@ -8,7 +8,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setViewBounds } from '../map/viewBounds';
 
 const { dispatch, mockState } = vi.hoisted(() => ({ dispatch: vi.fn(), mockState: {} as Record<string, any> }));
-vi.mock('../context/AppContext', () => ({ useAppContext: () => ({ state: mockState, dispatch }) }));
+vi.mock('../context/AppContext', async () =>
+  (await import('../test/appContextMock')).appContextMock(() => ({ state: mockState, dispatch })));
 vi.mock('../hooks/useAddFiles', () => ({ ACCEPT: '', useAddFiles: () => vi.fn(), useAddServerData: () => vi.fn(), useDataConversion: () => null }));
 vi.mock('../map/soils', async () => ({
   ...(await vi.importActual<Record<string, unknown>>('../map/soils')),

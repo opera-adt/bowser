@@ -4,7 +4,8 @@ import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { mockState } = vi.hoisted(() => ({ mockState: {} as Record<string, any> }));
-vi.mock('../context/AppContext', () => ({ useAppContext: () => ({ state: mockState, dispatch: vi.fn() }) }));
+vi.mock('../context/AppContext', async () =>
+  (await import('../test/appContextMock')).appContextMock(() => ({ state: mockState })));
 
 import { ProfileProvider, useProfileContext, useProfileFetch } from './ProfileTool';
 import type { LatLng } from '../map/profileGeometry';
