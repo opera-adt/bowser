@@ -3507,7 +3507,11 @@ def _prepare_native_export(
 )
 def animation_capabilities():
     """Raster GIF foundation; additional composition features remain separate."""
-    return {"supported": True, "max_frames": 90, "scope": "real-valued raster only"}
+    return {
+        "supported": True,
+        "max_frames": 90,
+        "scope": "real-valued raster with optional native-point histories",
+    }
 
 
 @app.exception_handler(RequestValidationError)

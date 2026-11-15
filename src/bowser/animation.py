@@ -4,13 +4,21 @@ import json
 import re
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from io import BytesIO
 from typing import Any, Callable
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .animation_points import (
+    PLOT_HEIGHT,
+    AnimationPoint,
+    add_plots,
+    draw_locations,
+    elapsed_times,
+    locate_grid_points,
+)
 from .polygon import PolygonMask
 from .polygon_masks import _axis
 
@@ -35,6 +43,7 @@ class AnimationRequest(BaseModel):
     width: int = Field(default=512, ge=64, le=1024)
     bounds: list[float] | None = Field(default=None, min_length=4, max_length=4)
     layer_masks: list[PolygonMask] = Field(default_factory=list, max_length=10)
+    points: list[AnimationPoint] = Field(default_factory=list, max_length=5)
     custom_mask_path: str | None = None
     ref_lon: float | None = Field(default=None, ge=-180, le=180)
     ref_lat: float | None = Field(default=None, ge=-90, le=90)
@@ -46,6 +55,10 @@ class AnimationRequest(BaseModel):
         """Reject invalid dates/limits instead of silently clamping requests."""
         if not 2 <= self.end_index - self.start_index + 1 <= MAX_FRAMES:
             raise ValueError("Choose 2 to 90 consecutive saved epochs")
+        if self.points and (
+            self.width < 320 or len({p.id for p in self.points}) != len(self.points)
+        ):
+            raise ValueError("Point plots need width at least 320 and unique point IDs")
         if self.vmin >= self.vmax:
             raise ValueError("Color limits must increase")
         if (self.ref_lon is None) != (self.ref_lat is None):
@@ -132,6 +145,7 @@ class RenderPlan:
     level: str
     native_grid: tuple
     size: tuple[int, int]
+    point_records: list[dict] = field(default_factory=list)
 
     def summary(self) -> dict:
         """Return bounded public provenance without source paths."""
@@ -141,7 +155,9 @@ class RenderPlan:
             "read_width": c1 - c0,
             "read_height": r1 - r0,
             "output_width": self.size[0],
-            "output_height": self.size[1] + 48,
+            "output_height": self.size[1]
+            + 48
+            + (PLOT_HEIGHT if self.point_records else 0),
             "frames": len(self.indices),
         }
 
@@ -320,13 +336,24 @@ def plan_render(target: Any, request: AnimationRequest) -> RenderPlan:
         _, _, (r0, r1, c0, c1), _ = item
         return (r1 - r0) * (c1 - c0)
 
-    reference_work = _reference_work(candidates[0][3], request, len(indices))
+    point_records = (
+        locate_grid_points(candidates[0][3], request.points) if request.points else []
+    )
+    if request.points:
+        elapsed_times([labels[i] for i in indices])
+    # Each native point window shares strict export preparation, including its
+    # own reference read. Count that bounded work rather than a full native frame.
+    reference_work = _reference_work(candidates[0][3], request, len(indices)) * (
+        1 + len(point_records)
+    )
+    point_work = len(point_records) * len(indices) * (1 + len(request.layer_masks))
 
     def bounded(item):
         return (
             pixels(item) <= MAX_NATIVE_PIXELS
             and pixels(item) * len(indices) * (1 + len(request.layer_masks))
             + reference_work
+            + point_work
             <= MAX_PIXEL_EPOCHS
         )
 
@@ -353,7 +380,10 @@ def plan_render(target: Any, request: AnimationRequest) -> RenderPlan:
     w, h = c1 - c0, r1 - r0
     factor = min(request.width / w, 1024 / h)
     size = max(1, round(w * factor)), max(1, round(h * factor))
-    if size[0] * (size[1] + 48) * len(indices) > MAX_DISPLAY_PIXELS:
+    if request.points and size[0] < 320:
+        raise ValueError("Point plot raster aspect requires output width at least 320")
+    plot_height = PLOT_HEIGHT if request.points else 0
+    if size[0] * (size[1] + 48 + plot_height) * len(indices) > MAX_DISPLAY_PIXELS:
         raise ValueError("Display exceeds GIF pixel budget; reduce width or epochs")
     if ds is not None:
         from rasterio.windows import Window
@@ -365,7 +395,9 @@ def plan_render(target: Any, request: AnimationRequest) -> RenderPlan:
         )
     else:
         cropped = None
-    return RenderPlan(labels, indices, cropped, win, name, candidates[0][3], size)
+    return RenderPlan(
+        labels, indices, cropped, win, name, candidates[0][3], size, point_records
+    )
 
 
 def render(request: AnimationRequest, target: Any, prepare: Callable):
@@ -379,14 +411,27 @@ def render(request: AnimationRequest, target: Any, prepare: Callable):
         raise ValueError("Unknown animation colormap") from exc
     plan = plan_render(target, request)
     labels, indices = plan.labels, plan.indices
+    selected_labels = [labels[i] for i in indices]
+    times = elapsed_times(selected_labels) if request.points else None
+    data_colors = 248 if request.points else 254
     # Reserve two colors for nodata/header text. This display quantization is
     # constant for every frame; it does not affect native data or color limits.
     palette = np.vstack(
         (
-            lut[np.round(np.linspace(0, 255, 254)).astype(int), :3],
+            lut[np.round(np.linspace(0, 255, data_colors)).astype(int), :3],
             [[255, 255, 255], [0, 0, 0]],
         )
     ).astype("uint8")
+    if request.points:
+        colors = [tuple(bytes.fromhex(p.color[1:])) for p in request.points]
+        palette = np.vstack(
+            (
+                palette[:248],
+                colors + [(0, 0, 0)] * (5 - len(colors)),
+                [[128, 128, 128], [255, 255, 255], [0, 0, 0]],
+            )
+        ).astype("uint8")
+    point_records = plan.point_records
     frames: list[Image.Image] = []
     support, references = [], []
     units = "stored units (not supplied)"
@@ -404,12 +449,39 @@ def render(request: AnimationRequest, target: Any, prepare: Callable):
             ) as src:
                 if (src.crs, src.transform, src.width, src.height) != plan.native_grid:
                     raise ValueError("Animation frames must share the same native grid")
+        for record in point_records:
+            row, col = record["row"], record["col"]
+            native_ds = None
+            if target.mode == "md":
+                from rasterio.windows import Window
+                from rasterio.windows import transform as window_transform
+
+                native_ds = target.dataset.isel(
+                    y=slice(row, row + 1), x=slice(col, col + 1)
+                )
+                native_ds = native_ds.rio.write_transform(
+                    window_transform(Window(col, row, 1, 1), plan.native_grid[1])
+                )
+            native_plan = replace(
+                plan,
+                dataset=native_ds,
+                window=(row, row + 1, col, col + 1),
+                level="native",
+                size=(1, 1),
+            )
+            point_da, _ = prepare(index, masks, native_plan)
+            try:
+                value = float(point_da.values.item())
+                record["values"].append(value if np.isfinite(value) else None)
+            finally:
+                point_da.close()
         da, _ = prepare(index, masks, plan)
         try:
             native = (da.rio.crs, da.rio.transform(), da.sizes["x"], da.sizes["y"])
             if grid is not None and native != grid:
                 raise ValueError("Animation frames must share the same native grid")
             grid = native
+
             values = np.asarray(da.transpose("y", "x").values)
             valid = np.isfinite(values)
             support.append(int(valid.sum()))
@@ -427,9 +499,9 @@ def render(request: AnimationRequest, target: Any, prepare: Callable):
                 0,
                 1,
             )
-            pixels = np.where(valid, (scaled * 253).astype("uint8"), 254).astype(
-                "uint8"
-            )
+            pixels = np.where(
+                valid, (scaled * (data_colors - 1)).astype("uint8"), 254
+            ).astype("uint8")
             image = Image.fromarray(pixels).resize(size, Image.Resampling.NEAREST)
             image.putpalette(palette.ravel().tolist())
             frame = Image.new("P", (size[0], size[1] + 48), 254)
@@ -443,12 +515,19 @@ def render(request: AnimationRequest, target: Any, prepare: Callable):
                 f"{request.vmin:g} to {request.vmax:g} {units}",
                 fill=255,
             )
+            if point_records:
+                draw_locations(frame, da, point_records, plan.native_grid[1], size)
             frames.append(frame)
         finally:
             da.close()
+    plot = None
+    if point_records:
+        frames, plot = add_plots(frames, point_records, times, selected_labels, units)
     duration = int(round(1000 / request.fps / 10) * 10)
     manifest = {
         "kind": "raster GIF display",
+        "point_histories": point_records,
+        "plot": plot,
         "variable": request.variable,
         "indices": indices,
         "labels": [labels[i] for i in indices],
@@ -474,15 +553,12 @@ def render(request: AnimationRequest, target: Any, prepare: Callable):
         "layer_masks": [m.model_dump() for m in request.layer_masks],
         "custom_mask_applied": bool(request.custom_mask_path),
         "limitations": [
-            (
-                "Display only: 254 fixed data colors plus white/black; "
-                "nearest-neighbor resize"
-            ),
+            (f"Display only: {data_colors} data colors; nearest-neighbor resize"),
             "Equal playback durations do not represent unequal acquisition intervals",
-            "No inferred zero epochs, interpolation, smoothing or new fitting",
+            "No inferred zero epochs, numeric interpolation, smoothing or new fitting",
             (
-                "Raster only: no basemap, terrain context, annotations, "
-                "opacity blending or linked plot"
+                "No basemap, terrain context, imported annotations, "
+                "opacity blending; optional native-pixel histories only"
             ),
         ],
     }

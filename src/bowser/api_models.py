@@ -604,7 +604,8 @@ ROUTES: dict[str, dict[str, Any]] = {
         "summary": "Export saved scalar epochs as a raster GIF",
         "description": "Fixed color limits and named quality masks, with the "
         "native export reference. No interpolation or inferred zero epochs. "
-        "Raster-only: no context, annotations or linked plots. "
+        "Optional native-pixel point histories with an acquisition cursor; "
+        "no context layers or imported annotations. "
         "Resource limits and unsupported settings return explicit errors.",
         "tags": [EXPORT],
     },
