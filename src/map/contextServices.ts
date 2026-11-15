@@ -7,7 +7,9 @@
 import type { AppAction, AppState, Overlay, OverlayFeatures } from '../types';
 import { CONTEXT_LAYERS, contextOverlay, LAND_COVER_YEARS, landCoverOverlay, type ContextKey } from './contextLayers';
 import { geologyOverlay, soilsOverlay } from './services';
-import { GNSS_CUSTOM_LAYER_ID, GNSS_LAYER_ID, type CustomGnssStation, type GnssStation } from './gnss';
+import {
+  GNSS_CUSTOM_LAYER_ID, GNSS_LAYER_ID, gnssLabelField, loadGnssLabels, type CustomGnssStation, type GnssStation,
+} from './gnss';
 import { featureBounds } from './fileParsers';
 
 export interface ServiceEnv {
@@ -46,10 +48,10 @@ export function serviceRow(state: AppState, id: ServiceId): Overlay | undefined 
 }
 
 /** GNSS stations as the GNSS tab shows them on the map. */
-export function gnssOverlay(list: GnssStation[]): Overlay {
+export function gnssOverlay(list: GnssStation[], labels = loadGnssLabels()): Overlay {
   return {
     id: GNSS_LAYER_ID, name: 'GNSS stations (UNR)', type: 'vector', visible: true, opacity: 1, aboveData: true,
-    color: '#e11d48', pointRadius: 5, lineWidth: 1,
+    color: '#e11d48', pointRadius: 5, lineWidth: 1, labelField: gnssLabelField(labels),
     data: { type: 'FeatureCollection', features: list.map(s => ({
       type: 'Feature', geometry: { type: 'Point', coordinates: [s.lon, s.lat] }, properties: { ...s },
     })) },
@@ -58,10 +60,10 @@ export function gnssOverlay(list: GnssStation[]): Overlay {
 }
 
 /** The stations read from the user's files: amber squares, so they stand apart from UNR's. */
-export function customGnssOverlay(list: CustomGnssStation[]): Overlay {
+export function customGnssOverlay(list: CustomGnssStation[], labels = loadGnssLabels()): Overlay {
   return {
     id: GNSS_CUSTOM_LAYER_ID, name: 'GNSS stations (your files)', type: 'vector', visible: true, opacity: 1, aboveData: true,
-    color: '#f59e0b', pointRadius: 6, lineWidth: 1, marker: 'square',
+    color: '#f59e0b', pointRadius: 6, lineWidth: 1, marker: 'square', labelField: gnssLabelField(labels),
     data: { type: 'FeatureCollection', features: list.map(s => ({
       type: 'Feature', geometry: { type: 'Point', coordinates: [s.lon, s.lat] },
       // Only the scalars: MapLibre hands lists back as JSON text.

@@ -8,6 +8,7 @@ import { useAppContext } from '../context/AppContext';
 import { baseMaps } from '../basemap';
 import { basemapSource, basemapStack } from '../map/basemapStyle';
 import { TERRAIN_SOURCE, TERRAIN_SOURCE_ID, terrainSpec } from '../map/terrain';
+import { ensureLabels, watchLabelImages } from '../map/labels';
 import { chartedFeatureColors, DRAWINGS_ID, overlayOnMap, overlaySource, vectorLayerSpecs } from '../map/overlays';
 import { contextLayerSpec, OFM_ATTRIBUTION, OFM_TILEJSON } from '../map/contextLayers';
 import { pmtilesVectorSpecs } from '../map/pmtiles';
@@ -157,8 +158,9 @@ function overlayLayerIds(o: Overlay): string[] {
 /** What needs the source and layers rebuilt; paint changes are applied in place. */
 function overlayKey(o: Overlay): string {
   const src = o.type === 'vector' || o.type === 'context' ? '' : o.type === 'pmtiles' ? o.url ?? '' : JSON.stringify(overlaySource(o));
-  // A marker other than a circle is a symbol layer, so changing it rebuilds the layers.
-  return `${src}:${!!o.aboveData}:${o.marker && o.marker !== 'circle' ? 'symbol' : 'circle'}`;
+  // A marker other than a circle is a symbol layer, and labels are a layer more: changing
+  // either rebuilds the layers.
+  return `${src}:${!!o.aboveData}:${o.marker && o.marker !== 'circle' ? 'symbol' : 'circle'}:${o.labelField ?? ''}`;
 }
 
 /**
@@ -196,6 +198,7 @@ export function useOverlayLayers(map: maplibregl.Map | null, ready: boolean, whi
           // generateId: a feature's id is its index, so charted features can take their chart colour.
           map.addSource(source, { type: 'geojson', generateId: true, data: (o.data ?? { type: 'FeatureCollection', features: [] }) as never });
           if (o.marker && o.marker !== 'circle') ensureMarker(map, o.marker);
+          if (o.labelField) { watchLabelImages(map); ensureLabels(map, o.data?.features ?? [], o.labelField); }
           for (const l of vectorLayerSpecs(o)) {
             map.addLayer({ id: l.id, type: l.type, source, filter: l.filter, paint: l.paint, ...(l.layout ? { layout: l.layout } : {}), metadata } as never, anchor());
           }

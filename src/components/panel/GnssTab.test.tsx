@@ -117,6 +117,21 @@ describe('GNSS tab › Load local GNSS file', () => {
     expect(overlaysAdded().some(o => o.id === 'gnss_custom')).toBe(true);
   });
 
+  it('station names: the switch labels the stations on the map and keeps the choice', async () => {
+    localStorage.clear();
+    state = { ...state, overlays: [{ id: 'gnss_stations' }, { id: 'gnss_custom' }] } as unknown as AppState;
+    render(<GnssTab />);
+    const names = screen.getByRole('switch', { name: 'Show station names on the map' });
+    expect(names.getAttribute('aria-checked')).toBe('false');
+    fireEvent.click(names);
+    const updates = dispatch.mock.calls.map(([a]) => a).filter(a => a.type === 'UPDATE_OVERLAY').map(a => a.payload);
+    expect(updates).toEqual([
+      { id: 'gnss_stations', updates: { labelField: 'id' } }, { id: 'gnss_custom', updates: { labelField: 'id' } },
+    ]);
+    expect(localStorage.getItem('bowser.gnssLabels')).toBe('on');
+    localStorage.clear();
+  });
+
   it('offers a server path only where the server lets the page open files', async () => {
     render(<GnssTab />);
     await waitFor(() => expect(calls().some(c => c.url === '/catalog')).toBe(true));

@@ -233,6 +233,7 @@ export interface Overlay {
   lineWidth?: number;
   pointRadius?: number;
   marker?: PointMarker;  // point shape (circle unless set)
+  labelField?: string;   // the attribute written beside each point (none unless set)
 
   // --- context (OpenFreeMap roads, buildings, boundaries) ---
   contextKey?: 'roads' | 'buildings' | 'boundaries';
