@@ -1341,12 +1341,15 @@ def overlay_tiler(path: str):  # noqa: ARG001
     **api.route_doc("GET /gnss/stations"),
 )
 def gnss_stations(
-    west: float = Query(..., **api.PARAMS["west"]),
-    south: float = Query(..., **api.PARAMS["south"]),
-    east: float = Query(..., **api.PARAMS["east"]),
-    north: float = Query(..., **api.PARAMS["north"]),
+    west: float | None = Query(None, **api.PARAMS["west"]),
+    south: float | None = Query(None, **api.PARAMS["south"]),
+    east: float | None = Query(None, **api.PARAMS["east"]),
+    north: float | None = Query(None, **api.PARAMS["north"]),
+    name: str | None = Query(None, **api.PARAMS["gnss_name"]),
 ):
     """UNR GNSS stations in a lon/lat box, nearest the centre first.
+
+    With a ``name``, the stations whose id starts with or contains it, anywhere.
 
     Velocities are MIDAS, in IGS20, in mm/yr.
     """
@@ -1358,10 +1361,11 @@ def gnss_stations(
         raise HTTPException(
             status_code=502, detail=f"Could not read UNR's station list: {exc}"
         ) from exc
-    return {
-        "source": gnss.MIDAS_URL,
-        "stations": gnss.stations_in(rows, west, south, east, north),
-    }
+    try:
+        stations = gnss.find_stations(rows, (west, south, east, north), name)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"source": gnss.MIDAS_URL, "stations": stations}
 
 
 @app.get(

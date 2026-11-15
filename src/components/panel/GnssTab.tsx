@@ -73,18 +73,24 @@ export default function GnssTab() {
   const onMap = state.overlays.some(o => o.id === GNSS_LAYER_ID);
   const u = displayUnit('mm', state.units);
 
-  const find = async () => {
-    if (!viewBounds) return;
-    const [south, west, north, east] = viewBounds;
+  // The stations in the view, or, with a name, those called so anywhere.
+  const [name, setName] = useState('');
+  const [foundBy, setFoundBy] = useState<string | null>(null);   // the name the list was found by; null: the view
+  const find = async (byName?: string) => {
+    if (!byName && !viewBounds) return;
     setLoading(true);
     setError(null);
     try {
-      const q = new URLSearchParams({ west: String(west), south: String(south), east: String(east), north: String(north) });
+      const [south, west, north, east] = viewBounds ?? [];
+      const q = byName ? new URLSearchParams({ name: byName })
+        : new URLSearchParams({ west: String(west), south: String(south), east: String(east), north: String(north) });
       const res = await fetch(`/gnss/stations?${q}`);
       const body = await res.json();
       if (!res.ok) throw new Error(body.detail ?? `HTTP ${res.status}`);
       setStations(body.stations);
-      if (onMap) showOnMap(body.stations);
+      setFoundBy(byName ?? null);
+      // A station found by name may be anywhere: put it on the map, where its row's zoom button goes.
+      if (onMap || (byName && body.stations.length)) showOnMap(body.stations);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -199,8 +205,18 @@ export default function GnssTab() {
           Source: UNR, the <a href={UNR_SITE} target="_blank" rel="noopener noreferrer">Nevada Geodetic Laboratory</a> (University of Nevada, Reno).
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
-          <button type="button" className="hist-btn" disabled={loading || !viewBounds} onClick={find}>
+          <button type="button" className="hist-btn" disabled={loading || !viewBounds} onClick={() => void find()}>
             {loading ? 'Finding…' : stations ? 'Find again in this view' : 'Find stations in this view'}
+          </button>
+        </div>
+        <div style={{ display: 'flex', gap: 4 }}>
+          <input className="sidebar-input" style={{ flex: 1, minWidth: 0, textAlign: 'left' }} value={name} disabled={loading}
+            placeholder="Station name, e.g. MKEA" aria-label="GNSS station name" maxLength={8} spellCheck={false}
+            onChange={e => setName(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && name.trim()) void find(name.trim()); }} />
+          <button type="button" className="hist-btn" style={{ flex: 'none' }} disabled={loading || !name.trim()}
+            title="Find stations by name, anywhere" onClick={() => void find(name.trim())}>
+            Find
           </button>
         </div>
         <div className="toggle-row">
@@ -215,7 +231,11 @@ export default function GnssTab() {
           <Switch checked={labels} label="Show station names on the map" onChange={toggleLabels} />
         </div>
         {error && <div className="row-label" style={{ fontSize: '0.76em', color: 'var(--sb-red)' }}>{error}</div>}
-        {stations && stations.length === 0 && <div className="row-label">No stations with 3+ years of data in this view.</div>}
+        {stations && stations.length === 0 && (
+          <div className="row-label">
+            {foundBy ? `No station with 3+ years of data is called ${foundBy.toUpperCase()}.` : 'No stations with 3+ years of data in this view.'}
+          </div>
+        )}
         {stations && stations.length > 0 && (
           <div className="gnss-list" role="listbox" aria-label="GNSS stations">
             {stations.map(s => (
