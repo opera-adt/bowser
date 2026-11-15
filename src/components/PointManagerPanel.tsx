@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { useAppContext } from '../context/AppContext';
+import { useAppDispatch, useAppFields } from '../context/AppContext';
 import { chartLayerFor } from '../utils/chartLayers';
 
 export default function PointManagerPanel() {
-  const { state, dispatch } = useAppContext();
+  const state = useAppFields('chartAreas', 'currentDataset', 'datasetInfo', 'refMarkerPosition', 'refMarkerVisible', 'selectedPointId', 'showTrends', 'timeSeriesPoints');
+  const dispatch = useAppDispatch();
   const [showPanel, setShowPanel] = useState(false);
   const trendDs = chartLayerFor(state.currentDataset, state.datasetInfo) ?? '';
 

@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect } from 'react';
-import { useAppContext } from '../context/AppContext';
+import { useAppDispatch, useAppFields } from '../context/AppContext';
 import { useDraggableResizable } from '../hooks/useDraggableResizable';
 import { downloadElementAsPng } from '../utils/screenshot';
 import { displayUnit } from '../utils/units';
 
 export default function ColormapBar() {
-  const { state, dispatch } = useAppContext();
+  const state = useAppFields('colormap', 'currentDataset', 'datasetInfo', 'showColorbar', 'units', 'vmax', 'vmin', 'wrapEnabled', 'wrapWavelength');
+  const dispatch = useAppDispatch();
   const [horizontal, setHorizontal] = useState(false);
   const [barFrac, setBarFrac] = useState(0.4);
   const [showBarSlider, setShowBarSlider] = useState(false);

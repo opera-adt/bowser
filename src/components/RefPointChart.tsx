@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { Line } from 'react-chartjs-2';
-import { useAppContext } from '../context/AppContext';
+import { useAppFields } from '../context/AppContext';
 import { useApi } from '../hooks/useApi';
 import { useDraggableResizable } from '../hooks/useDraggableResizable';
 import { chartLayerFor } from '../utils/chartLayers';
@@ -13,7 +13,7 @@ interface BufferResult {
 }
 
 export default function RefPointChart() {
-  const { state } = useAppContext();
+  const state = useAppFields('currentDataset', 'datasetInfo', 'refBufferEnabled', 'refBufferRadius', 'refMarkerPosition', 'showRefChart');
   const { fetchBufferTimeSeries } = useApi();
   const [bufferData, setBufferData] = useState<BufferResult | null>(null);
   const [loading, setLoading] = useState(false);

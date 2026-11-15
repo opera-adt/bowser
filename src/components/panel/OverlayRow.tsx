@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { useAppContext } from '../../context/AppContext';
+import { useAppDispatch, useAppFields } from '../../context/AppContext';
 import { binColorsFor } from '../../hooks/useAddFiles';
 import ColorScalePicker from './ColorScalePicker';
 import { POINT_MARKERS, type PointMarker } from '../../map/markers';
@@ -35,7 +35,8 @@ const TYPE_LABEL: Record<Overlay['type'], string> = { geotiff: 'GeoTIFF', wms: '
 
 /** One layer: grip to reorder, visibility, name, zoom, remove, opacity, and its style when opened. */
 export default function OverlayRow({ overlay: o, dropSide, onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop }: OverlayRowProps) {
-  const { state, dispatch } = useAppContext();
+  const state = useAppFields('overlays', 'splitScreen');
+  const dispatch = useAppDispatch();
   const [open, setOpen] = useState(false);
   const rowRef = useRef<HTMLDivElement>(null);
   const update = (updates: Partial<Overlay>) => dispatch({ type: 'UPDATE_OVERLAY', payload: { id: o.id, updates } });
@@ -303,7 +304,8 @@ function UseAsDem({ overlay: o, update }: { overlay: Overlay; update: (u: Partia
 
 /** A DEM's style: hillshade, colour relief or both, the hillshade's exaggeration and the relief's colours. */
 function DemControls({ overlay: o, update }: { overlay: Overlay; update: (u: Partial<Overlay>) => void }) {
-  const { state, dispatch } = useAppContext();
+  const state = useAppFields('overlays', 'splitScreen');
+  const dispatch = useAppDispatch();
   const d = o.dem!;
   const setDem = (u: Partial<NonNullable<Overlay['dem']>>) => update({ dem: { ...d, ...u } });
   // One DEM at a time shapes the 3D terrain.

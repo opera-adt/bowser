@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Bar } from 'react-chartjs-2';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Tooltip } from 'chart.js';
-import { useAppContext } from '../context/AppContext';
+import { useAppDispatch, useAppFields } from '../context/AppContext';
 import { cachedHistogram, fetchHistogram, presetRange, type HistogramData, type RangePreset } from '../utils/colorPresets';
 import { hasStoredRange } from '../utils/colorRange';
 
@@ -23,7 +23,8 @@ interface HistogramProps {
 }
 
 export default function Histogram({ dataset, vmin, vmax, onSetVmin, onSetVmax }: HistogramProps = {}) {
-  const { state, dispatch } = useAppContext();
+  const state = useAppFields('currentDataset', 'currentTimeIndex', 'datasetInfo', 'playing', 'vmax', 'vmin', 'wrapEnabled');
+  const dispatch = useAppDispatch();
   const [histData, setHistData] = useState<HistogramData | null>(null);
   // The layer the histogram is of (the shown one may still be the previous layer's).
   const [histDataset, setHistDataset] = useState('');

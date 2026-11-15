@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Line } from 'react-chartjs-2';
 import { Chart as ChartJS, Legend, LinearScale, LineElement, PointElement, TimeScale, Tooltip } from 'chart.js';
 import 'chartjs-adapter-date-fns';
-import { useAppContext } from '../../context/AppContext';
+import { useAppDispatch, useAppFields } from '../../context/AppContext';
 import { useViewBounds } from '../../map/viewBounds';
 import { useApi } from '../../hooks/useApi';
 import { applicableMasks } from '../../utils/maskCompatibility';
@@ -45,7 +45,8 @@ const cssVar = (name: string, fallback: string) =>
  * (POST /gnss/custom, kept for the server session), and one station's record against InSAR.
  */
 export default function GnssTab() {
-  const { state, dispatch } = useAppContext();
+  const state = useAppFields('currentDataset', 'datasetInfo', 'layerMasks', 'overlays', 'refBufferEnabled', 'refBufferRadius', 'refEnabled', 'refMarkerPosition', 'units');
+  const dispatch = useAppDispatch();
   const viewBounds = useViewBounds();
   const { fetchMultiPointTimeSeries, fetchPointTimeSeries, fetchBufferTimeSeries } = useApi();
   const [stations, setStations] = useState<GnssStation[] | null>(null);

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useAppContext } from '../../context/AppContext';
+import { useAppDispatch, useAppFields } from '../../context/AppContext';
 import { useAreaReference } from '../../hooks/useAreaReference';
 import { useAreaStatsFetch } from '../../hooks/useAreaStatsFetch';
 import { areaStatsKey } from '../../utils/polygonSeries';
@@ -21,7 +21,8 @@ const SORTS: [SortKey, string][] = [['order', 'Added'], ['name', 'Name'], ['mean
  * and any chosen reference date taken off, in the display units.
  */
 export default function StatsTab() {
-  const { state, dispatch } = useAppContext();
+  const state = useAppFields('areaStats', 'chartAreas', 'chartWindows', 'currentDataset', 'currentTimeIndex', 'dataMode', 'datasetInfo', 'refTimeIndex', 'units');
+  const dispatch = useAppDispatch();
   const [whole, setWhole] = useState(false);
   const [sort, setSort] = useState<SortKey>('order');
   const [chosenDs, setChosenDs] = useState<string | null>(null);
