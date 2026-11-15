@@ -68,3 +68,41 @@ describe('Histogram', () => {
     expect(requested()).toEqual([0, 6]);
   });
 });
+
+describe("the split screen's right-hand layer", () => {
+  let range: [number, number];
+  function Right({ layer }: { layer: string }) {
+    const { state, dispatch } = useAppContext();
+    dispatchRef = dispatch;
+    range = [state.splitVmin, state.splitVmax];
+    useEffect(() => {
+      dispatch({ type: 'SET_DATASETS', payload: { displacement: { x_values: [0, 1, 2] }, velocity: { x_values: [] } } as never });
+      dispatch({ type: 'SET_CURRENT_DATASET', payload: 'displacement' });
+      dispatch({ type: 'SET_TIME_INDEX', payload: 1 });
+      dispatch({ type: 'SET_SPLIT_TIME_INDEX', payload: 2 });
+    }, []);  // eslint-disable-line react-hooks/exhaustive-deps
+    return (
+      <Histogram dataset={layer} timeIndex={state.splitTimeIndex} vmin={state.splitVmin} vmax={state.splitVmax}
+        onSetVmin={v => dispatch({ type: 'SET_SPLIT_VMIN', payload: v })} onSetVmax={v => dispatch({ type: 'SET_SPLIT_VMAX', payload: v })} />
+    );
+  }
+
+  it('has its histogram for its own date, and opens on its 2–98 % range instead of 0–1', async () => {
+    const view = render(<AppProvider><Right layer="displacement" /></AppProvider>);
+    await wait(HISTOGRAM_DEBOUNCE_MS + 10);
+    expect(requested()).toEqual([2]);          // the right layer's date, not the map's (1)
+    expect(range).toEqual([-1.9, 1.9]);
+
+    // A range set afterwards stays, also when its date changes.
+    send({ type: 'SET_SPLIT_VMIN', payload: -0.5 });
+    send({ type: 'SET_SPLIT_TIME_INDEX', payload: 0 });
+    await wait(HISTOGRAM_DEBOUNCE_MS + 10);
+    expect(requested()).toEqual([2, 0]);
+    expect(range).toEqual([-0.5, 1.9]);
+
+    // Another layer on the right gets its own range.
+    view.rerender(<AppProvider><Right layer="velocity" /></AppProvider>);
+    await wait(HISTOGRAM_DEBOUNCE_MS + 10);
+    expect(range).toEqual([-1.9, 1.9]);
+  });
+});

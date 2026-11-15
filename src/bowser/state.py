@@ -45,6 +45,18 @@ def _spatial_ref_as_coord(ds: xr.Dataset) -> xr.Dataset:
     return ds
 
 
+def _one_spatial_ref(ds: xr.Dataset) -> xr.Dataset:
+    """Return ``ds`` with a ``spatial_ref`` written per date reduced to one.
+
+    A cube can store the grid mapping along ``time``. As a coordinate it then
+    reaches only the layers that have that axis: a 2-D layer (a static mask, the
+    velocity) names a grid mapping it does not carry.
+    """
+    if "spatial_ref" in ds.variables and "time" in ds.spatial_ref.dims:
+        ds = ds.assign_coords(spatial_ref=ds.spatial_ref.isel(time=0).drop_vars("time"))
+    return ds
+
+
 def _open_md(uri: str) -> tuple[xr.Dataset, Transformer, list["PyramidLevel"]]:
     """Open an MD-mode source at ``uri`` and return ``(ds, transformer, levels)``.
 
@@ -96,8 +108,7 @@ def _open_md(uri: str) -> tuple[xr.Dataset, Transformer, list["PyramidLevel"]]:
 
     ds = _spatial_ref_as_coord(ds)
     crs = resolve_crs(ds)
-    if "spatial_ref" in ds.variables and "time" in ds.spatial_ref.dims:
-        ds = ds.assign_coords(spatial_ref=ds.spatial_ref.isel(time=0).drop_vars("time"))
+    ds = _one_spatial_ref(ds)
     ds.rio.write_crs(crs, inplace=True)
     tr = Transformer.from_crs(4326, ds.rio.crs, always_xy=True)
     if not levels:
@@ -190,13 +201,17 @@ class BowserState:
         if not (str(uri).endswith(".zarr") or "://" in str(uri)):
             return False
         try:
-            return _spatial_ref_as_coord(
-                xr.open_zarr(
-                    uri,
-                    group=self.levels[0].asset or None,
-                    consolidated=False,
-                    chunks=None,
-                    storage_options=storage_options_for(uri),
+            # The same grid mapping as the dask dataset: a static mask is
+            # aligned against it when a point's series is masked.
+            return _one_spatial_ref(
+                _spatial_ref_as_coord(
+                    xr.open_zarr(
+                        uri,
+                        group=self.levels[0].asset or None,
+                        consolidated=False,
+                        chunks=None,
+                        storage_options=storage_options_for(uri),
+                    )
                 )
             )
         except Exception:  # noqa: BLE001 — the dask dataset still answers
