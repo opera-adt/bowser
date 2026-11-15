@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RasterGroup } from '../types';
-import { addChartLayer, chartLayerFor, hasTimeAxis, timeSeriesLayers } from './chartLayers';
+import { addChartLayer, chartLayerFor, hasTimeAxis, timeIndexOfDate, timeSeriesLayers } from './chartLayers';
 
 const layer = (x_values: Array<number | string>) => ({ x_values }) as RasterGroup;
 const DATES = ['2024-01-01', '2024-01-13'];
@@ -65,5 +65,20 @@ describe('addChartLayer', () => {
 
   it('gives just the new layer when nothing is followed', () => {
     expect(addChartLayer([], null, 'b')).toEqual(['b']);
+  });
+});
+
+describe('the time step of a date', () => {
+  it('is the date\'s position on the layer\'s axis, whatever form either takes', () => {
+    const axis = ['2024-01-01', '2024-01-13', '2024-01-25'];
+    expect(timeIndexOfDate(axis, '2024-01-25')).toBe(2);
+    expect(timeIndexOfDate(axis, '2024-01-13T00:00:00')).toBe(1);
+    expect(timeIndexOfDate(['20240101', '20240101_20240113'], '2024-01-13')).toBe(1);
+  });
+
+  it('is null when the layer has no step on that day, or no axis', () => {
+    expect(timeIndexOfDate(['2024-01-01'], '2024-02-01')).toBeNull();
+    expect(timeIndexOfDate([], '2024-01-01')).toBeNull();
+    expect(timeIndexOfDate(undefined, '2024-01-01')).toBeNull();
   });
 });
