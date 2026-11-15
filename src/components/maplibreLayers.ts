@@ -169,7 +169,7 @@ function overlayKey(o: Overlay): string {
  */
 export function useOverlayLayers(map: maplibregl.Map | null, ready: boolean, which: 'main' | 'right') {
   const state = useAppFields('chartAreas', 'drawingEnabled', 'overlays', 'splitScreen', 'timeSeriesPoints');
-  const builtRef = useRef(new Map<string, { key: string; layers: string[] }>());
+  const builtRef = useRef(new Map<string, { key: string; layers: string[]; data?: unknown }>());
   // Features in the chart (areas and points from a layer) are drawn in their chart colour.
   const charted = [...(state.chartAreas ?? []), ...(state.timeSeriesPoints ?? [])];
   const chartedKey = JSON.stringify(charted.map(c => [c.color, c.source, 'geometry' in c && !c.source ? c.geometry : null]));
@@ -227,9 +227,17 @@ export function useOverlayLayers(map: maplibregl.Map | null, ready: boolean, whi
             ...(o.bounds ? { bounds: o.bounds } : {}), ...(o.attribution ? { attribution: o.attribution } : {}) });
           map.addLayer({ id: source, type: 'raster', source, paint: { 'raster-opacity': o.opacity }, metadata }, anchor());
         }
-        built.set(source, { key: overlayKey(o), layers: overlayLayerIds(o) });
+        built.set(source, { key: overlayKey(o), layers: overlayLayerIds(o), data: o.data });
       }
       if (o.type === 'vector') {
+        // New features under the same id (GNSS stations found again, a file loaded twice):
+        // the layers stay, the source takes the new data.
+        const entry = built.get(source)!;
+        if (entry.data !== o.data) {
+          if (o.labelField) ensureLabels(map, o.data?.features ?? [], o.labelField);
+          (map.getSource(source) as maplibregl.GeoJSONSource | undefined)?.setData((o.data ?? { type: 'FeatureCollection', features: [] }) as never);
+          entry.data = o.data;
+        }
         for (const l of vectorLayerSpecs(o, chartedFeatureColors(o, charted))) {
           for (const [prop, value] of Object.entries(l.paint)) map.setPaintProperty(l.id, prop as never, value as never);
           for (const [prop, value] of Object.entries(l.layout ?? {})) map.setLayoutProperty(l.id, prop as never, value as never);
