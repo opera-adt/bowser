@@ -89,6 +89,20 @@ export const GNSS_LAYER_ID = 'gnss_stations';
 /** The overlay of the stations read from the user's files. */
 export const GNSS_CUSTOM_LAYER_ID = 'gnss_custom';
 
+/** Whether station names are written beside the stations on the map; kept between visits. */
+export const GNSS_LABELS_KEY = 'bowser.gnssLabels';
+export function loadGnssLabels(): boolean {
+  try { return localStorage.getItem(GNSS_LABELS_KEY) === 'on'; } catch { return false; }
+}
+export function saveGnssLabels(on: boolean): void {
+  try {
+    if (on) localStorage.setItem(GNSS_LABELS_KEY, 'on');
+    else localStorage.removeItem(GNSS_LABELS_KEY);   // off is the default and is not stored
+  } catch { /* private window: the choice lasts for this visit */ }
+}
+/** The overlay field that names a station, when names are on. */
+export const gnssLabelField = (on: boolean): string | undefined => (on ? 'id' : undefined);
+
 /** Where a station's daily record is read: UNR's through /gnss/series, a file's through /gnss/custom. */
 export function gnssSeriesUrl(s: Pick<GnssStation, 'id' | 'custom'>): string {
   return s.custom ? `/gnss/custom/${encodeURIComponent(s.id)}` : `/gnss/series/${s.id}`;
