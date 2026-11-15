@@ -27,6 +27,10 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A static mask no longer empties point charts on the full server.** On a cube that
+  stores its grid mapping per date, a 2-D mask (a water mask, an average coherence) made
+  `/multi_point` answer 422 "Mask declares a missing CRS coordinate", and the chart said the
+  mask hid every date. Tiles and area charts were not affected.
 - **Imperial units reach the velocity layer and the histogram.** A layer in m/yr stayed in
   m/yr (it shows in/yr), and the histogram's minimum and maximum stayed in the cube's unit
   under a colour range shown in inches.
