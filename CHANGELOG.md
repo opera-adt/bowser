@@ -27,6 +27,11 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **An empty chart names a masked reference point.** A series is taken relative to the
+  reference point, so when the masks hide that point on every date every chart is empty,
+  wherever its points are; a cube that records no reference starts with it in the middle of
+  the data, which may be water. The chart said the masks hid the points. It now says the
+  reference point is masked and offers to move it to a stable place.
 - **A click in the chart goes to the right date.** With a mask or a date range on, a
   series has fewer dates than the layer, and clicking one of its points moved the map to
   another date (the point's position in the series was taken as the time step).

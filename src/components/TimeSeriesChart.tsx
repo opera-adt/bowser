@@ -11,6 +11,7 @@ import { MultiPointTimeSeriesData } from '../types';
 import { downloadChartAsPng } from '../utils/screenshot';
 import { addChartLayer, chartLayerFor, timeIndexOfDate, timeSeriesLayers } from '../utils/chartLayers';
 import { LayerOptions } from './panel/controls';
+import MaskedReferenceNotice from './MaskedReferenceNotice';
 import ModelCard, { type PickKind } from './ModelCard';
 import SeriesStylePopover from './SeriesStylePopover';
 import { seriesStyle } from '../map/seriesStyle';
@@ -848,16 +849,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
             : areaErrors.length > 0 && visibleAreas.length > 0
               ? <p>No valid area summary is available. See the area message above.</p>
             : state.layerMasks.length > 0
-              ? (
-                <>
-                  <p>Masking hides every date at the selected points.</p>
-                  <p><small>Masks on: {state.layerMasks.map(m => m.dataset).join(', ')} (Main › Masking).</small></p>
-                  <button type="button" className="hist-btn" style={{ flex: 'none', marginTop: 6 }}
-                    onClick={() => state.layerMasks.forEach(m => dispatch({ type: 'REMOVE_LAYER_MASK', payload: m.id }))}>
-                    Remove the masks
-                  </button>
-                </>
-              )
+              ? <MaskedReferenceNotice datasets={activeDatasetsForChart} />
               : <p>No data for {state.timeSeriesPoints.length > 0 ? 'selected points' : 'the selected areas'}.</p>
           }
         </div>
