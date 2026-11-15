@@ -27,6 +27,9 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **GNSS stations on the map follow the list.** After *Find again*, a second search by
+  name, a second file or a removed station, the map kept the earlier stations until the
+  layer was switched off and on.
 - **Identify shows its result again.** With the side panel open, the result panel opened
   beyond the right edge of the window, so a click on the map seemed to do nothing.
 - **A click in the chart goes to the right date.** With a mask or a date range on, a

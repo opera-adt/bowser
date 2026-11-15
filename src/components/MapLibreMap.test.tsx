@@ -656,6 +656,30 @@ describe('MapLibreMap', () => {
     expect(map.getLayer('overlay-v-fill')!.paint['fill-color']).toBe('#5bc0be');
   });
 
+  it('a vector overlay replaced under the same id draws its new features', async () => {
+    const { view, map } = await mount();
+    const at = (ids: string[]) => ({ type: 'FeatureCollection', features: ids.map((id, i) => (
+      { type: 'Feature', properties: { id }, geometry: { type: 'Point', coordinates: [i, i] } })) });
+    const stations = (ids: string[]) => ({ id: 'gnss_stations', name: 'GNSS', type: 'vector', visible: true, opacity: 1, data: at(ids) });
+    mockState.overlays = [stations(['AAAA'])];
+    view.rerender(<MapLibreMap />);
+    await act(async () => {});
+    const source = map.sources.get('overlay-gnss_stations');
+    expect(source.data.features).toHaveLength(1);
+    // Found again in a wider view: the same overlay id, more stations.
+    mockState.overlays = [stations(['AAAA', 'BBBB', 'CCCC'])];
+    view.rerender(<MapLibreMap />);
+    await act(async () => {});
+    expect(map.sources.get('overlay-gnss_stations')).toBe(source);   // not rebuilt
+    expect(source.data.features.map((f: any) => f.properties.id)).toEqual(['AAAA', 'BBBB', 'CCCC']);
+    // The same data again: nothing is sent to the map.
+    const sent = vi.spyOn(source, 'setData');
+    mockState.overlays = [{ ...mockState.overlays[0], opacity: 0.5 }];
+    view.rerender(<MapLibreMap />);
+    await act(async () => {});
+    expect(sent).not.toHaveBeenCalled();
+  });
+
   it('buffer circles: one per visible point and the reference buffer, cleared when turned off', async () => {
     const { view, map } = await mount();
     Object.assign(mockState, { bufferEnabled: true, bufferRadius: 300, refEnabled: true, refBufferEnabled: true,
