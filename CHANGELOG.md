@@ -11,6 +11,9 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **GNSS station names on the map.** *Show station names* in the GNSS tab writes each
   station's id beside it, for UNR's stations and those from your files. Names that would
   overlap are left out until you zoom in. The choice is kept between visits.
+- **3D / LOS switch in the GNSS station chart.** The chart shows east, north and up, or
+  the motion along the cube's line of sight alone, with the whole window to itself. The
+  choice is kept between visits.
 
 ### Fixed
 

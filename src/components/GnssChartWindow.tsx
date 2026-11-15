@@ -12,10 +12,26 @@ import { displayUnit } from '../utils/units';
 
 ChartJS.register(TimeScale, LinearScale, PointElement, LineElement, Tooltip, Legend);
 
+/** The chart's view: east, north and up, or the motion along the cube's line of sight. Kept between visits. */
+type GnssView = '3d' | 'los';
+export const GNSS_VIEW_KEY = 'bowser.gnssChartView';
+function loadView(): GnssView {
+  try { return localStorage.getItem(GNSS_VIEW_KEY) === 'los' ? 'los' : '3d'; } catch { return '3d'; }
+}
+function saveView(view: GnssView): void {
+  try {
+    if (view === 'los') localStorage.setItem(GNSS_VIEW_KEY, 'los');
+    else localStorage.removeItem(GNSS_VIEW_KEY);   // 3D is the default and is not stored
+  } catch { /* private window: the choice lasts for this visit */ }
+}
+
 const cssVar = (name: string, fallback: string) =>
   getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
 
-/** A GNSS station's daily east, north and up (and LOS when the cube has a look vector), from the identify tool. */
+/**
+ * A GNSS station's daily east, north and up, from the identify tool. When the cube has a look
+ * vector, a 3D / LOS switch shows the motion along its line of sight instead.
+ */
 export default function GnssChartWindow() {
   const { state, dispatch } = useAppContext();
   const station = state.gnssChartStation;
@@ -23,6 +39,7 @@ export default function GnssChartWindow() {
   const [error, setError] = useState<string | null>(null);
   const [showModel, setShowModel] = useState(false);
   const [picking, setPicking] = useState<PickKind | null>(null);
+  const [view, setView] = useState<GnssView>(loadView);
   const { panelRef, panelStyle, onDragMouseDown, resizeGrip } = useDraggableResizable({
     defaultWidth: 560, defaultHeight: 640, initialRight: 440, initialBottom: 20, fitContent: true,
   });
@@ -44,33 +61,49 @@ export default function GnssChartWindow() {
   // GNSS is in mm; Project › Units can show inches.
   const u = displayUnit('mm', state.units);
   const dp = u.label === 'in' ? 2 : 1;
+  // Without a look vector there is no line of sight to project on: east, north and up it is.
+  const showLos = view === 'los' && !!los;
   // One fit per component, with the same model settings as the InSAR chart.
   const fits = useMemo(() => {
     if (!series || !showModel) return null;
     const comp = (values: number[]) => fitSeries(series.dates.map((d, i) => ({ x: d, y: values[i] * u.factor })), state.fitSettings);
-    const losValues = los ? series.dates.map((_, i) => toLos(los, series.east_mm[i], series.north_mm[i], series.up_mm[i])) : null;
-    return { East: comp(series.east_mm), North: comp(series.north_mm), Up: comp(series.up_mm), ...(losValues ? { LOS: comp(losValues) } : {}) } as Record<string, ReturnType<typeof fitSeries>>;
-  }, [series, showModel, state.fitSettings, los, u.factor]);
+    if (showLos) return { LOS: comp(series.dates.map((_, i) => toLos(los!, series.east_mm[i], series.north_mm[i], series.up_mm[i]))) } as Record<string, ReturnType<typeof fitSeries>>;
+    return { East: comp(series.east_mm), North: comp(series.north_mm), Up: comp(series.up_mm) } as Record<string, ReturnType<typeof fitSeries>>;
+  }, [series, showModel, state.fitSettings, los, showLos, u.factor]);
 
   if (!station) return null;
   const text = cssVar('--sb-text', '#e8e6e3');
   const grid = cssVar('--sb-border', '#444750');
-  const panels: [string, string, (i: number) => number, number][] = series ? [
+  const panels: [string, string, (i: number) => number, number][] = !series ? [] : showLos ? [
+    ['LOS', '#e11d48', i => toLos(los!, series.east_mm[i], series.north_mm[i], series.up_mm[i]),
+      toLos(los!, station.ve_mm_yr, station.vn_mm_yr, station.vu_mm_yr)],
+  ] : [
     ['East', '#f59e0b', i => series.east_mm[i], station.ve_mm_yr],
     ['North', '#22c55e', i => series.north_mm[i], station.vn_mm_yr],
     ['Up', '#3b82f6', i => series.up_mm[i], station.vu_mm_yr],
-    ...(los ? [['LOS', '#e11d48', (i: number) => toLos(los, series.east_mm[i], series.north_mm[i], series.up_mm[i]),
-      toLos(los, station.ve_mm_yr, station.vn_mm_yr, station.vu_mm_yr)] as [string, string, (i: number) => number, number]] : []),
-  ] : [];
+  ];
 
   return (
     <div id="gnss-chart" ref={panelRef} className="gnss-chart-window" style={panelStyle} onMouseDown={e => e.stopPropagation()}>
       <div className="chart-header" onMouseDown={onDragMouseDown} style={{ cursor: 'grab' }}>
         <h4 style={{ margin: 0, fontSize: '0.9em' }}>GNSS {station.id}</h4>
         <div className="chart-controls">
+          {los && (
+            <div className="segmented" role="group" aria-label="Components shown">
+              {(['3d', 'los'] as const).map(v => (
+                <button key={v} type="button" className={`segmented-item${(showLos ? 'los' : '3d') === v ? ' active' : ''}`}
+                  aria-pressed={(showLos ? 'los' : '3d') === v}
+                  title={v === '3d' ? 'East, north and up' : 'Motion along the line of sight of this cube, towards the satellite'}
+                  onMouseDown={e => e.stopPropagation()}
+                  onClick={() => { setView(v); saveView(v); }}>
+                  {v === '3d' ? '3D' : 'LOS'}
+                </button>
+              ))}
+            </div>
+          )}
           <button className={`chart-btn${showModel ? ' active' : ''}`} aria-pressed={showModel} aria-label="Model"
             onClick={() => setShowModel(v => !v)}
-            title={showModel ? `Model: ${modelLabel(state.fitSettings)}` : 'Fit a model to each component (shared with the InSAR chart)'}>
+            title={showModel ? `Model: ${modelLabel(state.fitSettings)}` : 'Fit a model to what is shown (shared with the InSAR chart)'}>
             <i className={`fa-solid ${showModel ? 'fa-chart-line' : 'fa-chart-simple'}`}></i>
           </button>
           {series?.station_page && <a className="chart-btn" href={series.station_page} target="_blank" rel="noopener noreferrer">UNR page</a>}
@@ -83,7 +116,7 @@ export default function GnssChartWindow() {
         {station.custom
           ? <>Positions from your file, {u.label} from its first date{series?.frame ? ` (${series.frame})` : ''}. Rates are a straight-line fit, {u.label}/yr.</>
           : <>Daily positions, {u.label} from the first day, in IGS20 (UNR). Rates are MIDAS, {u.label}/yr.</>}
-        {los ? ' LOS is towards the satellite of this cube.' : ''}
+        {showLos ? ' LOS is towards the satellite of this cube.' : ''}
       </div>
       {series?.monument && (
         <div className="gnss-monument">
