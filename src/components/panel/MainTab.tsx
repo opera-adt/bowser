@@ -160,14 +160,28 @@ export default function MainTab() {
 
   // Rewrapped fringes need a cyclic colormap (its ends meet at ±π): Twilight while rewrap is on,
   // then the previous colormap back, unless another was picked in the meantime.
+  // The colour range comes back the same way: rewrap set it to its own (±π or half the period),
+  // which on the unwrapped layer would draw every pixel in the middle colour.
   const beforeWrap = useRef<string | null>(null);
+  const rangeBeforeWrap = useRef<{ vmin: number; vmax: number } | null>(null);
   useEffect(() => {
     if (state.wrapEnabled) {
+      rangeBeforeWrap.current = { vmin: state.vmin, vmax: state.vmax };
       if (!isCyclic(state.colormap)) {
         beforeWrap.current = state.colormap;
         dispatch({ type: 'SET_COLORMAP', payload: WRAP_COLORMAP });
       }
-    } else if (beforeWrap.current) {
+      return;
+    }
+    if (rangeBeforeWrap.current) {
+      const half = state.wrapWavelength !== null && state.wrapWavelength > 0 ? Math.PI : state.wrapPeriod / 2;
+      if (state.vmin === -half && state.vmax === half) {
+        dispatch({ type: 'SET_VMIN', payload: rangeBeforeWrap.current.vmin });
+        dispatch({ type: 'SET_VMAX', payload: rangeBeforeWrap.current.vmax });
+      }
+      rangeBeforeWrap.current = null;
+    }
+    if (beforeWrap.current) {
       if (state.colormap === WRAP_COLORMAP) dispatch({ type: 'SET_COLORMAP', payload: beforeWrap.current });
       beforeWrap.current = null;
     }
@@ -427,6 +441,7 @@ export default function MainTab() {
                 display={displayUnit(state.datasetInfo[state.splitDataset!]?.unit, state.units)} />
               <Histogram
                 dataset={state.splitDataset}
+                timeIndex={state.splitTimeIndex}
                 vmin={state.splitVmin}
                 vmax={state.splitVmax}
                 onSetVmin={v => dispatch({ type: 'SET_SPLIT_VMIN', payload: v })}
@@ -560,12 +575,17 @@ export default function MainTab() {
                       step={step} value={parseFloat(mask.threshold.toPrecision(4))}
                       onChange={e => {
                         const v = parseFloat(e.target.value);
-                        if (!isNaN(v)) dispatch({ type: 'UPDATE_LAYER_MASK', payload: { id: mask.id, updates: { threshold: v } } });
+                        if (isNaN(v)) return;
+                        awaitingDefault.current.delete(mask.id);   // a typed threshold is not replaced by the default
+                        dispatch({ type: 'UPDATE_LAYER_MASK', payload: { id: mask.id, updates: { threshold: v } } });
                       }} />
                   </div>
                   <input type="range" className="sidebar-range"
                     min={rMin} max={rMax} step={step} value={mask.threshold}
-                    onChange={e => dispatch({ type: 'UPDATE_LAYER_MASK', payload: { id: mask.id, updates: { threshold: parseFloat(e.target.value) } } })} />
+                    onChange={e => {
+                      awaitingDefault.current.delete(mask.id);
+                      dispatch({ type: 'UPDATE_LAYER_MASK', payload: { id: mask.id, updates: { threshold: parseFloat(e.target.value) } } });
+                    }} />
                   {range && (
                     <MaskHistogram dataset={mask.dataset} threshold={mask.threshold} mode={mask.mode} lo={rMin} hi={rMax}
                       timeIndex={(state.datasetInfo[mask.dataset]?.x_values?.length ?? 0) > 1 ? state.currentTimeIndex : 0}
