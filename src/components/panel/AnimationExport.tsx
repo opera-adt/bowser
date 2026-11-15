@@ -144,7 +144,8 @@ export default function AnimationExport() {
       {!busy && plan?.key === planKey && plan.error && <div role="alert" className="row-label">{plan.error}</div>}
       {!busy && eligible && <div className="row-label">{count} frames · {plan?.width} × {plan?.height} output pixels</div>}
       {unsupportedMask && <div className="row-label">Uploaded/configured GeoTIFF masks need a later GIF contribution. Use native GeoTIFF export for these settings.</div>}
-      {!basicEligible && <div className="row-label">Choose 2–90 saved epochs from a real-valued time series, with Rewrap off.</div>}
+      {invalidPoints && <div className="row-label">Point histories need 1–5 visible points: {visiblePoints.length === 0 ? 'click the map to add one, or show one in the Points panel' : `${visiblePoints.length} are visible, hide some in the Points panel`}.</div>}
+      {!basicEligible && !invalidPoints && <div className="row-label">Choose 2–90 saved epochs from a real-valued time series, with Rewrap off.</div>}
       {error && <div role="alert" className="row-label" style={{ color: 'var(--sb-red)' }}>{error}</div>}
     </>
   </div>;

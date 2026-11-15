@@ -38,8 +38,12 @@ it('observes adding and hiding a point without remounting or unrelated state cha
   await waitFor(() => expect((button() as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(screen.getByLabelText('Include point histories in GIF'));
   expect((button() as HTMLButtonElement).disabled).toBe(true);
+  // Why it is disabled: no point yet, not a problem with the epochs.
+  expect(screen.getByText(/Point histories need 1–5 visible points: click the map to add one/)).toBeTruthy();
+  expect(screen.queryByText(/Choose 2–90 saved epochs/)).toBeNull();
   act(() => dispatch({ type: 'ADD_TIME_SERIES_POINT', payload: { position: [0.5, 3.5] } }));
   await waitFor(() => expect((button() as HTMLButtonElement).disabled).toBe(false));
+  expect(screen.queryByText(/Point histories need/)).toBeNull();
   const point = current.timeSeriesPoints[0];
   expect(point.visible).toBe(true);
   act(() => dispatch({ type: 'UPDATE_TIME_SERIES_POINT', payload: { id: point.id, updates: { visible: false } } }));
