@@ -27,6 +27,8 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Turning Rewrap off brings the colour range back.** The colour map returned but the
+  range stayed at the wrap's ±π, so the layer drew in one colour until the range was reset.
 - **A mask of 0/1 flags masks again when re-added.** Adding the recommended mask back (or
   a water mask) started at threshold 0, which keeps every pixel; it starts at 0.5. A threshold
   typed while the layer's range was still loading is no longer replaced when it arrives.

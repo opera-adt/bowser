@@ -160,14 +160,28 @@ export default function MainTab() {
 
   // Rewrapped fringes need a cyclic colormap (its ends meet at ±π): Twilight while rewrap is on,
   // then the previous colormap back, unless another was picked in the meantime.
+  // The colour range comes back the same way: rewrap set it to its own (±π or half the period),
+  // which on the unwrapped layer would draw every pixel in the middle colour.
   const beforeWrap = useRef<string | null>(null);
+  const rangeBeforeWrap = useRef<{ vmin: number; vmax: number } | null>(null);
   useEffect(() => {
     if (state.wrapEnabled) {
+      rangeBeforeWrap.current = { vmin: state.vmin, vmax: state.vmax };
       if (!isCyclic(state.colormap)) {
         beforeWrap.current = state.colormap;
         dispatch({ type: 'SET_COLORMAP', payload: WRAP_COLORMAP });
       }
-    } else if (beforeWrap.current) {
+      return;
+    }
+    if (rangeBeforeWrap.current) {
+      const half = state.wrapWavelength !== null && state.wrapWavelength > 0 ? Math.PI : state.wrapPeriod / 2;
+      if (state.vmin === -half && state.vmax === half) {
+        dispatch({ type: 'SET_VMIN', payload: rangeBeforeWrap.current.vmin });
+        dispatch({ type: 'SET_VMAX', payload: rangeBeforeWrap.current.vmax });
+      }
+      rangeBeforeWrap.current = null;
+    }
+    if (beforeWrap.current) {
       if (state.colormap === WRAP_COLORMAP) dispatch({ type: 'SET_COLORMAP', payload: beforeWrap.current });
       beforeWrap.current = null;
     }
