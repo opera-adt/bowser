@@ -27,6 +27,8 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The date badge's ✕ hides it.** It switched the badge to its date-only form, which has
+  no ✕.
 - **The chart reopens after its close button.** After closing the chart window with its ✕,
   the panel still offered *Hide Time Series*, which took two clicks to bring the chart back,
   and a new point did not open it.

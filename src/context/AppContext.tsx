@@ -381,6 +381,8 @@ function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppSt
     }
     case 'SET_OVERLAY_MESSAGE':
       return { ...state, overlayMessage: action.payload };
+    case 'HIDE_DATE_BADGE':
+      return { ...state, dateBadge: 'off' };
     case 'TOGGLE_DATE_BADGE':
       return { ...state, dateBadge: state.dateBadge === 'off' ? 'full' : state.dateBadge === 'full' ? 'date' : 'off' };
     case 'SET_UNITS':
