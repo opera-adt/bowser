@@ -29,6 +29,9 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **Identify shows its result again.** With the side panel open, the result panel opened
   beyond the right edge of the window, so a click on the map seemed to do nothing.
+- **A click in the chart goes to the right date.** With a mask or a date range on, a
+  series has fewer dates than the layer, and clicking one of its points moved the map to
+  another date (the point's position in the series was taken as the time step).
 - **GNSS stations outside the North America plate.** *Find stations in this view* found
   none in Hawaii and other places off the plate, because it read UNR's North America
   fixed list, which leaves those stations out. Stations, velocities and daily positions
