@@ -6,6 +6,12 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **GNSS station names on the map.** *Show station names* in the GNSS tab writes each
+  station's id beside it, for UNR's stations and those from your files. Names that would
+  overlap are left out until you zoom in. The choice is kept between visits.
+
 ### Fixed
 
 - **GNSS stations outside the North America plate.** *Find stations in this view* found
