@@ -9,7 +9,7 @@ import { useApi } from '../hooks/useApi';
 import { applicableMasks } from '../utils/maskCompatibility';
 import { MultiPointTimeSeriesData } from '../types';
 import { downloadChartAsPng } from '../utils/screenshot';
-import { addChartLayer, chartLayerFor, timeSeriesLayers } from '../utils/chartLayers';
+import { addChartLayer, chartLayerFor, timeIndexOfDate, timeSeriesLayers } from '../utils/chartLayers';
 import { LayerOptions } from './panel/controls';
 import ModelCard, { type PickKind } from './ModelCard';
 import SeriesStylePopover from './SeriesStylePopover';
@@ -371,7 +371,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     }
   }, [fits]);  // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleChartClick = useCallback((event: any, elements: InteractionItem[]) => {
+  const handleChartClick = useCallback((event: any, elements: InteractionItem[], chart?: any) => {
     if (picking) {
       const t = chartRef.current?.scales.x?.getValueForPixel(event.x);
       if (typeof t === 'number' && Number.isFinite(t)) {
@@ -383,11 +383,13 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
       return;
     }
     if (elements.length === 0 || !firstDs) return;
-    const dataIndex = elements[0].index;
-    if (dataIndex !== undefined && dataIndex < firstDs.labels.length) {
-      dispatch({ type: 'SET_TIME_INDEX', payload: dataIndex });
-    }
-  }, [firstDs, dispatch, picking, state.fitSettings]);
+    // The map goes to the clicked point's date. Its position in the series is not the map's
+    // time step: masked dates and a date range leave a series shorter than the layer.
+    const clicked = chart?.data?.datasets?.[elements[0].datasetIndex]?.data?.[elements[0].index];
+    const date = clicked && typeof clicked === 'object' ? clicked.x : firstDs.labels[elements[0].index];
+    const step = date === undefined ? null : timeIndexOfDate(state.datasetInfo[state.currentDataset]?.x_values, date);
+    if (step !== null) dispatch({ type: 'SET_TIME_INDEX', payload: step });
+  }, [firstDs, dispatch, picking, state.fitSettings, state.datasetInfo, state.currentDataset]);
 
   const handleExportToCSV = useCallback(() => {
     if (!firstDs) return;

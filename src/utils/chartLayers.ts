@@ -37,3 +37,19 @@ export function addChartLayer(chosen: string[], followed: string | null, added: 
   const shown = chosen.length > 0 ? chosen : (followed ? [followed] : []);
   return shown.includes(added) ? shown : [...shown, added];
 }
+
+/**
+ * The time step of ``date`` on a layer's axis: its own position there, or null when the layer
+ * has no step on that day. A chart point's position in its series is not that: a mask or a
+ * date range leaves a series with fewer dates than the layer.
+ */
+export function timeIndexOfDate(xValues: readonly (string | number)[] | undefined, date: string | number): number | null {
+  const day = (v: string | number) => {
+    const s = String(v);
+    const tail = s.includes('_') ? s.split('_').pop()! : s;
+    return /^\d{8}$/.test(tail) ? `${tail.slice(0, 4)}-${tail.slice(4, 6)}-${tail.slice(6, 8)}` : tail.slice(0, 10);
+  };
+  const wanted = day(date);
+  const i = (xValues ?? []).findIndex(v => day(v) === wanted);
+  return i >= 0 ? i : null;
+}
