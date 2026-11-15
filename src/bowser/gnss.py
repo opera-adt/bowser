@@ -113,6 +113,44 @@ def stations_in(
     return inside[:limit]
 
 
+def stations_named(rows: list[dict], name: str, limit: int = 50) -> list[dict]:
+    """Stations whose id starts with ``name``, then those that contain it.
+
+    Letter case does not matter. At most ``limit``, each group in id order.
+    """
+    text = name.strip().upper()
+    if not text:
+        return []
+    starts = sorted((r for r in rows if r["id"].startswith(text)), key=_by_id)
+    holds = sorted(
+        (r for r in rows if text in r["id"] and not r["id"].startswith(text)),
+        key=_by_id,
+    )
+    return (starts + holds)[:limit]
+
+
+def _by_id(row: dict) -> str:
+    return row["id"]
+
+
+def find_stations(
+    rows: list[dict],
+    box: tuple[float | None, float | None, float | None, float | None],
+    name: str | None,
+) -> list[dict]:
+    """Find stations by name when one is given, else in the box.
+
+    This is what ``GET /gnss/stations`` answers with.
+
+    Raises ValueError when there is neither a name nor a whole box.
+    """
+    if name and name.strip():
+        return stations_named(rows, name)
+    if any(edge is None for edge in box):
+        raise ValueError("Give a name, or west, south, east and north.")
+    return stations_in(rows, *box)  # type: ignore[arg-type]
+
+
 def midas_rows() -> list[dict]:
     """UNR's MIDAS table, read once a day."""
     with _lock:

@@ -53,6 +53,33 @@ def test_stations_in_box_nearest_centre_first():
     assert len(gnss.stations_in(rows, -91, 34, -90, 35, limit=1)) == 1
 
 
+def test_stations_by_name_start_first_then_contained():
+    rows = [{"id": i} for i in ("AMKE", "MKEA", "MKEB", "P056", "ZMKE")]
+    assert [r["id"] for r in gnss.stations_named(rows, " mke ")] == [
+        "MKEA",
+        "MKEB",
+        "AMKE",
+        "ZMKE",
+    ]
+    assert gnss.stations_named(rows, "  ") == []
+    assert len(gnss.stations_named(rows, "MKE", limit=1)) == 1
+
+
+def test_find_stations_takes_a_name_or_a_whole_box():
+    rows = [
+        {"id": "MKEA", "lon": -155.5, "lat": 19.8},
+        {"id": "P056", "lon": -119.1, "lat": 36.0},
+    ]
+    none = (None, None, None, None)
+    assert [r["id"] for r in gnss.find_stations(rows, none, "mkea")] == ["MKEA"]
+    box = (-120.0, 35.0, -118.0, 37.0)
+    assert [r["id"] for r in gnss.find_stations(rows, box, None)] == ["P056"]
+    # A name wins over the box: the search is not limited to the view.
+    assert [r["id"] for r in gnss.find_stations(rows, box, "MKEA")] == ["MKEA"]
+    with pytest.raises(ValueError, match="name, or west"):
+        gnss.find_stations(rows, (-120.0, None, -118.0, 37.0), None)
+
+
 def test_tenv3_in_mm_from_the_first_day():
     s = gnss.parse_tenv3((DATA / "P056_sample.tenv3").read_text())
     assert s["dates"][:2] == ["2005-11-17", "2005-11-18"]
