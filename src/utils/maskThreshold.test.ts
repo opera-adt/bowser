@@ -13,6 +13,16 @@ describe('a layer mask threshold', () => {
     expect(defaultThreshold({ min: -0.1, max: 0.2 }, 'max')).toBe(0.2);
   });
 
+  it('starts at 0.5 on a layer of 0/1 flags, where either end would mask nothing', () => {
+    const recommended = { min: 0, max: 1, p2: 0, p98: 1 };
+    expect(defaultThreshold(recommended, 'min')).toBe(0.5);
+    expect(defaultThreshold(recommended, 'max')).toBe(0.5);
+    expect(defaultThreshold({ min: 0, max: 1, p2: 1, p98: 1 }, 'min')).toBe(0.5);   // nearly all ones
+    // A coherence layer also spans 0–1, but has values in between.
+    expect(defaultThreshold({ min: 0, max: 1, p2: 0.21, p98: 0.93 }, 'min')).toBe(0.21);
+    expect(defaultThreshold({ min: 0, max: 1 }, 'min')).toBe(0);
+  });
+
   it('says how much of the layer a threshold keeps', () => {
     const h = hist([0, 0.25, 0.5, 0.75, 1], [10, 20, 30, 40]);   // 100 pixels
     expect(keptFraction(h, 0.5, 'min')).toBeCloseTo(0.7);        // the two upper bins

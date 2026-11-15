@@ -414,6 +414,7 @@ export type AppAction =
   | { type: 'TOGGLE_IDENTIFY' }
   | { type: 'SET_UNITS'; payload: UnitSystem }
   | { type: 'TOGGLE_DATE_BADGE' }
+  | { type: 'HIDE_DATE_BADGE' }
   | { type: 'SET_IDENTIFY'; payload: IdentifyResult | null }
   | { type: 'OPEN_GNSS_CHART'; payload: GnssStation | null }
   | { type: 'SET_DRAWINGS'; payload: OverlayFeatures }
