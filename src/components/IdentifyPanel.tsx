@@ -11,7 +11,9 @@ export default function IdentifyPanel() {
   const r = state.identify;
   if (!state.identifyEnabled || !r) return null;
   return (
-    <div ref={panelRef} className="identify-panel" style={{ ...panelStyle, height: 'auto', maxHeight: 420 }}
+    // Fixed, as the hook's position is in window coordinates: positioned inside the map, the
+    // panel was pushed past the window's right edge by the width of the open side panel.
+    <div ref={panelRef} className="identify-panel" style={{ ...panelStyle, position: 'fixed', height: 'auto', maxHeight: 420 }}
       onMouseDown={e => e.stopPropagation()}>
       <div className="identify-head" onMouseDown={onDragMouseDown}>
         <strong>Here</strong>
