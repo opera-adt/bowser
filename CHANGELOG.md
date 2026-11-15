@@ -27,6 +27,9 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Split screen's right-hand layer opens on its own colour range.** It started at 0–1, a
+  solid block of one colour for most layers; it takes its 2–98 % range when chosen. Its
+  histogram is also for its own date, not the left layer's.
 - **A click in the chart goes to the right date.** With a mask or a date range on, a
   series has fewer dates than the layer, and clicking one of its points moved the map to
   another date (the point's position in the series was taken as the time step).

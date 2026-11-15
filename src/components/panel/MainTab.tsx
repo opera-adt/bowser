@@ -427,6 +427,7 @@ export default function MainTab() {
                 display={displayUnit(state.datasetInfo[state.splitDataset!]?.unit, state.units)} />
               <Histogram
                 dataset={state.splitDataset}
+                timeIndex={state.splitTimeIndex}
                 vmin={state.splitVmin}
                 vmax={state.splitVmax}
                 onSetVmin={v => dispatch({ type: 'SET_SPLIT_VMIN', payload: v })}
