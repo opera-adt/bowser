@@ -17,6 +17,14 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the motion along the cube's line of sight alone, with the whole window to itself. The
   choice is kept between visits.
 
+### Changed
+
+- **A lighter page while you work.** Every part of the page used to redraw for any change:
+  a map move, a drag of the split-screen divider, a tick of a slider, a step of the date
+  player. Each part now follows only what it shows. A divider drag redraws none of the
+  side panel's tabs (it was all five), an opacity tick one, a map move two, a date step
+  three. Nothing looks different; the Leaflet map (`?map=leaflet`) is unchanged.
+
 ### Fixed
 
 - **GNSS stations outside the North America plate.** *Find stations in this view* found
