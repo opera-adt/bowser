@@ -234,6 +234,11 @@ PARAMS: dict[str, dict[str, Any]] = {
     },
     "cmap_name": {"description": "Colormap name.", "examples": ["rdbu_r"]},
     "station": {"description": "Four-character UNR station id.", "examples": ["P056"]},
+    "gnss_name": {
+        "description": "A UNR station id or part of one; letter case does not matter. "
+        "With it the box is not needed and stations anywhere are found.",
+        "examples": ["MKEA"],
+    },
     "west": {"description": "West edge, WGS84 longitude.", "examples": [-118.0]},
     "south": {"description": "South edge, WGS84 latitude.", "examples": [33.5]},
     "east": {"description": "East edge, WGS84 longitude.", "examples": [-117.0]},
@@ -614,9 +619,10 @@ ROUTES: dict[str, dict[str, Any]] = {
         "tags": [EXPORT],
     },
     "GET /gnss/stations": {
-        "summary": "GNSS stations in a box",
+        "summary": "GNSS stations in a box or by name",
         "description": "UNR GNSS stations inside a lon/lat box, nearest the "
-        "centre first, with MIDAS velocities (IGS20, mm/yr).",
+        "centre first, with MIDAS velocities (IGS20, mm/yr). With `name` "
+        "instead of a box: the stations whose id starts with or contains it.",
         "tags": [CONTEXT],
     },
     "GET /gnss/series/{station}": {

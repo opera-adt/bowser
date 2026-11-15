@@ -220,6 +220,7 @@ SCRIPT = textwrap.dedent(
               params={"variable": "displacement", "time_idx": 1})
     check("gnss_stations", "GET", "/gnss/stations",
           params={"west": -125, "south": 30, "east": -110, "north": 45})
+    check("gnss_stations_named", "GET", "/gnss/stations", params={"name": "p05"})
     check("gnss_series", "GET", "/gnss/series/{station}", "/gnss/series/P056")
     check("wms", "GET", "/wms_capabilities", params={"url": "https://example.com"})
     zq = {"threshold_mm_yr": 40, "coherence_min": 0.5, "min_area_m2": 1000}
