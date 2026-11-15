@@ -140,11 +140,13 @@ export interface BaseMapItem {
   maxNativeZoom?: number;
 }
 
+export type LayerMaskMode = 'min' | 'max' | 'abs_min' | 'abs_max';
+
 export interface LayerMask {
   id: string;
   dataset: string;
   threshold: number;
-  mode: 'min' | 'max';  // 'min' = keep pixels >= threshold; 'max' = keep pixels <= threshold
+  mode: LayerMaskMode; // abs_* compares magnitude only; source values keep their sign.
 }
 
 export interface ChartWindow {

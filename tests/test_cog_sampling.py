@@ -236,7 +236,7 @@ def test_geographic_circle_uses_meter_distances(inputs):
     [
         [None],
         [{"dataset": ""}],
-        [{"dataset": "quality", "mode": "abs_max"}],
+        [{"dataset": "quality", "mode": "unknown"}],
         [{"dataset": "quality", "threshold": None}],
         [{"dataset": "quality", "threshold": np.inf}],
         [{"dataset": "quality"}] * 11,

@@ -8,6 +8,10 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Absolute-value layer masks (`|value| ≤` and `|value| ≥`) across native
+  display, analysis and export paths, preserving measurement signs and nodata.
+  See [docs/absolute-value-masks.md](docs/absolute-value-masks.md).
+
 - **GNSS station names on the map.** *Show station names* in the GNSS tab writes each
   station's id beside it, for UNR's stations and those from your files. Names that would
   overlap are left out until you zoom in. The choice is kept between visits.

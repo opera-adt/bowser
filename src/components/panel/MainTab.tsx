@@ -9,13 +9,14 @@ import RefDatePicker from './RefDatePicker';
 import ReferenceCandidates from './ReferenceCandidates';
 import CustomMaskUpload from './CustomMaskUpload';
 import MaskHistogram from './MaskHistogram';
-import { defaultThreshold } from '../../utils/maskThreshold';
 import { displayUnit } from '../../utils/units';
 import { readLayerInfoShown, saveLayerInfoShown } from '../../utils/layerInfoPref';
 import { baseColormap } from '../../utils/colormaps';
 import { maskProblem, maskProblems } from '../../utils/maskCompatibility';
 import { LayerOptions, SectionHeader, Switch } from './controls';
 import { referenceValues } from '../../map/interactions';
+import { absoluteMask, maskControlRange, maskDefaultThreshold } from '../../utils/maskControls';
+import type { LayerMaskMode } from '../../types';
 
 /** A layer's percentiles, for the colour scale's range presets. */
 async function rangeOf(dataset: string): Promise<RangeStats | null> {
@@ -89,7 +90,7 @@ export default function MainTab() {
       const range = datasetRanges[mask.dataset];
       if (!range || !awaitingDefault.current.has(mask.id)) continue;
       awaitingDefault.current.delete(mask.id);
-      dispatch({ type: 'UPDATE_LAYER_MASK', payload: { id: mask.id, updates: { threshold: defaultThreshold(range, mask.mode) } } });
+      dispatch({ type: 'UPDATE_LAYER_MASK', payload: { id: mask.id, updates: { threshold: maskDefaultThreshold(range, mask.mode) } } });
     }
   }, [state.layerMasks, datasetRanges, dispatch]);
 
@@ -514,8 +515,7 @@ export default function MainTab() {
           <>
             {state.layerMasks.map(mask => {
               const range = datasetRanges[mask.dataset];
-              const rMin = range?.p2 ?? range?.min ?? 0;
-              const rMax = range?.p98 ?? range?.max ?? 1;
+              const [rMin, rMax] = maskControlRange(range, mask.mode);
               const step = rMax - rMin > 0 ? parseFloat(((rMax - rMin) / 200).toPrecision(2)) : 0.01;
               return (
                 <div key={mask.id} className="layer-mask-row">
@@ -528,23 +528,26 @@ export default function MainTab() {
                         if (newRange) awaitingDefault.current.delete(mask.id);
                         else awaitingDefault.current.add(mask.id);   // set when its range arrives
                         dispatch({ type: 'UPDATE_LAYER_MASK', payload: { id: mask.id, updates: {
-                          dataset: ds, threshold: newRange ? defaultThreshold(newRange, mask.mode) : mask.threshold,
+                          dataset: ds, threshold: newRange ? maskDefaultThreshold(newRange, mask.mode) : mask.threshold,
                         } } });
                       }}>
                       {maskProblem(state.datasetInfo[state.currentDataset], mask.dataset) &&
                         <option value={mask.dataset} disabled>{mask.dataset} (incompatible)</option>}
                       <LayerOptions names={compatibleMasks} />
                     </select>
-                    <select className="sidebar-select" style={{ width: 56, fontSize: '0.78em', padding: '2px 4px' }}
+                    <select className="sidebar-select" style={{ width: 96, fontSize: '0.78em', padding: '2px 4px' }}
+                      aria-label="Mask comparison" title="Absolute-value limits compare magnitude; measurements retain their signs."
                       value={mask.mode}
                       onChange={e => {
-                        const newMode = e.target.value as 'min' | 'max';
+                        const newMode = e.target.value as LayerMaskMode;
                         const r = datasetRanges[mask.dataset];
-                        const newThreshold = r ? defaultThreshold(r, newMode) : mask.threshold;
+                        const newThreshold = maskDefaultThreshold(r, newMode, mask.threshold);
                         dispatch({ type: 'UPDATE_LAYER_MASK', payload: { id: mask.id, updates: { mode: newMode, threshold: newThreshold } } });
                       }}>
                       <option value="min">≥</option>
                       <option value="max">≤</option>
+                      <option value="abs_min">|value| ≥</option>
+                      <option value="abs_max">|value| ≤</option>
                     </select>
                     <button className="hist-btn"
                       style={{ color: 'var(--sb-red)', padding: '2px 6px', flexShrink: 0 }}
@@ -557,16 +560,17 @@ export default function MainTab() {
                     </span>
                     <input type="number"
                       style={{ width: 72, fontSize: '0.75em', background: 'var(--sb-surface2)', border: '1px solid var(--sb-border)', borderRadius: 4, color: 'var(--sb-text)', padding: '1px 4px', textAlign: 'right' }}
+                      min={absoluteMask(mask.mode) ? 0 : undefined}
                       step={step} value={parseFloat(mask.threshold.toPrecision(4))}
                       onChange={e => {
                         const v = parseFloat(e.target.value);
-                        if (!isNaN(v)) dispatch({ type: 'UPDATE_LAYER_MASK', payload: { id: mask.id, updates: { threshold: v } } });
+                        if (Number.isFinite(v) && (!absoluteMask(mask.mode) || v >= 0)) dispatch({ type: 'UPDATE_LAYER_MASK', payload: { id: mask.id, updates: { threshold: v } } });
                       }} />
                   </div>
                   <input type="range" className="sidebar-range"
                     min={rMin} max={rMax} step={step} value={mask.threshold}
                     onChange={e => dispatch({ type: 'UPDATE_LAYER_MASK', payload: { id: mask.id, updates: { threshold: parseFloat(e.target.value) } } })} />
-                  {range && (
+                  {range && (mask.mode === 'min' || mask.mode === 'max') && (
                     <MaskHistogram dataset={mask.dataset} threshold={mask.threshold} mode={mask.mode} lo={rMin} hi={rMax}
                       timeIndex={(state.datasetInfo[mask.dataset]?.x_values?.length ?? 0) > 1 ? state.currentTimeIndex : 0}
                       paused={state.playing} />
@@ -584,7 +588,7 @@ export default function MainTab() {
                   dispatch({
                     type: 'ADD_LAYER_MASK', payload: {
                       id, dataset: firstDataset,
-                      threshold: range ? defaultThreshold(range, 'min') : 0.5, mode: 'min',
+                      threshold: range ? maskDefaultThreshold(range, 'min') : 0.5, mode: 'min',
                     }
                   });
                 }}>

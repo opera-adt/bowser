@@ -189,13 +189,14 @@ PARAMS: dict[str, dict[str, Any]] = {
     },
     "layer_masks": {
         "description": "Masks as {dataset, threshold, mode}: mode min keeps "
-        "pixels >= threshold in cubes (> in GeoTIFFs), max keeps pixels <= threshold.",
+        "pixels >= threshold in cubes (> in GeoTIFFs), max keeps pixels <= threshold; "
+        "abs_min/abs_max compare magnitude inclusively.",
         "examples": [_LAYER_MASKS],
     },
     "layer_masks_json": {
         "description": "JSON list of {dataset, threshold, mode} masks: mode min "
         "keeps pixels >= threshold in cubes (> in GeoTIFFs), "
-        "max keeps pixels <= threshold.",
+        "max keeps pixels <= threshold; abs_min/abs_max compare magnitude inclusively.",
         "examples": [json.dumps(_LAYER_MASKS)],
     },
     "ref_buffer_m": {
