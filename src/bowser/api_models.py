@@ -616,13 +616,13 @@ ROUTES: dict[str, dict[str, Any]] = {
     "GET /gnss/stations": {
         "summary": "GNSS stations in a box",
         "description": "UNR GNSS stations inside a lon/lat box, nearest the "
-        "centre first, with MIDAS velocities (North America fixed, mm/yr).",
+        "centre first, with MIDAS velocities (IGS20, mm/yr).",
         "tags": [CONTEXT],
     },
     "GET /gnss/series/{station}": {
         "summary": "GNSS station series",
         "description": "A UNR station's daily east, north and up positions in mm "
-        "from the first day (North America fixed), with equipment and earthquake "
+        "from the first day (IGS20), with equipment and earthquake "
         "steps and the monument description.",
         "tags": [CONTEXT],
     },
@@ -1883,7 +1883,7 @@ class FolderListing(_Fixed):
 
 
 class GnssStation(_Fixed):
-    """A UNR station with its MIDAS velocity (mm/yr, North America fixed)."""
+    """A UNR station with its MIDAS velocity (mm/yr, IGS20)."""
 
     id: str
     lon: float

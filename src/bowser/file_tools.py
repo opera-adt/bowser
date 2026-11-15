@@ -108,7 +108,7 @@ def register_file_tools(tool: Callable, api: BowserAPI) -> None:
         `custom` are the stations read with load_gnss_csv or the GNSS tab, with
         their rows, time span and straight-line rates (mm/yr). With a `bbox`,
         `unr` adds the public UNR stations in it, nearest the centre first, with
-        MIDAS velocities (North America fixed, mm/yr).
+        MIDAS velocities (IGS20, mm/yr).
         """
         custom = (await api.get("/gnss/custom"))["stations"]
         out: dict[str, Any] = {"custom": custom}
@@ -121,7 +121,7 @@ def register_file_tools(tool: Callable, api: BowserAPI) -> None:
             out["unr_source"] = unr["source"]
         out["note"] = (
             "Custom rates are a straight line through the file's record; UNR rates "
-            "are MIDAS, North America fixed."
+            "are MIDAS, in the global IGS20 frame (they include plate motion)."
             if custom or bbox is not None
             else "No stations loaded from files yet (load_gnss_csv); give a bbox "
             "to list public UNR stations."

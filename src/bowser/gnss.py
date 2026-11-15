@@ -1,8 +1,9 @@
 """GNSS stations and daily positions from the Nevada Geodetic Laboratory (UNR).
 
 UNR sends no CORS header, so the page reads them through the server. Velocities are
-MIDAS, North America fixed; positions are the NA-fixed IGS20 ``.tenv3`` files. Ported
-from the OPERA DISP portal (scripts/build_gnss_snapshot.py, api/gnss.py).
+MIDAS and positions the ``.tenv3`` files, both in the global IGS20 frame. Every
+station UNR processes is there, on any plate, and motion includes the plate's own.
+Ported from the OPERA DISP portal (scripts/build_gnss_snapshot.py, api/gnss.py).
 """
 
 from __future__ import annotations
@@ -14,8 +15,12 @@ import urllib.request
 from collections import OrderedDict
 from datetime import UTC, datetime
 
-MIDAS_URL = "https://geodesy.unr.edu/velocities/midas.NA.txt"
-SERIES_URL = "https://geodesy.unr.edu/gps_timeseries/IGS20/tenv3/NA/{station}.NA.tenv3"
+#: UNR's older ``/velocities/`` folder is IGS14 and no longer the current one. A
+#: plate-fixed list also leaves out stations on other plates (NA has none in Hawaii).
+FRAME = "IGS20"
+_UNR_IGS20 = "https://geodesy.unr.edu/gps_timeseries/IGS20"
+MIDAS_URL = _UNR_IGS20 + "/midas/midas.IGS.txt"
+SERIES_URL = _UNR_IGS20 + "/tenv3/IGS20/{station}.tenv3"
 STATION_PAGE = "https://geodesy.unr.edu/NGLStationPages/stations/{station}.sta"
 STEPS_URL = "https://geodesy.unr.edu/NGLStationPages/steps.txt"
 MONUMENTS_URL = "https://geodesy.unr.edu/monuments/MonumentTable.txt"
@@ -264,7 +269,7 @@ def station_series(station: str) -> dict:
             return _series[station]
     out = {
         "station": station,
-        "frame": "North America fixed (NA, IGS20)",
+        "frame": FRAME,
         "station_page": STATION_PAGE.format(station=station),
         **parse_tenv3(fetch_text(SERIES_URL.format(station=station))),
     }

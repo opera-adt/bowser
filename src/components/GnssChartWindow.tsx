@@ -82,7 +82,7 @@ export default function GnssChartWindow() {
       <div className="row-label" style={{ fontSize: '0.72em', padding: '2px 0 4px' }}>
         {station.custom
           ? <>Positions from your file, {u.label} from its first date{series?.frame ? ` (${series.frame})` : ''}. Rates are a straight-line fit, {u.label}/yr.</>
-          : <>Daily positions, {u.label} from the first day, North America fixed (UNR IGS20). Rates are MIDAS, {u.label}/yr.</>}
+          : <>Daily positions, {u.label} from the first day, in IGS20 (UNR). Rates are MIDAS, {u.label}/yr.</>}
         {los ? ' LOS is towards the satellite of this cube.' : ''}
       </div>
       {series?.monument && (
