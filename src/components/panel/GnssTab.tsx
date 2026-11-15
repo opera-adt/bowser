@@ -11,7 +11,7 @@ import { CHART_REQUEST_GAP_MS } from '../TimeSeriesChart';
 import { refDragEnd } from '../../map/interactions';
 import { chartLayerFor } from '../../utils/chartLayers';
 import {
-  GNSS_CUSTOM_LAYER_ID, GNSS_LAYER_ID, describeLoad, distanceKm, fetchCustomStations, gnssKey, gnssLosSeries, gnssSeriesUrl, loadGnssFile,
+  GNSS_CUSTOM_LAYER_ID, GNSS_LAYER_ID, gnssLabelField, loadGnssLabels, saveGnssLabels, describeLoad, distanceKm, fetchCustomStations, gnssKey, gnssLosSeries, gnssSeriesUrl, loadGnssFile,
   losVector, mmPerUnit, rateSource, removeCustomStation, toLos, typicalLos, type CustomGnssStation, type GnssSeries, type GnssStation,
 } from '../../map/gnss';
 import { customGnssOverlay, gnssOverlay } from '../../map/contextServices';
@@ -89,6 +89,17 @@ export default function GnssTab() {
       setError((err as Error).message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Station names on the map, for UNR's stations and the user's alike.
+  const [labels, setLabels] = useState(loadGnssLabels);
+  const toggleLabels = () => {
+    const on = !labels;
+    setLabels(on);
+    saveGnssLabels(on);
+    for (const id of [GNSS_LAYER_ID, GNSS_CUSTOM_LAYER_ID]) {
+      if (state.overlays.some(o => o.id === id)) dispatch({ type: 'UPDATE_OVERLAY', payload: { id, updates: { labelField: gnssLabelField(on) } } });
     }
   };
 
@@ -198,6 +209,10 @@ export default function GnssTab() {
             if (onMap) dispatch({ type: 'REMOVE_OVERLAY', payload: GNSS_LAYER_ID });
             else if (stations) showOnMap(stations);
           }} />
+        </div>
+        <div className="toggle-row">
+          <span style={{ fontSize: '0.82em' }}>Show station names</span>
+          <Switch checked={labels} label="Show station names on the map" onChange={toggleLabels} />
         </div>
         {error && <div className="row-label" style={{ fontSize: '0.76em', color: 'var(--sb-red)' }}>{error}</div>}
         {stations && stations.length === 0 && <div className="row-label">No stations with 3+ years of data in this view.</div>}

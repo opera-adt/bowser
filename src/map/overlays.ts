@@ -6,6 +6,7 @@
 import type { Overlay, OverlayFeatures } from '../types';
 import { featureBounds } from './fileParsers';
 import { classColorExpression } from './soilClasses';
+import { labelImageExpression } from './labels';
 import { MARKER_IMAGE_RADIUS, markerImageId } from './markers';
 import { demParams, demTileUrl } from './dem';
 
@@ -250,7 +251,17 @@ export function vectorLayerSpecs(o: Overlay, charted: Map<number, string> = new 
     { id: `${id}-fill`, type: 'fill', filter: POLYGONS, paint: { 'fill-color': color, 'fill-opacity': o.opacity * 0.25 } },
     { id: `${id}-line`, type: 'line', filter: LINES, paint: { 'line-color': color, 'line-opacity': o.opacity, 'line-width': o.lineWidth ?? 2 } },
     pointSpec(`${id}-point`, o, color),
+    ...(o.labelField ? [labelSpec(`${id}-label`, o, o.labelField)] : []),
   ];
+}
+
+/** A point's label to its right (labels.ts draws it); labels that would overlap are left out. */
+function labelSpec(id: string, o: Overlay, field: string): VectorLayerSpec {
+  return {
+    id, type: 'symbol', filter: POINTS,
+    layout: { 'icon-image': labelImageExpression(field), 'icon-anchor': 'left', 'icon-padding': 1 },
+    paint: { 'icon-opacity': o.opacity },
+  };
 }
 
 /**
