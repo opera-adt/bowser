@@ -46,7 +46,7 @@ beforeEach(() => {
     layerMasks: [{ id: 'mask_recommended', dataset: 'recommended_mask', threshold: 0.5, mode: 'min' }], customMaskPath: null,
     colormap: 'rdbu_r', vmin: -0.01, vmax: 0.02, opacity: 0.8, wrapEnabled: false, currentTimeIndex: 1,
     splitScreen: false, splitDataset: null, splitColormap: 'viridis', splitVmin: 0, splitVmax: 1, splitOpacity: 1,
-    timeSeriesPoints: [], chartAreas: [], showChart: false, viewBounds: null, panelTab: 'main', datasetRanges: {},
+    timeSeriesPoints: [], chartAreas: [], showChart: false, panelTab: 'main', datasetRanges: {},
     selectedBasemap: 'esriSatellite', secondaryBasemap: null, basemapSwapped: false, basemapOpacity: 1, secondaryBasemapOpacity: 0.5,
     showColorbar: false, showLosIndicator: false, graticuleMode: 'off', annotationMode: false, pixelInspectEnabled: false,
   });

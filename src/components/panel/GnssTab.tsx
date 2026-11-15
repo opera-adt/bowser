@@ -3,6 +3,7 @@ import { Line } from 'react-chartjs-2';
 import { Chart as ChartJS, Legend, LinearScale, LineElement, PointElement, TimeScale, Tooltip } from 'chart.js';
 import 'chartjs-adapter-date-fns';
 import { useAppContext } from '../../context/AppContext';
+import { useViewBounds } from '../../map/viewBounds';
 import { useApi } from '../../hooks/useApi';
 import { applicableMasks } from '../../utils/maskCompatibility';
 import { useSpacedEffect } from '../../hooks/useSpacedEffect';
@@ -45,6 +46,7 @@ const cssVar = (name: string, fallback: string) =>
  */
 export default function GnssTab() {
   const { state, dispatch } = useAppContext();
+  const viewBounds = useViewBounds();
   const { fetchMultiPointTimeSeries, fetchPointTimeSeries, fetchBufferTimeSeries } = useApi();
   const [stations, setStations] = useState<GnssStation[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -72,8 +74,8 @@ export default function GnssTab() {
   const u = displayUnit('mm', state.units);
 
   const find = async () => {
-    if (!state.viewBounds) return;
-    const [south, west, north, east] = state.viewBounds;
+    if (!viewBounds) return;
+    const [south, west, north, east] = viewBounds;
     setLoading(true);
     setError(null);
     try {
@@ -174,8 +176,8 @@ export default function GnssTab() {
   }, [ds, selected, info?.uses_spatial_ref, state.refEnabled, state.refMarkerPosition,
     state.layerMasks, refRadius, fetchMultiPointTimeSeries]);
 
-  const [cx, cy] = state.viewBounds
-    ? [(state.viewBounds[1] + state.viewBounds[3]) / 2, (state.viewBounds[0] + state.viewBounds[2]) / 2]
+  const [cx, cy] = viewBounds
+    ? [(viewBounds[1] + viewBounds[3]) / 2, (viewBounds[0] + viewBounds[2]) / 2]
     : [0, 0];
 
   return (
@@ -186,7 +188,7 @@ export default function GnssTab() {
           Source: UNR, the <a href={UNR_SITE} target="_blank" rel="noopener noreferrer">Nevada Geodetic Laboratory</a> (University of Nevada, Reno).
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
-          <button type="button" className="hist-btn" disabled={loading || !state.viewBounds} onClick={find}>
+          <button type="button" className="hist-btn" disabled={loading || !viewBounds} onClick={find}>
             {loading ? 'Finding…' : stations ? 'Find again in this view' : 'Find stations in this view'}
           </button>
         </div>

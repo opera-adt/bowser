@@ -12,10 +12,11 @@ import { MapLeftToolbar, MapTopRightToolbar, type MapFeature } from './MapToolba
 const LEAFLET_UNSUPPORTED: ReadonlySet<MapFeature> = new Set(['identify']);
 import {
   mapClickActions, markerPopupText, pixelInspectRequest, pixelInspectText,
-  pointClickActions, pointDoubleClickActions, pointDragEndActions, refDragEnd, viewBoundsAction,
+  pointClickActions, pointDoubleClickActions, pointDragEndActions, refDragEnd,
 } from '../map/interactions';
 import { leafletZoom, maplibreZoom, registerNavigator, whenMoved } from '../map/navigator';
 import { useAppContext } from '../context/AppContext';
+import { roundedBounds, setViewBounds } from '../map/viewBounds';
 import { getSplitPosition, useSplitPosition } from '../map/splitPosition';
 import { baseMaps } from '../basemap';
 import { basemapLeafletZoom, MAP_MAX_ZOOM } from '../map/basemapStyle';
@@ -98,19 +99,19 @@ function AnnotationLayer() {
   return null;
 }
 
-// Syncs map view ↔ state.viewBounds.
+// Syncs the map's view with the app.
 // Sidebar Apply / Dataset buttons dispatch APPLY_VIEW_BOUNDS, which bumps
 // viewBoundsApplySeq; this effect flies to the bounds. Plain moveend only
-// dispatches SET_VIEW_BOUNDS (no seq bump), so the map doesn't fly back to
+// reports the bounds (no seq bump), so the map doesn't fly back to
 // itself — that round-trip was drifting the center south on zoom-out because
 // bounds.getCenter() is the arithmetic mean of N/S, not the Mercator center.
 function MapViewController() {
-  const { state, dispatch } = useAppContext();
+  const { state } = useAppContext();
   const map = useMap();
 
   useEffect(() => {
-    if (!state.viewBounds || state.viewBoundsApplySeq === 0) return;
-    const [s, w, n, e] = state.viewBounds;
+    if (!state.viewBoundsRequest || state.viewBoundsApplySeq === 0) return;
+    const [s, w, n, e] = state.viewBoundsRequest;
     const bounds = L.latLngBounds([[s, w], [n, e]]);
     const zoom = map.getBoundsZoom(bounds, true);
     map.setView(bounds.getCenter(), zoom, { animate: true });
@@ -120,7 +121,7 @@ function MapViewController() {
   useMapEvents({
     moveend: () => {
       const b = map.getBounds();
-      dispatch(viewBoundsAction(b.getSouth(), b.getWest(), b.getNorth(), b.getEast()));
+      setViewBounds(roundedBounds(b.getSouth(), b.getWest(), b.getNorth(), b.getEast()));
     },
   });
 

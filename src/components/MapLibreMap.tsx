@@ -27,13 +27,14 @@ import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&ur
 
 maplibregl.setWorkerUrl(maplibreWorkerUrl);
 import { useAppContext } from '../context/AppContext';
+import { roundedBounds, setViewBounds } from '../map/viewBounds';
 import { getSplitPosition } from '../map/splitPosition';
 import { useApi } from '../hooks/useApi';
 import { candidateMarkerHtml, candidateMarkerTitle, chooseCandidate } from '../map/referenceCandidates';
 import { useRasterTileUrl } from '../map/useRasterTileUrl';
 import {
   mapClickActions, markerPopupText, pixelInspectRequest, pixelInspectText,
-  pointClickActions, pointDoubleClickActions, pointDragEndActions, refDragEnd, viewBoundsAction,
+  pointClickActions, pointDoubleClickActions, pointDragEndActions, refDragEnd,
 } from '../map/interactions';
 import {
   EXAGGERATION_DEFAULT, EXAGGERATION_MAX, EXAGGERATION_MIN, TERRAIN_PITCH, clampExaggeration, TILT_ON, terrainOnTilt, terrainOffForGpu } from '../map/terrain';
@@ -231,8 +232,8 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
   // ── view sync: sidebar / "fit to dataset" requests, and report where we are ─
   useEffect(() => {
     const map = mapRef.current;
-    if (!ready || !map || !state.viewBounds || state.viewBoundsApplySeq === 0) return;
-    const [south, west, north, east] = state.viewBounds;
+    if (!ready || !map || !state.viewBoundsRequest || state.viewBoundsApplySeq === 0) return;
+    const [south, west, north, east] = state.viewBoundsRequest;
     map.fitBounds([[west, south], [east, north]], { animate: true });
   }, [ready, state.viewBoundsApplySeq]);  // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -241,11 +242,11 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
     if (!ready || !map) return;
     const onMoveEnd = () => {
       const b = map.getBounds();
-      dispatch(viewBoundsAction(b.getSouth(), b.getWest(), b.getNorth(), b.getEast()));
+      setViewBounds(roundedBounds(b.getSouth(), b.getWest(), b.getNorth(), b.getEast()));
     };
     map.on('moveend', onMoveEnd);
     return () => { map.off('moveend', onMoveEnd); };
-  }, [ready, dispatch]);
+  }, [ready]);
 
   // ── 3D terrain ─────────────────────────────────────────────────────────────
   const [terrain, setTerrain] = useState(loadTerrain);

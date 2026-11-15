@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
+import { useViewBounds } from '../../map/viewBounds';
 import { activeRefTime } from '../../utils/refDate';
 import { applicableMasks } from '../../utils/maskCompatibility';
 import { exportFilename } from '../../utils/exportFilename';
@@ -9,6 +10,7 @@ import { useSpacedEffect } from '../../hooks/useSpacedEffect';
 /** First GIF contribution: scalar raster only; no hidden viewer-state changes. */
 export default function AnimationExport() {
   const { state } = useAppContext();
+  const viewBounds = useViewBounds();
   const [supported, setSupported] = useState(false);
   const [start, setStart] = useState(0);
   const [end, setEnd] = useState(0);
@@ -36,10 +38,10 @@ export default function AnimationExport() {
   const complex = info?.algorithm === 'phase' || info?.algorithm === 'amplitude';
   const count = end - start + 1;
   const unsupportedMask = !!state.customMaskPath || (state.dataMode === 'cog' && info?.mask_file_list?.some(Boolean));
-  const basicEligible = supported && !!layer && labels.length >= 2 && count >= 2 && count <= 90 && !state.wrapEnabled && !complex && !unsupportedMask && Number.isFinite(state.vmin) && Number.isFinite(state.vmax) && state.vmax > state.vmin && (!crop || !!state.viewBounds);
+  const basicEligible = supported && !!layer && labels.length >= 2 && count >= 2 && count <= 90 && !state.wrapEnabled && !complex && !unsupportedMask && Number.isFinite(state.vmin) && Number.isFinite(state.vmax) && state.vmax > state.vmin && (!crop || !!viewBounds);
   const ref = state.refEnabled && info?.uses_spatial_ref && info.algorithm === 'shift';
   const refTime = info ? activeRefTime(info, state.refTimeIndex?.[layer], state.dataMode) : null;
-  const b = crop ? state.viewBounds : null;
+  const b = crop ? viewBounds : null;
   const body = {
     variable: layer, start_index: start, end_index: end, fps,
     vmin: state.vmin, vmax: state.vmax, colormap: state.colormap,

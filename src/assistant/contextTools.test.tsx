@@ -5,6 +5,7 @@
  */
 import { cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { setViewBounds } from '../map/viewBounds';
 
 const { dispatch, mockState } = vi.hoisted(() => ({ dispatch: vi.fn(), mockState: {} as Record<string, any> }));
 vi.mock('../context/AppContext', () => ({ useAppContext: () => ({ state: mockState, dispatch }) }));
@@ -44,8 +45,9 @@ beforeEach(() => {
   posted = [];
   vi.spyOn(Date, 'now').mockReturnValue(1700000000000);
   for (const k of Object.keys(mockState)) delete mockState[k];
+  setViewBounds([34.7, -90.2, 34.9, -89.9]);
   Object.assign(mockState, {
-    overlays: [], viewBounds: [34.7, -90.2, 34.9, -89.9], chartAreas: [], currentDataset: 'displacement',
+    overlays: [], chartAreas: [], currentDataset: 'displacement',
     drawingEnabled: false, datasetInfo: {},
   });
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
@@ -65,7 +67,7 @@ beforeEach(() => {
     return new Response('{}', { status: 404 });
   }));
 });
-afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); setViewBounds(null); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 /** What clicking a Services toggle dispatches. */
 async function byToggle(label: string): Promise<unknown[]> {

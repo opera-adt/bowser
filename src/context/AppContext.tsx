@@ -84,7 +84,7 @@ const initialState: AppState = {
   markerSize: 4,
   dateRangeStart: null,
   dateRangeEnd: null,
-  viewBounds: null,
+  viewBoundsRequest: null,
   viewBoundsApplySeq: 0,
   showColorbar: false,
   showLosIndicator: false,
@@ -425,12 +425,10 @@ function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppSt
       return { ...state, dateRangeStart: action.payload };
     case 'SET_DATE_RANGE_END':
       return { ...state, dateRangeEnd: action.payload };
-    case 'SET_VIEW_BOUNDS':
-      return { ...state, viewBounds: action.payload };
     case 'APPLY_VIEW_BOUNDS':
       return {
         ...state,
-        viewBounds: action.payload,
+        viewBoundsRequest: action.payload,
         viewBoundsApplySeq: state.viewBoundsApplySeq + 1,
       };
     case 'TOGGLE_COLORBAR':
