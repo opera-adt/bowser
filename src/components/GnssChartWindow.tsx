@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Line } from 'react-chartjs-2';
 import { Chart as ChartJS, Legend, LinearScale, LineElement, PointElement, TimeScale, Tooltip } from 'chart.js';
 import 'chartjs-adapter-date-fns';
-import { useAppContext } from '../context/AppContext';
+import { useAppDispatch, useAppFields } from '../context/AppContext';
 import { useDraggableResizable } from '../hooks/useDraggableResizable';
 import { chartLayerFor } from '../utils/chartLayers';
 import { gnssSeriesUrl, losVector, rateSource, stepMarkers, toLos, type GnssSeries } from '../map/gnss';
@@ -33,7 +33,8 @@ const cssVar = (name: string, fallback: string) =>
  * vector, a 3D / LOS switch shows the motion along its line of sight instead.
  */
 export default function GnssChartWindow() {
-  const { state, dispatch } = useAppContext();
+  const state = useAppFields('currentDataset', 'datasetInfo', 'fitSettings', 'gnssChartStation', 'units');
+  const dispatch = useAppDispatch();
   const station = state.gnssChartStation;
   const [series, setSeries] = useState<GnssSeries | null>(null);
   const [error, setError] = useState<string | null>(null);

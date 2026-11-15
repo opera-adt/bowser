@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { useAppContext } from '../context/AppContext';
+import { useAppDispatch, useGetAppState } from '../context/AppContext';
 import { useApi } from './useApi';
 import { AREA_NEEDS_SERVER } from './usePolygonStats';
 import { pointChoices, polygonChoices } from '../utils/polygonSeries';
@@ -18,10 +18,13 @@ export interface ZonalProgress {
  * notes to show under the layer (a cap reached, areas off on bowser-lite).
  */
 export function useZonalStats(polygonStats: boolean) {
-  const { state, dispatch } = useAppContext();
+  // The state is read when a layer is asked for, so the hook renders for nothing.
+  const getState = useGetAppState();
+  const dispatch = useAppDispatch();
   const { fetchPolygonTimeSeries } = useApi();
 
   return useCallback(async (overlay: Overlay, onProgress: (p: ZonalProgress) => void): Promise<string[]> => {
+    const state = getState();
     const notes: string[] = [];
     const capped = (list: unknown[], what: string) => {
       if (list.length > ZONAL_MAX_FEATURES) notes.push(`Only the first ${ZONAL_MAX_FEATURES} of ${list.length} ${what}.`);
@@ -60,5 +63,5 @@ export function useZonalStats(polygonStats: boolean) {
     await fetchAreaStats(areas, chartDatasets(state), fetchPolygonTimeSeries, dispatch,
       (done, total) => onProgress({ done, total }), areaFetchOptions(state));
     return notes;
-  }, [state, dispatch, fetchPolygonTimeSeries, polygonStats]);
+  }, [getState, dispatch, fetchPolygonTimeSeries, polygonStats]);
 }

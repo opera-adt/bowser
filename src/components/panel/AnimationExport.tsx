@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useAppContext } from '../../context/AppContext';
+import { useAppFields } from '../../context/AppContext';
 import { useViewBounds } from '../../map/viewBounds';
 import { activeRefTime } from '../../utils/refDate';
 import { applicableMasks } from '../../utils/maskCompatibility';
@@ -9,7 +9,7 @@ import { useSpacedEffect } from '../../hooks/useSpacedEffect';
 
 /** First GIF contribution: scalar raster only; no hidden viewer-state changes. */
 export default function AnimationExport() {
-  const { state } = useAppContext();
+  const state = useAppFields('colormap', 'currentDataset', 'customMaskPath', 'dataMode', 'datasetInfo', 'layerMasks', 'refBufferEnabled', 'refBufferRadius', 'refEnabled', 'refMarkerPosition', 'refTimeIndex', 'vmax', 'vmin', 'wrapEnabled');
   const viewBounds = useViewBounds();
   const [supported, setSupported] = useState(false);
   const [start, setStart] = useState(0);

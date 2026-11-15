@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useAppContext } from '../../context/AppContext';
+import { useAppFields } from '../../context/AppContext';
 import { downloadLayer, type ExportFormat } from '../../map/exportLayer';
 import { SectionHeader } from './controls';
 import { exportFilename } from '../../utils/exportFilename';
@@ -48,7 +48,7 @@ async function readBody(res: Response, signal: AbortSignal, onBytes: (received: 
 
 /** Saving the data layer (GeoTIFF) and vector layers (GeoJSON, CSV, KML, Shapefile). */
 export default function ExportSection() {
-  const { state } = useAppContext();
+  const state = useAppFields('currentDataset', 'currentTimeIndex', 'customMaskPath', 'dataMode', 'datasetInfo', 'layerMasks', 'overlays', 'refBufferEnabled', 'refBufferRadius', 'refEnabled', 'refMarkerPosition', 'refTimeIndex');
   const [exporting, setExporting] = useState(false);
   // Progress of the running export: seconds since it started, bytes so far, total if known.
   const [elapsed, setElapsed] = useState(0);

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useAppContext } from '../../context/AppContext';
+import { useAppDispatch, useAppFields, useGetAppState } from '../../context/AppContext';
 import { applyTheme, readThemeChoice, THEME_EVENT, type ThemeChoice } from '../../utils/theme';
 import { SectionHeader } from './controls';
 import ExportSection from './ExportSection';
@@ -168,7 +168,9 @@ const RENDERER = {
 } as const;
 
 export default function ProjectTab() {
-  const { state, dispatch } = useAppContext();
+  const state = useAppFields('units');
+  const getState = useGetAppState();
+  const dispatch = useAppDispatch();
   const [theme, setTheme] = useState<ThemeChoice>(readThemeChoice);
   const debug = useDebug();
   const renderer = useRenderMode();
@@ -189,16 +191,18 @@ export default function ProjectTab() {
     'showTrends', 'showResiduals', 'fitSettings',
   ] as const;
   const saveProject = useCallback(() => {
+    // The project is the state as it is when saved: read then, not followed.
+    const all = getState();
     const project: Record<string, unknown> = { bowser_project: 1, saved: new Date().toISOString() };
     PROJECT_KEYS.forEach(k => {
       // Drop cached time-series/trend values from points — they refetch on load.
       project[k] = k === 'timeSeriesPoints'
-        ? state.timeSeriesPoints.map(({ data, trendData, ...rest }) => rest)
-        : (state as any)[k];
+        ? all.timeSeriesPoints.map(({ data, trendData, ...rest }) => rest)
+        : all[k];
     });
     const blob = new Blob([JSON.stringify(project, null, 2)], { type: 'application/json' });
     void saveFile(blob, `bowser-project-${new Date().toISOString().slice(0, 16).replace(/[:.]/g, '-')}.json`);
-  }, [state]);
+  }, [getState]);
   // Validate each field before merging it into state. LOAD_PROJECT spreads the
   // payload straight onto state, so a hand-edited/corrupt file with a wrong type
   // (e.g. timeSeriesPoints not an array, refMarkerPosition not a pair) would

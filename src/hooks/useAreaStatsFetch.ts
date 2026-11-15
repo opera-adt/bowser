@@ -1,4 +1,4 @@
-import { useAppContext } from '../context/AppContext';
+import { useAppDispatch, useAppFields, useGetAppState } from '../context/AppContext';
 import { useApi } from './useApi';
 import { REQUEST_GAP_MS, useSpacedEffect } from './useSpacedEffect';
 import { areaStatsKey } from '../utils/polygonSeries';
@@ -12,7 +12,9 @@ import type { ChartArea } from '../types';
  * inside the polygon, and aborting one in the browser does not stop the server.
  */
 export function useAreaStatsFetch(datasets: string[], areas: Array<Pick<ChartArea, 'id' | 'geometry'>>, active: boolean): void {
-  const { state, dispatch } = useAppContext();
+  const state = useAppFields('areaStats', 'areaStatsRevision');
+  const dispatch = useAppDispatch();
+  const getState = useGetAppState();
   const { fetchPolygonTimeSeries } = useApi();
   useSpacedEffect(() => {
     if (!active) return;
@@ -21,7 +23,7 @@ export function useAreaStatsFetch(datasets: string[], areas: Array<Pick<ChartAre
         const key = areaStatsKey(ds, a.id);
         return !(key in state.areaStats);
       });
-      if (missing.length) void fetchAreaStats(missing, [ds], fetchPolygonTimeSeries, dispatch, undefined, areaFetchOptions(state));
+      if (missing.length) void fetchAreaStats(missing, [ds], fetchPolygonTimeSeries, dispatch, undefined, areaFetchOptions(getState()));
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, JSON.stringify(datasets), JSON.stringify(areas.map(a => [a.id, a.geometry])),

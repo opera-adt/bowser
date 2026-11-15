@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useAppContext } from '../context/AppContext';
+import { useAppFields } from '../context/AppContext';
 import { useApi } from './useApi';
 import { referenceValues } from '../map/interactions';
 
@@ -11,7 +11,7 @@ import { referenceValues } from '../map/interactions';
  * off for it and undefined while it is fetched.
  */
 export function useAreaReference(datasets: string[], active: boolean): (ds: string) => number[] | null | undefined {
-  const { state } = useAppContext();
+  const state = useAppFields('currentDataset', 'datasetInfo', 'refBufferEnabled', 'refBufferRadius', 'refEnabled', 'refMarkerPosition', 'refValues');
   const { fetchPointTimeSeries, fetchBufferTimeSeries } = useApi();
   const refBufferM = state.refEnabled && state.refBufferEnabled ? state.refBufferRadius : 0;
   const refKey = (ds: string) => `${ds}|${state.refMarkerPosition.join(',')}|${refBufferM}`;

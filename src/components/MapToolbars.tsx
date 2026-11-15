@@ -4,7 +4,7 @@
  * disabled with a note instead of toggling state the map would ignore.
  */
 import { useEffect, useState, type ReactNode } from 'react';
-import { useAppContext } from '../context/AppContext';
+import { useAppDispatch, useAppFields } from '../context/AppContext';
 import { baseMaps } from '../basemap';
 import { useProfileContext } from './ProfileTool';
 
@@ -24,7 +24,8 @@ export function MapLeftToolbar({ measureActive, onToggleMeasure, onMeasureOff, u
   onMeasureOff: () => void;
   unsupported?: ReadonlySet<MapFeature>;
 }) {
-  const { state, dispatch } = useAppContext();
+  const state = useAppFields('annotationMode', 'basemapOpacity', 'basemapSwapped', 'currentDataset', 'datasetInfo', 'drawingEnabled', 'graticuleMode', 'identifyEnabled', 'pixelInspectEnabled', 'pointPickingEnabled', 'refEnabled', 'secondaryBasemap', 'secondaryBasemapOpacity', 'selectedBasemap', 'showColorbar', 'showLosIndicator', 'splitScreen');
+  const dispatch = useAppDispatch();
   const { active: profileActive, setActive: setProfileActive } = useProfileContext();
   return (
     <div className="map-toolbar">
@@ -81,7 +82,8 @@ export function MapTopRightToolbar({ onToggleToolbars, unsupported = NONE, child
   /** Map-specific buttons, placed before the hide-toolbar button. */
   children?: ReactNode;
 }) {
-  const { state, dispatch } = useAppContext();
+  const state = useAppFields('annotationMode', 'basemapOpacity', 'basemapSwapped', 'currentDataset', 'datasetInfo', 'drawingEnabled', 'graticuleMode', 'identifyEnabled', 'pixelInspectEnabled', 'pointPickingEnabled', 'refEnabled', 'secondaryBasemap', 'secondaryBasemapOpacity', 'selectedBasemap', 'showColorbar', 'showLosIndicator', 'splitScreen');
+  const dispatch = useAppDispatch();
   const [basemapOpen, setBasemapOpen] = useState(false);
   const info = state.currentDataset ? state.datasetInfo[state.currentDataset] : null;
 

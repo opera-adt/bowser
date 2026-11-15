@@ -10,7 +10,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
-import { useAppContext } from '../context/AppContext';
+import { useAppFields } from '../context/AppContext';
 import { useSplitPosition } from '../map/splitPosition';
 import { useRasterTileUrl } from '../map/useRasterTileUrl';
 import { TERRAIN_SOURCE } from '../map/terrain';
@@ -41,7 +41,7 @@ export default function MapLibreSplit({ main, mainReady, terrain }: {
   mainReady: boolean;
   terrain: { enabled: boolean; exaggeration: number; source?: typeof TERRAIN_SOURCE };
 }) {
-  const { state } = useAppContext();
+  const state = useAppFields('datasetInfo', 'splitColormap', 'splitDataset', 'splitOpacity', 'splitTimeIndex', 'splitVmax', 'splitVmin');
   const splitPosition = useSplitPosition();
   const containerRef = useRef<HTMLDivElement>(null);
   const [right, setRight] = useState<maplibregl.Map | null>(null);

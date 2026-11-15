@@ -3,7 +3,7 @@ import { useMap } from 'react-leaflet';
 import { Chart as ChartJS } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import L from 'leaflet';
-import { useAppContext } from '../context/AppContext';
+import { useAppFields } from '../context/AppContext';
 import { useDraggableResizable } from '../hooks/useDraggableResizable';
 import { downloadChartAsPng } from '../utils/screenshot';
 import { parseProfileResponse, profileRequest, type ProfileResponse } from '../map/profile';
@@ -87,7 +87,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
  * the finished line, or null while drawing / idle.
  */
 export function useProfileFetch(getLine: () => LatLng[] | null) {
-  const { state } = useAppContext();
+  const state = useAppFields('currentDataset', 'currentTimeIndex');
   const { active, radius, samplingInterval, _setData, _setLoading } = useContext(ProfileContext);
   const radiusRef = useRef(radius);
   const siRef = useRef(samplingInterval);
@@ -269,7 +269,7 @@ export function ProfileToolMap() {
 
 // ── Chart panel (outside MapContainer, no Leaflet DOM) ────────────────────────
 export function ProfileChart() {
-  const { state } = useAppContext();
+  const state = useAppFields('currentDataset', 'currentTimeIndex');
   const { active, data: profileData, loading, radius, samplingInterval,
           setActive, setRadius, setSamplingInterval, setHoverDist, clearAll } = useProfileContext();
   const chartRef = useRef<ChartJS<'line'>>(null);

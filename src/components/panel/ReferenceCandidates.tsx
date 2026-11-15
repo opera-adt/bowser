@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useAppContext } from '../../context/AppContext';
+import { useAppDispatch, useAppFields, useGetAppState } from '../../context/AppContext';
 import { useApi } from '../../hooks/useApi';
 import type { RefCandidate } from '../../types';
 import {
@@ -18,7 +18,9 @@ const fmt = (v: number | null, digits = 2) => (v === null || v === undefined ? '
  * the map; choosing one moves the reference there and samples around it.
  */
 export default function ReferenceCandidates() {
-  const { state, dispatch } = useAppContext();
+  const state = useAppFields('refBufferEnabled', 'refBufferRadius', 'refCandidates', 'refMarkerPosition');
+  const getState = useGetAppState();
+  const dispatch = useAppDispatch();
   const { fetchPointTimeSeries, fetchBufferTimeSeries } = useApi();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -55,7 +57,7 @@ export default function ReferenceCandidates() {
   };
 
   const choose = (c: RefCandidate) =>
-    void chooseCandidate(state, c, { fetchPointTimeSeries, fetchBufferTimeSeries }, dispatch);
+    void chooseCandidate(getState(), c, { fetchPointTimeSeries, fetchBufferTimeSeries }, dispatch);
 
   return (
     <div className="ref-cand">
