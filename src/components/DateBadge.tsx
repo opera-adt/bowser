@@ -36,7 +36,7 @@ export default function DateBadge() {
       <span className="date-badge-date" aria-live="polite">{dateLabel(info!.x_values[i])}</span>
       <button type="button" className="date-badge-step" aria-label="Next date" disabled={i === n - 1} onClick={() => go(i + 1)}>›</button>
       <button type="button" className="date-badge-close" aria-label="Hide the date" title="Hide the date (click the date in Main › Layers to show it again)"
-        onClick={() => dispatch({ type: 'TOGGLE_DATE_BADGE' })}>×</button>
+        onClick={() => dispatch({ type: 'HIDE_DATE_BADGE' })}>×</button>
       {/* A thin progress line along the bottom edge, draggable like the panel's slider. */}
       <input type="range" className="date-badge-track" min={0} max={n - 1} step={1} value={i} aria-label="Map date"
         style={{ ['--progress' as string]: `${(100 * i) / (n - 1)}%` }}

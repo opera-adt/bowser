@@ -31,6 +31,27 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   stores its grid mapping per date, a 2-D mask (a water mask, an average coherence) made
   `/multi_point` answer 422 "Mask declares a missing CRS coordinate", and the chart said the
   mask hid every date. Tiles and area charts were not affected.
+- **Imperial units reach the velocity layer and the histogram.** A layer in m/yr stayed in
+  m/yr (it shows in/yr), and the histogram's minimum and maximum stayed in the cube's unit
+  under a colour range shown in inches.
+- **Turning Rewrap off brings the colour range back.** The colour map returned but the
+  range stayed at the wrap's ±π, so the layer drew in one colour until the range was reset.
+- **A mask of 0/1 flags masks again when re-added.** Adding the recommended mask back (or
+  a water mask) started at threshold 0, which keeps every pixel; it starts at 0.5. A threshold
+  typed while the layer's range was still loading is no longer replaced when it arrives.
+- **The date badge's ✕ hides it.** It switched the badge to its date-only form, which has
+  no ✕.
+- **The chart reopens after its close button.** After closing the chart window with its ✕,
+  the panel still offered *Hide Time Series*, which took two clicks to bring the chart back,
+  and a new point did not open it.
+- **GNSS stations on the map follow the list.** After *Find again*, a second search by
+  name, a second file or a removed station, the map kept the earlier stations until the
+  layer was switched off and on.
+- **Identify shows its result again.** With the side panel open, the result panel opened
+  beyond the right edge of the window, so a click on the map seemed to do nothing.
+- **A click in the chart goes to the right date.** With a mask or a date range on, a
+  series has fewer dates than the layer, and clicking one of its points moved the map to
+  another date (the point's position in the series was taken as the time step).
 - **GNSS stations outside the North America plate.** *Find stations in this view* found
   none in Hawaii and other places off the plate, because it read UNR's North America
   fixed list, which leaves those stations out. Stations, velocities and daily positions
