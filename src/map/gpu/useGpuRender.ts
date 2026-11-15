@@ -12,7 +12,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { debugMessage, useDebug } from '../../utils/debug';
 import type * as maplibregl from 'maplibre-gl';
-import { useAppContext } from '../../context/AppContext';
+import { useAppFields } from '../../context/AppContext';
 import { buildTileRequest } from '../../utils/tileParams';
 import { DEFAULT_RENDER_MODE, chooseRenderer, gpuCaps, type Decision } from './capability';
 import { useRenderMode } from './renderMode';
@@ -57,7 +57,7 @@ function logOnce(msg: string, warn = false) {
 export function useGpuRender(
   map: maplibregl.Map | null, ready: boolean, beforeId: () => string | undefined, blocked: string | null,
 ): GpuRenderStatus {
-  const { state } = useAppContext();
+  const state = useAppFields('colormap', 'complexMode', 'currentDataset', 'currentTimeIndex', 'customMaskPath', 'dataMode', 'datasetInfo', 'layerMasks', 'opacity', 'refEnabled', 'refTimeIndex', 'refValues', 'vmax', 'vmin', 'wrapEnabled', 'wrapPeriod', 'wrapWavelength');
   const search = typeof window !== 'undefined' ? window.location.search : '';
   const mode = useRenderMode();
   const datasetId = useMemo(() => new URLSearchParams(search).get('dataset'), [search]);

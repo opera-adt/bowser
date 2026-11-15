@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useAppContext } from '../context/AppContext';
+import { useAppFields } from '../context/AppContext';
 import { buildTileRequest } from '../utils/tileParams';
 
 export interface RasterOverrides {
@@ -18,7 +18,7 @@ export interface RasterOverrides {
  * Map-library independent: Leaflet and MapLibre layers both render this URL.
  */
 export function useRasterTileUrl(o: RasterOverrides = {}): string | null {
-  const { state } = useAppContext();
+  const state = useAppFields('colormap', 'complexMode', 'currentDataset', 'currentTimeIndex', 'customMaskPath', 'dataMode', 'datasetInfo', 'layerMasks', 'refEnabled', 'refMarkerPosition', 'refTimeIndex', 'refValues', 'vmax', 'vmin', 'wrapEnabled', 'wrapPeriod', 'wrapWavelength');
   const [tileUrl, setTileUrl] = useState<string | null>(null);
 
   const effectiveDataset = o.dataset ?? state.currentDataset;
