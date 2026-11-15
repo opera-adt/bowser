@@ -27,6 +27,9 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The chart reopens after its close button.** After closing the chart window with its ✕,
+  the panel still offered *Hide Time Series*, which took two clicks to bring the chart back,
+  and a new point did not open it.
 - **GNSS stations on the map follow the list.** After *Find again*, a second search by
   name, a second file or a removed station, the map kept the earlier stations until the
   layer was switched off and on.
