@@ -7,7 +7,8 @@ import GnssTab from './GnssTab';
 
 let state: AppState;
 const dispatch = vi.fn<(a: AppAction) => void>();
-vi.mock('../../context/AppContext', () => ({ useAppContext: () => ({ state, dispatch }) }));
+vi.mock('../../context/AppContext', async () =>
+  (await import('../../test/appContextMock')).appContextMock(() => ({ state, dispatch })));
 vi.mock('../../hooks/useApi', () => ({
   useApi: () => ({
     fetchMultiPointTimeSeries: vi.fn(async () => ({ datasets: [{ data: [{ x: '2026-01-01', y: 0 }, { x: '2026-01-13', y: -0.002 }] }] })),

@@ -104,7 +104,8 @@ vi.mock('maplibre-gl', () => ({
 vi.mock('maplibre-gl/dist/maplibre-gl.css', () => ({}));
 vi.mock('maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url', () => ({ default: '/assets/maplibre-worker.js' }));
 
-vi.mock('../context/AppContext', () => ({ useAppContext: () => ({ state: mockState, dispatch }) }));
+vi.mock('../context/AppContext', async () =>
+  (await import('../test/appContextMock')).appContextMock(() => ({ state: mockState, dispatch })));
 
 import MapLibreMap from './MapLibreMap';
 import { newDone, runPageTool, type PageContext } from '../assistant/pageTools';

@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppState, LosMetadata } from '../types';
 import LosIndicator from './LosIndicator';
 let state: AppState;
-vi.mock('../context/AppContext', () => ({ useAppContext: () => ({ state, dispatch: vi.fn() }) }));
+vi.mock('../context/AppContext', async () =>
+  (await import('../test/appContextMock')).appContextMock(() => ({ state })));
 vi.mock('../hooks/useDraggableResizable', () => ({ useDraggableResizable: () => ({ panelRef: { current: null }, panelStyle: {}, onDragMouseDown: vi.fn(), resizeGrip: null }) }));
 const metadata: LosMetadata = { heading_deg: 347, incidence_deg: 37, los_enu_ground_to_sat: { east: -0.6, north: -0.1, up: 0.79 } };
 beforeEach(() => { state = { currentDataset: 'displacement', showLosIndicator: true, datasetInfo: { displacement: { los_metadata: metadata, uses_spatial_ref: true } } } as unknown as AppState; });

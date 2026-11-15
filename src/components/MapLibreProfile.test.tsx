@@ -19,7 +19,8 @@ const { FakeMarker, mockState } = vi.hoisted(() => {
   return { FakeMarker, mockState: {} as Record<string, any> };
 });
 vi.mock('maplibre-gl', () => ({ Marker: FakeMarker }));
-vi.mock('../context/AppContext', () => ({ useAppContext: () => ({ state: mockState, dispatch: vi.fn() }) }));
+vi.mock('../context/AppContext', async () =>
+  (await import('../test/appContextMock')).appContextMock(() => ({ state: mockState })));
 
 import MapLibreProfile, { PROFILE_SOURCE } from './MapLibreProfile';
 import { ProfileProvider, useProfileContext } from './ProfileTool';

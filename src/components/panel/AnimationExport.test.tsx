@@ -6,7 +6,8 @@ import AnimationExport from './AnimationExport';
 import { saveFile } from '../../utils/saveFile';
 
 let state: AppState;
-vi.mock('../../context/AppContext', () => ({ useAppContext: () => ({ state }) }));
+vi.mock('../../context/AppContext', async () =>
+  (await import('../../test/appContextMock')).appContextMock(() => ({ state })));
 vi.mock('../../utils/saveFile', () => ({ saveFile: vi.fn(async () => true) }));
 let supported: boolean;
 let reply: Response;

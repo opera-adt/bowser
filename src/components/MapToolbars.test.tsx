@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const { dispatch, mockState, setProfileActive } = vi.hoisted(() => ({
   dispatch: vi.fn(), setProfileActive: vi.fn(), mockState: {} as Record<string, any>,
 }));
-vi.mock('../context/AppContext', () => ({ useAppContext: () => ({ state: mockState, dispatch }) }));
+vi.mock('../context/AppContext', async () =>
+  (await import('../test/appContextMock')).appContextMock(() => ({ state: mockState, dispatch })));
 vi.mock('./ProfileTool', () => ({ useProfileContext: () => ({ active: false, setActive: setProfileActive }) }));
 
 import { MapLeftToolbar, MapTopRightToolbar, type MapFeature } from './MapToolbars';
