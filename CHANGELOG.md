@@ -27,6 +27,9 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Split screen's right-hand layer opens on its own colour range.** It started at 0–1, a
+  solid block of one colour for most layers; it takes its 2–98 % range when chosen. Its
+  histogram is also for its own date, not the left layer's.
 - **A static mask no longer empties point charts on the full server.** On a cube that
   stores its grid mapping per date, a 2-D mask (a water mask, an average coherence) made
   `/multi_point` answer 422 "Mask declares a missing CRS coordinate", and the chart said the
