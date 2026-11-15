@@ -8,6 +8,11 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Configured and uploaded masks in full-server point/radius chart requests,
+  including bounded native reads, per-layer configured thresholds and clear
+  unsupported/error handling. Shared named-mask and reference policies remain
+  unchanged. See [docs/chart-extra-masks.md](docs/chart-extra-masks.md).
+
 - Optional synchronized native-pixel histories in raster GIFs. Point samples
   stay native under cropped/pyramid displays; preflight includes point/reference
   work and plot height. See [docs/raster-animation.md](docs/raster-animation.md).
@@ -30,6 +35,10 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   three. Nothing looks different; the Leaflet map (`?map=leaflet`) is unchanged.
 
 ### Fixed
+
+- Static configured GeoTIFF masks now remain on the map at every date.
+- Native GeoTIFF exports now reject configured-mask zero even at a zero
+  threshold, matching the map. Valid zero displacement remains a measurement.
 
 - **The first points after start-up no longer fail on the full server.** Two point requests
   arriving together before any other could get a 500 ("Reindexing only valid with uniquely

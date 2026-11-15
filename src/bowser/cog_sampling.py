@@ -65,16 +65,40 @@ class OutsideRasterError(ValueError):
     """Indicate a selection without native source pixel centers."""
 
 
+def read_native_mask(path: str, grid: NativeGrid, window: Window) -> np.ndarray:
+    """Read only an exactly aligned, single-band mask window."""
+    with rasterio.open(path) as source:
+        actual = NativeGrid(source.crs, source.transform, source.width, source.height)
+        if actual != grid:
+            raise ValueError(
+                "Chart data and masks must share the exact native grid and CRS"
+            )
+        if source.count != 1:
+            raise ValueError("Chart masks must be single-band scalar rasters")
+        _linear(source.dtypes[0], None)
+        return _values(source.read(1, window=window, masked=True))
+
+
 class CogSampler:
     """Sample real-valued band-one stacks without resampling or date inference."""
 
-    def __init__(self, group: Any, groups: dict, layer_masks: list[dict]) -> None:
+    def __init__(
+        self,
+        group: Any,
+        groups: dict,
+        layer_masks: list[dict],
+        *,
+        primary_mask: bool = False,
+        mask_min_value: float | None = None,
+        custom_mask_path: str | None = None,
+    ) -> None:
         """Validate configured mask labels and open source grid metadata."""
         self.group = group
         self.paths = group.file_list
         if not self.paths:
             raise ValueError("The selected layer has no raster files")
         self.labels = list(map(str, group.x_values))
+
         with rasterio.open(self.paths[0]) as source:
             self.grid = NativeGrid(
                 source.crs, source.transform, source.width, source.height
@@ -85,6 +109,54 @@ class CogSampler:
 
         specs, self.warnings = available_masks(group, groups, layer_masks)
         self.masks = raster_masks(groups, specs, self.labels, self.grid)
+        if primary_mask:
+            paths = group.mask_file_list
+            if (
+                not paths
+                or any(not path for path in paths)
+                or len(paths) not in (1, len(self.paths))
+            ):
+                raise ValueError("No complete primary mask is configured")
+            threshold = (
+                group.mask_min_value if mask_min_value is None else mask_min_value
+            )
+            if not np.isfinite(threshold):
+                raise ValueError("Primary mask threshold must be finite")
+            self._external_mask(list(paths), float(threshold), ">=", primary=True)
+        if custom_mask_path:
+            self._external_mask([custom_mask_path], 0.5, ">")
+
+    def _external_mask(self, paths, threshold, operator, *, primary=False):
+        """Attach a bounded cached reader to the shared mask engine."""
+        kept = {"key": None, "values": None}
+
+        def read(index, rows, cols):
+            path = paths[0 if len(paths) == 1 else index]
+            key = (path, rows.start, rows.stop, cols.start, cols.stop)
+            if kept["key"] != key:
+                window = Window(
+                    cols.start,
+                    rows.start,
+                    cols.stop - cols.start,
+                    rows.stop - rows.start,
+                )
+                values = read_native_mask(path, self.grid, window)
+                # Configured-mask zero is invalid, independently of valid zero
+                # displacement. Preserve the map's nonzero-and->= convention.
+                if primary:
+                    values = np.where(values == 0, np.nan, values)
+                kept.update(key=key, values=values)
+            return kept["values"]
+
+        self.masks.readers.append(read)
+        self.masks.records.append(
+            {
+                "dataset": "configured mask" if primary else "uploaded mask",
+                "threshold": threshold,
+                "operator": operator,
+                "temporal_support": "static" if len(paths) == 1 else "matching_axis",
+            }
+        )
 
     def _xy(self, lon: float, lat: float) -> tuple[float, float]:
         if not (
@@ -115,6 +187,13 @@ class CogSampler:
     def _read(
         self, path: str, window: Window, nodata: float | None, *, mask: bool = False
     ) -> np.ndarray:
+        if mask:
+            values = read_native_mask(path, self.grid, window)
+            return (
+                np.where(values == nodata, np.nan, values)
+                if nodata is not None
+                else values
+            )
         with rasterio.open(path) as source:
             actual = NativeGrid(
                 source.crs, source.transform, source.width, source.height
@@ -123,8 +202,6 @@ class CogSampler:
                 raise ValueError(
                     "Chart data and masks must share the exact native grid and CRS"
                 )
-            if mask and source.count != 1:
-                raise ValueError("Chart masks must be single-band scalar rasters")
             _linear(source.dtypes[0], None)
             values = _values(source.read(1, window=window, masked=True))
         if nodata is not None:
