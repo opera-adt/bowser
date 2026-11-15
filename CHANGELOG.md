@@ -6,6 +6,13 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **GNSS stations outside the North America plate.** *Find stations in this view* found
+  none in Hawaii and other places off the plate, because it read UNR's North America
+  fixed list, which leaves those stations out. Stations, velocities and daily positions
+  now come from UNR's current IGS20 files, so velocities include plate motion.
+
 ## [0.7.0] - 2026-11-14
 
 Faster on large cubes, a renderer that uses the browser's GPU when it can, and quality

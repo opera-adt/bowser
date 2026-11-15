@@ -233,7 +233,7 @@ export default function GnssTab() {
           </>
         )}
         <div className="row-label" style={{ fontSize: '0.7em' }}>
-          Velocities in {u.label}/yr (UNR MIDAS, North America fixed); LOS is towards the satellite. Nearest the map centre first.
+          Velocities in {u.label}/yr (UNR MIDAS, IGS20, plate motion included); LOS is towards the satellite. Nearest the map centre first.
         </div>
       </div>
       <div className="sidebar-section">
@@ -429,7 +429,7 @@ function StationCompare({ station: s, dataset, los, unit, fetchInsar, onAddPoint
         <div className="row-label" style={{ fontSize: '0.7em' }}>
           {isReference
             ? `InSAR is referenced to ${s.id}, so it is near 0 here; elsewhere it is motion relative to this station, whose own LOS motion is the red line.`
-            : `Both start at 0 on the first InSAR date. InSAR is relative to the reference point, GNSS to ${s.custom ? "your file's frame" : 'North America'}: compare slopes and shapes, not offsets.`}
+            : `Both start at 0 on the first InSAR date. InSAR is relative to the reference point, GNSS to ${s.custom ? "your file's frame" : 'the global IGS20 frame, plate motion included'}: compare slopes and shapes, not offsets.`}
         </div>
       )}
       <div style={{ display: 'flex', gap: 6 }}>

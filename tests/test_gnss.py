@@ -1,6 +1,7 @@
 """UNR GNSS readers: the station list (MIDAS) and a station's daily positions (tenv3).
 
-The samples are real lines from UNR's files (midas.NA.txt, P056.NA.tenv3).
+The samples are real lines from UNR's files (midas.NA.txt, P056.NA.tenv3; the IGS20
+files the app reads have the same layout).
 """
 
 from pathlib import Path
@@ -109,3 +110,11 @@ def test_series_carries_steps_and_monument_in_its_span(monkeypatch):
     s = gnss.station_series("p056")
     # The sample record is three days in 2005, so no step falls inside it.
     assert s["station"] == "P056" and s["steps"] == [] and s["monument"] is None
+    assert s["frame"] == "IGS20"
+
+
+def test_stations_and_series_come_from_the_global_igs20_files():
+    """A plate-fixed list leaves out other plates' stations: NA has none in Hawaii."""
+    assert gnss.MIDAS_URL.endswith("/IGS20/midas/midas.IGS.txt")
+    series = gnss.SERIES_URL.format(station="MKEA")
+    assert series.endswith("/IGS20/tenv3/IGS20/MKEA.tenv3")
