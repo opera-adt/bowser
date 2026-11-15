@@ -5,6 +5,7 @@
  */
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { DEFAULT_SPLIT_POSITION, setSplitPosition } from '../map/splitPosition';
 
 
 const { FakeMap, FakeMarker, FakePopup, dispatch, mockState } = vi.hoisted(() => {
@@ -129,7 +130,7 @@ beforeEach(() => {
     secondaryBasemap: null, basemapSwapped: false, basemapOpacity: 1, secondaryBasemapOpacity: 0.5,
     timeSeriesPoints: [], selectedPointId: null, refMarkerVisible: true, annotationMode: false, annotations: [], overlays: [], bufferEnabled: false, bufferRadius: 0,
     pointPickingEnabled: true, showChart: false, pixelInspectEnabled: false, splitScreen: false,
-    splitDataset: null, splitPosition: 0.5, splitTimeIndex: 0, refBufferEnabled: false, refBufferRadius: 0, refCandidates: [],
+    splitDataset: null, splitTimeIndex: 0, refBufferEnabled: false, refBufferRadius: 0, refCandidates: [],
     viewBounds: null, viewBoundsApplySeq: 0, showColorbar: false, showLosIndicator: false, graticuleMode: 'off',
   });
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
@@ -137,7 +138,7 @@ beforeEach(() => {
     return new Response(JSON.stringify([0, 0.001]));
   }));
 });
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); vi.restoreAllMocks(); localStorage.clear(); });
+afterEach(() => { cleanup(); setSplitPosition(DEFAULT_SPLIT_POSITION); vi.unstubAllGlobals(); vi.useRealTimers(); vi.restoreAllMocks(); localStorage.clear(); });
 
 async function mount() {
   const view = render(<MapLibreMap />);
@@ -416,7 +417,8 @@ describe('MapLibreMap', () => {
   it('split screen: a passive right-hand map, clipped at the divider, follows the camera and mirrors the tools', async () => {
     const { view, map } = await mount();
     Object.assign(mockState, { splitScreen: true, splitDataset: 'displacement', splitColormap: 'viridis',
-      splitVmin: 0, splitVmax: 1, splitOpacity: 0.6, splitTimeIndex: 0, splitPosition: 0.3 });
+      splitVmin: 0, splitVmax: 1, splitOpacity: 0.6, splitTimeIndex: 0 });
+    act(() => setSplitPosition(0.3));
     view.rerender(<MapLibreMap />);
     await act(async () => { await vi.advanceTimersByTimeAsync(300); });
     const right = FakeMap.last;

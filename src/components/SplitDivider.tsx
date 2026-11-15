@@ -1,6 +1,7 @@
 /** Split-screen divider (DOM, shared by both maps): drag to move, plus the right-panel dataset selector. */
 import { useEffect, useRef } from 'react';
 import { useAppContext } from '../context/AppContext';
+import { setSplitPosition, useSplitPosition } from '../map/splitPosition';
 
 export default function SplitDivider() {
   const { state, dispatch } = useAppContext();
@@ -14,7 +15,7 @@ export default function SplitDivider() {
       if (!parent) return;
       const rect = parent.getBoundingClientRect();
       const pos = Math.max(0.1, Math.min(0.9, (e.clientX - rect.left) / rect.width));
-      dispatch({ type: 'SET_SPLIT_POSITION', payload: pos });
+      setSplitPosition(pos);
     };
     const onUp = () => { dragging.current = false; };
     document.addEventListener('mousemove', onMove);
@@ -23,10 +24,10 @@ export default function SplitDivider() {
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
     };
-  }, [dispatch]);
+  }, []);
 
   const datasets = Object.keys(state.datasetInfo);
-  const pct = `${(state.splitPosition * 100).toFixed(2)}%`;
+  const pct = `${(useSplitPosition() * 100).toFixed(2)}%`;
 
   return (
     <div ref={containerRef} style={{ position: 'absolute', top: 0, bottom: 0, left: pct, width: 0, zIndex: 1500, pointerEvents: 'none' }}>

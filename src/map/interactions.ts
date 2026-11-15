@@ -118,14 +118,14 @@ export async function refDragEnd(
 
 /** Pixel-inspect hover: which dataset/time step to read, and the /point URL for it. */
 export function pixelInspectRequest(
-  state: Pick<AppState, 'currentDataset' | 'splitScreen' | 'splitDataset' | 'splitPosition'
-    | 'splitTimeIndex' | 'currentTimeIndex'>,
+  state: Pick<AppState, 'currentDataset' | 'splitScreen' | 'splitDataset' | 'splitTimeIndex' | 'currentTimeIndex'>,
+  splitPosition: number,
   [lat, lng]: LatLng,
   containerX: number,
   mapWidth: number,
 ): { dataset: string; onRight: boolean; url: string } | null {
   if (!state.currentDataset) return null;
-  const onRight = !!(state.splitScreen && state.splitDataset && containerX > mapWidth * state.splitPosition);
+  const onRight = !!(state.splitScreen && state.splitDataset && containerX > mapWidth * splitPosition);
   const dataset = onRight ? state.splitDataset! : state.currentDataset;
   const params = withDataset(new URLSearchParams({
     dataset_name: dataset,

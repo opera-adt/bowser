@@ -27,6 +27,7 @@ import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&ur
 
 maplibregl.setWorkerUrl(maplibreWorkerUrl);
 import { useAppContext } from '../context/AppContext';
+import { getSplitPosition } from '../map/splitPosition';
 import { useApi } from '../hooks/useApi';
 import { candidateMarkerHtml, candidateMarkerTitle, chooseCandidate } from '../map/referenceCandidates';
 import { useRasterTileUrl } from '../map/useRasterTileUrl';
@@ -450,7 +451,7 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
       const s = stateRef.current;
       cancel();
       if (!s.pixelInspectEnabled) { setTooltip(null); return; }
-      const req = pixelInspectRequest(s, [e.lngLat.lat, e.lngLat.lng], e.point.x, map.getContainer().clientWidth);
+      const req = pixelInspectRequest(s, getSplitPosition(), [e.lngLat.lat, e.lngLat.lng], e.point.x, map.getContainer().clientWidth);
       if (!req) return;
       const { x, y } = e.point;
       timer = setTimeout(async () => {

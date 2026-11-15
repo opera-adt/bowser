@@ -16,6 +16,7 @@ import {
 } from '../map/interactions';
 import { leafletZoom, maplibreZoom, registerNavigator, whenMoved } from '../map/navigator';
 import { useAppContext } from '../context/AppContext';
+import { getSplitPosition, useSplitPosition } from '../map/splitPosition';
 import { baseMaps } from '../basemap';
 import { basemapLeafletZoom, MAP_MAX_ZOOM } from '../map/basemapStyle';
 import { MousePositionControl } from '../mouse';
@@ -431,7 +432,7 @@ function PixelInspectLayer() {
       const { x, y } = e.containerPoint;
 
       // In split screen, choose dataset based on which side the cursor is on.
-      const req = pixelInspectRequest(state, [e.latlng.lat, e.latlng.lng], x, map.getSize().x);
+      const req = pixelInspectRequest(state, getSplitPosition(), [e.latlng.lat, e.latlng.lng], x, map.getSize().x);
       if (!req) return;
       const { dataset: activeDataset, onRight } = req;
 
@@ -490,6 +491,7 @@ function PixelInspectLayer() {
 // Leaflet component: creates split panes and applies clip-path as splitPosition changes.
 function SplitScreenControl() {
   const { state } = useAppContext();
+  const splitPosition = useSplitPosition();
   const map = useMap();
 
   // Create panes synchronously during render — the only way to guarantee they exist
@@ -524,7 +526,7 @@ function SplitScreenControl() {
     // We update on every move so the clip stays fixed in screen space.
     const updateClip = () => {
       const sz = map.getSize();
-      const divX = Math.round(sz.x * state.splitPosition);
+      const divX = Math.round(sz.x * splitPosition);
       const dx = L.DomUtil.getPosition(map.getPanes().mapPane).x;
       const lx = divX - dx; // divider in pane-local coords
       leftPane.style.clipPath  = `polygon(-99999px -99999px,${lx}px -99999px,${lx}px 99999px,-99999px 99999px)`;
@@ -538,7 +540,7 @@ function SplitScreenControl() {
       leftPane.style.clipPath = '';
       rightPane.style.clipPath = '';
     };
-  }, [state.splitScreen, state.splitPosition, map]);
+  }, [state.splitScreen, splitPosition, map]);
 
   return null;
 }

@@ -142,11 +142,11 @@ describe('reference marker drag', () => {
 describe('pixel inspect', () => {
   const st = {
     currentDataset: 'displacement', splitScreen: false, splitDataset: null as string | null,
-    splitPosition: 0.5, splitTimeIndex: 4, currentTimeIndex: 2,
+    splitTimeIndex: 4, currentTimeIndex: 2,
   };
 
   it('reads the displayed time step at the cursor', () => {
-    expect(pixelInspectRequest(st, P, 100, 800)).toEqual({
+    expect(pixelInspectRequest(st, 0.5, P, 100, 800)).toEqual({
       dataset: 'displacement', onRight: false,
       url: '/point?dataset_name=displacement&lon=-117.674620&lat=33.958590&time_idx=2',
     });
@@ -154,15 +154,15 @@ describe('pixel inspect', () => {
 
   it('reads the right-hand dataset and its time step past the split line', () => {
     const split = { ...st, splitScreen: true, splitDataset: 'velocity' };
-    expect(pixelInspectRequest(split, P, 500, 800)).toMatchObject({ dataset: 'velocity', onRight: true });
-    expect(pixelInspectRequest(split, P, 500, 800)!.url).toContain('time_idx=4');
-    expect(pixelInspectRequest(split, P, 300, 800)).toMatchObject({ dataset: 'displacement', onRight: false });
+    expect(pixelInspectRequest(split, 0.5, P, 500, 800)).toMatchObject({ dataset: 'velocity', onRight: true });
+    expect(pixelInspectRequest(split, 0.5, P, 500, 800)!.url).toContain('time_idx=4');
+    expect(pixelInspectRequest(split, 0.5, P, 300, 800)).toMatchObject({ dataset: 'displacement', onRight: false });
   });
 
   it('routes the hover to the catalog dataset like every other request', () => {
     window.history.replaceState({}, '', '/?dataset=prado-034-a-019');
     try {
-      expect(pixelInspectRequest(st, P, 100, 800)!.url).toContain('dataset=prado-034-a-019');
+      expect(pixelInspectRequest(st, 0.5, P, 100, 800)!.url).toContain('dataset=prado-034-a-019');
     } finally {
       window.history.replaceState({}, '', '/');
     }

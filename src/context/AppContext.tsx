@@ -99,7 +99,6 @@ const initialState: AppState = {
   pixelInspectEnabled: false,
   splitScreen: false,
   splitDataset: null,
-  splitPosition: 0.5,
   splitColormap: 'rdbu_r',
   splitVmin: 0,
   splitVmax: 1,
@@ -456,8 +455,6 @@ function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppSt
       return { ...state, splitScreen: !state.splitScreen };
     case 'SET_SPLIT_DATASET':
       return { ...state, splitDataset: action.payload };
-    case 'SET_SPLIT_POSITION':
-      return { ...state, splitPosition: action.payload };
     case 'SET_SPLIT_COLORMAP':
       return { ...state, splitColormap: action.payload };
     case 'SET_SPLIT_VMIN':
