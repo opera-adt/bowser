@@ -1348,7 +1348,7 @@ def gnss_stations(
 ):
     """UNR GNSS stations in a lon/lat box, nearest the centre first.
 
-    Velocities are MIDAS, NA fixed, in mm/yr.
+    Velocities are MIDAS, in IGS20, in mm/yr.
     """
     from .. import gnss  # noqa: PLC0415
 
@@ -1370,7 +1370,7 @@ def gnss_stations(
     **api.route_doc("GET /gnss/series/{station}"),
 )
 def gnss_series(station: Annotated[str, PathParam(**api.PARAMS["station"])]):
-    """Return a UNR station's daily east, north, up (mm since day one), NA fixed."""
+    """Return a UNR station's daily east, north, up (mm since day one), in IGS20."""
     import urllib.error  # noqa: PLC0415
 
     from .. import gnss  # noqa: PLC0415
@@ -1383,7 +1383,7 @@ def gnss_series(station: Annotated[str, PathParam(**api.PARAMS["station"])]):
         status = 404 if exc.code == 404 else 502
         raise HTTPException(
             status_code=status,
-            detail=f"UNR has no NA-fixed series for {station.upper()}",
+            detail=f"UNR has no series for {station.upper()}",
         ) from exc
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(

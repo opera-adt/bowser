@@ -54,7 +54,7 @@ export function gnssOverlay(list: GnssStation[]): Overlay {
     data: { type: 'FeatureCollection', features: list.map(s => ({
       type: 'Feature', geometry: { type: 'Point', coordinates: [s.lon, s.lat] }, properties: { ...s },
     })) },
-    attribution: 'GNSS: Nevada Geodetic Laboratory (UNR), MIDAS velocities, NA fixed',
+    attribution: 'GNSS: Nevada Geodetic Laboratory (UNR), MIDAS velocities, IGS20',
   };
 }
 

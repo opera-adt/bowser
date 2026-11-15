@@ -1,5 +1,5 @@
 /**
- * GNSS (UNR, NA fixed) next to InSAR: a station's motion projected on the radar line of
+ * GNSS (UNR, IGS20) next to InSAR: a station's motion projected on the radar line of
  * sight, and its record lined up with the InSAR series at that spot. Pure functions,
  * pinned by gnss.test.ts; the GNSS tab fetches through /gnss/stations and /gnss/series.
  */
