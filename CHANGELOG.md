@@ -27,6 +27,10 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A static mask no longer empties point charts on the full server.** On a cube that
+  stores its grid mapping per date, a 2-D mask (a water mask, an average coherence) made
+  `/multi_point` answer 422 "Mask declares a missing CRS coordinate", and the chart said the
+  mask hid every date. Tiles and area charts were not affected.
 - **GNSS stations outside the North America plate.** *Find stations in this view* found
   none in Hawaii and other places off the plate, because it read UNR's North America
   fixed list, which leaves those stations out. Stations, velocities and daily positions

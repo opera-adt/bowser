@@ -108,3 +108,79 @@ def test_point_values_without_dask_equal_those_with_it(tmp_path):
     )
     assert r.returncode == 0, r.stdout[-2000:] + r.stderr[-4000:]
     assert r.stdout.strip().splitlines()[-1].startswith("OK")
+
+
+STATIC_MASK_SCRIPT = textwrap.dedent(
+    """
+    import numpy as np
+    import bowser.main as m
+
+    st = m._default_state
+    direct = st.point_dataset()
+    assert direct is not None
+    # One grid mapping, carried by the 2-D layers too, as in the dask dataset.
+    assert direct["spatial_ref"].dims == ()
+    assert "spatial_ref" in direct["static_mask"].coords
+    assert "spatial_ref" in st.dataset["static_mask"].coords
+
+    masks = [{"dataset": "static_mask", "threshold": 0.5, "mode": "min"}]
+    kept = m._get_point_values("displacement", LON_KEPT, LAT, masks, None)
+    hidden = m._get_point_values("displacement", LON_HIDDEN, LAT, masks, None)
+    assert np.isfinite(kept).all(), kept
+    assert np.isnan(hidden).all(), hidden
+    st._point_dataset = False   # through dask: the same answers
+    np.testing.assert_array_equal(
+        kept, m._get_point_values("displacement", LON_KEPT, LAT, masks, None)
+    )
+    print("OK")
+    """
+)
+
+
+def test_static_mask_on_a_cube_with_a_grid_mapping_per_date(tmp_path):
+    """A 2-D mask masks a point's series when ``spatial_ref`` runs along time.
+
+    The dask-less dataset kept the per-date grid mapping, which does not reach
+    2-D layers, so the mask named a CRS coordinate it did not carry: 422.
+    """
+    import numpy as np
+    import rioxarray  # noqa: F401
+    import xarray as xr
+    from pyproj import Transformer
+
+    x = 500000.0 + 30.0 * np.arange(8)
+    y = 3800000.0 - 30.0 * np.arange(6)
+    dates = np.array(["2026-01-01", "2026-01-13", "2026-01-25"], dtype="datetime64[ns]")
+    values = np.ones((3, 6, 8), dtype="float32")
+    static = np.ones((6, 8), dtype="float32")
+    static[:, :4] = 0  # the western half is masked
+    ds = xr.Dataset(
+        {
+            "displacement": (("time", "y", "x"), values, {"units": "meters"}),
+            "static_mask": (("y", "x"), static),
+        },
+        coords={"time": dates, "x": x, "y": y},
+    ).rio.write_crs(32615)
+    crs_attrs = dict(ds["spatial_ref"].attrs)
+    ds = ds.drop_vars("spatial_ref")
+    ds["spatial_ref"] = (("time",), np.zeros(3, dtype="int64"), crs_attrs)
+    for name in ("displacement", "static_mask"):
+        ds[name].attrs["grid_mapping"] = "spatial_ref"
+        ds[name].encoding.pop("grid_mapping", None)
+    cube = tmp_path / "per_date_crs.zarr"
+    ds.to_zarr(cube, consolidated=False)
+
+    to_ll = Transformer.from_crs(32615, 4326, always_xy=True)
+    lon_hidden, lat = to_ll.transform(x[1], y[3])
+    lon_kept, _ = to_ll.transform(x[6], y[3])
+    script = (
+        f"LON_KEPT, LON_HIDDEN, LAT = {lon_kept!r}, {lon_hidden!r}, {lat!r}\n"
+        + STATIC_MASK_SCRIPT
+    )
+    env = {k: v for k, v in os.environ.items() if not k.startswith("BOWSER_")}
+    env["BOWSER_STACK_DATA_FILE"] = str(cube)
+    r = subprocess.run(
+        [sys.executable, "-c", script], env=env, capture_output=True, text=True
+    )
+    assert r.returncode == 0, r.stdout[-2000:] + r.stderr[-4000:]
+    assert r.stdout.strip().splitlines()[-1] == "OK"
