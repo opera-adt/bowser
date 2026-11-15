@@ -3,9 +3,9 @@
  * station opens its east/north/up chart; features of vector layers (files, drawings, soils,
  * stations) show their attributes; geology and land cover, when on, are looked up at the point.
  */
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import type * as maplibregl from 'maplibre-gl';
-import { useAppContext } from '../context/AppContext';
+import { useAppDispatch, useAppFields, useGetAppState } from '../context/AppContext';
 import { GNSS_CUSTOM_LAYER_ID, GNSS_LAYER_ID, type GnssStation } from '../map/gnss';
 import {
   attributeRows, geologyItem, landCoverClass, landCoverIdentifyUrl, MACROSTRAT_POINT, overlayIdOfLayer,
@@ -13,9 +13,9 @@ import {
 } from '../map/identify';
 
 export function useIdentify(map: maplibregl.Map | null, ready: boolean) {
-  const { state, dispatch } = useAppContext();
-  const stateRef = useRef(state);
-  stateRef.current = state;
+  const state = useAppFields('identifyEnabled');
+  const dispatch = useAppDispatch();
+  const getState = useGetAppState();
 
   useEffect(() => {
     if (!ready || !map || !state.identifyEnabled) return;
@@ -23,7 +23,7 @@ export function useIdentify(map: maplibregl.Map | null, ready: boolean) {
     canvas.style.cursor = 'default'; // a plain arrow: Identify clicks the map, it isn't help
     let seq = 0;
     const onClick = async (e: maplibregl.MapMouseEvent) => {
-      const s = stateRef.current;
+      const s = getState();
       const run = ++seq;
       const { lng, lat } = e.lngLat;
       const box: [maplibregl.PointLike, maplibregl.PointLike] = [[e.point.x - 5, e.point.y - 5], [e.point.x + 5, e.point.y + 5]];

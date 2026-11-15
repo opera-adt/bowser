@@ -43,12 +43,12 @@ const layer = (name: string, over: Partial<RasterGroup> = {}): RasterGroup => ({
  * which tab the action is for; every other name in a list is a render that buys nothing.
  */
 const RERENDERS: Record<string, { action: AppAction; tabs: Tab[] }> = {
-  // A tick of the data layer's opacity slider. Main has the slider; Overlays still reads the whole state.
-  'an opacity tick': { action: { type: 'SET_OPACITY', payload: 0.6 }, tabs: ['main', 'overlays'] },
+  // A tick of the data layer's opacity slider. Main has the slider.
+  'an opacity tick': { action: { type: 'SET_OPACITY', payload: 0.6 }, tabs: ['main'] },
   // A step of the date player. Main shows the date, Stats the values at it, Project's export its file name.
-  'a date step': { action: { type: 'SET_TIME_INDEX', payload: 2 }, tabs: ['main', 'overlays', 'project', 'stats'] },
+  'a date step': { action: { type: 'SET_TIME_INDEX', payload: 2 }, tabs: ['main', 'project', 'stats'] },
   // The chart panel is opened. Stats fetches for the chart's areas while it is open.
-  'opening the chart': { action: { type: 'TOGGLE_CHART' }, tabs: ['main', 'overlays', 'stats'] },
+  'opening the chart': { action: { type: 'TOGGLE_CHART' }, tabs: ['main', 'stats'] },
 };
 
 let dispatch: (a: AppAction) => void;

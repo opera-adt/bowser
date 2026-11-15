@@ -10,7 +10,7 @@
  */
 import { useEffect, useRef } from 'react';
 import type * as maplibregl from 'maplibre-gl';
-import { useAppContext } from '../context/AppContext';
+import { useAppDispatch, useAppFields } from '../context/AppContext';
 import { DRAWINGS_ID } from '../map/overlays';
 import type { OverlayFeatures } from '../types';
 
@@ -20,7 +20,8 @@ const EDIT_MODES = ['select', 'drag', 'change', 'rotate', 'cut', 'delete', 'scal
 const CONTAINER_EVENTS = ['gm:union', 'gm:split', 'gm:simplify', 'gm:difference', 'gm:lassoend'];
 
 export function useDrawTools(map: maplibregl.Map | null, ready: boolean) {
-  const { state, dispatch } = useAppContext();
+  const state = useAppFields('areaDrawing', 'drawingEnabled', 'overlays');
+  const dispatch = useAppDispatch();
   const enabled = state.drawingEnabled;
   // The shapes to load when the tools open (read at that moment, not a dependency).
   const drawingsRef = useRef<OverlayFeatures | undefined>(undefined);

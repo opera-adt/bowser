@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { useAppContext } from '../../context/AppContext';
+import { useAppDispatch, useAppFields, useGetAppState } from '../../context/AppContext';
 import { useApi } from '../../hooks/useApi';
 import {
   answerPermission, fetchAgentState, fetchModels, startAgent, fetchStatus, removeKey, saveKey, sendSignInCode, signIn, signOut, stopAgent, streamChat, RelayError,
@@ -107,10 +107,10 @@ const ERRORS: Record<string, string> = {
 
 /** A chat with the user's own AI provider, answered with Bowser's tools (see src/bowser/assistant). */
 export default function AssistantTab() {
-  const { state, dispatch } = useAppContext();
+  const state = useAppFields('panelTab');
+  const dispatch = useAppDispatch();
   const { fetchPointTimeSeries, fetchBufferTimeSeries, currentDatasetId } = useApi();
-  const stateRef = useRef(state);
-  stateRef.current = state;
+  const getState = useGetAppState();
 
   const [status, setStatus] = useState<AssistantStatus | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
@@ -399,7 +399,7 @@ export default function AssistantTab() {
     const using = account?.id ?? provider?.id;
     if (!text || busy || !using || !ready) return;
     const ctx: PageContext = {
-      getState: () => stateRef.current,
+      getState,
       dispatch,
       api: { fetchPointTimeSeries, fetchBufferTimeSeries },
       done: newDone(),
@@ -423,9 +423,9 @@ export default function AssistantTab() {
         await streamChat(
           {
             provider: using, model: agent ? '' : model, messages: history.current, page_tools: [], dataset,
-            page_masks: pageMasks(stateRef.current),
+            page_masks: pageMasks(getState()),
             // What the page shows now: the server tells the model with this request.
-            page_context: pageState(stateRef.current, dataset),
+            page_context: pageState(getState(), dataset),
             ...(agent ? { conversation: conversation.current, auto_allow: autoAllow } : {}),
           },
           (ev: ChatEvent) => {

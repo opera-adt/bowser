@@ -1,5 +1,5 @@
-import { useCallback, useRef, useState } from 'react';
-import { useAppContext } from '../../context/AppContext';
+import { useCallback, useState } from 'react';
+import { useAppDispatch, useAppFields, useGetAppState } from '../../context/AppContext';
 import { getViewBounds } from '../../map/viewBounds';
 import { ACCEPT, useAddFiles, useDataConversion } from '../../hooks/useAddFiles';
 import { inspectPmtiles, pmtilesOverlay } from '../../map/pmtiles';
@@ -40,7 +40,8 @@ export default function OverlaysTab() {
 
 /** Drop or pick files, then order, show and style what is on the map. */
 function LayersView() {
-  const { state, dispatch } = useAppContext();
+  const state = useAppFields('currentDataset', 'overlays');
+  const dispatch = useAppDispatch();
   const addFiles = useAddFiles();
   const conversion = useDataConversion();
   const [dragging, setDragging] = useState<string | null>(null);
@@ -121,12 +122,11 @@ function LayersView() {
 
 /** Roads, boundaries, buildings and land cover; each one on is a row in Layers. */
 function ContextView() {
-  const { state, dispatch } = useAppContext();
+  const dispatch = useAppDispatch();
   // The toggles and the Assistant's add_context_layer / remove_context_layer share
-  // map/contextServices.ts, so a tool does exactly what a toggle does.
-  const stateRef = useRef(state);
-  stateRef.current = state;
-  const env = { getState: () => stateRef.current, dispatch };
+  const state = useAppFields('overlays');
+  const getState = useGetAppState();
+  const env = { getState, dispatch };
   const rowOf = (key: ContextKey) => serviceRow(state, key);
   const toggle = (key: ContextKey) => {
     if (rowOf(key)) removeService(env, key);
@@ -209,7 +209,8 @@ const SHAPE_LABEL: Record<string, string> = {
 
 /** GeoLibre's drawing and editing tools on the map; what is drawn is the Drawings layer, each shape named here. */
 function DrawView() {
-  const { state, dispatch } = useAppContext();
+  const state = useAppFields('chartAreas', 'drawingEnabled', 'overlays');
+  const dispatch = useAppDispatch();
   const drawings = state.overlays.find(o => o.id === DRAWINGS_ID);
   const count = drawings?.data?.features.length ?? 0;
   if (!ON_MAPLIBRE) {
@@ -274,7 +275,7 @@ function DrawView() {
 
 /** External WMS / WMTS (XYZ template) layers and custom PMTiles archives. */
 function ServicesView({ onAdded }: { onAdded: () => void }) {
-  const { dispatch } = useAppContext();
+  const dispatch = useAppDispatch();
   const [extType, setExtType] = useState<'wms' | 'wmts' | 'pmtiles'>('wms');
   const [pmBusy, setPmBusy] = useState(false);
   const [pmError, setPmError] = useState<string | null>(null);
