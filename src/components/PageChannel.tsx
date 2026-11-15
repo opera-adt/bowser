@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react';
-import { useAppContext } from '../context/AppContext';
+import { useEffect } from 'react';
+import { useAppDispatch, useGetAppState } from '../context/AppContext';
 import { useApi } from '../hooks/useApi';
 import { newDone, runPageTool, type PageContext } from '../assistant/pageTools';
 import { startPageChannel } from '../assistant/pageChannel';
@@ -10,15 +10,14 @@ import { startPageChannel } from '../assistant/pageChannel';
  * when the server offers the channel (GET /config: assistant.page_channel).
  */
 export default function PageChannel() {
-  const { state, dispatch } = useAppContext();
+  const dispatch = useAppDispatch();
   const { fetchPointTimeSeries, fetchBufferTimeSeries } = useApi();
-  const stateRef = useRef(state);
-  stateRef.current = state;
+  const getState = useGetAppState();
 
   useEffect(() => startPageChannel({
     run: (name, input) => {
       const ctx: PageContext = {
-        getState: () => stateRef.current,
+        getState,
         dispatch,
         api: { fetchPointTimeSeries, fetchBufferTimeSeries },
         done: newDone(),

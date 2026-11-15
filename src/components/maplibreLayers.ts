@@ -4,7 +4,7 @@
  */
 import { useEffect, useRef } from 'react';
 import type * as maplibregl from 'maplibre-gl';
-import { useAppContext } from '../context/AppContext';
+import { useAppFields } from '../context/AppContext';
 import { baseMaps } from '../basemap';
 import { basemapSource, basemapStack } from '../map/basemapStyle';
 import { TERRAIN_SOURCE, TERRAIN_SOURCE_ID, terrainSpec } from '../map/terrain';
@@ -40,7 +40,7 @@ const BASEMAP_IDS = ['basemap-bottom', 'basemap-top'] as const;
  * already loaded and fetched every visible one again.
  */
 export function useBasemapLayers(map: maplibregl.Map | null, ready: boolean) {
-  const { state } = useAppContext();
+  const state = useAppFields('basemapOpacity', 'basemapSwapped', 'secondaryBasemap', 'secondaryBasemapOpacity', 'selectedBasemap');
   const primary = baseMaps[state.selectedBasemap] || baseMaps.esriSatellite;
   const secondary = state.secondaryBasemap ? baseMaps[state.secondaryBasemap] : null;
   const stack = basemapStack(primary, secondary, state.basemapSwapped, state.basemapOpacity,
@@ -168,7 +168,7 @@ function overlayKey(o: Overlay): string {
  * the tools. `which` is the main map or the split-screen right map (see overlayOnMap).
  */
 export function useOverlayLayers(map: maplibregl.Map | null, ready: boolean, which: 'main' | 'right') {
-  const { state } = useAppContext();
+  const state = useAppFields('chartAreas', 'drawingEnabled', 'overlays', 'splitScreen', 'timeSeriesPoints');
   const builtRef = useRef(new Map<string, { key: string; layers: string[] }>());
   // Features in the chart (areas and points from a layer) are drawn in their chart colour.
   const charted = [...(state.chartAreas ?? []), ...(state.timeSeriesPoints ?? [])];
@@ -251,7 +251,6 @@ export function useOverlayLayers(map: maplibregl.Map | null, ready: boolean, whi
 
 /** Buffer circles around time-series points and the reference point (dashed, faint fill). */
 export function useBufferCircles(map: maplibregl.Map | null, ready: boolean) {
-  const { state } = useAppContext();
   useEffect(() => {
     if (!ready || !map || map.getSource('buffer-circles')) return;
     map.addSource('buffer-circles', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -261,6 +260,7 @@ export function useBufferCircles(map: maplibregl.Map | null, ready: boolean) {
     map.addLayer({ id: 'buffer-line', type: 'line', source: 'buffer-circles',
       paint: { 'line-color': ['get', 'color'], 'line-width': 1.5, 'line-dasharray': [4 / 1.5, 3 / 1.5] } });
   }, [ready, map]);
+  const state = useAppFields('bufferEnabled', 'bufferRadius', 'refBufferEnabled', 'refBufferRadius', 'refEnabled', 'refMarkerPosition', 'timeSeriesPoints');
   const data = bufferFeatures(state);
   const key = JSON.stringify(data);
   useEffect(() => {

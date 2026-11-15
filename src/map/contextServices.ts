@@ -41,7 +41,7 @@ export const SERVICES: ServiceInfo[] = [
 export const SERVICE_IDS = SERVICES.map(s => s.id);
 
 /** The overlay row a context layer added, if it is on. */
-export function serviceRow(state: AppState, id: ServiceId): Overlay | undefined {
+export function serviceRow(state: Pick<AppState, 'overlays'>, id: ServiceId): Overlay | undefined {
   if (id === 'land_cover') return state.overlays.find(o => o.landCoverYear);
   if (id === 'geology' || id === 'soils') return state.overlays.find(o => o.serviceKey === id);
   if (id === 'gnss') return state.overlays.find(o => o.id === GNSS_LAYER_ID);
