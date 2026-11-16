@@ -201,19 +201,27 @@ FIRST_READS_SCRIPT = textwrap.dedent(
             "x": 500000.0 + 30.0 * np.arange(n), "y": 3800000.0 - 30.0 * np.arange(n),
         })
         prepare(ds)
+        # Required safety condition, independent of whether a cold race happens
+        # to reproduce under this runner's scheduling.
+        for axis in ("x", "y"):
+            assert ds.indexes[axis]._engine.is_mapping_populated, (
+                axis + " lookup was not initialized"
+            )
         gate = threading.Barrier(16)
 
         def read(k):
             gate.wait()   # all sixteen look a pixel up at the same moment
-            ds.x.sel(x=500000.0 + 30.0 * k, method="nearest")
-            ds.y.sel(y=3800000.0 - 30.0 * k, method="nearest")
+            x = 500000.0 + 30.0 * k
+            y = 3800000.0 - 30.0 * k
+            assert ds.x.sel(x=x, method="nearest").item() == x
+            assert ds.y.sel(y=y, method="nearest").item() == y
 
         with ThreadPoolExecutor(16) as pool:
             futures = [pool.submit(read, k) for k in range(16)]
         return sum(f.exception() is not None for f in futures)
 
-    # What the fix is for: first lookups at once fail on a dataset as opened.
-    assert sum(failed_reads(lambda ds: None) for _ in range(5)) > 0
+    # Cold failures are scheduler-dependent; do not require one to happen in CI.
+    # The warm-up assertion also makes a no-op replacement fail deterministically.
     assert sum(failed_reads(_build_lookups) for _ in range(20)) == 0
     print("OK")
     """
