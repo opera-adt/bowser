@@ -31,6 +31,12 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Imported GeoJSON keeps feature IDs.** Unique source IDs keep polygon selections
+  and chart colors attached after feature reordering. Explicit source-layer
+  provenance distinguishes repeated IDs across combined layers; missing or
+  ambiguous IDs retain index-based behavior. Projects preserve these source
+  records. See [imported feature identity](docs/vector-feature-identity.md).
+
 - **The first points after start-up no longer fail on the full server.** Two point requests
   arriving together before any other could get a 500 ("Reindexing only valid with uniquely
   valued Index objects"): each tried to build the same lookup table.
