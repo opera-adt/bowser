@@ -113,6 +113,7 @@ export interface MultiPointTimeSeriesData {
     // null when the cube is geographic or the transform is unavailable.
     x?: number | null;
     y?: number | null;
+    displayDatum?: import('./utils/displayDatum').DisplayDatum;
     trend?: {
       slope: number;
       intercept: number;

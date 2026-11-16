@@ -16,8 +16,9 @@ export interface SeriesTag {
   name: string;
   layer: string;
   /** data: a point's values; model / residual: its fitted model and residuals; median / sample: a
-   *  point in buffer mode; area_median, area_mean, band_upper, band_lower: an area. */
-  role: 'data' | 'model' | 'residual' | 'median' | 'sample'
+   *  point in buffer mode; datum: a non-observation annotation, excluded from numerical tools;
+   *  area_median, area_mean, band_upper, band_lower: an area. */
+  role: 'datum' | 'data' | 'model' | 'residual' | 'median' | 'sample'
     | 'area_median' | 'area_mean' | 'band_upper' | 'band_lower';
 }
 

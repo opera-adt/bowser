@@ -31,6 +31,12 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Defined reference-date zeros stay out of numerical analysis.** When a producer
+  explicitly marks a display datum as not an independent observation, the chart
+  shows it separately; fits, residuals, polygon statistics and numeric exports
+  use the measured epochs. Genuine zero measurements are retained. See
+  [the response contract](docs/display-datum.md).
+
 - **The first points after start-up no longer fail on the full server.** Two point requests
   arriving together before any other could get a 500 ("Reindexing only valid with uniquely
   valued Index objects"): each tried to build the same lookup table.

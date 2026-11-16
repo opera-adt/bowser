@@ -7,6 +7,7 @@
  * subtracted here, so an area and a point are on the same footing. Subtracting one number per
  * date shifts the median, mean and every percentile by that number; the spread is unchanged.
  */
+import { datumMarker, type DisplayDatum } from './displayDatum';
 import type { ChartArea, LayerMask, Overlay } from '../types';
 
 import { AREA_PERCENTILES, areaRows, type AreaRow } from './areaStats';
@@ -44,6 +45,7 @@ export interface PolygonStatistics {
 }
 
 export interface PolygonTimeSeries {
+  displayDatum?: DisplayDatum;
   optional_masks_applied?: boolean;
   /** Which pixels each date uses: the same ones at every date, or those valid on that date. */
   support?: 'common' | 'per_date';
@@ -307,5 +309,8 @@ export function areaChartDatasets(o: AreaSeriesOptions): Record<string, unknown>
     pointBackgroundColor: 'transparent', pointBorderColor: o.color, pointBorderWidth: 1.5, borderDash: [2.5, 2],
     pointRadius: MASKED_DATE_RADIUS, pointHoverRadius: MASKED_DATE_RADIUS + 1, pointStyle: maskedDateMarker(o.color), order: 0,
   };
-  return [...(look.showBand ? bandSets : []), median, ...(look.showMean ? [mean] : []), ...(empty.length ? [masked] : [])];
+  const datum = o.result.displayDatum;
+  const annotations = datum && (o.refIndex ?? null) === null && o.reference === null && o.inRange(o.toX(datum.x))
+    ? [{ ...common, ...datumMarker({ ...datum, x: o.toX(datum.x) }, o.color), label: `${o.name} reference datum` }] : [];
+  return [...annotations, ...(look.showBand ? bandSets : []), median, ...(look.showMean ? [mean] : []), ...(empty.length ? [masked] : [])];
 }

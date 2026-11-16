@@ -202,7 +202,7 @@ function chartData(state: AppState, snap: ChartSnapshot, includeModel: boolean) 
   const groups = new Map<string, { tag: SeriesTag; parts: Partial<Record<SeriesTag['role'], XY[]>> }>();
   for (const d of snap.datasets) {
     const tag = d._series;
-    if (!tag || tag.role === 'sample' || tag.role === 'residual') continue;
+    if (!tag || tag.role === 'datum' || tag.role === 'sample' || tag.role === 'residual') continue;
     const key = `${tag.kind}|${tag.id}|${tag.layer}`;
     const g = groups.get(key) ?? { tag, parts: {} };
     g.parts[tag.role] = d.data as XY[];
