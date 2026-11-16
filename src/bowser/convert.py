@@ -432,8 +432,9 @@ def convert_to_pmtiles(
 def convert_to_geojson(src: str | os.PathLike, dst: str | os.PathLike) -> None:
     """Write the vector ``src`` as one GeoJSON FeatureCollection in WGS84 at ``dst``.
 
-    Features of every non-empty layer, with all their attributes; with more than
-    one layer each feature's ``layer`` says which it came from.
+    Features of every non-empty layer, preserving source attributes. With more
+    than one layer, a collision-free property names the source layer; the
+    collection's ``bowser_source_layer_property`` identifies that property.
     """
     gdal = _ogr()
     ds = _open_vector(src)
@@ -443,6 +444,7 @@ def convert_to_geojson(src: str | os.PathLike, dst: str | os.PathLike) -> None:
         if ds.GetLayer(i).GetFeatureCount() != 0
     ]
     features: list[Any] = []
+    origins: list[str] = []
     for name in names:
         tmp = f"/vsimem/bowser_{os.getpid()}_{threading.get_ident()}.geojson"
         try:
@@ -461,12 +463,19 @@ def convert_to_geojson(src: str | os.PathLike, dst: str | os.PathLike) -> None:
         finally:
             gdal.Unlink(tmp)
         for f in fc.get("features", []):
-            if len(names) > 1:
-                f["properties"] = {**(f.get("properties") or {}), "layer": name}
             features.append(f)
-    Path(dst).write_text(
-        json.dumps({"type": "FeatureCollection", "features": features})
-    )
+            origins.append(name)
+    collection: dict[str, Any] = {"type": "FeatureCollection", "features": features}
+    if len(names) > 1:
+        occupied = {key for f in features for key in (f.get("properties") or {})}
+        field, suffix = "layer", 1
+        while field in occupied:
+            field = "source_layer" if suffix == 1 else f"source_layer_{suffix}"
+            suffix += 1
+        for feature, name in zip(features, origins):
+            feature["properties"] = {**(feature.get("properties") or {}), field: name}
+        collection["bowser_source_layer_property"] = field
+    Path(dst).write_text(json.dumps(collection))
 
 
 def _read_vsimem(gdal, name: str) -> str:
@@ -492,6 +501,9 @@ def _start(target, args: tuple) -> None:
 def cache_key(path: str | os.PathLike, fmt: str) -> str:
     """Return the cache key of a source and output format: its path, size and mtime."""
     parts = [str(Path(path).resolve()), fmt]
+    if fmt == "geojson":
+        # Older cached multilayer outputs may have overwritten a source field.
+        parts.append("preserve-layer-properties-v1")
     for f in source_files(path):
         st = f.stat()
         parts += [str(st.st_size), str(st.st_mtime_ns)]
