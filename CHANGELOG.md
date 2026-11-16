@@ -27,6 +27,9 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Chart-to-map date selection preserves both dates of a pair and does not jump
+  to another pair with the same end date. Ambiguous selections leave the map unchanged.
+
 - **Imperial units reach the velocity layer and the histogram.** A layer in m/yr stayed in
   m/yr (it shows in/yr), and the histogram's minimum and maximum stayed in the cube's unit
   under a colour range shown in inches.

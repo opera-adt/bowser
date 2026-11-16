@@ -82,3 +82,25 @@ describe('the time step of a date', () => {
     expect(timeIndexOfDate(undefined, '2024-01-01')).toBeNull();
   });
 });
+
+
+describe('date-pair identity when secondary dates repeat', () => {
+  const pairs = ['2026-01-01_2026-01-25', '2026-01-13_2026-01-25', '2026-01-13_2026-02-06'];
+  it('selects the actual pair, keeping both acquisitions', () => {
+    expect(timeIndexOfDate(pairs, pairs[1])).toBe(1);
+    expect(timeIndexOfDate(pairs, '20260113_20260125')).toBe(1);
+    expect(timeIndexOfDate(['20260101_20260125', '20260113_20260125'], pairs[1])).toBe(1);
+  });
+  it('does not replace a missing pair with a different pair ending on the same date', () => {
+    expect(timeIndexOfDate(pairs, '2026-01-07_2026-01-25')).toBeNull();
+  });
+  it('leaves ambiguous date-only selections unresolved but keeps unique day matches', () => {
+    expect(timeIndexOfDate(pairs, '2026-01-25')).toBeNull();
+    expect(timeIndexOfDate(pairs, '2026-02-06')).toBe(2);
+    expect(timeIndexOfDate([pairs[0], pairs[0]], pairs[0])).toBeNull();
+  });
+  it('keeps explicit subdaily observations and numeric indices distinguishable', () => {
+    expect(timeIndexOfDate(['2026-01-25T01:00:00', '2026-01-25T13:00:00'], '2026-01-25T13:00:00')).toBe(1);
+    expect(timeIndexOfDate([0, 1, 2], 2)).toBe(2);
+  });
+});
