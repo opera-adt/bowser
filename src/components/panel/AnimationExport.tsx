@@ -9,12 +9,13 @@ import { useSpacedEffect } from '../../hooks/useSpacedEffect';
 
 /** First GIF contribution: scalar raster only; no hidden viewer-state changes. */
 export default function AnimationExport() {
-  const state = useAppFields('colormap', 'currentDataset', 'customMaskPath', 'dataMode', 'datasetInfo', 'layerMasks', 'refBufferEnabled', 'refBufferRadius', 'refEnabled', 'refMarkerPosition', 'refTimeIndex', 'timeSeriesPoints', 'vmax', 'vmin', 'wrapEnabled');
+  const state = useAppFields('colormap', 'currentDataset', 'customMaskPath', 'dataMode', 'datasetInfo', 'layerMasks', 'overlays', 'refBufferEnabled', 'refBufferRadius', 'refEnabled', 'refMarkerPosition', 'refTimeIndex', 'timeSeriesPoints', 'vmax', 'vmin', 'wrapEnabled');
   const viewBounds = useViewBounds();
   const [supported, setSupported] = useState(false);
   const [start, setStart] = useState(0);
   const [end, setEnd] = useState(0);
   const [fps, setFps] = useState(2);
+  const [includeOutlines, setIncludeOutlines] = useState(false);
   const [includePoints, setIncludePoints] = useState(false);
   const [crop, setCrop] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -39,9 +40,12 @@ export default function AnimationExport() {
   const complex = info?.algorithm === 'phase' || info?.algorithm === 'amplitude';
   const count = end - start + 1;
   const visiblePoints = state.timeSeriesPoints?.filter(p => p.visible) ?? [];
+  const visibleVectors = state.overlays?.filter(o => o.type === 'vector' && o.visible && o.opacity > 0
+    && (!o.conversion || o.conversion.status === 'ready') && o.data?.features.length) ?? [];
+  const invalidOutlines = includeOutlines && (visibleVectors.length < 1 || visibleVectors.length > 5);
   const invalidPoints = includePoints && (visiblePoints.length < 1 || visiblePoints.length > 5);
   const unsupportedMask = !!state.customMaskPath || (state.dataMode === 'cog' && info?.mask_file_list?.some(Boolean));
-  const basicEligible = !invalidPoints && supported && !!layer && labels.length >= 2 && count >= 2 && count <= 90 && !state.wrapEnabled && !complex && !unsupportedMask && Number.isFinite(state.vmin) && Number.isFinite(state.vmax) && state.vmax > state.vmin && (!crop || !!viewBounds);
+  const basicEligible = !invalidOutlines && !invalidPoints && supported && !!layer && labels.length >= 2 && count >= 2 && count <= 90 && !state.wrapEnabled && !complex && !unsupportedMask && Number.isFinite(state.vmin) && Number.isFinite(state.vmax) && state.vmax > state.vmin && (!crop || !!viewBounds);
   const ref = state.refEnabled && info?.uses_spatial_ref && info.algorithm === 'shift';
   const refTime = info ? activeRefTime(info, state.refTimeIndex?.[layer], state.dataMode) : null;
   const b = crop ? viewBounds : null;
@@ -51,6 +55,9 @@ export default function AnimationExport() {
     bounds: b ? [b[1], b[0], b[3], b[2]] : null,
     layer_masks: applicableMasks(info, state.layerMasks).map(({ dataset, threshold, mode }) => ({ dataset, threshold, mode })),
     custom_mask_path: state.customMaskPath,
+    ...(includeOutlines ? { outlines: visibleVectors.map(o => ({ name: o.name.slice(0, 80),
+      geometries: o.data!.features.map(f => (f as GeoJSON.Feature)?.geometry).filter(g => g != null)
+        .map(g => ({ type: g.type, ...('coordinates' in g ? { coordinates: g.coordinates } : {}) })) })) } : {}),
     ...(includePoints ? { points: visiblePoints.map(p => ({ id: p.id, name: p.name, color: p.color,
       lat: p.position[0], lon: p.position[1] })) } : {}),
     ...(ref ? { ref_lon: state.refMarkerPosition[1], ref_lat: state.refMarkerPosition[0],
@@ -108,7 +115,7 @@ export default function AnimationExport() {
     <div className="minmax-label">Raster animation (GIF)</div>
     <>
       <div className="row-label" style={{ fontSize: '0.74em' }}>
-        Uses the current color limits, named quality masks and reference. Opaque raster only: no basemap, terrain background or imported annotations.
+        Uses the current color limits, named quality masks and reference. Opaque raster only: no basemap, terrain background or text labels.
       </div>
       <fieldset disabled={busy} style={{ border: 0, padding: 0, margin: '6px 0', display: 'grid', gap: 6 }}>
         <label className="row-label">From saved epoch
@@ -131,6 +138,11 @@ export default function AnimationExport() {
           Include point histories
         </label>
         {includePoints && <div className="row-label">Uses 1–5 visible point locations as individual native pixels, not buffer or polygon averages. Missing values stay gaps.</div>}
+        <label className="row-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <input aria-label="Include vector outlines in GIF" type="checkbox" checked={includeOutlines} onChange={e => setIncludeOutlines(e.target.checked)} />
+          Include visible vector outlines (black)
+        </label>
+        {includeOutlines && <div className="row-label">Uses 1–5 visible vector layers, at most 5,000 vertices. Black outlines with a white halo; no fills, text labels or feature properties.</div>}
       </fieldset>
       <button type="button" className="hist-btn" style={{ width: '100%' }} disabled={!eligible || busy} onClick={download}>
         <i className={`fa-solid ${busy ? 'fa-spinner fa-spin' : 'fa-download'}`} style={{ marginRight: 6 }}></i>
@@ -145,7 +157,8 @@ export default function AnimationExport() {
       {!busy && eligible && <div className="row-label">{count} frames · {plan?.width} × {plan?.height} output pixels</div>}
       {unsupportedMask && <div className="row-label">Uploaded/configured GeoTIFF masks need a later GIF contribution. Use native GeoTIFF export for these settings.</div>}
       {invalidPoints && <div className="row-label">Point histories need 1–5 visible points: {visiblePoints.length === 0 ? 'click the map to add one, or show one in the Points panel' : `${visiblePoints.length} are visible, hide some in the Points panel`}.</div>}
-      {!basicEligible && !invalidPoints && <div className="row-label">Choose 2–90 saved epochs from a real-valued time series, with Rewrap off.</div>}
+      {invalidOutlines && <div className="row-label">Outlines need 1–5 visible vector layers: add or show a vector layer, or hide extra layers in Overlays.</div>}
+      {!basicEligible && !invalidPoints && !invalidOutlines && <div className="row-label">Choose 2–90 saved epochs from a real-valued time series, with Rewrap off.</div>}
       {error && <div role="alert" className="row-label" style={{ color: 'var(--sb-red)' }}>{error}</div>}
     </>
   </div>;

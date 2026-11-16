@@ -8,6 +8,10 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Optional bounded vector outlines in raster GIFs, including polygon holes.
+  Geometry-only annotations leave measurements, masks and native point histories
+  unchanged. See [docs/raster-animation.md](docs/raster-animation.md).
+
 - Optional synchronized native-pixel histories in raster GIFs. Point samples
   stay native under cropped/pyramid displays; preflight includes point/reference
   work and plot height. See [docs/raster-animation.md](docs/raster-animation.md).

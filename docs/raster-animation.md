@@ -7,8 +7,9 @@ and palette apply to every frame. Downloading does not advance the map slider
 or change the current reference.
 
 This first contribution exports an **opaque scalar raster**, not a screenshot
-of the map. It does not include basemaps, terrain backgrounds, imported vector overlays,
-annotations, opacity blending, a colorbar graphic. Optional native-pixel histories are described below.
+of the map. It does not include basemaps, terrain backgrounds, text labels,
+style/opacity compositing or a colorbar graphic. Optional native-pixel histories
+and geometry-only vector outlines are described below.
 Dates and numerical color limits appear on each frame. Large labels or narrow
 frames can truncate that visible text; complete labels and settings remain in
 the GIF comment metadata. GIFs are display products, not georeferenced numeric
@@ -132,4 +133,41 @@ The POST request accepts optional `points`, each with `id`, `name`, `lon`, `lat`
 and a six-digit hex `color`. IDs must be unique; at most five points are allowed.
 Names and coordinates are included intentionally in the exported GIF metadata.
 This is a follow-up contribution to the raster foundation, not basemap/context
-compositing, general annotation export, buffer plots, polygon plots or video.
+compositing, general styled annotation export, buffer plots, polygon plots or video.
+
+
+## Optional vector outlines
+
+Enable **Include visible vector outlines (black)** to include one to five
+visible, ready vector layers already imported or drawn in Bowser. Layers with
+zero opacity are excluded. Supported GeoJSON geometry types are Point,
+MultiPoint, LineString, MultiLineString, Polygon and MultiPolygon. Polygon holes
+and multipart boundaries are retained. GeometryCollection, invalid/open rings,
+nonfinite/non-WGS84 coordinates and antimeridian-spanning shapes are rejected
+rather than repaired or silently skipped. A total 5,000-vertex limit bounds work;
+prepare a smaller vector subset externally if needed. Nothing is simplified.
+
+Outlines are static over the exported dates. They use black strokes with a white
+halo, no polygon fill and no text labels; original vector colors, styling,
+opacity/order and attribute-based classifications are not reproduced. This is
+geometry annotation, not a map screenshot. Point symbols indicate locations,
+not valid measurements on every date. Outlines draw above the raster and below
+selected-history point markers, without changing masks, reference sampling,
+measurement values or statistics. Altitude coordinates are ignored for this
+2D display and omitted from the exported geometry copy; original inputs remain
+unchanged.
+
+The server projects WGS84 geometry into the raster CRS and clips the actual
+boundary segments to the exported window. It does not draw a newly created
+crop-box edge or fill holes. Clipping/projection are prepared once per export.
+There are no basemap requests, source file paths or feature properties in this
+option. The GIF comment records bounded layer display names, normalized XY
+geometry, style and the number of visible clipped primitives. Layer names and
+geometry are deliberately included in the exported file.
+
+The API accepts optional `outlines`: a list of objects with `name` and
+`geometries`, where each geometry contains only `type` and `coordinates` in
+WGS84. The same fixed GIF palette is used; white/black annotation colors are
+already reserved, so enabling outlines does not change data color quantization.
+No extra runtime dependency is introduced: it reuses the full server's existing
+Shapely and PyProj support. Lite still explicitly rejects GIF rendering.

@@ -67,6 +67,23 @@ describe('raster GIF export controls', () => {
     fireEvent.click(screen.getByLabelText('Include point histories in GIF'));
     expect((button() as HTMLButtonElement).disabled).toBe(true);
   });
+  it('exports only visible vector geometry, excluding feature properties and hidden layers', async () => {
+    const geometry = { type: 'Point', coordinates: [3, 1] } as const;
+    state.overlays = [{ id: 'visible', name: 'Example area', type: 'vector', visible: true, opacity: 1,
+      data: { type: 'FeatureCollection', features: [{ type: 'Feature', geometry, properties: { note: 'not exported' } }] } },
+    { id: 'hidden', name: 'Hidden', type: 'vector', visible: false, opacity: 1,
+      data: { type: 'FeatureCollection', features: [{ type: 'Feature', geometry }] } }];
+    render(<AnimationExport />);
+    await waitFor(() => expect((button() as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByLabelText('Include vector outlines in GIF'));
+    await waitFor(() => expect((button() as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(button());
+    await waitFor(() => expect(saveFile).toHaveBeenCalled());
+    const call = vi.mocked(fetch).mock.calls.find(([url, init]) => init?.method === 'POST' && !String(url).includes('/plan'))!;
+    const body = JSON.parse(String(call[1]?.body));
+    expect(body.outlines).toEqual([{ name: 'Example area', geometries: [geometry] }]);
+    expect(String(call[1]?.body)).not.toContain('not exported');
+  });
   it('keeps lightweight export explicitly unsupported', async () => {
     supported = false;
     render(<AnimationExport />);
