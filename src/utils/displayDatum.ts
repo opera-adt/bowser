@@ -73,12 +73,19 @@ export function polygonObservations(body: PolygonTimeSeries): PolygonTimeSeries 
   if (numbers.some(v => v !== null && v !== 0)) throw new Error('Invalid display datum statistic');
   const raw = body as unknown as Record<string, unknown>;
   const extra: Record<string, unknown> = {};
-  for (const key of ['quality_valid_per_date', 'reference_valid_per_date']) {
+  for (const key of ['valid_per_date', 'quality_valid_per_date', 'reference_valid_per_date']) {
     if (Array.isArray(raw[key])) extra[key] = remove(raw[key]);
   }
   if (Array.isArray(raw.curves)) extra.curves = raw.curves.map((curve: Record<string, unknown>) => ({
     ...curve, ...(Array.isArray(curve.values) ? { values: remove(curve.values) } : {}),
   }));
+  const pixelCurves = record(raw.pixel_curves);
+  if (Array.isArray(pixelCurves?.curves)) extra.pixel_curves = {
+    ...pixelCurves, curves: pixelCurves.curves.map((curve: Record<string, unknown>) => {
+      if (!Array.isArray(curve.values)) throw new Error('Invalid pixel history values');
+      return { ...curve, values: remove(curve.values) };
+    }),
+  };
   const reference = record(raw.reference);
   if (Array.isArray(reference?.offsets)) extra.reference = { ...reference, offsets: remove(reference.offsets) };
   const complete = body.support === 'common' && row.count > 0 && statistics.length > 0

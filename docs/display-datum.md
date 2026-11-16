@@ -44,3 +44,7 @@ This is display/data-contract handling, not a new constrained fit, a new physica
 observation, or a change to phase linking, inversion, rasters or uncertainty math.
 It does not infer whether a supplied reference region is stable. It also cannot
 identify unmarked synthetic samples supplied by other producers.
+
+Polygon pixel histories and per-date validity counts remain aligned to observation
+dates when an explicitly declared display datum is separated. Genuine measured
+zeros and null gaps remain unchanged; the input response is not mutated.

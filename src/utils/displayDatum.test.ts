@@ -102,6 +102,24 @@ describe('explicit non-observation datums', () => {
     expect(medianTrend(rows, x => x, displayUnit('meters', 'metric'))).toBeCloseTo(fitSeries(data, DEFAULT_FIT)!.rate * 1000);
   });
 
+  it('keeps bounded pixel histories and validity counts aligned after separating an explicit datum', () => {
+    const input = { ...polygon(), valid_per_date: [2, 2, 1, 2],
+      pixel_curves: { mode: 'sample', eligible_pixels: 2, plotted_pixels: 2, sampled: false, sample_seed: 42,
+        curves: [{ row: 0, col: 0, x: 1, y: 2, values: [0, 0, null, 4] },
+          { row: 1, col: 0, x: 1, y: 3, values: [null, 2, 3, 4] }] } };
+    const copy = structuredClone(input);
+    const out = polygonObservations(input) as typeof input;
+    expect(out.labels).toEqual(labels);
+    expect(out.valid_per_date).toEqual([2, 1, 2]);
+    expect(out.pixel_curves.curves.map(c => c.values)).toEqual([[0, null, 4], [2, 3, 4]]);
+    expect(out.pixel_curves.eligible_pixels).toBe(2);
+    expect(out.pixel_curves.curves[0].row).toBe(0);
+    expect(input).toEqual(copy);
+    expect(polygonObservations(out)).toBe(out);
+    input.pixel_curves.curves[0].values.pop();
+    expect(() => polygonObservations(input)).toThrow();
+  });
+
   it('removes the empty polygon datum row without inventing common support', () => {
     const input = { ...polygon(), support: 'per_date' as const };
     input.statistics[0] = statistic(null, 0);
