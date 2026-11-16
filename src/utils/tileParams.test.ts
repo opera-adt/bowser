@@ -124,3 +124,11 @@ describe('buildTileRequest relative to another date', () => {
     expect(JSON.parse(sent(info())!)).toHaveLength(2);
   });
 });
+
+
+it('reuses a configured static mask for every GeoTIFF date', () => {
+  for (const timeIndex of [0, 1, 2]) {
+    const url = req({ dataMode: 'cog' }, { timeIndex, dsInfo: info({ mask_file_list: ['static-mask.tif'] }) });
+    expect(new URLSearchParams(url.split('?')[1]).get('mask')).toBe('static-mask.tif');
+  }
+});

@@ -99,6 +99,11 @@ with `BOWSER_ALLOW_OPEN`, any server path are allowed; other paths get 403.
   read by the page with HTTP Range requests from `GET /data/{id}.pmtiles`. A
   smaller one becomes a GeoJSON in WGS84 that the page holds whole. The page
   reads vector files under the threshold itself and never sends them.
+- Small multilayer vectors are combined into one GeoJSON without overwriting
+  their attributes. A source-layer field uses `layer` when unused, otherwise
+  `source_layer`, `source_layer_2`, etc., choosing a name unused by every feature.
+  The GeoJSON collection's `bowser_source_layer_property` identifies that field.
+  Single-layer attributes are unchanged. This does not add a layer-selection UI.
 - Conversions run in a background thread; poll `GET /data/{id}` while `status`
   is `converting`. A ready raster gives its COG's path (`cog`), size
   (`cog_bytes`) and whether it was converted (`converted: false` when the file
@@ -113,11 +118,14 @@ with `BOWSER_ALLOW_OPEN`, any server path are allowed; other paths get 403.
   server's user can read. bowser-lite answers 501.
 
 Conversions of server paths are cached in `BOWSER_CONVERT_CACHE_DIR` (default
-`~/.cache/bowser/convert`), keyed by path, size and mtime, and kept within
+`~/.cache/bowser/convert`), keyed by path, size, mtime and conversion revision, and kept within
 `BOWSER_CONVERT_CACHE_MAX_GB` (default 20) and `BOWSER_CONVERT_CACHE_MAX_DAYS`
 (default 30; 0 turns a limit off): the least recently used go first. An
 upload's conversion sits next to it and is swept with it after
-`BOWSER_UPLOAD_RETENTION_H` hours.
+`BOWSER_UPLOAD_RETENTION_H` hours. The GeoJSON conversion revision prevents reuse
+of older combined outputs that may have overwritten a `layer` attribute. It
+creates a separate cached output; it does not delete or overwrite the earlier
+file. COG and PMTiles cache keys are unchanged.
 
 ## Examples
 

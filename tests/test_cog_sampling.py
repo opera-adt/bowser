@@ -332,3 +332,105 @@ def test_native_buffer_limit_prevents_oversized_ui_requests(tmp_path):
     assert pixels * 300 * 11 <= cog_sampling.MAX_PIXEL_EPOCHS
     with pytest.raises(ValueError, match="budget"):
         sampler.buffer(lon, lat, 5000)
+
+
+def test_primary_and_uploaded_masks_read_only_native_requested_windows(
+    inputs, monkeypatch
+):
+    groups, transform = inputs
+    group = groups["data"]
+    group.mask_file_list = groups["quality"].file_list
+    group.mask_min_value = 0.5
+    sampler = CogSampler(
+        group,
+        groups,
+        [],
+        primary_mask=True,
+        custom_mask_path=groups["quality"].file_list[0],
+    )
+    original = cog_sampling.rasterio.open
+    reads = []
+
+    class Reader:
+        def __init__(self, source):
+            self.source = source
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            self.source.close()
+
+        def __getattr__(self, name):
+            return getattr(self.source, name)
+
+        def read(self, *args, **kwargs):
+            reads.append((str(self.source.name), kwargs.get("window")))
+            return self.source.read(*args, **kwargs)
+
+    monkeypatch.setattr(
+        cog_sampling.rasterio, "open", lambda *a, **kw: Reader(original(*a, **kw))
+    )
+    assert np.isnan(sampler.point(*position(transform), index=1)[0])
+    assert len(reads) == 3
+    assert all(window.width == window.height == 1 for _, window in reads)
+    # Shared upstream sampling prepares masks before concurrent data reads.
+    # Read order is not an API contract; paths, counts and windows are.
+    from collections import Counter
+
+    assert Counter(path for path, _ in reads) == Counter(
+        [group.file_list[1], group.mask_file_list[1], group.mask_file_list[0]]
+    )
+
+
+@pytest.mark.parametrize("kind", ["nodata", "internal", "multiband", "nonfinite"])
+def test_uploaded_mask_validity_is_not_interpreted_as_good_support(inputs, kind):
+    groups, transform = inputs
+    path = groups["quality"].file_list[0]
+    with rasterio.open(path) as src:
+        profile = src.profile
+        data = src.read(1)
+    if kind == "multiband":
+        profile["count"] = 2
+    if kind == "nodata":
+        data[2, 2] = -9999
+    if kind == "nonfinite":
+        data[2, 2] = np.inf
+    with rasterio.open(path, "w", **profile) as dst:
+        for band in range(1, profile["count"] + 1):
+            dst.write(data, band)
+        if kind == "internal":
+            mask = np.full(data.shape, 255, dtype="uint8")
+            mask[2, 2] = 0
+            dst.write_mask(mask)
+    sampler = CogSampler(groups["data"], groups, [], custom_mask_path=path)
+    if kind == "multiband":
+        with pytest.raises(ValueError, match="single-band"):
+            sampler.point(*position(transform))
+    else:
+        assert np.isnan(sampler.point(*position(transform))).all()
+
+
+@pytest.mark.parametrize("selection", ["point", "buffer"])
+def test_external_static_masks_are_read_once(inputs, monkeypatch, selection):
+    groups, transform = inputs
+    group = groups["data"]
+    group.mask_file_list = groups["quality"].file_list[:1]
+    group.mask_min_value = 0.5
+    custom = groups["quality"].file_list[1]
+    sampler = CogSampler(group, groups, [], primary_mask=True, custom_mask_path=custom)
+    original = rasterio.open
+    calls = []
+
+    def record(path, *args, **kwargs):
+        calls.append(str(path))
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(rasterio, "open", record)
+    if selection == "point":
+        sampler.point(*position(transform))
+    else:
+        sampler.buffer(*position(transform), 11)
+    assert calls.count(group.mask_file_list[0]) == 1
+    assert calls.count(custom) == 1
+    assert len(calls) == 5  # three dates plus two static external windows
