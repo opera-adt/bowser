@@ -508,8 +508,14 @@ def multi_point(
     calculate_trends: bool = Body(False, **api.PARAMS["calculate_trends"]),
     layer_masks: list[dict] = Body([], **api.PARAMS["layer_masks"]),
     ref_buffer_m: float = Body(0.0, **api.PARAMS["ref_buffer_m"]),
+    primary_mask: bool = Body(False, **api.PARAMS["primary_mask"]),
+    mask_min_value: float | None = Body(None, **api.PARAMS["mask_min_value"]),
+    custom_mask_path: str | None = Body(None, **api.PARAMS["custom_mask_path"]),
 ):
     """Series (and optional trends) for several points, re-referenced and masked."""
+    if primary_mask or mask_min_value is not None or custom_mask_path is not None:
+        raise HTTPException(501, "External masks require the full server")
+
     cube = resolve()
     x_values = meta.labels_for(sampling.require_var(cube.dataset, dataset_name))
     ref = None
@@ -809,8 +815,14 @@ def buffer_timeseries(
     ref_lat: Optional[float] = Body(None, **api.PARAMS["ref_lat"]),
     layer_masks: list[dict] = Body([], **api.PARAMS["layer_masks"]),
     ref_buffer_m: float = Body(0.0, **api.PARAMS["ref_buffer_m"]),
+    primary_mask: bool = Body(False, **api.PARAMS["primary_mask"]),
+    mask_min_value: float | None = Body(None, **api.PARAMS["mask_min_value"]),
+    custom_mask_path: str | None = Body(None, **api.PARAMS["custom_mask_path"]),
 ):
     """Median and a few random pixel series within a circle around a point."""
+    if primary_mask or mask_min_value is not None or custom_mask_path is not None:
+        raise HTTPException(501, "External masks require the full server")
+
     cube = resolve()
     x_values = meta.labels_for(sampling.require_var(cube.dataset, dataset_name))
     found = sampling.buffer_window(cube, dataset_name, lon, lat, buffer_m, layer_masks)

@@ -89,7 +89,7 @@ export function buildTileRequest(req: TileRequest): { endpoint: string; params: 
   if (state.dataMode === 'cog') {
     const url = dsInfo.file_list?.[timeIdx];
     if (url !== undefined) params.url = url;
-    const maskUrl = dsInfo.mask_file_list?.[timeIdx];
+    const maskUrl = dsInfo.mask_file_list?.[dsInfo.mask_file_list.length === 1 ? 0 : timeIdx];
     if (maskUrl) params.mask = maskUrl;
     if (dsInfo.mask_min_value !== undefined) params.mask_min_value = dsInfo.mask_min_value.toString();
     if (state.customMaskPath) params.custom_mask = state.customMaskPath;
