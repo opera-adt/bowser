@@ -8,6 +8,15 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Configured and uploaded masks in full-server point/radius chart requests,
+  including bounded native reads, per-layer configured thresholds and clear
+  unsupported/error handling. Shared named-mask and reference policies remain
+  unchanged. See [docs/chart-extra-masks.md](docs/chart-extra-masks.md).
+
+- Optional synchronized native-pixel histories in raster GIFs. Point samples
+  stay native under cropped/pyramid displays; preflight includes point/reference
+  work and plot height. See [docs/raster-animation.md](docs/raster-animation.md).
+
 - **GNSS station names on the map.** *Show station names* in the GNSS tab writes each
   station's id beside it, for UNR's stations and those from your files. Names that would
   overlap are left out until you zoom in. The choice is kept between visits.
@@ -27,6 +36,25 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Static configured GeoTIFF masks now remain on the map at every date.
+- Native GeoTIFF exports now reject configured-mask zero even at a zero
+  threshold, matching the map. Valid zero displacement remains a measurement.
+
+- **The first points after start-up no longer fail on the full server.** Two point requests
+  arriving together before any other could get a 500 ("Reindexing only valid with uniquely
+  valued Index objects"): each tried to build the same lookup table.
+- **An empty chart names a masked reference point.** A series is taken relative to the
+  reference point, so when the masks hide that point on every date every chart is empty,
+  wherever its points are; a cube that records no reference starts with it in the middle of
+  the data, which may be water. The chart said the masks hid the points. It now says the
+  reference point is masked and offers to move it to a stable place.
+- **Split screen's right-hand layer opens on its own colour range.** It started at 0–1, a
+  solid block of one colour for most layers; it takes its 2–98 % range when chosen. Its
+  histogram is also for its own date, not the left layer's.
+- **A static mask no longer empties point charts on the full server.** On a cube that
+  stores its grid mapping per date, a 2-D mask (a water mask, an average coherence) made
+  `/multi_point` answer 422 "Mask declares a missing CRS coordinate", and the chart said the
+  mask hid every date. Tiles and area charts were not affected.
 - Small multilayer vector imports preserve source attributes named `layer`.
   Source-layer annotations use an unused field and identify it in GeoJSON metadata;
   older GeoJSON conversion caches are not reused. Single-layer attributes and
