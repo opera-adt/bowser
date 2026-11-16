@@ -7,8 +7,8 @@ and palette apply to every frame. Downloading does not advance the map slider
 or change the current reference.
 
 This first contribution exports an **opaque scalar raster**, not a screenshot
-of the map. It does not include basemaps, terrain backgrounds, vector overlays,
-annotations, opacity blending, a colorbar graphic or a synchronized chart.
+of the map. It does not include basemaps, terrain backgrounds, imported vector overlays,
+annotations, opacity blending, a colorbar graphic. Optional native-pixel histories are described below.
 Dates and numerical color limits appear on each frame. Large labels or narrow
 frames can truncate that visible text; complete labels and settings remain in
 the GIF comment metadata. GIFs are display products, not georeferenced numeric
@@ -30,7 +30,9 @@ complex-valued layers are also unsupported. No missing observation is replaced
 with zero. An all-invalid epoch remains an empty, dated frame. Existing source
 files and native GeoTIFF export behavior are unchanged.
 
-The image uses nearest-neighbor display resizing and 254 fixed data colors;
+The image uses nearest-neighbor display resizing and 254 fixed data colors
+without point plots, or 248 with plots (the remaining colors mark the selected
+points, plot cursor, text and invalid support);
 white marks invalid data and white/black are also used for text. Values beyond
 the chosen limits receive the end colors. Frames have equal playback durations,
 even when acquisition intervals differ. No smoothing, interpolation, velocity
@@ -94,3 +96,40 @@ wrapping. Reference fields are `ref_lon`, `ref_lat`, `ref_buffer_m` and
 selection uses the existing `?dataset=...` query parameter. Unsupported inputs
 receive explicit errors. Bowser-lite reports `supported: false` and returns
 HTTP 501 for rendering without importing the full plotting/GDAL stack.
+
+
+## Optional synchronized point histories
+
+Enable **Include point histories** to export one to five visible point locations
+with a plot beneath the raster. This uses the containing level-zero native
+pixel at each point, using the same strict mask/reference preparation as the
+raster. Separate one-pixel native windows retain this meaning even when the
+display uses a pyramid. Planning includes those reads and repeated reference
+work; it does not load a full native frame to sample points.
+It does not copy a cached chart response, average a point buffer/polygon, clamp
+an outside location to the grid, smooth or fit a new history. An outside-source
+point is rejected. Source-grid points outside the crop remain in the plot but
+have no map marker. Numbered markers identify sampled pixel centers, including
+on dates when their measurement is missing: a marker is a location, not proof
+of usable data.
+
+The plot uses actual elapsed acquisition time, requires explicit increasing ISO
+date/time labels, and covers only the exported saved-epoch range. Axes remain
+fixed throughout the animation. A cursor and highlighted observed sample follow
+the current frame. Missing values stay null/gaps; lines connect only consecutive
+valid samples and do not bridge missing epochs. No temporal rebaselining is
+introduced; histories retain the same reference and units as the raster.
+Playback still uses equal GIF frame durations even for irregular acquisitions.
+
+Plot width must be at least 320 pixels and there is an additional 240-pixel
+plot below the raster. Combined raster/plot area counts against the display
+budget. GIF metadata records point IDs/names/colors, coordinates, native rows/
+columns, exact numeric histories with null missing values, fixed plot limits and
+sampling/time-axis policies. Display colors are quantized; numeric metadata is
+not. Without the option, existing raster-only frame rendering is retained.
+
+The POST request accepts optional `points`, each with `id`, `name`, `lon`, `lat`
+and a six-digit hex `color`. IDs must be unique; at most five points are allowed.
+Names and coordinates are included intentionally in the exported GIF metadata.
+This is a follow-up contribution to the raster foundation, not basemap/context
+compositing, general annotation export, buffer plots, polygon plots or video.

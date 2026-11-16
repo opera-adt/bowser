@@ -45,6 +45,33 @@ def _spatial_ref_as_coord(ds: xr.Dataset) -> xr.Dataset:
     return ds
 
 
+def _build_lookups(ds: xr.Dataset) -> None:
+    """Look one value up on the x and y axes, so their lookup tables exist.
+
+    pandas builds an index's table on its first lookup, and two first lookups
+    at once (two requests for a point, each in its own thread) can find it half
+    built: "Reindexing only valid with uniquely valued Index objects", a 500 for
+    a request that had nothing wrong with it. Done here, while the dataset is
+    still being opened under a lock, no request sees it unbuilt.
+    """
+    for dim in ("x", "y"):
+        index = ds.indexes.get(dim)
+        if index is not None and len(index):
+            index.get_indexer(index[:1], method="nearest")
+
+
+def _one_spatial_ref(ds: xr.Dataset) -> xr.Dataset:
+    """Return ``ds`` with a ``spatial_ref`` written per date reduced to one.
+
+    A cube can store the grid mapping along ``time``. As a coordinate it then
+    reaches only the layers that have that axis: a 2-D layer (a static mask, the
+    velocity) names a grid mapping it does not carry.
+    """
+    if "spatial_ref" in ds.variables and "time" in ds.spatial_ref.dims:
+        ds = ds.assign_coords(spatial_ref=ds.spatial_ref.isel(time=0).drop_vars("time"))
+    return ds
+
+
 def _open_md(uri: str) -> tuple[xr.Dataset, Transformer, list["PyramidLevel"]]:
     """Open an MD-mode source at ``uri`` and return ``(ds, transformer, levels)``.
 
@@ -96,8 +123,7 @@ def _open_md(uri: str) -> tuple[xr.Dataset, Transformer, list["PyramidLevel"]]:
 
     ds = _spatial_ref_as_coord(ds)
     crs = resolve_crs(ds)
-    if "spatial_ref" in ds.variables and "time" in ds.spatial_ref.dims:
-        ds = ds.assign_coords(spatial_ref=ds.spatial_ref.isel(time=0).drop_vars("time"))
+    ds = _one_spatial_ref(ds)
     ds.rio.write_crs(crs, inplace=True)
     tr = Transformer.from_crs(4326, ds.rio.crs, always_xy=True)
     if not levels:
@@ -190,15 +216,21 @@ class BowserState:
         if not (str(uri).endswith(".zarr") or "://" in str(uri)):
             return False
         try:
-            return _spatial_ref_as_coord(
-                xr.open_zarr(
-                    uri,
-                    group=self.levels[0].asset or None,
-                    consolidated=False,
-                    chunks=None,
-                    storage_options=storage_options_for(uri),
+            # The same grid mapping as the dask dataset: a static mask is
+            # aligned against it when a point's series is masked.
+            ds = _one_spatial_ref(
+                _spatial_ref_as_coord(
+                    xr.open_zarr(
+                        uri,
+                        group=self.levels[0].asset or None,
+                        consolidated=False,
+                        chunks=None,
+                        storage_options=storage_options_for(uri),
+                    )
                 )
             )
+            _build_lookups(ds)
+            return ds
         except Exception:  # noqa: BLE001 — the dask dataset still answers
             logger.warning("No dask-less reader for %s", uri, exc_info=True)
             return False

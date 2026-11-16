@@ -140,6 +140,43 @@ def exercise(work):
     )
     assert all((r[1][1] - r[1][0]) <= 128 and (r[2][1] - r[2][0]) <= 128 for r in reads)
     reads.clear()
+    # The display pyramid is 100/101, but point histories must remain 10/11
+    # from native pixels, even for a point outside the selected native crop.
+    point = {"id": "native", "name": "Native sample", "lon": lon, "lat": lat}
+    for view in ({**body, "width": 320}, {**cropped, "width": 320}):
+        read_plan = client.post(
+            "/export/animation/plan", json={**view, "points": [point]}
+        )
+        assert read_plan.status_code == 200, read_plan.text
+        assert not reads, "Planning point histories read source pixels"
+        plotted = client.post("/export/animation", json={**view, "points": [point]})
+        assert plotted.status_code == 200, plotted.text[:300]
+        plotted_image = Image.open(io.BytesIO(plotted.content))
+        metadata = json.loads(plotted_image.info["comment"])
+        history = metadata["point_histories"][0]
+        assert history["values"] == [10, 11]
+        assert (history["row"], history["col"]) == (2120, 2000)
+        assert plotted_image.height == read_plan.json()["output_height"]
+        assert all(
+            (r[1][1] - r[1][0]) <= 128 and (r[2][1] - r[2][0]) <= 128 for r in reads
+        )
+        reads.clear()
+    # Point-plot height and invalid locations must reject before pixel IO.
+    maximum_display = animation.MAX_DISPLAY_PIXELS
+    animation.MAX_DISPLAY_PIXELS = 1
+    try:
+        rejected = client.post(
+            "/export/animation", json={**body, "width": 320, "points": [point]}
+        )
+        assert rejected.status_code == 422 and not reads
+    finally:
+        animation.MAX_DISPLAY_PIXELS = maximum_display
+    rejected = client.post(
+        "/export/animation/plan",
+        json={**body, "width": 320, "points": [{**point, "lon": 100}]},
+    )
+    assert rejected.status_code == 422 and not reads
+
     # Native-reference budget cannot be bypassed by a tiny display crop.
     maximum = animation.MAX_NATIVE_PIXELS
     animation.MAX_NATIVE_PIXELS = 100000

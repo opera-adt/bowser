@@ -48,6 +48,25 @@ describe('raster GIF export controls', () => {
     expect(vi.mocked(saveFile).mock.calls[0][1]).toBe('displacement_20260101_20260125.gif');
     expect(JSON.stringify(state)).toBe(before);
   });
+  it('sends visible point locations only when the optional plot is selected', async () => {
+    state.timeSeriesPoints = [{ id: 'point', name: 'Synthetic', position: [1, 3], color: '#2468aa', visible: true },
+      { id: 'hidden', name: 'Hidden', position: [1, 3], color: '#2468aa', visible: false }];
+    render(<AnimationExport />);
+    await waitFor(() => expect((button() as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByLabelText('Include point histories in GIF'));
+    await waitFor(() => expect((button() as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(button());
+    await waitFor(() => expect(saveFile).toHaveBeenCalled());
+    const call = vi.mocked(fetch).mock.calls.find(([url, init]) => init?.method === 'POST' && !String(url).includes('/plan'))!;
+    expect(JSON.parse(String(call[1]?.body)).points).toEqual([{ id: 'point', name: 'Synthetic', lat: 1, lon: 3, color: '#2468aa' }]);
+  });
+  it('requires one to five visible points instead of silently truncating them', async () => {
+    state.timeSeriesPoints = [];
+    render(<AnimationExport />);
+    await waitFor(() => expect((button() as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByLabelText('Include point histories in GIF'));
+    expect((button() as HTMLButtonElement).disabled).toBe(true);
+  });
   it('keeps lightweight export explicitly unsupported', async () => {
     supported = false;
     render(<AnimationExport />);
