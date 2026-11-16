@@ -7,7 +7,8 @@ export function validFeatureId(id: unknown): id is string | number {
   return typeof id === 'string' || (typeof id === 'number' && Number.isFinite(id));
 }
 
-export function featureSources(overlayId: string, layer: string, data: OverlayFeatures): FeatureSource[] {
+export function featureSources(overlayId: string, layer: string, data: OverlayFeatures, useIds = true): FeatureSource[] {
+  if (!useIds) return data.features.map((_, index) => ({ overlayId, layer, index }));
   const field = data.bowser_source_layer_property;
   const identities = data.features.map(feature => {
     const f = feature as { id?: unknown; properties?: Record<string, unknown> | null } | null;

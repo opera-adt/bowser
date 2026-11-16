@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseGeoJson } from './fileParsers';
 import { polygonChoices, pointChoices } from '../utils/polygonSeries';
-import { chartedFeatureColors } from './overlays';
+import { chartedFeatureColors, DRAWINGS_ID } from './overlays';
 import { featureSources, featureSourceKey } from './featureIdentity';
 import type { Overlay } from '../types';
 
@@ -99,6 +99,12 @@ describe('imported feature identity', () => {
     const choices = polygonChoices([overlay(input)]);
     expect(choices[0].geometry).toEqual(geometry);
     expect(choices[0].source.featureId).toBe('area');
+  });
+
+  it('keeps editor-generated drawing IDs out of imported-feature selection identity', () => {
+    const first = { ...overlay(collection([feature('editor-before', 'Drawn')])), id: DRAWINGS_ID };
+    const rewritten = { ...overlay(collection([feature('editor-after', 'Drawn')])), id: DRAWINGS_ID };
+    expect(polygonChoices([first])[0].key).toBe(polygonChoices([rewritten])[0].key);
   });
 
 });

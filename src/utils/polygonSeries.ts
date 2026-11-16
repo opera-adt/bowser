@@ -7,6 +7,7 @@
  * subtracted here, so an area and a point are on the same footing. Subtracting one number per
  * date shifts the median, mean and every percentile by that number; the spread is unchanged.
  */
+import { DRAWINGS_ID } from '../map/overlays';
 import { featureSources, featureSourceKey } from '../map/featureIdentity';
 import type { ChartArea, LayerMask, Overlay } from '../types';
 
@@ -95,7 +96,7 @@ export function polygonChoices(overlays: Overlay[]): PolygonChoice[] {
   const out: PolygonChoice[] = [];
   for (const o of overlays) {
     if (o.type !== 'vector' || !o.data) continue;
-    const sources = featureSources(o.id, o.name, o.data);
+    const sources = featureSources(o.id, o.name, o.data, o.id !== DRAWINGS_ID);
     let n = 0;
     (o.data.features as GeoJsonFeature[]).forEach((f, i) => {
       const g = f?.geometry;
@@ -116,7 +117,7 @@ export function polygonChoices(overlays: Overlay[]): PolygonChoice[] {
 export function pointChoices(o: Overlay): PointChoice[] {
   if (o.type !== 'vector' || !o.data) return [];
   const out: PointChoice[] = [];
-  const sources = featureSources(o.id, o.name, o.data);
+  const sources = featureSources(o.id, o.name, o.data, o.id !== DRAWINGS_ID);
   (o.data.features as GeoJsonFeature[]).forEach((f, i) => {
     if (!isPoint(f?.geometry)) return;
     const [lon, lat] = f.geometry!.coordinates as number[];
