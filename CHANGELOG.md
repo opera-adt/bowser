@@ -31,6 +31,9 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The first points after start-up no longer fail on the full server.** Two point requests
+  arriving together before any other could get a 500 ("Reindexing only valid with uniquely
+  valued Index objects"): each tried to build the same lookup table.
 - **An empty chart names a masked reference point.** A series is taken relative to the
   reference point, so when the masks hide that point on every date every chart is empty,
   wherever its points are; a cube that records no reference starts with it in the middle of

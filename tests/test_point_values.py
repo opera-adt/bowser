@@ -184,3 +184,55 @@ def test_static_mask_on_a_cube_with_a_grid_mapping_per_date(tmp_path):
     )
     assert r.returncode == 0, r.stdout[-2000:] + r.stderr[-4000:]
     assert r.stdout.strip().splitlines()[-1] == "OK"
+
+
+FIRST_READS_SCRIPT = textwrap.dedent(
+    """
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    import numpy as np
+    import xarray as xr
+    from bowser.state import _build_lookups
+
+    def failed_reads(prepare):
+        n = 600
+        ds = xr.Dataset(coords={
+            "x": 500000.0 + 30.0 * np.arange(n), "y": 3800000.0 - 30.0 * np.arange(n),
+        })
+        prepare(ds)
+        gate = threading.Barrier(16)
+
+        def read(k):
+            gate.wait()   # all sixteen look a pixel up at the same moment
+            ds.x.sel(x=500000.0 + 30.0 * k, method="nearest")
+            ds.y.sel(y=3800000.0 - 30.0 * k, method="nearest")
+
+        with ThreadPoolExecutor(16) as pool:
+            futures = [pool.submit(read, k) for k in range(16)]
+        return sum(f.exception() is not None for f in futures)
+
+    # What the fix is for: first lookups at once fail on a dataset as opened.
+    assert sum(failed_reads(lambda ds: None) for _ in range(5)) > 0
+    assert sum(failed_reads(_build_lookups) for _ in range(20)) == 0
+    print("OK")
+    """
+)
+
+
+def test_first_point_reads_at_once_all_answer():
+    """Requests arriving together right after start-up all get their values.
+
+    pandas builds an axis's lookup table on the first lookup; two first lookups
+    at once could raise InvalidIndexError, which the page saw as a 500 for its
+    first point. The dask-less dataset now has its tables built when opened.
+    """
+    env = {k: v for k, v in os.environ.items() if not k.startswith("BOWSER_")}
+    r = subprocess.run(
+        [sys.executable, "-c", FIRST_READS_SCRIPT],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode == 0, r.stdout[-2000:] + r.stderr[-4000:]
+    assert r.stdout.strip().splitlines()[-1] == "OK"
