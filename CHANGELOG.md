@@ -8,6 +8,10 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Optional synchronized native-pixel histories in raster GIFs. Point samples
+  stay native under cropped/pyramid displays; preflight includes point/reference
+  work and plot height. See [docs/raster-animation.md](docs/raster-animation.md).
+
 - **GNSS station names on the map.** *Show station names* in the GNSS tab writes each
   station's id beside it, for UNR's stations and those from your files. Names that would
   overlap are left out until you zoom in. The choice is kept between visits.

@@ -139,6 +139,44 @@ def exercise(work, mode):
     np.testing.assert_array_equal(
         np.asarray(ref_image.convert("RGB"))[24 + 40, 40], cmap.get("viridis")[255][:3]
     )
+    point_lon, point_lat = tr.transform(500025, 15)
+    point_body = {
+        **body,
+        "width": 320,
+        "ref_lon": lon,
+        "ref_lat": lat,
+        "points": [
+            {
+                "id": "point",
+                "name": "Synthetic point",
+                "lon": point_lon,
+                "lat": point_lat,
+                "color": "#2468aa",
+            }
+        ],
+    }
+    plotted = client.post("/export/animation", json=point_body)
+    assert plotted.status_code == 200, plotted.text[:300]
+    plotted_image = Image.open(io.BytesIO(plotted.content))
+    plotted_meta = json.loads(plotted_image.info["comment"])
+    assert plotted_image.n_frames == 3
+    assert plotted_meta["point_histories"][0]["values"] == [0, None, 10]
+    assert plotted_meta["point_histories"][0]["row"] == 2
+    assert plotted_meta["point_histories"][0]["col"] == 2
+    assert plotted_meta["plot"]["time_spacing"] == "elapsed acquisition time"
+    plotted_image.seek(0)
+    first_plot = np.asarray(plotted_image.convert("RGB"))[-240:].copy()
+    plotted_image.seek(2)
+    assert np.any(np.asarray(plotted_image.convert("RGB"))[-240:] != first_plot)
+    for invalid in [
+        {"width": 64},
+        {"points": point_body["points"] * 2},
+        {"points": [{**point_body["points"][0], "lon": 100}]},
+        {"points": [{**point_body["points"][0], "color": "not-a-color"}]},
+        {"points": [{**point_body["points"][0], "id": str(i)} for i in range(6)]},
+    ]:
+        rejected = client.post("/export/animation", json={**point_body, **invalid})
+        assert rejected.status_code == 422, rejected.text[:300]
     for change in [
         {"end_index": 99},
         {"end_index": 0},
