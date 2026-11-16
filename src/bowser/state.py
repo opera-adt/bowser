@@ -45,6 +45,21 @@ def _spatial_ref_as_coord(ds: xr.Dataset) -> xr.Dataset:
     return ds
 
 
+def _build_lookups(ds: xr.Dataset) -> None:
+    """Look one value up on the x and y axes, so their lookup tables exist.
+
+    pandas builds an index's table on its first lookup, and two first lookups
+    at once (two requests for a point, each in its own thread) can find it half
+    built: "Reindexing only valid with uniquely valued Index objects", a 500 for
+    a request that had nothing wrong with it. Done here, while the dataset is
+    still being opened under a lock, no request sees it unbuilt.
+    """
+    for dim in ("x", "y"):
+        index = ds.indexes.get(dim)
+        if index is not None and len(index):
+            index.get_indexer(index[:1], method="nearest")
+
+
 def _one_spatial_ref(ds: xr.Dataset) -> xr.Dataset:
     """Return ``ds`` with a ``spatial_ref`` written per date reduced to one.
 
@@ -203,7 +218,7 @@ class BowserState:
         try:
             # The same grid mapping as the dask dataset: a static mask is
             # aligned against it when a point's series is masked.
-            return _one_spatial_ref(
+            ds = _one_spatial_ref(
                 _spatial_ref_as_coord(
                     xr.open_zarr(
                         uri,
@@ -214,6 +229,8 @@ class BowserState:
                     )
                 )
             )
+            _build_lookups(ds)
+            return ds
         except Exception:  # noqa: BLE001 — the dask dataset still answers
             logger.warning("No dask-less reader for %s", uri, exc_info=True)
             return False
