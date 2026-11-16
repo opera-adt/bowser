@@ -1,4 +1,5 @@
 import type { LayerMaskMode } from '../types';
+import { defaultThreshold } from './maskThreshold';
 
 export const MASK_MODES: readonly LayerMaskMode[] = ['min', 'max', 'abs_min', 'abs_max'];
 export interface MaskRange { min: number; max: number; p2?: number; p98?: number }
@@ -15,8 +16,9 @@ export function maskControlRange(range: MaskRange | undefined, mode: LayerMaskMo
 
 export function maskDefaultThreshold(range: MaskRange | undefined, mode: LayerMaskMode, fallback = 0.5): number {
   if (!range) return absoluteMask(mode) ? Math.abs(fallback) : fallback;
+  if (mode === 'min' || mode === 'max') return defaultThreshold(range, mode);
   const [min, max] = maskControlRange(range, mode);
-  return mode === 'max' || mode === 'abs_max' ? max : min;
+  return mode === 'abs_max' ? max : min;
 }
 
 /** Project files may predate explicit modes; missing mode retains legacy min. */

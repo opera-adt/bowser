@@ -256,8 +256,14 @@ PARAMS: dict[str, dict[str, Any]] = {
         "description": "Layer to mask with: keeps pixels > mask_min_value.",
         "examples": ["recommended_mask"],
     },
+    "primary_mask": {
+        "description": "Apply the GeoTIFF chart layer's configured mask files. "
+        "Full server only; requires a GeoTIFF layer.",
+        "examples": [True],
+    },
     "mask_min_value": {
-        "description": "Threshold for mask_variable.",
+        "description": "Threshold for mask_variable, or a chart layer's "
+        "configured mask when primary_mask=true.",
         "examples": [0.1],
     },
     "export_mask_min_value": {
@@ -267,8 +273,10 @@ PARAMS: dict[str, dict[str, Any]] = {
     },
     "custom_mask_path": {
         "description": "Server path of a mask from POST /upload_mask; keeps "
-        "pixels where the mask is > 0. bowser-lite ignores it on tiles and "
-        "refuses it (501) on exports.",
+        "pixels where the mask is > 0 in GeoZarr (warped as on the map), "
+        "> 0.5 in native-grid GeoTIFF charts. bowser-lite ignores it on "
+        "tiles and refuses it (501) on charts/exports; the page omits it "
+        "from lite charts and warns that it was not applied.",
         "examples": ["/tmp/bowser_masks/mask_0123abcd.tif"],
     },
     "rescale": {
@@ -605,7 +613,8 @@ ROUTES: dict[str, dict[str, Any]] = {
         "summary": "Export saved scalar epochs as a raster GIF",
         "description": "Fixed color limits and named quality masks, with the "
         "native export reference. No interpolation or inferred zero epochs. "
-        "Raster-only: no context, annotations or linked plots. "
+        "Optional native-pixel point histories with an acquisition cursor; "
+        "no context layers or imported annotations. "
         "Resource limits and unsupported settings return explicit errors.",
         "tags": [EXPORT],
     },

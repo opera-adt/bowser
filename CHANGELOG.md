@@ -12,6 +12,15 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   display, analysis and export paths, preserving measurement signs and nodata.
   See [docs/absolute-value-masks.md](docs/absolute-value-masks.md).
 
+- Configured and uploaded masks in full-server point/radius chart requests,
+  including bounded native reads, per-layer configured thresholds and clear
+  unsupported/error handling. Shared named-mask and reference policies remain
+  unchanged. See [docs/chart-extra-masks.md](docs/chart-extra-masks.md).
+
+- Optional synchronized native-pixel histories in raster GIFs. Point samples
+  stay native under cropped/pyramid displays; preflight includes point/reference
+  work and plot height. See [docs/raster-animation.md](docs/raster-animation.md).
+
 - **GNSS station names on the map.** *Show station names* in the GNSS tab writes each
   station's id beside it, for UNR's stations and those from your files. Names that would
   overlap are left out until you zoom in. The choice is kept between visits.
@@ -31,6 +40,46 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Static configured GeoTIFF masks now remain on the map at every date.
+- Native GeoTIFF exports now reject configured-mask zero even at a zero
+  threshold, matching the map. Valid zero displacement remains a measurement.
+
+- **The first points after start-up no longer fail on the full server.** Two point requests
+  arriving together before any other could get a 500 ("Reindexing only valid with uniquely
+  valued Index objects"): each tried to build the same lookup table.
+- **An empty chart names a masked reference point.** A series is taken relative to the
+  reference point, so when the masks hide that point on every date every chart is empty,
+  wherever its points are; a cube that records no reference starts with it in the middle of
+  the data, which may be water. The chart said the masks hid the points. It now says the
+  reference point is masked and offers to move it to a stable place.
+- **Split screen's right-hand layer opens on its own colour range.** It started at 0–1, a
+  solid block of one colour for most layers; it takes its 2–98 % range when chosen. Its
+  histogram is also for its own date, not the left layer's.
+- **A static mask no longer empties point charts on the full server.** On a cube that
+  stores its grid mapping per date, a 2-D mask (a water mask, an average coherence) made
+  `/multi_point` answer 422 "Mask declares a missing CRS coordinate", and the chart said the
+  mask hid every date. Tiles and area charts were not affected.
+- Small multilayer vector imports preserve source attributes named `layer`.
+  Source-layer annotations use an unused field and identify it in GeoJSON metadata;
+  older GeoJSON conversion caches are not reused. Single-layer attributes and
+  COG/PMTiles cache keys are unchanged.
+
+- **Imperial units reach the velocity layer and the histogram.** A layer in m/yr stayed in
+  m/yr (it shows in/yr), and the histogram's minimum and maximum stayed in the cube's unit
+  under a colour range shown in inches.
+- **Turning Rewrap off brings the colour range back.** The colour map returned but the
+  range stayed at the wrap's ±π, so the layer drew in one colour until the range was reset.
+- **A mask of 0/1 flags masks again when re-added.** Adding the recommended mask back (or
+  a water mask) started at threshold 0, which keeps every pixel; it starts at 0.5. A threshold
+  typed while the layer's range was still loading is no longer replaced when it arrives.
+- **The date badge's ✕ hides it.** It switched the badge to its date-only form, which has
+  no ✕.
+- **The chart reopens after its close button.** After closing the chart window with its ✕,
+  the panel still offered *Hide Time Series*, which took two clicks to bring the chart back,
+  and a new point did not open it.
+- **GNSS stations on the map follow the list.** After *Find again*, a second search by
+  name, a second file or a removed station, the map kept the earlier stations until the
+  layer was switched off and on.
 - **Identify shows its result again.** With the side panel open, the result panel opened
   beyond the right edge of the window, so a click on the map seemed to do nothing.
 - **A click in the chart goes to the right date.** With a mask or a date range on, a

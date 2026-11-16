@@ -11,6 +11,15 @@ describe('absolute-value mask controls', () => {
     expect(maskDefaultThreshold(range, 'abs_min')).toBe(0);
     expect(maskDefaultThreshold(range, 'max')).toBe(3);
   });
+  it('preserves the upstream 0.5 default when binary flags are removed and re-added', () => {
+    for (const [p2, p98] of [[0, 1], [0, 0], [1, 1]]) {
+      const flags = { min: 0, max: 1, p2, p98 };
+      expect(maskDefaultThreshold(flags, 'min')).toBe(0.5);
+      expect(maskDefaultThreshold(flags, 'max')).toBe(0.5);
+      expect(maskDefaultThreshold(flags, 'abs_min')).toBe(0);
+      expect(maskDefaultThreshold(flags, 'abs_max')).toBe(1);
+    }
+  });
   it('provides finite bounds before a range loads and handles one-sided and constant layers', () => {
     expect(maskControlRange(undefined, 'abs_max')).toEqual([0, 1]);
     expect(maskControlRange({ min: -10, max: -2 }, 'abs_max')).toEqual([0, 10]);

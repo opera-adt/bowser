@@ -381,6 +381,8 @@ function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppSt
     }
     case 'SET_OVERLAY_MESSAGE':
       return { ...state, overlayMessage: action.payload };
+    case 'HIDE_DATE_BADGE':
+      return { ...state, dateBadge: 'off' };
     case 'TOGGLE_DATE_BADGE':
       return { ...state, dateBadge: state.dateBadge === 'off' ? 'full' : state.dateBadge === 'full' ? 'date' : 'off' };
     case 'SET_UNITS':
@@ -482,8 +484,11 @@ function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppSt
     }
     case 'ADD_CHART_WINDOW':
       return { ...state, chartWindows: [...state.chartWindows, action.payload] };
-    case 'REMOVE_CHART_WINDOW':
-      return { ...state, chartWindows: state.chartWindows.filter(w => w.id !== action.payload) };
+    case 'REMOVE_CHART_WINDOW': {
+      const chartWindows = state.chartWindows.filter(w => w.id !== action.payload);
+      // Closing the last window closes the chart: "Show Time Series" and the next point reopen it.
+      return { ...state, chartWindows, showChart: state.showChart && chartWindows.length > 0 };
+    }
     case 'SET_CHART_WINDOW_DS':
       return {
         ...state,
