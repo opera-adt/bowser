@@ -8,6 +8,9 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Configured and uploaded masks in full-server polygon summaries, with native
+  bounded reads, explicit support records and no unmasked fallback.
+
 - Configured and uploaded masks in full-server point/radius chart requests,
   including bounded native reads, per-layer configured thresholds and clear
   unsupported/error handling. Shared named-mask and reference policies remain

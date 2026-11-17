@@ -7,6 +7,7 @@
 import type { AppAction, AppState, AreaStats, ChartArea, LayerMask, RasterGroup } from '../types';
 import { chartLayerFor, timeSeriesLayers } from './chartLayers';
 import { applicableMasks } from './maskCompatibility';
+import { chartMaskOptions, type ChartMaskOptions } from './chartMasks';
 import { areaStatsKey, polygonEmptyMessage, type PolygonTimeSeries } from './polygonSeries';
 
 /** At most this many polygons, and this many points, from one layer per run. */
@@ -14,7 +15,7 @@ export const ZONAL_MAX_FEATURES = 50;
 /** Polygon requests in flight at once. */
 export const ZONAL_CONCURRENCY = 3;
 
-type FetchPolygon = (dataset: string, geometry: ChartArea['geometry'], masks: LayerMask[], signal: AbortSignal) =>
+type FetchPolygon = (dataset: string, geometry: ChartArea['geometry'], masks: LayerMask[], signal: AbortSignal, options?: ChartMaskOptions) =>
   Promise<{ data: PolygonTimeSeries } | { error: string }>;
 
 export interface AreaFetchOptions {
@@ -50,17 +51,13 @@ function maskError(options: AreaFetchOptions): string | null {
   return null;
 }
 
-/**
- * Masks the map applies that the polygon endpoint cannot yet: an uploaded mask, and a GeoTIFF
- * layer's configured mask file. The area is still drawn, from pixels the map may be hiding, so
- * the chart says so (the masks chosen in Main > Masking are applied, or the area is refused).
- */
+/** Disclose explicit external-mask requests; failures never fall back to unmasked summaries. */
 export function unappliedAreaMasks(datasets: string[], state: Pick<AppState, 'customMaskPath' | 'dataMode' | 'datasetInfo'>): string | null {
   const kinds = [
     ...(state.customMaskPath ? ['uploaded'] : []),
     ...(state.dataMode === 'cog' && datasets.some(ds => state.datasetInfo[ds]?.mask_file_list?.some(Boolean)) ? ['configured'] : []),
   ];
-  return kinds.length ? `Areas: ${kinds.join(' and ')} mask not applied` : null;
+  return kinds.length ? `Areas: ${kinds.join(' and ')} masks requested; unavailable masks suppress summaries` : null;
 }
 
 /** Run ``worker`` on every item, at most ``limit`` at a time, in order of start. */
@@ -143,7 +140,10 @@ export async function fetchAreaStats(
           if (error) return { error };
           try {
             const masks = applicableMasks(options.datasetInfo[ds], options.layerMasks);
-            return toAreaStats(await fetchPolygon(ds, area.geometry, masks, record.controller.signal));
+            const extra = chartMaskOptions(options, ds);
+            return toAreaStats(await (Object.keys(extra).length
+              ? fetchPolygon(ds, area.geometry, masks, record.controller.signal, extra)
+              : fetchPolygon(ds, area.geometry, masks, record.controller.signal)));
           } catch {
             return { error: 'could not reach the server' };
           }

@@ -5,6 +5,7 @@ import 'chartjs-adapter-date-fns';
 import { useAppDispatch, useAppFields } from '../../context/AppContext';
 import { useViewBounds } from '../../map/viewBounds';
 import { useApi } from '../../hooks/useApi';
+import { chartMaskOptions } from '../../utils/chartMasks';
 import { applicableMasks } from '../../utils/maskCompatibility';
 import { useSpacedEffect } from '../../hooks/useSpacedEffect';
 import { CHART_REQUEST_GAP_MS } from '../TimeSeriesChart';
@@ -45,7 +46,7 @@ const cssVar = (name: string, fallback: string) =>
  * (POST /gnss/custom, kept for the server session), and one station's record against InSAR.
  */
 export default function GnssTab() {
-  const state = useAppFields('currentDataset', 'datasetInfo', 'layerMasks', 'overlays', 'refBufferEnabled', 'refBufferRadius', 'refEnabled', 'refMarkerPosition', 'units');
+  const state = useAppFields('customMaskPath', 'dataMode', 'currentDataset', 'datasetInfo', 'layerMasks', 'overlays', 'refBufferEnabled', 'refBufferRadius', 'refEnabled', 'refMarkerPosition', 'units');
   const dispatch = useAppDispatch();
   const viewBounds = useViewBounds();
   const { fetchMultiPointTimeSeries, fetchPointTimeSeries, fetchBufferTimeSeries } = useApi();
@@ -188,10 +189,10 @@ export default function GnssTab() {
     const ref = info?.uses_spatial_ref && state.refEnabled ? state.refMarkerPosition : null;
     const r = await fetchMultiPointTimeSeries(
       [{ id: selected.id, lat: selected.lat, lon: selected.lon, color: '#5bc0be', name: selected.id }],
-      ds, ref?.[1], ref?.[0], false, applicableMasks(info ?? undefined, state.layerMasks), refRadius,
+      ds, ref?.[1], ref?.[0], false, applicableMasks(info ?? undefined, state.layerMasks), refRadius, chartMaskOptions({ dataMode: state.dataMode, datasetInfo: state.datasetInfo, customMaskPath: state.customMaskPath }, ds),
     );
     return r?.datasets[0]?.data ?? null;
-  }, [ds, selected, info?.uses_spatial_ref, state.refEnabled, state.refMarkerPosition,
+  }, [ds, selected, info, state.datasetInfo, state.customMaskPath, state.dataMode, state.refEnabled, state.refMarkerPosition,
     state.layerMasks, refRadius, fetchMultiPointTimeSeries]);
 
   const [cx, cy] = viewBounds

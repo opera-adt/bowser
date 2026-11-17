@@ -1580,7 +1580,9 @@ def polygon_timeseries(
                 raise ValueError("Source supports at most one non-spatial axis")
             dim = extra[0] if extra else None
             labels = _dim_labels(source, dim) if dim else ["Stored layer"]
-            result = summarize_xarray(source, body, labels, mask_dataset=target.dataset)
+            result = summarize_xarray(
+                source, body, labels, mask_dataset=target.dataset, external_masks=True
+            )
         else:
             result = summarize_rasters(
                 target.raster_groups[body.variable],

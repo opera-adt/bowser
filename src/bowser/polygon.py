@@ -53,6 +53,10 @@ class PolygonRequest(BaseModel):
     )
     layer_masks: list[PolygonMask] = Field(default_factory=list, max_length=10)
 
+    primary_mask: bool = Field(default=False, strict=True)
+    mask_min_value: float | None = Field(default=None, allow_inf_nan=False)
+    custom_mask_path: str | None = Field(default=None, min_length=1, max_length=4096)
+
     @field_validator("percentiles")
     @classmethod
     def _percentiles(cls, values: list[float]) -> list[float]:
@@ -256,6 +260,7 @@ def summarize_xarray(
     labels: list[str],
     *,
     mask_dataset: xr.Dataset | None = None,
+    external_masks: bool = False,
 ) -> dict:
     """Summarize a level-zero GeoZarr variable using bounded spatial reads."""
     from .polygon_masks import xarray_masks  # noqa: PLC0415
@@ -292,6 +297,15 @@ def summarize_xarray(
     if grid.transform.b != 0 or grid.transform.d != 0:
         raise ValueError("GeoZarr statistics require a rectilinear x/y grid")
     masks = xarray_masks(source, mask_dataset, request, grid.crs)
+    if request.primary_mask:
+        raise ValueError("Configured raster masks require a GeoTIFF source")
+    if request.custom_mask_path:
+        if not external_masks:
+            raise ValueError("Uploaded polygon masks require the full server")
+        from .polygon_external_masks import attach_mask
+
+        attach_mask(masks, [request.custom_mask_path], grid, 0.0, ">", primary=False)
+
     window, inside, clipped = _selection(grid, request.geometry, masks.work(count))
     rows = slice(int(window.row_off), int(window.row_off + window.height))
     cols = slice(int(window.col_off), int(window.col_off + window.width))
@@ -351,6 +365,23 @@ def summarize_rasters(
         grid = NativeGrid(first.crs, first.transform, first.width, first.height)
     labels = [str(v) for v in group.x_values]
     masks = raster_masks(mask_groups, request.layer_masks, labels, grid)
+    from .polygon_external_masks import attach_mask
+
+    if request.primary_mask:
+        paths = list(group.mask_file_list)
+        if not paths or any(not p for p in paths) or len(paths) not in (1, len(labels)):
+            raise ValueError("No complete configured polygon mask is available")
+        threshold = (
+            group.mask_min_value
+            if request.mask_min_value is None
+            else request.mask_min_value
+        )
+        if not np.isfinite(threshold):
+            raise ValueError("Configured mask threshold must be finite")
+        attach_mask(masks, paths, grid, float(threshold), ">=", primary=True)
+    if request.custom_mask_path:
+        attach_mask(masks, [request.custom_mask_path], grid, 0.5, ">", primary=False)
+
     window, inside, clipped = _selection(
         grid, request.geometry, masks.work(len(group.file_list))
     )
