@@ -15,7 +15,7 @@ import { readLayerInfoShown, saveLayerInfoShown } from '../../utils/layerInfoPre
 import { baseColormap } from '../../utils/colormaps';
 import { maskProblem, maskProblems } from '../../utils/maskCompatibility';
 import { LayerOptions, SectionHeader, Switch } from './controls';
-import { referenceValues } from '../../map/interactions';
+import { chartRadiusLimit, referenceValues } from '../../map/interactions';
 
 /** A layer's percentiles, for the colour scale's range presets. */
 async function rangeOf(dataset: string): Promise<RangeStats | null> {
@@ -50,8 +50,7 @@ export default function MainTab() {
   });
 
   // Use the smallest layer budget so comparison charts stay within it too.
-  const chartRadiusMax = Math.min(5000, ...Object.values(state.datasetInfo)
-    .map(info => info.chart_buffer_max_m ?? 5000));
+  const chartRadiusMax = chartRadiusLimit(state.datasetInfo);
   useEffect(() => {
     if (chartRadiusMax < 5) return;
     if (state.bufferRadius > chartRadiusMax)
