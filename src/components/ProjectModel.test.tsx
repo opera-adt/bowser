@@ -57,6 +57,22 @@ describe('the model in a project', () => {
     expect(project.fitSettings).toEqual(FIT);
   });
 
+  it('round-trips a pending layer choice without exposing its features for analysis', async () => {
+    const pending = { type: 'FeatureCollection' as const, bowser_source_layer_property: 'source', features: [
+      { type: 'Feature', id: 0, properties: { source: 'regions' }, geometry: { type: 'Point', coordinates: [0, 0] } },
+      { type: 'Feature', id: 0, properties: { source: 'stations' }, geometry: { type: 'Point', coordinates: [1, 1] } },
+    ] };
+    const setup: AppAction[] = [{ type: 'ADD_OVERLAY', payload: { id: 'pending', name: 'Inventory', type: 'vector', visible: true, opacity: 1,
+      data: { type: 'FeatureCollection', features: [] }, pendingSourceLayers: pending } }];
+    const first = render(<AppProvider><Seed setup={setup} /></AppProvider>);
+    await act(async () => { fireEvent.click(screen.getByTitle(/Save points/)); });
+    const project = JSON.parse(await readBlob(saved.files[0].data as Blob));
+    first.unmount(); render(<AppProvider><Seed setup={[]} /></AppProvider>);
+    await load(project);
+    expect(stateRef.overlays[0].pendingSourceLayers).toEqual(pending);
+    expect(stateRef.overlays[0].data?.features).toEqual([]);
+  });
+
   it('comes back on load', async () => {
     render(<AppProvider><Seed setup={[]} /></AppProvider>);
     expect(stateRef.showTrends).toBe(false);

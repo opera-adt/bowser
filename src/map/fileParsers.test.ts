@@ -30,3 +30,14 @@ describe('readers', () => {
     expect(featureBounds(fc)).toEqual([-91, 35, -90, 36]);
   });
 });
+
+
+describe('explicit converter provenance', () => {
+  it('keeps numeric zero IDs and the declared source field through actual parsing', () => {
+    const feature = { type: 'Feature', id: 0, properties: { layer: 'ordinary', source_layer: 'regions' }, geometry: { type: 'Polygon', coordinates: [[[0,0],[1,0],[1,1],[0,0]]] } };
+    const result = parseGeoJson(JSON.stringify({ type: 'FeatureCollection', bowser_source_layer_property: 'source_layer', features: [feature] }));
+    expect(result.bowser_source_layer_property).toBe('source_layer');
+    expect(result.features).toEqual([feature]);
+    expect(parseGeoJson(JSON.stringify(feature)).bowser_source_layer_property).toBeUndefined();
+  });
+});

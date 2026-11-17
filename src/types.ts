@@ -164,6 +164,7 @@ export interface OverlayBand {
 
 export interface OverlayFeatures {
   type: 'FeatureCollection';
+  bowser_source_layer_property?: string;
   features: unknown[];
 }
 
@@ -229,6 +230,8 @@ export interface Overlay {
 
   // --- vector ---
   data?: OverlayFeatures;
+  /** Awaiting explicit layer selection; not drawn or used for statistics. */
+  pendingSourceLayers?: OverlayFeatures;
   color?: string;
   lineWidth?: number;
   pointRadius?: number;

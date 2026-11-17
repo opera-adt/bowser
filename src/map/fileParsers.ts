@@ -12,11 +12,13 @@ export interface Geometry {
 }
 export interface Feature {
   type: "Feature";
+  id?: string | number;
   geometry: Geometry | null;
   properties: Record<string, unknown>;
 }
 export interface FeatureCollection {
   type: "FeatureCollection";
+  bowser_source_layer_property?: string;
   features: Feature[];
 }
 
@@ -35,19 +37,23 @@ export function parseGeoJson(text: string): FeatureCollection {
     throw new Error(`not valid JSON (${(err as Error).message})`);
   }
   const asFeature = (x: unknown): Feature[] => {
-    const o = x as { type?: string; geometry?: unknown; properties?: unknown; geometries?: unknown[] };
-    if (o?.type === "Feature") return [{ type: "Feature", geometry: (o.geometry ?? null) as Geometry | null, properties: (o.properties ?? {}) as Record<string, unknown> }];
+    const o = x as { id?: unknown; type?: string; geometry?: unknown; properties?: unknown; geometries?: unknown[] };
+    if (o?.type === "Feature") return [{ type: "Feature", ...((typeof o.id === "string" || (typeof o.id === "number" && Number.isFinite(o.id))) ? { id: o.id } : {}), geometry: (o.geometry ?? null) as Geometry | null, properties: (o.properties ?? {}) as Record<string, unknown> }];
     if (o?.type === "GeometryCollection") return (o.geometries ?? []).flatMap(asFeature);
     if (o?.type && GEOMETRY_TYPES.has(o.type)) return [{ type: "Feature", geometry: o as Geometry, properties: {} }];
     return [];
   };
-  const o = data as { type?: string; features?: unknown[] };
+  const o = data as { type?: string; features?: unknown[]; bowser_source_layer_property?: unknown };
   let features: Feature[];
   if (Array.isArray(data)) features = data.flatMap(asFeature);
   else if (o?.type === "FeatureCollection" && Array.isArray(o.features)) features = o.features.flatMap(asFeature);
   else features = asFeature(data);
   if (!features.length) throw new Error("no GeoJSON features found");
-  return fc(features);
+  const result = fc(features);
+  if (o?.type === 'FeatureCollection' && typeof o.bowser_source_layer_property === 'string') {
+    result.bowser_source_layer_property = o.bowser_source_layer_property;
+  }
+  return result;
 }
 
 /* ---------- CSV / TSV ---------- */
@@ -97,7 +103,7 @@ function guessDelimiter(header: string): string {
 
 /** Points from a table with lon/lat (or longitude/latitude, lng, x/y) columns; other columns become properties. */
 export function parseCsv(text: string, delimiter?: string): FeatureCollection {
-  const body = text.replace(/^﻿/, "");
+  const body = text.replace(/^\uFEFF/, "");
   const firstLine = body.split(/\r?\n/, 1)[0] ?? "";
   const rows = splitDelimited(body, delimiter ?? guessDelimiter(firstLine));
   if (rows.length < 2) throw new Error("the table has no data rows");

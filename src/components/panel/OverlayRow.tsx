@@ -1,4 +1,6 @@
 import { useRef, useState } from 'react';
+import SourceLayerPicker from './SourceLayerPicker';
+import { featureBounds } from '../../map/fileParsers';
 import { useAppDispatch, useAppFields } from '../../context/AppContext';
 import { binColorsFor } from '../../hooks/useAddFiles';
 import ColorScalePicker from './ColorScalePicker';
@@ -96,6 +98,9 @@ export default function OverlayRow({ overlay: o, dropSide, onDragStart, onDragEn
             : <span style={{ color: 'var(--sb-red)', wordBreak: 'break-word' }}>Could not add it: {o.conversion.error ?? 'unknown error'}</span>}
         </div>
       )}
+      {o.pendingSourceLayers && <SourceLayerPicker key={o.id} data={o.pendingSourceLayers}
+        onAdd={data => update({ data, pendingSourceLayers: undefined, bounds: featureBounds(data) })}
+        onCancel={() => dispatch({ type: 'REMOVE_OVERLAY', payload: o.id })} />}
       {(zonalBusy || zonalStatus.notes.length > 0) && (
         <div className="ov-zonal-note" role="status">
           {zonalBusy && <span>Zonal stats: {zonalStatus.progress!.done}/{zonalStatus.progress!.total} areas</span>}
