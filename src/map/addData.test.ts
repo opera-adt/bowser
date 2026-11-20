@@ -16,12 +16,12 @@ describe('a file added through the server', () => {
   });
 
   it('a small vector is fetched whole as GeoJSON, keeping its attributes', async () => {
-    const fc = { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { well: 'A' }, geometry: { type: 'Point', coordinates: [-90.15, 34.75] } }] };
+    const fc = { type: 'FeatureCollection', bowser_source_layer_property: 'source_layer', features: [{ type: 'Feature', id: 0, properties: { well: 'A', source_layer: 'stations' }, geometry: { type: 'Point', coordinates: [-90.15, 34.75] } }] };
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(fc))));
     const o = overlayFromJob(vectorJob(), { id: 'v' });
     expect(o).toMatchObject({ type: 'vector', name: 'wells', conversion: { status: 'converting', format: 'geojson' } });
     const u = await jobUpdates(o, vectorJob({ status: 'ready', url: '/data/g.geojson' }));
-    expect(u.data!.features).toEqual(fc.features);
+    expect(u.data).toEqual(fc);
     expect(u.bounds).toEqual([-90.15, 34.75, -90.15, 34.75]);
   });
 

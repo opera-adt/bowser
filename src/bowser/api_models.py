@@ -189,13 +189,14 @@ PARAMS: dict[str, dict[str, Any]] = {
     },
     "layer_masks": {
         "description": "Masks as {dataset, threshold, mode}: mode min keeps "
-        "pixels >= threshold in cubes (> in GeoTIFFs), max keeps pixels <= threshold.",
+        "pixels >= threshold in cubes (> in GeoTIFFs), max keeps pixels <= threshold; "
+        "abs_min/abs_max compare magnitude inclusively.",
         "examples": [_LAYER_MASKS],
     },
     "layer_masks_json": {
         "description": "JSON list of {dataset, threshold, mode} masks: mode min "
         "keeps pixels >= threshold in cubes (> in GeoTIFFs), "
-        "max keeps pixels <= threshold.",
+        "max keeps pixels <= threshold; abs_min/abs_max compare magnitude inclusively.",
         "examples": [json.dumps(_LAYER_MASKS)],
     },
     "ref_buffer_m": {
@@ -273,9 +274,10 @@ PARAMS: dict[str, dict[str, Any]] = {
     "custom_mask_path": {
         "description": "Server path of a mask from POST /upload_mask; keeps "
         "pixels where the mask is > 0 in GeoZarr (warped as on the map), "
-        "> 0.5 in native-grid GeoTIFF charts. bowser-lite ignores it on "
-        "tiles and refuses it (501) on charts/exports; the page omits it "
-        "from lite charts and warns that it was not applied.",
+        "> 0.5 in GeoTIFF layers (native grid only for point/radius charts; "
+        "area summaries warp it as the map does). bowser-lite ignores it on "
+        "tiles and refuses it (501) on charts, areas and exports; the page "
+        "omits it from lite charts and areas and warns that it was not applied.",
         "examples": ["/tmp/bowser_masks/mask_0123abcd.tif"],
     },
     "rescale": {
@@ -488,8 +490,8 @@ ROUTES: dict[str, dict[str, Any]] = {
         "description": "Per-date statistics (count, mean, median, spread, "
         "percentiles) of the stored pixels inside a WGS84 GeoJSON Polygon or "
         "MultiPolygon, on the native grid. Named quality masks are opt-in; "
-        "the stored reference is retained. See "
-        "docs/polygon-statistics.md.",
+        "the stored reference is retained. Optional bounded pixel histories "
+        "do not change the all-pixel statistics. See docs/polygon-statistics.md.",
         "tags": [STATS],
     },
     "POST /profile": {
@@ -613,7 +615,7 @@ ROUTES: dict[str, dict[str, Any]] = {
         "description": "Fixed color limits and named quality masks, with the "
         "native export reference. No interpolation or inferred zero epochs. "
         "Optional native-pixel point histories with an acquisition cursor; "
-        "no context layers or imported annotations. "
+        "optional geometry-only vector outlines; no context layers or text labels. "
         "Resource limits and unsupported settings return explicit errors.",
         "tags": [EXPORT],
     },
@@ -1775,6 +1777,29 @@ class AppliedPolygonMask(_Fixed):
     temporal_support: Literal["static", "matching_axis"]
 
 
+class PolygonPixelCurve(_Fixed):
+    """One stored native-pixel history, aligned to the response labels."""
+
+    row: int = Field(description="Row in the returned native grid.")
+    col: int = Field(description="Column in the returned native grid.")
+    x: float = Field(description="Pixel-center X coordinate in grid.crs.")
+    y: float = Field(description="Pixel-center Y coordinate in grid.crs.")
+    values: list[Optional[float]] = Field(
+        description="Stored values aligned to labels; null retains missing support."
+    )
+
+
+class PolygonPixelCurves(_Fixed):
+    """Optional bounded preview; summary statistics never use just this sample."""
+
+    mode: Literal["sample", "all"]
+    sample_seed: Optional[int]
+    eligible_pixels: int
+    plotted_pixels: int
+    sampled: bool
+    curves: list[PolygonPixelCurve]
+
+
 class PolygonStatistics(_Fixed):
     """``POST /polygon_timeseries``."""
 
@@ -1787,6 +1812,7 @@ class PolygonStatistics(_Fixed):
     valid_per_date: list[int]
     common_pixels: int
     statistics: list[PolygonRow]
+    pixel_curves: Optional[PolygonPixelCurves] = None
     reference: Literal["stored"]
     optional_masks_applied: bool
     masks: list[AppliedPolygonMask] = Field(default_factory=list)

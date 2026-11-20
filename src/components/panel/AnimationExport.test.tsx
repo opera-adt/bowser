@@ -67,6 +67,23 @@ describe('raster GIF export controls', () => {
     fireEvent.click(screen.getByLabelText('Include point histories in GIF'));
     expect((button() as HTMLButtonElement).disabled).toBe(true);
   });
+  it('exports only visible vector geometry, excluding feature properties and hidden layers', async () => {
+    const geometry = { type: 'Point', coordinates: [3, 1] } as const;
+    state.overlays = [{ id: 'visible', name: 'Example area', type: 'vector', visible: true, opacity: 1,
+      data: { type: 'FeatureCollection', features: [{ type: 'Feature', geometry, properties: { note: 'not exported' } }] } },
+    { id: 'hidden', name: 'Hidden', type: 'vector', visible: false, opacity: 1,
+      data: { type: 'FeatureCollection', features: [{ type: 'Feature', geometry }] } }];
+    render(<AnimationExport />);
+    await waitFor(() => expect((button() as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByLabelText('Include vector outlines in GIF'));
+    await waitFor(() => expect((button() as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(button());
+    await waitFor(() => expect(saveFile).toHaveBeenCalled());
+    const call = vi.mocked(fetch).mock.calls.find(([url, init]) => init?.method === 'POST' && !String(url).includes('/plan'))!;
+    const body = JSON.parse(String(call[1]?.body));
+    expect(body.outlines).toEqual([{ name: 'Example area', geometries: [geometry] }]);
+    expect(String(call[1]?.body)).not.toContain('not exported');
+  });
   it('keeps lightweight export explicitly unsupported', async () => {
     supported = false;
     render(<AnimationExport />);
@@ -129,4 +146,96 @@ it('shows elapsed rendering time and Cancel aborts the download', async () => {
   fireEvent.click(screen.getByRole('button',{name:'Cancel'}));
   expect((await screen.findByRole('alert')).textContent).toContain('canceled');
   expect(saveFile).not.toHaveBeenCalled();
+});
+
+describe('vector outline limits', () => {
+  const point = (lon: number) => ({ type: 'Feature' as const, properties: {}, geometry: { type: 'Point' as const, coordinates: [lon, 1] } });
+  const vector = (id: string, features: GeoJSON.Feature[]) => ({ id, name: id, type: 'vector' as const, visible: true, opacity: 1,
+    data: { type: 'FeatureCollection' as const, features } });
+  const posts = () => vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === 'POST');
+  const tick = () => fireEvent.click(screen.getByLabelText('Include vector outlines in GIF'));
+
+  it('shows the reason from a validation list returned by the plan', async () => {
+    state.overlays = [vector('Wells', [point(3)])];
+    vi.stubGlobal('fetch', vi.fn(async (url) => String(url).includes('/plan')
+      ? new Response(JSON.stringify({ detail: [{ loc: ['body', 'outlines', 0], msg: 'Value error, Invalid outline geometry', type: 'value_error' }] }), { status: 422 })
+      : new Response(JSON.stringify({ raster_animation: true }))));
+    render(<AnimationExport />);
+    await waitFor(() => expect(screen.getByLabelText('Include vector outlines in GIF')).toBeTruthy());
+    tick();
+    expect((await screen.findByRole('alert')).textContent).toBe('Invalid outline geometry');
+  });
+  it('shows the reason from a validation list returned by the export', async () => {
+    reply = new Response(JSON.stringify({ detail: [{ loc: ['body'], msg: 'Value error, Outlines exceed the 5000-vertex total budget', type: 'value_error' }] }), { status: 422 });
+    render(<AnimationExport />);
+    await waitFor(() => expect((button() as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(button());
+    expect((await screen.findByRole('alert')).textContent).toBe('Outlines exceed the 5000-vertex total budget');
+  });
+  it('names a layer with more than 100 features and sends nothing', async () => {
+    state.overlays = [vector('Small', [point(3)]), vector('Buildings', Array.from({ length: 120 }, (_, i) => point(3 + i / 1000)))];
+    render(<AnimationExport />);
+    await waitFor(() => expect((button() as HTMLButtonElement).disabled).toBe(false));
+    const before = posts().length;
+    tick();
+    expect((await screen.findByRole('alert')).textContent).toBe('“Buildings” has 120 features; outlines take at most 100 per layer.');
+    await act(async () => { await new Promise(r => setTimeout(r, 400)); });
+    expect((button() as HTMLButtonElement).disabled).toBe(true);
+    expect(posts().length).toBe(before);
+  });
+  it('names the layers when their vertices together exceed 5,000', async () => {
+    const line = (n: number): GeoJSON.Feature => ({ type: 'Feature', properties: {},
+      geometry: { type: 'LineString', coordinates: Array.from({ length: n }, (_, i) => [3 + i / 1e5, 1]) } });
+    state.overlays = [vector('Roads', [line(3000)]), vector('Rivers', [line(2500)])];
+    render(<AnimationExport />);
+    await waitFor(() => expect((button() as HTMLButtonElement).disabled).toBe(false));
+    const before = posts().length;
+    tick();
+    expect((await screen.findByRole('alert')).textContent)
+      .toBe('Outlines have 5,500 vertices (“Roads” 3,000, “Rivers” 2,500); at most 5,000 in total.');
+    await act(async () => { await new Promise(r => setTimeout(r, 400)); });
+    expect(posts().length).toBe(before);
+  });
+  it('serializes the outlines once, not again when another setting changes', async () => {
+    state.overlays = [vector('Wells', [point(3)])];
+    render(<AnimationExport />);
+    await waitFor(() => expect((button() as HTMLButtonElement).disabled).toBe(false));
+    tick();
+    await waitFor(() => expect(posts().some(([, init]) => String(init?.body).includes('"outlines"'))).toBe(true));
+    const stringify = vi.spyOn(JSON, 'stringify');
+    fireEvent.change(screen.getByLabelText('GIF frames per second'), { target: { value: '3' } });
+    await waitFor(() => expect(posts().some(([, init]) => String(init?.body).includes('"fps":3,'))).toBe(true));
+    const sent = posts().find(([, init]) => String(init?.body).includes('"fps":3,'))!;
+    expect(JSON.parse(String(sent[1]?.body)).outlines).toEqual([{ name: 'Wells', geometries: [{ type: 'Point', coordinates: [3, 1] }] }]);
+    const withOutlines = (v: unknown) => Array.isArray(v) ? v.some(x => x && typeof x === 'object' && 'geometries' in x)
+      : !!v && typeof v === 'object' && 'outlines' in v;
+    expect(stringify.mock.calls.some(([v]) => withOutlines(v))).toBe(false);
+    stringify.mockRestore();
+  });
+  it('names server-tiled vector layers as not included', async () => {
+    state.overlays = [{ id: 'big', name: 'Buildings (large)', type: 'pmtiles', pmtilesKind: 'vector', visible: true, opacity: 1 }];
+    render(<AnimationExport />);
+    await waitFor(() => expect((button() as HTMLButtonElement).disabled).toBe(false));
+    tick();
+    expect(screen.getByText('Not included in outlines, drawn from server tiles: “Buildings (large)”.')).toBeTruthy();
+    expect(screen.getByText(/add or show a smaller vector layer/)).toBeTruthy();
+    expect((button() as HTMLButtonElement).disabled).toBe(true);
+  });
+  it('exports the small layer and still names the server-tiled one beside it', async () => {
+    state.overlays = [vector('Wells', [point(3)]),
+      { id: 'big', name: 'Buildings (large)', type: 'pmtiles', pmtilesKind: 'vector', visible: true, opacity: 1 }];
+    render(<AnimationExport />);
+    await waitFor(() => expect((button() as HTMLButtonElement).disabled).toBe(false));
+    tick();
+    expect(screen.getByText('Not included in outlines, drawn from server tiles: “Buildings (large)”.')).toBeTruthy();
+    await waitFor(() => expect((button() as HTMLButtonElement).disabled).toBe(false));
+    const sent = posts().filter(([, init]) => String(init?.body).includes('"outlines"')).pop()!;
+    expect(JSON.parse(String(sent[1]?.body)).outlines.map((o: { name: string }) => o.name)).toEqual(['Wells']);
+  });
+  it('states the per-layer feature limit in the help line', async () => {
+    render(<AnimationExport />);
+    await waitFor(() => expect(screen.getByLabelText('Include vector outlines in GIF')).toBeTruthy());
+    tick();
+    expect(screen.getByText(/at most 100 features per layer and 5,000 vertices in total/)).toBeTruthy();
+  });
 });

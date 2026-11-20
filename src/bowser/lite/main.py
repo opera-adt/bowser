@@ -654,6 +654,8 @@ def polygon_timeseries(
     are applied. Component screening is not inferred. Runs in a worker thread,
     so other requests are answered meanwhile.
     """
+    if body.primary_mask or body.mask_min_value is not None or body.custom_mask_path:
+        raise HTTPException(501, "External masks require the full server")
     cube = resolve(dataset)
     if body.variable not in cube.dataset.data_vars:
         raise HTTPException(status_code=404, detail=f"Unknown layer: {body.variable}")

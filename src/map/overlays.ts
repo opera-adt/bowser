@@ -3,7 +3,8 @@
  * WMS / WMTS / XYZ service): their tile URLs and which map shows them. Shared by the
  * Leaflet and MapLibre maps; pinned by overlays.test.ts.
  */
-import type { Overlay, OverlayFeatures } from '../types';
+import type { FeatureSource, Overlay, OverlayFeatures } from '../types';
+import { featureSources } from './featureIdentity';
 import { featureBounds } from './fileParsers';
 import { classColorExpression } from './soilClasses';
 import { labelImageExpression } from './labels';
@@ -124,20 +125,25 @@ export interface VectorLayerSpec {
   layout?: Record<string, unknown>;
 }
 
-type Charted = { color: string; geometry?: { coordinates: unknown }; source?: { overlayId: string; index: number } };
+type Charted = { color: string; geometry?: { coordinates: unknown }; source?: Pick<FeatureSource, 'overlayId' | 'index' | 'featureKey'> };
 
 /**
  * The chart colour of each of a vector layer's features that is in the time-series chart (an
- * area or a point taken from it), by feature index. A shape drawn for + Area has no source; it
+ * area or a point taken from it), resolved by unique source identity when available,
+ * then returned by current render index. Legacy records keep their stored index. A shape drawn for + Area has no source; it
  * is found among the Drawings by its geometry (drawn shapes can be reordered by the editor).
  */
 export function chartedFeatureColors(o: Overlay, charted: Charted[]): Map<number, string> {
   const out = new Map<number, string>();
   if (o.type !== 'vector' || !o.data) return out;
   const features = o.data.features as Array<{ geometry?: { coordinates?: unknown } | null }>;
+  const sources = featureSources(o.id, o.name, o.data);
+  const byKey = new Map(sources.flatMap(s => s.featureKey ? [[s.featureKey, s.index] as const] : []));
   for (const c of charted) {
     if (c.source?.overlayId === o.id && o.id !== DRAWINGS_ID) {
-      if (c.source.index < features.length) out.set(c.source.index, c.color);
+      // A missing/ambiguous stored ID must not color whichever feature now has its old index.
+      const index = c.source.featureKey === undefined ? c.source.index : byKey.get(c.source.featureKey);
+      if (index !== undefined && index >= 0 && index < features.length) out.set(index, c.color);
     } else if (o.id === DRAWINGS_ID) {
       const i = drawingIndexOf(c, o.data);
       if (i >= 0) out.set(i, c.color);

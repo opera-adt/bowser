@@ -13,7 +13,7 @@ import { useApi } from '../hooks/useApi';
 import { applicableMasks } from '../utils/maskCompatibility';
 import { MultiPointTimeSeriesData } from '../types';
 import { downloadChartAsPng } from '../utils/screenshot';
-import { addChartLayer, chartLayerFor, timeIndexOfDate, timeSeriesLayers } from '../utils/chartLayers';
+import { addChartLayer, chartLayerFor, observedLabelNear, timeIndexOfDate, timeSeriesLayers } from '../utils/chartLayers';
 import { LayerOptions } from './panel/controls';
 import MaskedReferenceNotice from './MaskedReferenceNotice';
 import ModelCard, { type PickKind } from './ModelCard';
@@ -28,7 +28,6 @@ import ChartAreaButton from './ChartAreaButton';
 import { AREA_BAND_LABELS, areaChartDatasets, areaStatsKey, type AreaBand } from '../utils/polygonSeries';
 import { useAreaReference } from '../hooks/useAreaReference';
 import { useAreaStatsFetch } from '../hooks/useAreaStatsFetch';
-import { unappliedAreaMasks } from '../utils/zonalStats';
 import { REQUEST_GAP_MS, useSpacedEffect } from '../hooks/useSpacedEffect';
 import { readChartDisplayOpen, saveChartDisplayOpen } from '../utils/chartDisplayPref';
 import { refIndexOf, toIsoDate } from '../utils/areaStats';
@@ -417,10 +416,18 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
       return;
     }
     if (elements.length === 0 || !firstDs) return;
-    // The map goes to the clicked point's date. Its position in the series is not the map's
-    // time step: masked dates and a date range leave a series shorter than the layer.
+    // The map goes to the date of the observed point nearest the click. Not the first element
+    // under the mouse: with the model on, that is the fitted line, whose dates are not
+    // acquisitions. Not a position in a series either: masked dates and a date range leave a
+    // series shorter than the layer.
+    // Two steps of an interval layer can end on the same date: drawn at the same x, they are
+    // told apart by the height of their dots.
+    const time = chart?.scales?.x?.getValueForPixel?.(event?.x);
+    const dots = typeof chart?.getDatasetMeta === 'function' ? (i: number) => chart.getDatasetMeta(i)?.data : undefined;
+    const near = typeof time === 'number' && Number.isFinite(time)
+      ? observedLabelNear(chart?.data?.datasets ?? [], time, dots, event?.y) : null;
     const clicked = chart?.data?.datasets?.[elements[0].datasetIndex]?.data?.[elements[0].index];
-    const date = clicked && typeof clicked === 'object' ? clicked.x : firstDs.labels[elements[0].index];
+    const date = near ?? (clicked && typeof clicked === 'object' ? (clicked._sourceLabel ?? clicked.x) : firstDs.labels[elements[0].index]);
     const step = date === undefined ? null : timeIndexOfDate(state.datasetInfo[state.currentDataset]?.x_values, date);
     if (step !== null) dispatch({ type: 'SET_TIME_INDEX', payload: step });
   }, [firstDs, dispatch, picking, state.fitSettings, state.datasetInfo, state.currentDataset]);
@@ -972,7 +979,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
             _unit: unit,
             yAxisID,
             data: sample
-              .map(pt => ({ x: toIsoDate(pt.x), y: pt.y * k }))
+              .map(pt => ({ x: toIsoDate(pt.x), _sourceLabel: pt.x, y: pt.y * k }))
               .filter(pt => { const t = new Date(pt.x).getTime(); return t >= dateStart && t <= dateEnd; }),
             borderColor: borderColor + '28',
             backgroundColor: 'transparent',
@@ -981,7 +988,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
         });
 
         const medianData = buf.median
-          .map((pt: { x: string; y: number }) => ({ x: toIsoDate(pt.x), y: pt.y * k }))
+          .map((pt: { x: string; y: number }) => ({ x: toIsoDate(pt.x), _sourceLabel: pt.x, y: pt.y * k }))
           .filter((pt: { x: string; y: number }) => { const t = new Date(pt.x).getTime(); return t >= dateStart && t <= dateEnd; });
         datasetList.push({
           label: `${baseLabel} median`,
@@ -997,7 +1004,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
         });
       } else {
         const isoData = dataset.data
-          .map(pt => ({ x: toIsoDate(pt.x as string), y: pt.y * k }))
+          .map(pt => ({ x: toIsoDate(pt.x as string), _sourceLabel: pt.x, y: pt.y * k }))
           .filter(pt => { const t = new Date(pt.x).getTime(); return t >= dateStart && t <= dateEnd; });
 
         datasetList.push({
@@ -1042,7 +1049,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
               _baseLabel: baseLabel,
               _unit: unit,
               yAxisID,
-              data: isoData.map(pt => ({ x: pt.x, y: pt.y - fit.predict(Date.parse(`${pt.x.slice(0, 10)}T00:00:00Z`)) })),
+              data: isoData.map(pt => ({ ...pt, y: pt.y - fit.predict(Date.parse(`${pt.x.slice(0, 10)}T00:00:00Z`)) })),
               borderColor, backgroundColor,
               borderWidth: 1, borderDash: [2, 3],
               pointRadius: ms > 2 ? ms - 1 : 2, pointHoverRadius: ms + 1, tension: 0, fill: false,
@@ -1194,7 +1201,6 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
           {visibleAreas.length > 0 && (visibleAreas.some(a => activeDatasetsForChart.some(ds => areaResults[areaStatsKey(ds, a.id)]?.data?.support === 'per_date'))
             ? <> · Areas use the pixels valid on each date</>
             : <> · Areas use common valid pixels</>)}
-          {visibleAreas.length > 0 && unappliedAreaMasks(activeDatasetsForChart, state) && <> · <strong>{unappliedAreaMasks(activeDatasetsForChart, state)}</strong></>}
           {visibleAreas.some(a => activeDatasetsForChart.some(ds => areaResults[areaStatsKey(ds, a.id)]?.data?.optional_masks_applied)) && <> · Area quality masks applied</>}
           {state.bufferEnabled && Object.keys(bufferData).length > 0 && (
             <> · Buffer: {Object.values(bufferData).map((b: any) => b.n_pixels).join(', ')} px</>

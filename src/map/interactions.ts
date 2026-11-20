@@ -71,9 +71,21 @@ export interface RefApi {
 }
 
 /**
+ * The largest chart/reference circle radius every layer's native read budget allows (m).
+ * The Main panel clamps both radius sliders to it; other ways of setting a radius use it too.
+ */
+export function chartRadiusLimit(datasetInfo: AppState['datasetInfo']): number {
+  return Math.min(5000, ...Object.values(datasetInfo).map(info => info.chart_buffer_max_m ?? 5000));
+}
+
+/**
  * The reference time series the map subtracts for ``ds`` with the marker at ``position``:
  * the buffer median when the reference buffer is on (one value per date, NaN where the
  * buffer had none), else the value at the point.
+ *
+ * A requested circle that cannot be read (over budget, outside the raster, no valid pixels)
+ * is an error, not the single pixel at its centre: substituting a point would change the
+ * reference while the panel still shows a circle.
  */
 export async function referenceValues(
   state: Pick<AppState, 'datasetInfo' | 'refBufferEnabled' | 'refBufferRadius'>,
@@ -83,11 +95,12 @@ export async function referenceValues(
 ): Promise<number[] | undefined> {
   if (state.refBufferEnabled && state.refBufferRadius > 0) {
     const result = await api.fetchBufferTimeSeries(lng, lat, ds, state.refBufferRadius, 0);
-    if (result?.median) {
-      const xValues = state.datasetInfo[ds]?.x_values?.map(String) ?? result.labels?.map(String) ?? [];
-      const byX = Object.fromEntries(result.median.map(pt => [String(pt.x), pt.y]));
-      return xValues.map((x: string) => byX[x] ?? NaN);
+    if (!result?.median) {
+      throw new Error(`Reference circle of ${state.refBufferRadius} m could not be read for ${ds}`);
     }
+    const xValues = state.datasetInfo[ds]?.x_values?.map(String) ?? result.labels?.map(String) ?? [];
+    const byX = Object.fromEntries(result.median.map(pt => [String(pt.x), pt.y]));
+    return xValues.map((x: string) => byX[x] ?? NaN);
   }
   return api.fetchPointTimeSeries(lng, lat, ds);
 }

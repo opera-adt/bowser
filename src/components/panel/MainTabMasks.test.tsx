@@ -73,6 +73,28 @@ describe('Main tab › masking', () => {
     expect([slider().min, slider().max]).toEqual(['0.2', '0.95']);
   });
 
+  it('keeps binary masks at 0.5 when removed and re-added through the panel', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => String(input).includes('dataset_range')
+      ? new Response(JSON.stringify({ min: 0, max: 1, p2: 0, p98: 1 }))
+      : new Response('{}', { status: 404 })));
+    await addMask();
+    await waitFor(() => expect(threshold()).toBe(0.5));
+    fireEvent.click(row().querySelector('button')!);
+    await waitFor(() => expect(row()).toBeNull());
+    fireEvent.click(screen.getByRole('button', { name: /Add layer mask/ }));
+    await waitFor(() => expect(threshold()).toBe(0.5));
+  });
+
+  it('retains a typed threshold when its pending range arrives later', async () => {
+    holdRanges = true;
+    await addMask();
+    await waitFor(() => expect(held.length).toBeGreaterThan(0));
+    fireEvent.change(row().querySelector('input[type="number"]') as HTMLInputElement, { target: { value: '0.6' } });
+    held.splice(0).forEach(release => release());
+    await waitFor(() => expect(slider().max).toBe('0.95'));
+    expect(threshold()).toBe(0.6);
+  });
+
   it("moving a mask to another layer sets that layer's default, not the old threshold", async () => {
     await addMask();
     await waitFor(() => expect(threshold()).toBe(0.2));

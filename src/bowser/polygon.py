@@ -11,12 +11,18 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Literal
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from .api_models import PARAMS
+from .mask_alignment import validate_mask_threshold
 
 if TYPE_CHECKING:
     import xarray as xr
     from rasterio.windows import Window
 
+MAX_PIXEL_CURVES = 500
+MAX_CURVE_VALUES = 100_000
+CURVE_SAMPLE_SEED = 42
 MAX_VERTICES = 10_000
 MAX_WINDOW_PIXELS = 2_000_000
 MAX_PIXEL_EPOCHS = 50_000_000
@@ -38,7 +44,12 @@ class PolygonMask(BaseModel):
     model_config = ConfigDict(extra="forbid")
     dataset: str = Field(min_length=1)
     threshold: float = Field(default=0.5, allow_inf_nan=False)
-    mode: Literal["min", "max"] = "min"
+    mode: Literal["min", "max", "abs_min", "abs_max"] = "min"
+
+    @model_validator(mode="after")
+    def _threshold(self) -> "PolygonMask":
+        validate_mask_threshold(self.mode, self.threshold)
+        return self
 
 
 class PolygonRequest(BaseModel):
@@ -52,6 +63,31 @@ class PolygonRequest(BaseModel):
         default_factory=lambda: [10.0, 90.0], min_length=1, max_length=20
     )
     layer_masks: list[PolygonMask] = Field(default_factory=list, max_length=10)
+
+    primary_mask: bool = Field(default=False, strict=True, **PARAMS["primary_mask"])
+    mask_min_value: float | None = Field(
+        default=None, allow_inf_nan=False, **PARAMS["mask_min_value"]
+    )
+    custom_mask_path: str | None = Field(
+        default=None, min_length=1, max_length=4096, **PARAMS["custom_mask_path"]
+    )
+    curve_mode: Literal["none", "sample", "all"] = Field(
+        default="none",
+        description=(
+            "Optional bounded stored-pixel histories; summaries always use "
+            "all eligible pixels."
+        ),
+    )
+    sample_count: int = Field(
+        default=200,
+        ge=1,
+        le=MAX_PIXEL_CURVES,
+        strict=True,
+        description=(
+            "Maximum curves in sample mode, with a fixed reproducible seed; "
+            "not a summary-statistic sample."
+        ),
+    )
 
     @field_validator("percentiles")
     @classmethod
@@ -215,13 +251,41 @@ def _summaries(
     pixels: int,
     support: str,
     percentiles: list[float],
-) -> tuple[list[dict], list[int], int]:
+    curve_mode: str = "none",
+    sample_count: int = 200,
+) -> tuple[list[dict], list[int], int, dict | None]:
     common = np.ones(pixels, dtype=bool)
     counts = []
+    union = np.zeros(pixels, dtype=bool) if curve_mode != "none" else None
     for index in range(count):
         valid = np.isfinite(load(index))
         common &= valid
+        if union is not None:
+            union |= valid
         counts.append(int(valid.sum()))
+    chosen = np.array([], dtype=np.int64)
+    curve_values = None
+    eligible = np.array([], dtype=np.int64)
+    if union is not None:
+        eligible = np.flatnonzero(common if support == "common" else union)
+        if curve_mode == "all":
+            if eligible.size > MAX_PIXEL_CURVES:
+                raise ValueError(
+                    "All-pixel curve limit exceeded; choose sample mode or summaries"
+                )
+            chosen = eligible
+        else:
+            chosen = np.sort(
+                np.random.default_rng(CURVE_SAMPLE_SEED).choice(
+                    eligible, min(sample_count, eligible.size), replace=False
+                )
+            )
+        if chosen.size * count > MAX_CURVE_VALUES:
+            raise ValueError(
+                "Pixel-curve value budget exceeded; "
+                "choose a smaller sample or summaries"
+            )
+        curve_values = np.full((count, chosen.size), np.nan)
     statistics = []
     for index in range(count):
         frame = load(index)
@@ -229,6 +293,8 @@ def _summaries(
         if support == "common":
             valid &= common
         values = frame[valid]
+        if curve_values is not None:
+            curve_values[index] = np.where(valid[chosen], frame[chosen], np.nan)
         statistics.append(
             {
                 "count": int(values.size),
@@ -247,7 +313,48 @@ def _summaries(
                 },
             }
         )
-    return statistics, counts, int(common.sum())
+    preview = None
+    if curve_values is not None:
+        preview = {
+            "mode": curve_mode,
+            "sample_seed": CURVE_SAMPLE_SEED if curve_mode == "sample" else None,
+            "eligible_pixels": int(eligible.size),
+            "plotted_pixels": int(chosen.size),
+            "sampled": chosen.size < eligible.size,
+            "curves": [
+                {
+                    "pixel_index": int(pixel),
+                    "values": [
+                        float(v) if np.isfinite(v) else None for v in curve_values[:, i]
+                    ],
+                }
+                for i, pixel in enumerate(chosen)
+            ],
+        }
+    return statistics, counts, int(common.sum()), preview
+
+
+def _external_mask(masks, paths, grid, threshold, operator, *, primary=False, warp):
+    """Attach the charts' configured/uploaded mask reader; refuse unreadable masks."""
+    import rasterio  # noqa: PLC0415
+    from rioxarray.exceptions import RioXarrayError  # noqa: PLC0415
+
+    from .cog_sampling import attach_external_mask  # noqa: PLC0415
+
+    attach_external_mask(
+        masks, paths, grid, threshold, operator, primary=primary, warp=warp
+    )
+    read = masks.readers[-1]
+
+    def checked(index: int, rows: slice, cols: slice) -> np.ndarray:
+        try:
+            return read(index, rows, cols)
+        except (OSError, rasterio.errors.RasterioError, RioXarrayError) as exc:
+            raise ValueError(
+                "Could not read the requested polygon mask; no unmasked fallback"
+            ) from exc
+
+    masks.readers[-1] = checked
 
 
 def summarize_xarray(
@@ -256,8 +363,14 @@ def summarize_xarray(
     labels: list[str],
     *,
     mask_dataset: xr.Dataset | None = None,
+    warp: Callable[[xr.DataArray, str], Any] | None = None,
 ) -> dict:
-    """Summarize a level-zero GeoZarr variable using bounded spatial reads."""
+    """Summarize a level-zero GeoZarr variable using bounded spatial reads.
+
+    ``warp(source, path)`` aligns an uploaded mask on another grid as the map
+    does (the full server's cached whole-grid warp); without it, uploaded masks
+    are refused.
+    """
     from .polygon_masks import xarray_masks  # noqa: PLC0415
 
     if not {"x", "y"}.issubset(source.dims):
@@ -292,6 +405,20 @@ def summarize_xarray(
     if grid.transform.b != 0 or grid.transform.d != 0:
         raise ValueError("GeoZarr statistics require a rectilinear x/y grid")
     masks = xarray_masks(source, mask_dataset, request, grid.crs)
+    if request.primary_mask:
+        raise ValueError("Configured raster masks require a GeoTIFF source")
+    if request.custom_mask_path:
+        if warp is None:
+            raise ValueError("Uploaded polygon masks require the full server")
+        _external_mask(
+            masks,
+            [request.custom_mask_path],
+            grid,
+            0.0,
+            ">",
+            warp=lambda path: warp(source, path),
+        )
+
     window, inside, clipped = _selection(grid, request.geometry, masks.work(count))
     rows = slice(int(window.row_off), int(window.row_off + window.height))
     cols = slice(int(window.col_off), int(window.col_off + window.width))
@@ -330,7 +457,17 @@ def summarize_xarray(
         return selected
 
     return masks.finish(
-        _result(load, count, inside, clipped, grid, labels, units, request)
+        _result(
+            load,
+            count,
+            inside,
+            clipped,
+            grid,
+            labels,
+            units,
+            request,
+            window_origin=(int(window.row_off), int(window.col_off)),
+        )
     )
 
 
@@ -339,8 +476,13 @@ def summarize_rasters(
     request: PolygonRequest,
     *,
     mask_groups: dict | None = None,
+    warp: Callable[[str], Any] | None = None,
 ) -> dict:
-    """Summarize identical-grid, identical-unit GeoTIFFs with windowed reads."""
+    """Summarize identical-grid, identical-unit GeoTIFFs with windowed reads.
+
+    ``warp(path)`` returns a configured/uploaded mask on another grid warped to
+    the whole native grid, as the map does; without it such masks are refused.
+    """
     import rasterio  # noqa: PLC0415
 
     from .polygon_masks import raster_masks  # noqa: PLC0415
@@ -351,6 +493,23 @@ def summarize_rasters(
         grid = NativeGrid(first.crs, first.transform, first.width, first.height)
     labels = [str(v) for v in group.x_values]
     masks = raster_masks(mask_groups, request.layer_masks, labels, grid)
+    if request.primary_mask:
+        paths = list(group.mask_file_list)
+        if not paths or any(not p for p in paths) or len(paths) not in (1, len(labels)):
+            raise ValueError("No complete configured polygon mask is available")
+        threshold = (
+            group.mask_min_value
+            if request.mask_min_value is None
+            else request.mask_min_value
+        )
+        if not np.isfinite(threshold):
+            raise ValueError("Configured mask threshold must be finite")
+        _external_mask(
+            masks, paths, grid, float(threshold), ">=", primary=True, warp=warp
+        )
+    if request.custom_mask_path:
+        _external_mask(masks, [request.custom_mask_path], grid, 0.5, ">", warp=warp)
+
     window, inside, clipped = _selection(
         grid, request.geometry, masks.work(len(group.file_list))
     )
@@ -393,6 +552,7 @@ def summarize_rasters(
             None,
             request,
             units,
+            window_origin=(int(window.row_off), int(window.col_off)),
         )
     )
 
@@ -407,15 +567,19 @@ def _result(
     units: str | None,
     request: PolygonRequest,
     raster_units: list | None = None,
+    *,
+    window_origin: tuple[int, int] = (0, 0),
 ) -> dict:
     if len(labels) != count:
         raise ValueError("Labels must match the source axis length")
-    statistics, valid_counts, common = _summaries(
+    statistics, valid_counts, common, preview = _summaries(
         load,
         count,
         int(inside.sum()),
         request.support,
         request.percentiles,
+        request.curve_mode,
+        request.sample_count,
     )
     if raster_units:
         units = raster_units[0]
@@ -447,7 +611,26 @@ def _result(
         warnings.append(
             "No pixels satisfy the requested support; no values were fabricated."
         )
+    if preview is not None:
+        # The curve's source index is within the selected polygon window.
+        # Report centers on the returned native grid, including the window offset.
+        indices = np.asarray(
+            [c["pixel_index"] for c in preview["curves"]], dtype=np.int64
+        )
+        flat = np.flatnonzero(inside)[indices]
+        rows, cols = np.unravel_index(flat, inside.shape)
+        a, b, c, d, e, f = grid.transform[:6]
+        for curve, row, col in zip(preview["curves"], rows, cols):
+            row, col = int(row) + window_origin[0], int(col) + window_origin[1]
+            curve.pop("pixel_index")
+            curve.update(
+                row=row,
+                col=col,
+                x=float(c + (col + 0.5) * a + (row + 0.5) * b),
+                y=float(f + (col + 0.5) * d + (row + 0.5) * e),
+            )
     return {
+        **({"pixel_curves": preview} if preview is not None else {}),
         "variable": request.variable,
         "labels": labels,
         "units": units,

@@ -184,6 +184,19 @@ describe('Add data: a vector', () => {
     expect(stateRef.overlays[0].conversion).toBeUndefined();
   });
 
+  it('a small one with the converter\'s source-layer annotation waits for a layer choice', async () => {
+    await renderTab();
+    const point = (layer: string, x: number) => ({ type: 'Feature', properties: { source: layer }, geometry: { type: 'Point', coordinates: [x, 34.75] } });
+    const annotated = { type: 'FeatureCollection', bowser_source_layer_property: 'source', features: [point('wells', -90.1), point('gauges', -90.0)] };
+    await choose(file(JSON.stringify(annotated), 'inventory.geojson'));
+    await waitFor(() => expect(stateRef.overlays[0]).toMatchObject({ name: 'inventory', type: 'vector' }));
+    expect(requests.filter(r => /upload|\/data/.test(r))).toEqual([]);
+    expect(stateRef.overlays[0].data!.features).toEqual([]);
+    expect(stateRef.overlays[0].pendingSourceLayers!.features).toHaveLength(2);
+    expect(stateRef.overlays[0].bounds).toEqual([-90.1, 34.75, -90.0, 34.75]);
+    expect(screen.getByRole('group', { name: 'Choose source layers' })).toBeTruthy();
+  });
+
   it('on bowser-lite, a large one too: there is no server conversion', async () => {
     config = { polygon_stats: false, data_conversion: { cog: false, pmtiles: false, pmtiles_min_mb: null } };
     await renderTab();

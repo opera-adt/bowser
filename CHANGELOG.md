@@ -8,10 +8,33 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Optional bounded vector outlines in raster GIFs, including polygon holes, from
+  up to five layers of at most 100 features each and 5,000 vertices in total. The
+  page names a layer over the limits before sending it, and names server-tiled
+  layers as not included. Geometry-only annotations leave measurements, masks and
+  native point histories unchanged. See [docs/raster-animation.md](docs/raster-animation.md).
+- Choose source layers before adding small multi-layer converted vector files;
+  preserve source geometry and attributes without exposing unconfirmed features.
+- Configured and uploaded masks in full-server polygon summaries, with native
+  bounded reads, explicit support records and no unmasked fallback. Masks on
+  another grid keep the same pixels as the map and the point/radius charts. On
+  bowser-lite, areas and the GNSS comparison leave an uploaded mask out and say
+  so, as point charts do. See [docs/polygon-statistics.md](docs/polygon-statistics.md).
+
+- Absolute-value layer masks (`|value| ≤` and `|value| ≥`) across native
+  display, analysis and export paths, preserving measurement signs and nodata.
+  See [docs/absolute-value-masks.md](docs/absolute-value-masks.md).
+
 - Configured and uploaded masks in full-server point/radius chart requests,
   including bounded native reads, per-layer configured thresholds and clear
   unsupported/error handling. Shared named-mask and reference policies remain
   unchanged. See [docs/chart-extra-masks.md](docs/chart-extra-masks.md).
+
+- **Optional pixel histories inside a polygon.** The polygon statistics API can
+  return a reproducible sample or all pixels within strict response limits,
+  alongside unchanged all-pixel summaries. Native coordinates, valid zeros,
+  holes, quality masks and missing dates are retained. Summary-only behavior
+  remains the default; chart controls are separate work.
 
 - Optional synchronized native-pixel histories in raster GIFs. Point samples
   stay native under cropped/pyramid displays; preflight includes point/reference
@@ -41,6 +64,25 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   shows it separately; fits, residuals, polygon statistics and numeric exports
   use the measured epochs. Genuine zero measurements are retained. See
   [the response contract](docs/display-datum.md).
+- Chart-to-map date selection keeps both dates of an acquisition pair, for point and
+  buffer charts: each chart point keeps its step's own label (compact or hyphenated), and
+  of two steps ending on the same date (drawn at the same place on the time axis) a click
+  takes the one whose dot is nearer. The time axis still shows the ending date. Ambiguous
+  selections leave the map unchanged.
+- **A click in the chart goes to the right date with the model on.** The fitted line is
+  drawn first, and the click took its date, which is not an acquisition: the map often
+  stayed where it was or went elsewhere. The map now goes to the observed point nearest
+  the click.
+- A reference circle that cannot be read (for example over a layer's native read
+  budget) no longer silently becomes the single pixel at its centre for the map
+  shift and area statistics; the previous reference is kept and the error logged.
+  The assistant's `set_reference_point` now honors the same radius limit as the
+  Main panel slider and refuses a larger circle before changing anything.
+- **Imported GeoJSON keeps feature IDs.** Unique source IDs keep polygon selections
+  and chart colors attached after feature reordering. Explicit source-layer
+  provenance distinguishes repeated IDs across combined layers; missing or
+  ambiguous IDs retain index-based behavior. Projects preserve these source
+  records. See [imported feature identity](docs/vector-feature-identity.md).
 
 - Static configured GeoTIFF masks now remain on the map at every date.
 - Native GeoTIFF exports now reject configured-mask zero even at a zero

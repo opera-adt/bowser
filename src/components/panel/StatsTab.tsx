@@ -32,7 +32,7 @@ export default function StatsTab() {
   const layers = [...new Set([...chartDatasets(state), ...withAnswers])].filter(ds => state.datasetInfo[ds]);
   const ds = chosenDs && layers.includes(chosenDs) ? chosenDs : layers[0] ?? null;
   const areas = state.chartAreas;
-  useAreaStatsFetch(ds ? [ds] : [], areas, !!ds);
+  const maskWarning = useAreaStatsFetch(ds ? [ds] : [], areas, !!ds);
   const reference = useAreaReference(ds ? [ds] : [], areas.length > 0 && !!ds);
   const info = ds ? state.datasetInfo[ds] : undefined;
   const shown = displayUnit(info?.unit, state.units);
@@ -127,6 +127,7 @@ export default function StatsTab() {
             {whole ? 'Average over all dates' : when ? `On ${toIsoDate(when)}` : ''}
             {ref ? ' · relative to the reference' : ''}{refIndex !== null && info ? ` · relative to ${toIsoDate(String(info.x_values[refIndex]))}` : ''}
           </div>
+          {maskWarning && <div role="status" className="row-label" style={{ fontSize: '0.72em' }}>{maskWarning}</div>}
           <div className="zs-list" role="list" aria-label="Zonal stats">
             {sorted.map(({ area: a, entry, pixels, stats, trend }) => (
               <div key={a.id} className={`zs-row${a.visible ? '' : ' area-hidden'}`} role="listitem" aria-label={a.name}>

@@ -8,10 +8,13 @@
  * date shifts the median, mean and every percentile by that number; the spread is unchanged.
  */
 import { datumMarker, type DisplayDatum } from './displayDatum';
+import { DRAWINGS_ID } from '../map/overlays';
+import { featureSources, featureSourceKey } from '../map/featureIdentity';
 import type { ChartArea, LayerMask, Overlay } from '../types';
 
 import { AREA_PERCENTILES, areaRows, type AreaRow } from './areaStats';
 import { areaStyle, withOpacity, type AreaStyle } from '../map/seriesStyle';
+import { errorDetail } from './errorDetail';
 
 export { AREA_PERCENTILES };
 
@@ -96,16 +99,17 @@ export function polygonChoices(overlays: Overlay[]): PolygonChoice[] {
   const out: PolygonChoice[] = [];
   for (const o of overlays) {
     if (o.type !== 'vector' || !o.data) continue;
+    const sources = featureSources(o.id, o.name, o.data, o.id !== DRAWINGS_ID);
     let n = 0;
     (o.data.features as GeoJsonFeature[]).forEach((f, i) => {
       const g = f?.geometry;
       if (!g || !isPolygon(g)) return;
       n += 1;
       out.push({
-        key: `${o.id}:${i}`,
+        key: featureSourceKey(sources[i]),
         name: featureName(f.properties, `${o.name} ${n}`),
         geometry: { type: g.type as 'Polygon' | 'MultiPolygon', coordinates: g.coordinates },
-        source: { overlayId: o.id, layer: o.name, index: i },
+        source: sources[i],
       });
     });
   }
@@ -116,12 +120,13 @@ export function polygonChoices(overlays: Overlay[]): PolygonChoice[] {
 export function pointChoices(o: Overlay): PointChoice[] {
   if (o.type !== 'vector' || !o.data) return [];
   const out: PointChoice[] = [];
+  const sources = featureSources(o.id, o.name, o.data, o.id !== DRAWINGS_ID);
   (o.data.features as GeoJsonFeature[]).forEach((f, i) => {
     if (!isPoint(f?.geometry)) return;
     const [lon, lat] = f.geometry!.coordinates as number[];
     out.push({
-      key: `${o.id}:${i}`, name: featureName(f.properties, `${o.name} ${out.length + 1}`), position: [lat, lon],
-      source: { overlayId: o.id, layer: o.name, index: i },
+      key: featureSourceKey(sources[i]), name: featureName(f.properties, `${o.name} ${out.length + 1}`), position: [lat, lon],
+      source: sources[i],
     });
   });
   return out;
@@ -161,12 +166,7 @@ export function polygonRequestBody(variable: string, geometry: ChartArea['geomet
 /** A short message for a failed request (422 bad or too-large polygon, 501 without the route). */
 export function polygonErrorMessage(status: number, body: unknown): string {
   if (status === 501) return 'needs the full Bowser server';
-  const detail = (body as { detail?: unknown } | null)?.detail;
-  if (typeof detail === 'string' && detail) return detail;
-  if (Array.isArray(detail) && typeof detail[0]?.msg === 'string') {
-    return detail[0].msg.replace(/^Value error, /, '');
-  }
-  return `request failed (HTTP ${status})`;
+  return errorDetail(body) ?? `request failed (HTTP ${status})`;
 }
 
 /** Why an answer can't be drawn (no pixel had a value), or null when it can. */
