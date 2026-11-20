@@ -69,13 +69,15 @@ export function timeIndexOfDate(xValues: readonly (string | number)[] | undefine
 /** A chart series' observed values: a point's data, a buffer median, an area median. */
 const OBSERVED = new Set(['data', 'median', 'area_median']);
 
-type ChartPoint = { x?: unknown } | null | undefined;
+type ChartPoint = { x?: unknown; label?: unknown } | null | undefined;
 type ChartSeries = { hidden?: boolean; data?: ChartPoint[]; _series?: { role?: string } };
 
 /**
  * The date of the observed chart point nearest ``time`` (ms), for a click on the chart.
  * Fitted models, residuals and area bands are left out: their dates are not acquisitions,
  * and in the chart's "index" interaction their index does not line up with the data's.
+ * The point's own axis label is returned when it has one: an interval label such as
+ * `20260113_20260125` names one step, where its end date alone may name two.
  * Null when no observed series has a point.
  */
 export function observedDateNear(datasets: readonly ChartSeries[], time: number): string | null {
@@ -87,8 +89,41 @@ export function observedDateNear(datasets: readonly ChartSeries[], time: number)
       const x = point && typeof point === 'object' ? point.x : undefined;
       if (typeof x !== 'string') continue;
       const gap = Math.abs(Date.parse(x.length === 10 ? `${x}T00:00:00Z` : x) - time);
-      if (gap < bestGap) { bestGap = gap; best = x; }
+      if (gap < bestGap) { bestGap = gap; best = typeof point?.label === 'string' ? point.label : x; }
     }
   }
   return best;
+}
+
+type DrawnDot = { x?: unknown; y?: unknown } | null | undefined;
+
+/**
+ * The axis label of the observed point a click is on: the observed date nearest ``time`` (as
+ * ``observedDateNear``), and when several observed points share that date with different
+ * labels (two steps of an interval layer ending on the same day, drawn at the same x), the
+ * one drawn nearest the click's height ``py``. ``dots(i)`` gives the drawn positions of
+ * dataset ``i`` (Chart.js: ``chart.getDatasetMeta(i).data``). Null when no observed point.
+ */
+export function observedLabelNear(
+  datasets: readonly ChartSeries[], time: number, dots?: (i: number) => readonly DrawnDot[] | undefined, py?: number,
+): string | null {
+  const nearest = observedDateNear(datasets, time);
+  if (nearest === null) return null;
+  const at = (x: string) => Date.parse(x.length === 10 ? `${x}T00:00:00Z` : x);
+  const day = at(datasets.flatMap(d => d.data ?? []).find(p => p && typeof p === 'object'
+    && (p.label === nearest || p.x === nearest))?.x as string ?? nearest);
+  const same: { label: string; dy: number }[] = [];
+  datasets.forEach((series, i) => {
+    if (series.hidden || !OBSERVED.has(series._series?.role ?? '')) return;
+    const drawn = dots?.(i);
+    (series.data ?? []).forEach((point, j) => {
+      const x = point && typeof point === 'object' ? point.x : undefined;
+      if (typeof x !== 'string' || at(x) !== day) return;
+      const dot = drawn?.[j];
+      const dy = typeof dot?.y === 'number' && typeof py === 'number' ? Math.abs(dot.y - py) : Infinity;
+      same.push({ label: typeof point?.label === 'string' ? point.label : x, dy });
+    });
+  });
+  if (new Set(same.map(c => c.label)).size < 2) return nearest;
+  return same.reduce((a, b) => (b.dy < a.dy ? b : a)).label;
 }
