@@ -14,6 +14,8 @@
  * page opens Claude Code's sign-in page and passes back the code it shows
  * (POST /assistant/signin/code).
  */
+import type { LayerMaskMode } from '../types';
+
 
 export interface ProviderInfo {
   id: string;
@@ -115,7 +117,7 @@ export interface ChatRequest {
   /** This chat's id: keeps a signed-in agent's session between questions. */
   conversation?: string;
   /** The page's layer masks, which the data tools apply (so answers match the map). */
-  page_masks?: { dataset: string; threshold: number; mode: 'min' | 'max' }[];
+  page_masks?: { dataset: string; threshold: number; mode: LayerMaskMode }[];
   /** A signed-in agent runs Bowser's own tools without asking. */
   auto_allow?: boolean;
   /** What the page shows now (pageTools.pageState), told to the model with this question. */

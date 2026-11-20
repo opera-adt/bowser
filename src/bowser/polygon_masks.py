@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, Callable, Protocol
 import numpy as np
 from pyproj import CRS
 
-from .mask_alignment import _axis, _crs, align_mask, mask_condition
+from .mask_alignment import _axis, _crs, align_mask, mask_condition, mask_operator
 from .polygon import STORED_WARNING, NativeGrid, PolygonMask, _linear, _values
 
 if TYPE_CHECKING:
@@ -139,7 +139,7 @@ def xarray_masks(
             {
                 "dataset": spec.dataset,
                 "threshold": spec.threshold,
-                "operator": ">=" if spec.mode == "min" else "<=",
+                "operator": mask_operator(spec.mode),
                 "temporal_support": "matching_axis" if dim else "static",
             }
         )
@@ -203,7 +203,7 @@ def raster_masks(
             {
                 "dataset": spec.dataset,
                 "threshold": spec.threshold,
-                "operator": "<=" if spec.mode == "max" else ">",
+                "operator": mask_operator(spec.mode, inclusive_min=False),
                 "temporal_support": "matching_axis" if len(paths) > 1 else "static",
             }
         )
