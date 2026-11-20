@@ -3572,7 +3572,7 @@ def animation_capabilities():
     return {
         "supported": True,
         "max_frames": 90,
-        "scope": "real-valued raster with optional native-point histories",
+        "scope": "real-valued raster with optional point histories and vector outlines",
     }
 
 

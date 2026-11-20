@@ -19,6 +19,7 @@ from .animation_points import (
     elapsed_times,
     locate_grid_points,
 )
+from .animation_vectors import AnimationOutline, draw_outlines, prepare_outlines
 from .polygon import PolygonMask
 from .polygon_masks import _axis
 
@@ -44,6 +45,7 @@ class AnimationRequest(BaseModel):
     bounds: list[float] | None = Field(default=None, min_length=4, max_length=4)
     layer_masks: list[PolygonMask] = Field(default_factory=list, max_length=10)
     points: list[AnimationPoint] = Field(default_factory=list, max_length=5)
+    outlines: list[AnimationOutline] = Field(default_factory=list, max_length=5)
     custom_mask_path: str | None = None
     ref_lon: float | None = Field(default=None, ge=-180, le=180)
     ref_lat: float | None = Field(default=None, ge=-90, le=90)
@@ -59,6 +61,8 @@ class AnimationRequest(BaseModel):
             self.width < 320 or len({p.id for p in self.points}) != len(self.points)
         ):
             raise ValueError("Point plots need width at least 320 and unique point IDs")
+        if sum(layer.vertex_count for layer in self.outlines) > 5000:
+            raise ValueError("Outlines exceed the 5000-vertex total budget")
         if self.vmin >= self.vmax:
             raise ValueError("Color limits must increase")
         if (self.ref_lon is None) != (self.ref_lat is None):
@@ -431,6 +435,7 @@ def render(request: AnimationRequest, target: Any, prepare: Callable):
                 [[128, 128, 128], [255, 255, 255], [0, 0, 0]],
             )
         ).astype("uint8")
+    outline_paths = None
     point_records = plan.point_records
     frames: list[Image.Image] = []
     support, references = [], []
@@ -504,6 +509,10 @@ def render(request: AnimationRequest, target: Any, prepare: Callable):
             ).astype("uint8")
             image = Image.fromarray(pixels).resize(size, Image.Resampling.NEAREST)
             image.putpalette(palette.ravel().tolist())
+            if request.outlines:
+                if outline_paths is None:
+                    outline_paths = prepare_outlines(da, request.outlines, size)
+                draw_outlines(image, outline_paths)
             frame = Image.new("P", (size[0], size[1] + 48), 254)
             frame.putpalette(palette.ravel().tolist())
             frame.paste(image, (0, 24))
@@ -527,6 +536,9 @@ def render(request: AnimationRequest, target: Any, prepare: Callable):
     manifest = {
         "kind": "raster GIF display",
         "point_histories": point_records,
+        "outlines": [layer.model_dump() for layer in request.outlines],
+        "outline_style": "black with white halo; no fill; display only",
+        "visible_outline_primitives": len(outline_paths or []),
         "plot": plot,
         "variable": request.variable,
         "indices": indices,
@@ -557,7 +569,7 @@ def render(request: AnimationRequest, target: Any, prepare: Callable):
             "Equal playback durations do not represent unequal acquisition intervals",
             "No inferred zero epochs, numeric interpolation, smoothing or new fitting",
             (
-                "No basemap, terrain context, imported annotations, "
+                "No basemap, terrain context, text annotations, "
                 "opacity blending; optional native-pixel histories only"
             ),
         ],
