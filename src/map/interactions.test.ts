@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AppAction, RasterGroup } from '../types';
 import {
   annotationAction, mapClickActions, markerPopupText, pixelInspectRequest, pixelInspectText,
-  pointClickActions, pointDoubleClickActions, pointDragEndActions, refDragEnd,
+  chartRadiusLimit, pointClickActions, pointDoubleClickActions, pointDragEndActions, refDragEnd, referenceValues,
 } from './interactions';
 
 const P: [number, number] = [33.95859, -117.67462];   // [lat, lng]
@@ -114,12 +114,26 @@ describe('reference marker drag', () => {
     expect(out[1]).toEqual({ type: 'SET_REF_VALUES', payload: { dataset: 'displacement', values: [0.5, NaN, 2.5] } });
   });
 
-  it('falls back to the point when the buffer returns no median', async () => {
+  it('does not substitute the centre pixel when the circle cannot be read', async () => {
+    // e.g. the server's 422 for a circle over the native read budget: the panel still shows
+    // the circle, so a single-pixel series would silently be a different reference.
     const out: AppAction[] = [];
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     const a = api({ fetchBufferTimeSeries: vi.fn(async () => undefined) });
     await refDragEnd(st('shift', 90), P, a, x => out.push(x));
-    expect(a.fetchPointTimeSeries).toHaveBeenCalled();
-    expect(out).toHaveLength(2);
+    expect(a.fetchPointTimeSeries).not.toHaveBeenCalled();
+    expect(out).toEqual([{ type: 'SET_REF_MARKER_POSITION', payload: P }]);
+    expect(err).toHaveBeenCalled();
+    err.mockRestore();
+  });
+
+  it('referenceValues rejects an unreadable circle and keeps a readable one', async () => {
+    const none = api({ fetchBufferTimeSeries: vi.fn(async () => ({ labels: ['2026-01-01'] })) });
+    await expect(referenceValues(st('shift', 90), 'displacement', P, none)).rejects.toThrow('90 m');
+    expect(none.fetchPointTimeSeries).not.toHaveBeenCalled();
+    // An all-gap median is still the circle's answer (NaN on each date), not an error.
+    const gaps = api({ fetchBufferTimeSeries: vi.fn(async () => ({ median: [] })) });
+    await expect(referenceValues(st('shift', 90), 'displacement', P, gaps)).resolves.toEqual([NaN, NaN, NaN]);
   });
 
   it('only moves the marker for datasets without the shift algorithm', async () => {
@@ -186,5 +200,12 @@ describe('map click while drawing', () => {
   it('leaves the click to the drawing tools', () => {
     expect(mapClickActions({ ...picking, drawingEnabled: true }, [35, -90], { toolActive: false, profileActive: false }))
       .toEqual({ kind: 'ignore' });
+  });
+});
+
+describe('chartRadiusLimit', () => {
+  it('is the smallest layer budget, at most 5000 m', () => {
+    expect(chartRadiusLimit({})).toBe(5000);
+    expect(chartRadiusLimit({ a: {}, b: { chart_buffer_max_m: 1200 }, c: { chart_buffer_max_m: 9000 } } as never)).toBe(1200);
   });
 });
