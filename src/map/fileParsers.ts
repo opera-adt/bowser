@@ -5,6 +5,8 @@
  * Pure functions (DOMParser for the XML formats), so they run in tests as in the browser.
  */
 
+import { validFeatureId } from './featureIdentity';
+
 export type Position = number[];
 export interface Geometry {
   type: "Point" | "LineString" | "Polygon" | "MultiPoint" | "MultiLineString" | "MultiPolygon";
@@ -38,7 +40,7 @@ export function parseGeoJson(text: string): FeatureCollection {
   }
   const asFeature = (x: unknown): Feature[] => {
     const o = x as { id?: unknown; type?: string; geometry?: unknown; properties?: unknown; geometries?: unknown[] };
-    if (o?.type === "Feature") return [{ type: "Feature", ...((typeof o.id === "string" || (typeof o.id === "number" && Number.isFinite(o.id))) ? { id: o.id } : {}), geometry: (o.geometry ?? null) as Geometry | null, properties: (o.properties ?? {}) as Record<string, unknown> }];
+    if (o?.type === "Feature") return [{ type: "Feature", ...(validFeatureId(o.id) ? { id: o.id } : {}), geometry: (o.geometry ?? null) as Geometry | null, properties: (o.properties ?? {}) as Record<string, unknown> }];
     if (o?.type === "GeometryCollection") return (o.geometries ?? []).flatMap(asFeature);
     if (o?.type && GEOMETRY_TYPES.has(o.type)) return [{ type: "Feature", geometry: o as Geometry, properties: {} }];
     return [];

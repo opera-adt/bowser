@@ -63,6 +63,17 @@ export interface RasterGroup {
   radar_wavelength_m?: number | null;
 }
 
+/** Provenance of a chart feature; index retained for old projects and ambiguous IDs. */
+export interface FeatureSource {
+  overlayId: string;
+  layer: string;
+  index: number;
+  featureId?: string | number;
+  sourceLayer?: string;
+  /** Unique within the imported collection; absent when IDs collide or are missing. */
+  featureKey?: string;
+}
+
 export interface TimeSeriesPoint {
   id: string;
   name: string;
@@ -74,7 +85,7 @@ export interface TimeSeriesPoint {
   line?: LineStyle;
   data?: { [dataset: string]: number[] };
   /** The vector layer feature it came from (Zonal stats); absent for a point clicked on the map. */
-  source?: { overlayId: string; layer: string; index: number };
+  source?: FeatureSource;
   // mmPerYear is in rateUnit/yr (mm in metric, in in imperial); the name is kept for saved projects.
   trendData?: { [dataset: string]: { slope: number; intercept: number; rSquared: number; mmPerYear: number; stdMmPerYear?: number; rateUnit?: string } };
 }
@@ -88,7 +99,7 @@ export interface ChartArea extends Partial<AreaStyle> {
   /** GeoJSON Polygon or MultiPolygon in WGS84. */
   geometry: { type: 'Polygon' | 'MultiPolygon'; coordinates: unknown };
   /** The vector layer feature it came from; absent for an area drawn on the map. */
-  source?: { overlayId: string; layer: string; index: number };
+  source?: FeatureSource;
 }
 
 /** One area's statistics for one layer: waiting, the answer, or why there is none. */
