@@ -274,9 +274,10 @@ PARAMS: dict[str, dict[str, Any]] = {
     "custom_mask_path": {
         "description": "Server path of a mask from POST /upload_mask; keeps "
         "pixels where the mask is > 0 in GeoZarr (warped as on the map), "
-        "> 0.5 in native-grid GeoTIFF charts. bowser-lite ignores it on "
-        "tiles and refuses it (501) on charts/exports; the page omits it "
-        "from lite charts and warns that it was not applied.",
+        "> 0.5 in GeoTIFF layers (native grid only for point/radius charts; "
+        "area summaries warp it as the map does). bowser-lite ignores it on "
+        "tiles and refuses it (501) on charts, areas and exports; the page "
+        "omits it from lite charts and areas and warns that it was not applied.",
         "examples": ["/tmp/bowser_masks/mask_0123abcd.tif"],
     },
     "rescale": {

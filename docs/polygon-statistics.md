@@ -107,12 +107,38 @@ The server must confirm that requested quality masks were applied. A failed,
 empty or unconfirmed mask response clears the old curve and displays an error;
 there is no fallback to unmasked data for the masks chosen in Main > Masking.
 
-Two masks the map applies are not yet supported by this polygon workflow: an
-uploaded external mask, and a GeoTIFF layer's configured mask file. An area is
-still drawn while one of them is active, from pixels the map may be hiding, and
-the chart's footnote says so ("Areas: uploaded mask not applied", "Areas:
-configured mask not applied"). These limits do not claim to change point-chart
-or map behavior.
+The full server also applies an uploaded mask (`custom_mask_path`) and the
+selected GeoTIFF layer's configured mask (`primary_mask: true`, optional
+`mask_min_value`). The chart forwards these options automatically when active and uses per-date
+support, matching its existing named-quality-mask policy. The direct API retains
+its explicit common/per-date choice and unchanged default.
+Summaries use the resulting native support. Individual-pixel preview histories
+are a separate contribution, not part of this summary-only API.
+Missing, unreadable or unconfirmed masks clear the affected result; no unmasked
+fallback is drawn. `mask_min_value` without `primary_mask: true` is refused (422),
+as on the point/radius charts. Bowser-lite answers 501 to any of these options,
+like its charts; the page leaves the uploaded mask out of lite areas, as it does
+for points, and says "Uploaded mask not applied" in the chart and the Stats tab.
+
+Configured masks preserve the existing GeoTIFF convention: finite, nonzero and
+at least the configured threshold. Valid zero displacement is independent of a
+zero mask flag. Uploaded masks use the existing source-specific convention:
+GeoZarr keeps values greater than zero; GeoTIFF keeps values greater than 0.5.
+Mask nodata and outside coverage are invalid. These conventions are reported in
+the response rather than silently harmonized.
+
+A mask on the layer's exact native grid is read only in the selected window. A
+mask on another grid is aligned exactly as the map aligns it, so an area keeps
+the pixels the map shows: the **mask only** (never the displacement) is warped
+to the whole native grid with nearest-neighbour sampling (GeoZarr: the map's
+cached warp, also used by the point/radius charts; GeoTIFF: the warp the map's
+masked layer uses), and the area's window is taken from that warp. A windowed
+warp would flip a few edge pixels compared with the map. The warp is cached per
+file and grid; a dynamic configured mask on another grid warps one whole file
+per date. Static windows are cached for the request; dynamic configured masks require a
+complete list matching the source count and are indexed without clamping. All
+mask work counts toward the existing polygon pixel-epoch budget. Configured and
+uploaded filenames are not returned in the statistics metadata.
 
 With a quality mask on, each date uses the pixels that pass the mask on that
 date (`support: per_date`), as the map shows them; without masks the same
@@ -205,8 +231,8 @@ retains:
 ```
 
 It therefore does not claim to reproduce a dynamically referenced/masked map.
-Reference coordinates, primary/configured mask options and external uploaded
-mask paths remain unsupported request fields and are rejected. The chart
+Reference coordinates remain unsupported request fields. External mask options
+are explicit opt-ins on the full server as described above. The chart
 already subtracts its reference from stored summaries; no second reference
 subtraction is introduced here. The chart sends supported named masks explicitly
 and invalidates old summaries when they change. Disconnected offsets can be

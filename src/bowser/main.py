@@ -1549,6 +1549,13 @@ async def get_dataset_range(
     return JSONResponse(found)
 
 
+def _raster_grid(group) -> "xr.DataArray":
+    """Return a GeoTIFF layer's native grid (no pixels read), to warp masks on."""
+    import rioxarray as rxr  # noqa: PLC0415
+
+    return rxr.open_rasterio(group.file_list[0], masked=True).squeeze("band", drop=True)
+
+
 @app.post(
     "/polygon_timeseries",
     response_class=JSONResponse,
@@ -1565,6 +1572,7 @@ def polygon_timeseries(
     The stored reference is retained: the chart applies its reference separately.
     Component screening is not inferred. Unknown request fields are rejected.
     """
+    _chart_mask_options(body.primary_mask, body.mask_min_value, body.custom_mask_path)
     available = (
         target.dataset.data_vars
         if target.mode == "md" and target.dataset is not None
@@ -1580,12 +1588,16 @@ def polygon_timeseries(
                 raise ValueError("Source supports at most one non-spatial axis")
             dim = extra[0] if extra else None
             labels = _dim_labels(source, dim) if dim else ["Stored layer"]
-            result = summarize_xarray(source, body, labels, mask_dataset=target.dataset)
+            result = summarize_xarray(
+                source, body, labels, mask_dataset=target.dataset, warp=_custom_mask_on
+            )
         else:
+            group = target.raster_groups[body.variable]
             result = summarize_rasters(
-                target.raster_groups[body.variable],
+                group,
                 body,
                 mask_groups=target.raster_groups,
+                warp=lambda path: _warped_mask(_raster_grid(group), path, values=True),
             )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -2863,6 +2875,18 @@ def _custom_mask_on(da: "xr.DataArray", path: str) -> "xr.DataArray":
     tile of that level needs the same result, so it is kept per file (path, size
     and modification time) and grid.
     """
+    return _warped_mask(da, path)
+
+
+def _warped_mask(
+    da: "xr.DataArray", path: str, *, values: bool = False
+) -> "xr.DataArray":
+    """Warp the mask at ``path`` to the whole grid of ``da``, cached.
+
+    ``values=False`` keeps where it is > 0 (the GeoZarr map); ``values=True``
+    returns the warped values, for thresholds applied later (GeoTIFF layers, as
+    ``_build_masked_cog_dataarray`` warps them).
+    """
     import rioxarray as rxr  # noqa: PLC0415
 
     file = Path(path).resolve()
@@ -2875,6 +2899,7 @@ def _custom_mask_on(da: "xr.DataArray", path: str) -> "xr.DataArray":
         da.rio.crs.to_wkt(),
         (x.size, float(x[0]), float(x[-1])),
         (y.size, float(y[0]), float(y[-1])),
+        values,
     )
     with _custom_masks_lock:
         keep = _custom_masks.get(key)
@@ -2882,7 +2907,8 @@ def _custom_mask_on(da: "xr.DataArray", path: str) -> "xr.DataArray":
             _custom_masks.move_to_end(key)
             return keep
     custom_da = rxr.open_rasterio(path, masked=True).squeeze("band", drop=True)
-    keep = (custom_da.rio.reproject_match(da) > 0).compute()
+    warped = custom_da.rio.reproject_match(da)
+    keep = (warped if values else warped > 0).compute()
     with _custom_masks_lock:
         _custom_masks[key] = keep
         while (

@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Callable, Literal
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .api_models import PARAMS
 from .mask_alignment import validate_mask_threshold
 
 if TYPE_CHECKING:
@@ -63,6 +64,13 @@ class PolygonRequest(BaseModel):
     )
     layer_masks: list[PolygonMask] = Field(default_factory=list, max_length=10)
 
+    primary_mask: bool = Field(default=False, strict=True, **PARAMS["primary_mask"])
+    mask_min_value: float | None = Field(
+        default=None, allow_inf_nan=False, **PARAMS["mask_min_value"]
+    )
+    custom_mask_path: str | None = Field(
+        default=None, min_length=1, max_length=4096, **PARAMS["custom_mask_path"]
+    )
     curve_mode: Literal["none", "sample", "all"] = Field(
         default="none",
         description=(
@@ -326,14 +334,43 @@ def _summaries(
     return statistics, counts, int(common.sum()), preview
 
 
+def _external_mask(masks, paths, grid, threshold, operator, *, primary=False, warp):
+    """Attach the charts' configured/uploaded mask reader; refuse unreadable masks."""
+    import rasterio  # noqa: PLC0415
+    from rioxarray.exceptions import RioXarrayError  # noqa: PLC0415
+
+    from .cog_sampling import attach_external_mask  # noqa: PLC0415
+
+    attach_external_mask(
+        masks, paths, grid, threshold, operator, primary=primary, warp=warp
+    )
+    read = masks.readers[-1]
+
+    def checked(index: int, rows: slice, cols: slice) -> np.ndarray:
+        try:
+            return read(index, rows, cols)
+        except (OSError, rasterio.errors.RasterioError, RioXarrayError) as exc:
+            raise ValueError(
+                "Could not read the requested polygon mask; no unmasked fallback"
+            ) from exc
+
+    masks.readers[-1] = checked
+
+
 def summarize_xarray(
     source: xr.DataArray,
     request: PolygonRequest,
     labels: list[str],
     *,
     mask_dataset: xr.Dataset | None = None,
+    warp: Callable[[xr.DataArray, str], Any] | None = None,
 ) -> dict:
-    """Summarize a level-zero GeoZarr variable using bounded spatial reads."""
+    """Summarize a level-zero GeoZarr variable using bounded spatial reads.
+
+    ``warp(source, path)`` aligns an uploaded mask on another grid as the map
+    does (the full server's cached whole-grid warp); without it, uploaded masks
+    are refused.
+    """
     from .polygon_masks import xarray_masks  # noqa: PLC0415
 
     if not {"x", "y"}.issubset(source.dims):
@@ -368,6 +405,20 @@ def summarize_xarray(
     if grid.transform.b != 0 or grid.transform.d != 0:
         raise ValueError("GeoZarr statistics require a rectilinear x/y grid")
     masks = xarray_masks(source, mask_dataset, request, grid.crs)
+    if request.primary_mask:
+        raise ValueError("Configured raster masks require a GeoTIFF source")
+    if request.custom_mask_path:
+        if warp is None:
+            raise ValueError("Uploaded polygon masks require the full server")
+        _external_mask(
+            masks,
+            [request.custom_mask_path],
+            grid,
+            0.0,
+            ">",
+            warp=lambda path: warp(source, path),
+        )
+
     window, inside, clipped = _selection(grid, request.geometry, masks.work(count))
     rows = slice(int(window.row_off), int(window.row_off + window.height))
     cols = slice(int(window.col_off), int(window.col_off + window.width))
@@ -425,8 +476,13 @@ def summarize_rasters(
     request: PolygonRequest,
     *,
     mask_groups: dict | None = None,
+    warp: Callable[[str], Any] | None = None,
 ) -> dict:
-    """Summarize identical-grid, identical-unit GeoTIFFs with windowed reads."""
+    """Summarize identical-grid, identical-unit GeoTIFFs with windowed reads.
+
+    ``warp(path)`` returns a configured/uploaded mask on another grid warped to
+    the whole native grid, as the map does; without it such masks are refused.
+    """
     import rasterio  # noqa: PLC0415
 
     from .polygon_masks import raster_masks  # noqa: PLC0415
@@ -437,6 +493,23 @@ def summarize_rasters(
         grid = NativeGrid(first.crs, first.transform, first.width, first.height)
     labels = [str(v) for v in group.x_values]
     masks = raster_masks(mask_groups, request.layer_masks, labels, grid)
+    if request.primary_mask:
+        paths = list(group.mask_file_list)
+        if not paths or any(not p for p in paths) or len(paths) not in (1, len(labels)):
+            raise ValueError("No complete configured polygon mask is available")
+        threshold = (
+            group.mask_min_value
+            if request.mask_min_value is None
+            else request.mask_min_value
+        )
+        if not np.isfinite(threshold):
+            raise ValueError("Configured mask threshold must be finite")
+        _external_mask(
+            masks, paths, grid, float(threshold), ">=", primary=True, warp=warp
+        )
+    if request.custom_mask_path:
+        _external_mask(masks, [request.custom_mask_path], grid, 0.5, ">", warp=warp)
+
     window, inside, clipped = _selection(
         grid, request.geometry, masks.work(len(group.file_list))
     )

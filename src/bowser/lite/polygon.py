@@ -436,6 +436,8 @@ def summarize_cube(
         x.size,
         y.size,
     )
+    if request.primary_mask or request.custom_mask_path:
+        raise ValueError("Configured/uploaded polygon masks require the full server")
     masks = xarray_masks(source, mask_dataset, request, crs)
     (col_off, row_off, width, height), inside, clipped = selection(
         grid, request.geometry, masks.work(count)
