@@ -1,4 +1,5 @@
 import { useCallback } from 'react';
+import { featureSourceKey } from '../map/featureIdentity';
 import { useAppDispatch, useGetAppState } from '../context/AppContext';
 import { useApi } from './useApi';
 import { AREA_NEEDS_SERVER } from './usePolygonStats';
@@ -49,9 +50,9 @@ export function useZonalStats(polygonStats: boolean) {
       notes.push(`${AREA_NEEDS_SERVER}: the polygons were skipped.`);
     } else if (allPolygons.length > 0) {
       const polygons = capped(allPolygons, 'polygons') as typeof allPolygons;
-      const known = new Set(state.chartAreas.flatMap(a => (a.source ? [`${a.source.overlayId}:${a.source.index}`] : [])));
+      const known = new Set(state.chartAreas.flatMap(a => (a.source ? [featureSourceKey(a.source)] : [])));
       const stamp = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-      areas = polygons.filter(p => !known.has(p.key))
+      areas = polygons.filter(p => !known.has(p.key) && !known.has(`${p.source.overlayId}:${p.source.index}`))
         .map((p, i) => ({ id: `area_${stamp}_${i}`, name: p.name, geometry: p.geometry, source: p.source }));
       if (areas.length > 0) {
         dispatch({ type: 'ADD_CHART_AREAS', payload: areas });
