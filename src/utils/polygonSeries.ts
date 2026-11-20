@@ -11,6 +11,7 @@ import type { ChartArea, LayerMask, Overlay } from '../types';
 
 import { AREA_PERCENTILES, areaRows, type AreaRow } from './areaStats';
 import { areaStyle, withOpacity, type AreaStyle } from '../map/seriesStyle';
+import { errorDetail } from './errorDetail';
 
 export { AREA_PERCENTILES };
 
@@ -159,12 +160,7 @@ export function polygonRequestBody(variable: string, geometry: ChartArea['geomet
 /** A short message for a failed request (422 bad or too-large polygon, 501 without the route). */
 export function polygonErrorMessage(status: number, body: unknown): string {
   if (status === 501) return 'needs the full Bowser server';
-  const detail = (body as { detail?: unknown } | null)?.detail;
-  if (typeof detail === 'string' && detail) return detail;
-  if (Array.isArray(detail) && typeof detail[0]?.msg === 'string') {
-    return detail[0].msg.replace(/^Value error, /, '');
-  }
-  return `request failed (HTTP ${status})`;
+  return errorDetail(body) ?? `request failed (HTTP ${status})`;
 }
 
 /** Why an answer can't be drawn (no pixel had a value), or null when it can. */
