@@ -71,7 +71,7 @@ def apply_layer_masks(
                 raise ValueError(f"Unknown mask layer: {var}")
             mask = mask_alignment.align_mask(source, ds[var])
             mask = select(_mask_frame(mask, time_idx))
-            operator = "<=" if m["mode"] == "max" else ">="
+            operator = mask_alignment.mask_operator(m["mode"])
             values = values.where(
                 mask_alignment.mask_condition(mask, m["threshold"], operator)
             )

@@ -8,6 +8,10 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Absolute-value layer masks (`|value| ≤` and `|value| ≥`) across native
+  display, analysis and export paths, preserving measurement signs and nodata.
+  See [docs/absolute-value-masks.md](docs/absolute-value-masks.md).
+
 - Configured and uploaded masks in full-server point/radius chart requests,
   including bounded native reads, per-layer configured thresholds and clear
   unsupported/error handling. Shared named-mask and reference policies remain

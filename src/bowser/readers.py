@@ -34,6 +34,7 @@ from tqdm.contrib.concurrent import thread_map
 
 from ._dates import get_dates
 from .constants import TILE_SIZE
+from .mask_alignment import mask_operator, numpy_mask_condition, validate_mask_threshold
 
 
 def _patch_rasterio_float16() -> None:
@@ -588,10 +589,7 @@ class CustomReader(BaseReader):
         for entry in self.input.get("extra_masks", []):
             mask_path, threshold = entry[:2]
             mode = entry[2] if len(entry) == 3 else "min"
-            if mode not in ("min", "max") or not np.isfinite(threshold):
-                raise ValueError(
-                    "Extra masks require a finite threshold and min/max mode"
-                )
+            validate_mask_threshold(mode, threshold)
             reader = self._ctx_stack.enter_context(Reader(mask_path))
             self._extra_masks.append((reader, threshold, mode))
 
@@ -682,8 +680,8 @@ class CustomReader(BaseReader):
                 )
                 extra = np.squeeze(extra_img.array)
                 valid = ~np.ma.getmaskarray(extra) & np.isfinite(extra.data)
-                keep = (
-                    extra.data <= threshold if mode == "max" else extra.data > threshold
+                keep = numpy_mask_condition(
+                    extra, threshold, mask_operator(mode, inclusive_min=False)
                 )
                 combined_mask = np.logical_or(combined_mask, ~valid | ~keep)
             except TileOutsideBounds:
