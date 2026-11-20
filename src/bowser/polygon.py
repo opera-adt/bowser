@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Callable, Literal
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .api_models import PARAMS
 from .mask_alignment import validate_mask_threshold
 
 if TYPE_CHECKING:
@@ -60,9 +61,13 @@ class PolygonRequest(BaseModel):
     )
     layer_masks: list[PolygonMask] = Field(default_factory=list, max_length=10)
 
-    primary_mask: bool = Field(default=False, strict=True)
-    mask_min_value: float | None = Field(default=None, allow_inf_nan=False)
-    custom_mask_path: str | None = Field(default=None, min_length=1, max_length=4096)
+    primary_mask: bool = Field(default=False, strict=True, **PARAMS["primary_mask"])
+    mask_min_value: float | None = Field(
+        default=None, allow_inf_nan=False, **PARAMS["mask_min_value"]
+    )
+    custom_mask_path: str | None = Field(
+        default=None, min_length=1, max_length=4096, **PARAMS["custom_mask_path"]
+    )
 
     @field_validator("percentiles")
     @classmethod

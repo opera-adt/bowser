@@ -335,7 +335,8 @@ for name, state, app in states:
     with TestClient(app) as client:
         for kind, fields in [('uploaded', {'custom_mask_path': inputs['mask']}),
                              ('configured', dict(primary_mask=True, mask_min_value=0)),
-                             ('missing', {'custom_mask_path': 'missing-mask.tif'})]:
+                             ('missing', {'custom_mask_path': 'missing-mask.tif'}),
+                             ('threshold_only', {'mask_min_value': 0})]:
             r = client.post('/polygon_timeseries', json={**inputs['body'], **fields})
             results[name + '_' + kind] = {'status': r.status_code, 'body': r.json()}
 (work / 'response.json').write_text(json.dumps(results))
@@ -374,8 +375,20 @@ for name, state, app in states:
         "md_configured",
         "md_missing",
         "cog_missing",
-        "lite_uploaded",
-        "lite_configured",
-        "lite_missing",
+        "md_threshold_only",
+        "cog_threshold_only",
     ]:
         assert results[name]["status"] == 422, results[name]
+    # As on the point/radius charts: a threshold needs primary_mask, and lite
+    # refuses every external mask as unsupported rather than invalid.
+    assert "primary_mask=true" in results["cog_threshold_only"]["body"]["detail"]
+    for name in ["uploaded", "configured", "missing", "threshold_only"]:
+        assert results["lite_" + name]["status"] == 501, results["lite_" + name]
+
+
+def test_mask_fields_are_documented_like_the_chart_options():
+    from bowser.api_models import PARAMS
+
+    for name in ("primary_mask", "mask_min_value", "custom_mask_path"):
+        field = PolygonRequest.model_fields[name]
+        assert field.description == PARAMS[name]["description"]

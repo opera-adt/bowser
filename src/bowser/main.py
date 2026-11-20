@@ -1572,6 +1572,7 @@ def polygon_timeseries(
     The stored reference is retained: the chart applies its reference separately.
     Component screening is not inferred. Unknown request fields are rejected.
     """
+    _chart_mask_options(body.primary_mask, body.mask_min_value, body.custom_mask_path)
     available = (
         target.dataset.data_vars
         if target.mode == "md" and target.dataset is not None
