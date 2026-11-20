@@ -32,7 +32,7 @@ export function toIsoDate(xVal: string | number): string {
   if (/^\d{8}$/.test(dateStr)) {
     return `${dateStr.slice(0, 4)}-${dateStr.slice(4, 6)}-${dateStr.slice(6, 8)}`;
   }
-  return s;
+  return /^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(dateStr) ? dateStr : s;
 }
 
 const finite = (v: number | null | undefined): v is number => typeof v === 'number' && Number.isFinite(v);

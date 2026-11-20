@@ -59,10 +59,11 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- Chart-to-map date selection preserves both dates of a pair and does not jump
-  to another pair with the same end date: each chart point keeps its own step's label, and
-  of two steps ending on the same date (drawn at the same place on the time axis) the click
-  takes the one whose dot is nearer. Ambiguous selections leave the map unchanged.
+- Chart-to-map date selection keeps both dates of an acquisition pair, for point and
+  buffer charts: each chart point keeps its step's own label (compact or hyphenated), and
+  of two steps ending on the same date (drawn at the same place on the time axis) a click
+  takes the one whose dot is nearer. The time axis still shows the ending date. Ambiguous
+  selections leave the map unchanged.
 - **A click in the chart goes to the right date with the model on.** The fitted line is
   drawn first, and the click took its date, which is not an acquisition: the map often
   stayed where it was or went elsewhere. The map now goes to the observed point nearest

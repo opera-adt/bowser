@@ -127,8 +127,8 @@ describe('a click on a series whose steps are intervals', () => {
   it("hands back the point's own interval label, so a shared end date does not hide which step it is", () => {
     const t = Date.parse('2026-01-25T00:00:00Z');
     const series = { _series: { role: 'data' }, data: [
-      { x: '2026-01-25', label: '2026-01-01_2026-01-25' },
-      { x: '2026-02-06', label: '2026-01-13_2026-02-06' },
+      { x: '2026-01-25', _sourceLabel: '2026-01-01_2026-01-25' },
+      { x: '2026-02-06', _sourceLabel: '2026-01-13_2026-02-06' },
     ] };
     expect(observedDateNear([series], t)).toBe('2026-01-01_2026-01-25');
     const axis = ['2026-01-01_2026-01-25', '2026-01-13_2026-01-25', '2026-01-13_2026-02-06'];
@@ -138,8 +138,8 @@ describe('a click on a series whose steps are intervals', () => {
 
 describe('the observed point a click is on', () => {
   const series = { _series: { role: 'data' }, data: [
-    { x: '2026-01-13', label: 'x_2026-01-13' },
-    { x: '2026-01-25', label: 'a_2026-01-25' }, { x: '2026-01-25', label: 'b_2026-01-25' },
+    { x: '2026-01-13', _sourceLabel: 'x_2026-01-13' },
+    { x: '2026-01-25', _sourceLabel: 'a_2026-01-25' }, { x: '2026-01-25', _sourceLabel: 'b_2026-01-25' },
   ] };
   const model = { _series: { role: 'model' }, data: [{ x: '2026-01-24' }] };
   const dots = (i: number) => (i === 1 ? [{ x: 10, y: 50 }, { x: 50, y: 10 }, { x: 50, y: 90 }] : [{ x: 48, y: 50 }]);

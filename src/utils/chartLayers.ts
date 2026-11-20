@@ -69,7 +69,7 @@ export function timeIndexOfDate(xValues: readonly (string | number)[] | undefine
 /** A chart series' observed values: a point's data, a buffer median, an area median. */
 const OBSERVED = new Set(['data', 'median', 'area_median']);
 
-type ChartPoint = { x?: unknown; label?: unknown } | null | undefined;
+type ChartPoint = { x?: unknown; _sourceLabel?: unknown } | null | undefined;
 type ChartSeries = { hidden?: boolean; data?: ChartPoint[]; _series?: { role?: string } };
 
 /**
@@ -89,7 +89,7 @@ export function observedDateNear(datasets: readonly ChartSeries[], time: number)
       const x = point && typeof point === 'object' ? point.x : undefined;
       if (typeof x !== 'string') continue;
       const gap = Math.abs(Date.parse(x.length === 10 ? `${x}T00:00:00Z` : x) - time);
-      if (gap < bestGap) { bestGap = gap; best = typeof point?.label === 'string' ? point.label : x; }
+      if (gap < bestGap) { bestGap = gap; best = typeof point?._sourceLabel === 'string' ? point._sourceLabel : x; }
     }
   }
   return best;
@@ -111,7 +111,7 @@ export function observedLabelNear(
   if (nearest === null) return null;
   const at = (x: string) => Date.parse(x.length === 10 ? `${x}T00:00:00Z` : x);
   const day = at(datasets.flatMap(d => d.data ?? []).find(p => p && typeof p === 'object'
-    && (p.label === nearest || p.x === nearest))?.x as string ?? nearest);
+    && (p._sourceLabel === nearest || p.x === nearest))?.x as string ?? nearest);
   const same: { label: string; dy: number }[] = [];
   datasets.forEach((series, i) => {
     if (series.hidden || !OBSERVED.has(series._series?.role ?? '')) return;
@@ -121,7 +121,7 @@ export function observedLabelNear(
       if (typeof x !== 'string' || at(x) !== day) return;
       const dot = drawn?.[j];
       const dy = typeof dot?.y === 'number' && typeof py === 'number' ? Math.abs(dot.y - py) : Infinity;
-      same.push({ label: typeof point?.label === 'string' ? point.label : x, dy });
+      same.push({ label: typeof point?._sourceLabel === 'string' ? point._sourceLabel : x, dy });
     });
   });
   if (new Set(same.map(c => c.label)).size < 2) return nearest;

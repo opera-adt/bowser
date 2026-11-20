@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppProvider, useAppContext } from '../context/AppContext';
 import type { AppState, RasterGroup } from '../types';
 
-type Drawn = { data: null | { datasets: { label: string; data: { x: string; y: number; label?: string }[] }[] }; options: any };
+type Drawn = { data: null | { datasets: { label: string; data: { x: string; y: number; _sourceLabel?: string }[] }[] }; options: any };
 const drawn = vi.hoisted(() => ({ data: null, options: null } as Drawn));
 vi.mock('react-chartjs-2', async () => {
   const { forwardRef } = await import('react');
