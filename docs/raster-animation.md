@@ -144,8 +144,16 @@ zero opacity are excluded. Supported GeoJSON geometry types are Point,
 MultiPoint, LineString, MultiLineString, Polygon and MultiPolygon. Polygon holes
 and multipart boundaries are retained. GeometryCollection, invalid/open rings,
 nonfinite/non-WGS84 coordinates and antimeridian-spanning shapes are rejected
-rather than repaired or silently skipped. A total 5,000-vertex limit bounds work;
-prepare a smaller vector subset externally if needed. Nothing is simplified.
+rather than repaired or silently skipped. Each layer may have at most 100
+features (geometries), and all layers together at most 5,000 vertices; prepare a
+smaller vector subset externally if needed. Nothing is simplified. The page
+counts both before sending anything and names the layer that is over; any other
+rejection shows the server's reason.
+
+Large files that Bowser draws from server tiles (vector PMTiles, used for files
+over 20 MB or 50,000 features) are not in the page as features, so they are not
+included in outlines. With the option ticked, the page names each such visible
+layer as not included.
 
 Outlines are static over the exported dates. They use black strokes with a white
 halo, no polygon fill and no text labels; original vector colors, styling,
