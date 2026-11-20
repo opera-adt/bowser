@@ -11,7 +11,7 @@ import { useApi } from '../hooks/useApi';
 import { applicableMasks } from '../utils/maskCompatibility';
 import { MultiPointTimeSeriesData } from '../types';
 import { downloadChartAsPng } from '../utils/screenshot';
-import { addChartLayer, chartLayerFor, timeIndexOfDate, timeSeriesLayers } from '../utils/chartLayers';
+import { addChartLayer, chartLayerFor, observedDateNear, timeIndexOfDate, timeSeriesLayers } from '../utils/chartLayers';
 import { LayerOptions } from './panel/controls';
 import MaskedReferenceNotice from './MaskedReferenceNotice';
 import ModelCard, { type PickKind } from './ModelCard';
@@ -412,10 +412,14 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
       return;
     }
     if (elements.length === 0 || !firstDs) return;
-    // The map goes to the clicked point's date. Its position in the series is not the map's
-    // time step: masked dates and a date range leave a series shorter than the layer.
+    // The map goes to the date of the observed point nearest the click. Not the first element
+    // under the mouse: with the model on, that is the fitted line, whose dates are not
+    // acquisitions. Not a position in a series either: masked dates and a date range leave a
+    // series shorter than the layer.
+    const time = chart?.scales?.x?.getValueForPixel?.(event?.x);
+    const near = typeof time === 'number' && Number.isFinite(time) ? observedDateNear(chart?.data?.datasets ?? [], time) : null;
     const clicked = chart?.data?.datasets?.[elements[0].datasetIndex]?.data?.[elements[0].index];
-    const date = clicked && typeof clicked === 'object' ? clicked.x : firstDs.labels[elements[0].index];
+    const date = near ?? (clicked && typeof clicked === 'object' ? clicked.x : firstDs.labels[elements[0].index]);
     const step = date === undefined ? null : timeIndexOfDate(state.datasetInfo[state.currentDataset]?.x_values, date);
     if (step !== null) dispatch({ type: 'SET_TIME_INDEX', payload: step });
   }, [firstDs, dispatch, picking, state.fitSettings, state.datasetInfo, state.currentDataset]);

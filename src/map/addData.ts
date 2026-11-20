@@ -12,6 +12,7 @@ import type { Overlay, OverlayBand, OverlayConversion } from '../types';
 import { featureBounds, parseGeoJson } from './fileParsers';
 import { asDem } from './dem';
 import { inspectPmtiles } from './pmtiles';
+import { sourceLayerChoices } from './sourceLayerSelection';
 
 type Bounds = [number, number, number, number];
 
@@ -176,7 +177,9 @@ export async function jobUpdates(o: Overlay, job: DataJob): Promise<Partial<Over
     };
   }
   const data = parseGeoJson(await (await fetch(url)).text());
-  return { conversion, data, bounds: featureBounds(data) };
+  return sourceLayerChoices(data).length > 1
+    ? { conversion, pendingSourceLayers: data, data: { type: 'FeatureCollection', features: [] }, bounds: featureBounds(data) }
+    : { conversion, data, bounds: featureBounds(data) };
 }
 
 export type OverlayDispatch = Dispatch<

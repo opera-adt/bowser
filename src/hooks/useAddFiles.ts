@@ -8,6 +8,7 @@
  * map's message.
  */
 import { useCallback, useEffect, useState } from 'react';
+import { sourceLayerChoices } from '../map/sourceLayerSelection';
 import { useAppDispatch } from '../context/AppContext';
 import { featureBounds, fileKind, parseCsv, parseGeoJson, parseGpx, parseKml } from '../map/fileParsers';
 import { followData, overlayFromJob, SERVER_ONLY, startData, uploadData, type DataJob } from '../map/addData';
@@ -60,7 +61,8 @@ export const binColorsFor = (n: number, prev: string[] = []): string[] =>
 
 function vectorOverlay(name: string, data: OverlayFeatures): Overlay {
   return {
-    id: nextId(), name, type: 'vector', visible: true, opacity: 1, aboveData: true, data,
+    id: nextId(), name, type: 'vector', visible: true, opacity: 1, aboveData: true,
+    ...(sourceLayerChoices(data).length > 1 ? { pendingSourceLayers: data, data: { type: 'FeatureCollection' as const, features: [] } } : { data }),
     bounds: featureBounds(data), color: VECTOR_COLORS[added % VECTOR_COLORS.length], lineWidth: 2, pointRadius: 5,
   };
 }

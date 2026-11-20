@@ -243,6 +243,8 @@ export interface Overlay {
 
   // --- vector ---
   data?: OverlayFeatures;
+  /** Awaiting explicit layer selection; not drawn or used for statistics. */
+  pendingSourceLayers?: OverlayFeatures;
   color?: string;
   lineWidth?: number;
   pointRadius?: number;

@@ -8,6 +8,13 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Optional bounded vector outlines in raster GIFs, including polygon holes, from
+  up to five layers of at most 100 features each and 5,000 vertices in total. The
+  page names a layer over the limits before sending it, and names server-tiled
+  layers as not included. Geometry-only annotations leave measurements, masks and
+  native point histories unchanged. See [docs/raster-animation.md](docs/raster-animation.md).
+- Choose source layers before adding small multi-layer converted vector files;
+  preserve source geometry and attributes without exposing unconfirmed features.
 - Configured and uploaded masks in full-server polygon summaries, with native
   bounded reads, explicit support records and no unmasked fallback. Masks on
   another grid keep the same pixels as the map and the point/radius charts. On
@@ -52,6 +59,10 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A click in the chart goes to the right date with the model on.** The fitted line is
+  drawn first, and the click took its date, which is not an acquisition: the map often
+  stayed where it was or went elsewhere. The map now goes to the observed point nearest
+  the click.
 - A reference circle that cannot be read (for example over a layer's native read
   budget) no longer silently becomes the single pixel at its centre for the map
   shift and area statistics; the previous reference is kept and the error logged.
