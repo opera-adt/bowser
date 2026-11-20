@@ -288,6 +288,8 @@ export interface RefCandidate {
   reason: string;
 }
 
+export type AreaSupport = 'auto' | 'common' | 'per_date';
+
 export interface AppState {
   datasetInfo: { [key: string]: RasterGroup };
   timeSeriesPoints: TimeSeriesPoint[];
@@ -298,6 +300,8 @@ export interface AppState {
   areaStatsRevision: number;
   /** The band around each area in the chart: mean ± 1 std or p10–p90. */
   areaBand: AreaBand;
+  /** Which valid pixels area histories use; auto preserves existing mask policy. */
+  areaSupport: AreaSupport;
   /** The side panel's tab (Main, Overlays, Stats, GNSS, Project). */
   panelTab: string;
   /** True while the chart's "+ Area" waits for a polygon drawn on the map. */
@@ -390,6 +394,7 @@ export type AppAction =
   | { type: 'ADD_CHART_AREAS'; payload: Array<Pick<ChartArea, 'id' | 'name' | 'geometry' | 'source'>> }
   | { type: 'SET_PANEL_TAB'; payload: string }
   | { type: 'SET_AREA_BAND'; payload: AreaBand }
+  | { type: 'SET_AREA_SUPPORT'; payload: AreaSupport }
   | { type: 'SET_AREA_STATS'; payload: { [key: string]: AreaStats } }
   | { type: 'START_AREA_STATS'; payload: { revision: number; entries: Record<string, AreaStats> } }
   | { type: 'FINISH_AREA_STATS'; payload: { revision: number; entries: Record<string, AreaStats> } }

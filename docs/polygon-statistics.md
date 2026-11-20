@@ -29,10 +29,10 @@ print(result["labels"], [row["median"] for row in result["statistics"]])
 
 ## Optional bounded pixel histories (API)
 
-The existing chart continues to request summaries only. API clients can opt in
+Summary-only behavior is the default. API clients can opt in
 with `curve_mode: "sample"` (and `sample_count`, default 200) or `curve_mode: "all"`.
 `curve_mode: "none"` is the default and preserves the earlier response and read
-behavior. A chart control for this preview is a separate frontend addition.
+behavior. The chart has a separate, explicit opt-in preview described below.
 
 For example, add these fields to the request above:
 
@@ -75,6 +75,22 @@ extra processing/inversion. General polygon pixel-epoch limits still apply.
 Uploaded/configured masks and reference transformations retain the limitations
 described below. This option does not create new scientific defaults or apply
 any mask/reference that the existing polygon API cannot support.
+
+## Choosing area pixels
+
+**Area pixels** is shared by area charts and the Stats panel and is saved with
+projects. **Automatic** retains the existing behavior: the same valid pixels at
+every date without quality masks, or each date's available pixels when any
+quality mask is active. It is the default.
+
+Choose **Same pixels at every date** for a comparable footprint through time;
+missing observations or masks at any date can reduce coverage. Choose
+**Available pixels on each date** to retain more observations; changing spatial
+membership can itself change the apparent history. Neither option interpolates
+missing measurements or changes the stored data. Explicit choices also apply to
+optional pixel histories, including configured and uploaded masks. A support
+change cancels obsolete requests; a server that cannot confirm the requested
+support produces a visible error rather than a different curve.
 
 ## In the time-series chart
 
@@ -155,6 +171,37 @@ asks at once, then at most once per 250 ms, always ending on the value the
 slider stopped at.
 Bowser-lite has the same button and gives the same numbers (see
 [Bowser-lite](#bowser-lite)).
+
+## Pixel histories in the chart
+
+In a time-series window containing an area, **Pixels** starts **Off**. Choose
+**Sample** to show up to 50 individual native pixel histories by default. The
+sample size is adjustable from 1 to 500. Choose one of the window's visible
+areas and plotted layers; only one preview is active per window. **All (bounded)**
+requests every eligible pixel, subject to 500 curves and 100,000 values. Oversized
+requests show a warning; choose a smaller explicit sample. Nothing is silently
+truncated. Turning the control off removes only the preview.
+
+The thin lines are individual pixels, not additional summary estimates or an
+uncertainty band. The median, mean, spatial spread and numeric Assistant summary
+continue to use all eligible pixels. Sampled lines do not enter trend fits or
+numeric exports. Pixel-history export is outside this feature's scope. Settings
+and raw previews are session-only and are not saved in projects.
+
+The API's native values are reused when the spatial reference, reference date,
+units or displayed date interval changes. The chart applies the same spatial
+subtraction and then temporal subtraction as the area summaries, exactly once.
+A missing reference or temporal baseline leaves a gap; valid zeros stay valid.
+Lines do not bridge missing dates. Masks, geometry and source revisions trigger
+new requests and clear old curves immediately. Invalid, outdated or unsupported
+responses show an error while preserving the area summaries.
+
+The selection count reports eligible and selected pixels, not measurement
+accuracy. Common support requires validity throughout the record; named quality
+masks use per-date support, retaining gaps. Component compatibility remains
+unverified. Uploaded/configured polygon-mask limitations above still apply.
+A bounded preview is not a claim that disconnected motion is comparable or that
+any apparent displacement is real ground motion.
 
 ## Selection and calculations
 

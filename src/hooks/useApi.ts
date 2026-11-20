@@ -1,5 +1,6 @@
 import type { ChartMaskOptions } from '../utils/chartMasks';
 import { useCallback } from 'react';
+import type { PixelPreviewOptions } from '../utils/polygonPixelPreview';
 import { MultiPointTimeSeriesData, LayerMask, ChartArea } from '../types';
 import { polygonErrorMessage, polygonRequestBody, type PolygonTimeSeries } from '../utils/polygonSeries';
 
@@ -217,14 +218,18 @@ export function useApi() {
     geometry: ChartArea['geometry'],
     layerMasks: LayerMask[] = [],
     signal?: AbortSignal,
-    maskOptions?: ChartMaskOptions,
+    maskOptions?: Partial<PixelPreviewOptions> & ChartMaskOptions,
   ): Promise<{ data: PolygonTimeSeries } | { error: string }> => {
     try {
       const qs = withDataset(new URLSearchParams()).toString();
       const response = await fetch(qs ? `/polygon_timeseries?${qs}` : '/polygon_timeseries', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...polygonRequestBody(datasetName, geometry, layerMasks), ...maskOptions, ...((maskOptions?.primary_mask || maskOptions?.custom_mask_path) ? { support: 'per_date' } : {}) }),
+        body: JSON.stringify({
+          ...polygonRequestBody(datasetName, geometry, layerMasks), ...maskOptions,
+          ...(maskOptions?.support ? { support: maskOptions.support }
+            : (maskOptions?.primary_mask || maskOptions?.custom_mask_path) ? { support: 'per_date' } : {}),
+        }),
         ...(signal ? { signal } : {}),
       });
       const body = await response.json().catch(() => null);
@@ -235,6 +240,9 @@ export function useApi() {
       const requiredMasks = [maskOptions?.primary_mask ? 'configured mask' : null, maskOptions?.custom_mask_path ? 'uploaded mask' : null].filter(Boolean);
       if (requiredMasks.some(name => !body?.masks?.some((m: { dataset?: string }) => m.dataset === name))) {
         return { error: 'The server did not confirm every requested polygon mask; no unmasked curve is shown.' };
+      }
+      if (maskOptions?.support && body?.support !== maskOptions.support) {
+        return { error: 'The server did not confirm the requested pixel support; no curve is shown.' };
       }
       return { data: body as PolygonTimeSeries };
     } catch (error) {

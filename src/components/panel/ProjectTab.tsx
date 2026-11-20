@@ -188,7 +188,7 @@ export default function ProjectTab() {
     'opacity', 'dataMode',
     'refMarkerPosition', 'refEnabled', 'refMarkerVisible', 'refTimeIndex',
     'timeSeriesPoints', 'annotations', 'layerMasks', 'customMaskPath', 'overlays', 'units',
-    'chartAreas', 'areaBand',
+    'chartAreas', 'areaBand', 'areaSupport',
     // The chart's model: whether it and its residuals are shown, and its terms.
     'showTrends', 'showResiduals', 'fitSettings',
   ] as const;
@@ -254,6 +254,7 @@ export default function ProjectTab() {
       units: (v) => v === 'metric' || v === 'imperial',
       chartAreas: arrayOf(isArea),
       areaBand: (v) => v === 'std' || v === 'pct',
+      areaSupport: (v) => v === 'auto' || v === 'common' || v === 'per_date',
       showTrends: isBool,
       showResiduals: isBool,
       fitSettings: (v) => obj(v) && [0, 1, 2, 3].includes(v.polyOrder as number) && isBool(v.annual) && isBool(v.semiannual)
