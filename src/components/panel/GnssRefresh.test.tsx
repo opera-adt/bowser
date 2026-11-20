@@ -56,6 +56,16 @@ describe('GNSS comparison refresh', () => {
     }));
     expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url) === '/gnss/custom/TEST').length).toBe(surveysBefore);
   });
+  it('leaves the uploaded mask out on bowser-lite, as the chart does, and says so', async () => {
+    const stub = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation((async (url: string) => (url === '/config'
+      ? { ok: true, json: async () => ({ geotiff_upload: false }) } : stub(url))) as typeof fetch);
+    state = { ...state, customMaskPath: 'uploaded-mask.tif' };
+    await select();
+    expect(mocks.points.mock.calls.length).toBeGreaterThan(0);
+    for (const call of mocks.points.mock.calls) expect(call[7]).toEqual({});
+    expect(screen.getByText(/Uploaded mask not applied: this server cannot read GeoTIFF masks/)).toBeTruthy();
+  });
   it('clears the earlier InSAR curve while a replacement is pending and ignores late replies', async () => {
     const view = await select();
     let finish!: (r: MultiPointTimeSeriesData) => void;

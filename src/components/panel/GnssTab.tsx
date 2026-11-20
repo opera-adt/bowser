@@ -8,6 +8,7 @@ import { useApi } from '../../hooks/useApi';
 import { chartMaskOptions } from '../../utils/chartMasks';
 import { applicableMasks } from '../../utils/maskCompatibility';
 import { useSpacedEffect } from '../../hooks/useSpacedEffect';
+import { useUploadedChartMaskSupport } from '../../hooks/useUploadedChartMaskSupport';
 import { CHART_REQUEST_GAP_MS } from '../TimeSeriesChart';
 import { refDragEnd } from '../../map/interactions';
 import { chartLayerFor } from '../../utils/chartLayers';
@@ -184,16 +185,21 @@ export default function GnssTab() {
 
   // The radius in use: 0 while the reference buffer is off, so its slider then asks for nothing.
   const refRadius = state.refEnabled && state.refBufferEnabled ? state.refBufferRadius : 0;
+  // As in the chart: bowser-lite cannot read an uploaded mask, so it is left out there (and said so).
+  const uploadedMask = useUploadedChartMaskSupport(!!state.customMaskPath);
   const fetchSelectedInsar = useCallback(async () => {
     if (!ds || !selected) return null;
+    // Until the server says whether it reads uploaded masks, ask nothing (no unmasked curve first).
+    if (!uploadedMask.ready) return new Promise<null>(() => undefined);
     const ref = info?.uses_spatial_ref && state.refEnabled ? state.refMarkerPosition : null;
     const r = await fetchMultiPointTimeSeries(
       [{ id: selected.id, lat: selected.lat, lon: selected.lon, color: '#5bc0be', name: selected.id }],
-      ds, ref?.[1], ref?.[0], false, applicableMasks(info ?? undefined, state.layerMasks), refRadius, chartMaskOptions({ dataMode: state.dataMode, datasetInfo: state.datasetInfo, customMaskPath: state.customMaskPath }, ds),
+      ds, ref?.[1], ref?.[0], false, applicableMasks(info ?? undefined, state.layerMasks), refRadius,
+      chartMaskOptions({ dataMode: state.dataMode, datasetInfo: state.datasetInfo, customMaskPath: state.customMaskPath }, ds, uploadedMask.enabled),
     );
     return r?.datasets[0]?.data ?? null;
   }, [ds, selected, info, state.datasetInfo, state.customMaskPath, state.dataMode, state.refEnabled, state.refMarkerPosition,
-    state.layerMasks, refRadius, fetchMultiPointTimeSeries]);
+    state.layerMasks, refRadius, fetchMultiPointTimeSeries, uploadedMask.ready, uploadedMask.enabled]);
 
   const [cx, cy] = viewBounds
     ? [(viewBounds[1] + viewBounds[3]) / 2, (viewBounds[0] + viewBounds[2]) / 2]
@@ -353,6 +359,7 @@ export default function GnssTab() {
           isReference={Math.abs(state.refMarkerPosition[0] - selected.lat) < 1e-6 && Math.abs(state.refMarkerPosition[1] - selected.lon) < 1e-6}
           onUseAsReference={() => void refDragEnd(state, [selected.lat, selected.lon], { fetchPointTimeSeries, fetchBufferTimeSeries }, dispatch)}
           fetchInsar={fetchSelectedInsar}
+          maskWarning={uploadedMask.warning}
           unit={info?.unit}
           onAddPoint={() => dispatch({ type: 'ADD_TIME_SERIES_POINT', payload: { position: [selected.lat, selected.lon], name: selected.id } })}
         />
@@ -367,6 +374,8 @@ interface StationCompareProps {
   los: { east: number; north: number; up: number } | null;
   unit: string | undefined;
   fetchInsar: () => Promise<{ x: string; y: number }[] | null>;
+  /** Why the uploaded mask is not applied to the InSAR curve, if it is not. */
+  maskWarning?: string | null;
   onAddPoint: () => void;
   isReference: boolean;
   onUseAsReference: () => void;
@@ -374,7 +383,7 @@ interface StationCompareProps {
 }
 
 /** One station: velocities, and its LOS record against the InSAR series at the station. */
-function StationCompare({ station: s, dataset, los, unit, fetchInsar, onAddPoint, isReference, onUseAsReference, u }: StationCompareProps) {
+function StationCompare({ station: s, dataset, los, unit, fetchInsar, maskWarning, onAddPoint, isReference, onUseAsReference, u }: StationCompareProps) {
   const [series, setSeries] = useState<GnssSeries | null>(null);
   const [insar, setInsar] = useState<{ x: string; y: number }[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -440,6 +449,7 @@ function StationCompare({ station: s, dataset, los, unit, fetchInsar, onAddPoint
       </div>
       {error && <div className="row-label" style={{ fontSize: '0.76em', color: 'var(--sb-red)' }}>{error}</div>}
       {insarError && <div role="status" className="row-label" style={{ fontSize: '0.76em' }}>{insarError}</div>}
+      {maskWarning && <div role="status" className="row-label" style={{ fontSize: '0.76em' }}>{maskWarning}</div>}
       {!los && <div className="row-label" style={{ fontSize: '0.76em' }}>This cube has no line-of-sight vector, so GNSS can't be projected to compare.</div>}
       {los && scale === null && dataset && <div className="row-label" style={{ fontSize: '0.76em' }}>{dataset} is in {unit || 'unknown units'}, not metres, so it isn't compared in mm.</div>}
       {los && !series && !error && <div className="row-label">Loading the record…</div>}
