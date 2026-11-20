@@ -36,6 +36,10 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Preserve acquisition-pair identity through point and buffer chart clicks,
+  including intervals sharing an ending date. The time axis still shows the
+  ending date; compact and hyphenated pair labels are supported.
+
 - Chart-to-map date selection preserves both dates of a pair and does not jump
   to another pair with the same end date. Ambiguous selections leave the map unchanged.
 
