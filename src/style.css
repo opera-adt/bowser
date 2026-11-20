@@ -1509,6 +1509,37 @@ img.huechange { filter: hue-rotate(120deg); }
   border-top: 1px solid var(--sb-border);
 }
 
+/* Choosing the source layers of a converted file, in its layer row (SourceLayerPicker). */
+.ov-layer-pick-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.ov-layer-pick-list label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.ov-layer-pick-list input {
+  margin: 0;
+  accent-color: var(--sb-accent);
+}
+
+/* The row is --sb-surface2, hist-btn's own colour: lift the buttons off it. */
+.ov-layer-pick .hist-btn {
+  background: var(--sb-surface);
+  border: 1px solid var(--sb-border);
+}
+
+.ov-layer-pick .hist-btn:hover:not(:disabled) {
+  background: var(--sb-border);
+}
+
 .ov-color {
   width: 34px;
   height: 22px;

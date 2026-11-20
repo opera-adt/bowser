@@ -27,7 +27,7 @@ describe('source-layer picker in the real overlay provider', () => {
     expect(state.overlays[0].data?.features).toEqual([]);
     expect(screen.queryByLabelText('Zonal stats')).toBeNull();
     fireEvent.click(screen.getByLabelText('stations (1 features)'));
-    fireEvent.click(screen.getByText('Add selected layers'));
+    fireEvent.click(screen.getByText('Add'));
     await waitFor(() => expect(state.overlays[0].pendingSourceLayers).toBeUndefined());
     expect(state.overlays[0].data?.features).toEqual([collection.features[0]]);
     expect(state.overlays[0].bounds).toEqual([0,0,2,2]);
@@ -38,9 +38,9 @@ describe('source-layer picker in the real overlay provider', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('{}')));
     render(<AppProvider><View /></AppProvider>);
     await screen.findByText('None');fireEvent.click(screen.getByText('None'));
-    expect((screen.getByText('Add selected layers') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByText('Add') as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByText('All'));
-    expect((screen.getByText('Add selected layers') as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByText('Add') as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(screen.getByText('Cancel'));
     await waitFor(() => expect(state.overlays).toEqual([]));
   });
