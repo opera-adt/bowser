@@ -5,7 +5,7 @@
  * the data tools run on the server (src/bowser/tools.py). Also how the data tools' results
  * appear on the page (`showResult`) and the page state each question starts with (`pageState`).
  */
-import { refDragEnd, type RefApi } from '../map/interactions';
+import { chartRadiusLimit, refDragEnd, type RefApi } from '../map/interactions';
 import { getNavigator } from '../map/navigator';
 import { EXAGGERATION_MAX, EXAGGERATION_MIN } from '../map/terrain';
 import { datasetRangeUrl } from '../hooks/useApi';
@@ -244,6 +244,12 @@ async function moveReference(ctx: PageContext, lon: number, lat: number, radius?
   let bufferRadius = s.refBufferRadius;
   if (radius !== undefined && radius !== null) {
     if (!isNum(radius) || radius < 0 || radius > 5000) throw new Error('Give radius_m between 0 and 5000.');
+    // As the panel's radius slider: the layers' native read budget bounds the circle, checked
+    // before anything moves so an unreadable circle is never requested.
+    const limit = chartRadiusLimit(s.datasetInfo);
+    if (radius > 0 && Math.round(radius) > limit) {
+      throw new Error(`Give radius_m of at most ${limit} m: the layers' native read budget (Main › Reference).`);
+    }
     // "Sample around ref marker" (Main › Reference): the switch and its radius slider.
     if (radius > 0) {
       bufferRadius = Math.round(radius);

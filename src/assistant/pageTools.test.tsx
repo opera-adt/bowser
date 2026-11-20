@@ -74,6 +74,20 @@ describe('the reference', () => {
     expect(out).toMatchObject({ reference_point: [-90.05, 34.8], sample_circle: { on: true, radius_m: 200 }, chart_rereferenced: true });
   });
 
+  it('set_reference_point refuses a circle over the layers\' read budget before changing anything', async () => {
+    mockState.datasetInfo.displacement.chart_buffer_max_m = 1500;
+    await expect(runPageTool('set_reference_point', { lon: -90.05, lat: 34.8, radius_m: 3000 }, ctx()))
+      .rejects.toThrow('at most 1500 m');
+    expect(actions()).toEqual([]);
+    expect(api.fetchBufferTimeSeries).not.toHaveBeenCalled();
+    expect(api.fetchPointTimeSeries).not.toHaveBeenCalled();
+    // At the limit, and radius 0 (circle off), still work.
+    await runPageTool('set_reference_point', { lon: -90.05, lat: 34.8, radius_m: 1500 }, ctx());
+    expect(api.fetchBufferTimeSeries).toHaveBeenCalledWith(-90.05, 34.8, 'displacement', 1500, 0);
+    await runPageTool('set_reference_point', { lon: -90.05, lat: 34.8, radius_m: 0 }, ctx());
+    expect(api.fetchPointTimeSeries).toHaveBeenCalled();
+  });
+
   it('radius 0 turns the circle off; no radius keeps it', async () => {
     Object.assign(mockState, { refBufferEnabled: true, refEnabled: true });
     await runPageTool('set_reference_point', { lon: -90.05, lat: 34.8, radius_m: 0 }, ctx());
