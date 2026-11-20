@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppFields } from '../../context/AppContext';
 import { useViewBounds } from '../../map/viewBounds';
 import { activeRefTime } from '../../utils/refDate';
@@ -6,6 +6,59 @@ import { applicableMasks } from '../../utils/maskCompatibility';
 import { exportFilename } from '../../utils/exportFilename';
 import { saveFile } from '../../utils/saveFile';
 import { useSpacedEffect } from '../../hooks/useSpacedEffect';
+import { errorDetail } from '../../utils/errorDetail';
+import type { Overlay } from '../../types';
+
+// The server's outline limits (src/bowser/animation_vectors.py and animation.py), checked
+// here first so an oversized layer is named and never sent.
+const MAX_OUTLINE_LAYERS = 5;
+const MAX_OUTLINE_GEOMETRIES = 100;
+const MAX_OUTLINE_VERTICES = 5000;
+
+function countVertices(coordinates: unknown): number {
+  if (!Array.isArray(coordinates)) return 0;
+  if (typeof coordinates[0] === 'number') return 1;
+  let total = 0;
+  for (const part of coordinates) total += countVertices(part);
+  return total;
+}
+
+/**
+ * Visible vector layers as GIF outlines: the request JSON when they fit the server's
+ * limits, otherwise the reason naming the layer. Server-tiled layers are listed apart:
+ * their features are not in the page.
+ */
+function outlineSelection(overlays: Overlay[] | undefined) {
+  const shown = overlays?.filter(o => o.visible && o.opacity > 0) ?? [];
+  const tiled = shown.filter(o => o.type === 'pmtiles' && o.pmtilesKind === 'vector').map(o => o.name);
+  const layers = shown.filter(o => o.type === 'vector' && (!o.conversion || o.conversion.status === 'ready')
+    && o.data?.features.length);
+  if (layers.length < 1 || layers.length > MAX_OUTLINE_LAYERS) return { count: layers.length, tiled, problem: null, json: null };
+  const payload = [];
+  let total = 0;
+  const vertices: string[] = [];
+  for (const o of layers) {
+    const geometries = o.data!.features.map(f => (f as GeoJSON.Feature)?.geometry).filter(g => g != null);
+    if (geometries.length > MAX_OUTLINE_GEOMETRIES) {
+      return { count: layers.length, tiled, json: null,
+        problem: `“${o.name}” has ${geometries.length.toLocaleString('en-US')} features; outlines take at most ${MAX_OUTLINE_GEOMETRIES} per layer.` };
+    }
+    const n = geometries.reduce((sum, g) => sum + countVertices('coordinates' in g ? g.coordinates : null), 0);
+    if (n > MAX_OUTLINE_VERTICES) {
+      return { count: layers.length, tiled, json: null,
+        problem: `“${o.name}” has ${n.toLocaleString('en-US')} vertices; outlines take at most ${MAX_OUTLINE_VERTICES.toLocaleString('en-US')} in total.` };
+    }
+    total += n;
+    vertices.push(`“${o.name}” ${n.toLocaleString('en-US')}`);
+    payload.push({ name: o.name.slice(0, 80),
+      geometries: geometries.map(g => ({ type: g.type, ...('coordinates' in g ? { coordinates: g.coordinates } : {}) })) });
+  }
+  if (total > MAX_OUTLINE_VERTICES) {
+    return { count: layers.length, tiled, json: null,
+      problem: `Outlines have ${total.toLocaleString('en-US')} vertices (${vertices.join(', ')}); at most ${MAX_OUTLINE_VERTICES.toLocaleString('en-US')} in total.` };
+  }
+  return { count: layers.length, tiled, problem: null, json: JSON.stringify(payload) };
+}
 
 /** First GIF contribution: scalar raster only; no hidden viewer-state changes. */
 export default function AnimationExport() {
@@ -40,12 +93,13 @@ export default function AnimationExport() {
   const complex = info?.algorithm === 'phase' || info?.algorithm === 'amplitude';
   const count = end - start + 1;
   const visiblePoints = state.timeSeriesPoints?.filter(p => p.visible) ?? [];
-  const visibleVectors = state.overlays?.filter(o => o.type === 'vector' && o.visible && o.opacity > 0
-    && (!o.conversion || o.conversion.status === 'ready') && o.data?.features.length) ?? [];
-  const invalidOutlines = includeOutlines && (visibleVectors.length < 1 || visibleVectors.length > 5);
+  // Counted and serialized only when the box is ticked and the overlays change, not on every render.
+  const outlines = useMemo(() => includeOutlines ? outlineSelection(state.overlays) : null, [includeOutlines, state.overlays]);
+  const invalidOutlines = !!outlines && (outlines.count < 1 || outlines.count > MAX_OUTLINE_LAYERS);
+  const outlineProblem = outlines?.problem ?? null;
   const invalidPoints = includePoints && (visiblePoints.length < 1 || visiblePoints.length > 5);
   const unsupportedMask = !!state.customMaskPath || (state.dataMode === 'cog' && info?.mask_file_list?.some(Boolean));
-  const basicEligible = !invalidOutlines && !invalidPoints && supported && !!layer && labels.length >= 2 && count >= 2 && count <= 90 && !state.wrapEnabled && !complex && !unsupportedMask && Number.isFinite(state.vmin) && Number.isFinite(state.vmax) && state.vmax > state.vmin && (!crop || !!viewBounds);
+  const basicEligible = !invalidOutlines && !outlineProblem && !invalidPoints && supported && !!layer && labels.length >= 2 && count >= 2 && count <= 90 && !state.wrapEnabled && !complex && !unsupportedMask && Number.isFinite(state.vmin) && Number.isFinite(state.vmax) && state.vmax > state.vmin && (!crop || !!viewBounds);
   const ref = state.refEnabled && info?.uses_spatial_ref && info.algorithm === 'shift';
   const refTime = info ? activeRefTime(info, state.refTimeIndex?.[layer], state.dataMode) : null;
   const b = crop ? viewBounds : null;
@@ -55,9 +109,6 @@ export default function AnimationExport() {
     bounds: b ? [b[1], b[0], b[3], b[2]] : null,
     layer_masks: applicableMasks(info, state.layerMasks).map(({ dataset, threshold, mode }) => ({ dataset, threshold, mode })),
     custom_mask_path: state.customMaskPath,
-    ...(includeOutlines ? { outlines: visibleVectors.map(o => ({ name: o.name.slice(0, 80),
-      geometries: o.data!.features.map(f => (f as GeoJSON.Feature)?.geometry).filter(g => g != null)
-        .map(g => ({ type: g.type, ...('coordinates' in g ? { coordinates: g.coordinates } : {}) })) })) } : {}),
     ...(includePoints ? { points: visiblePoints.map(p => ({ id: p.id, name: p.name, color: p.color,
       lat: p.position[0], lon: p.position[1] })) } : {}),
     ...(ref ? { ref_lon: state.refMarkerPosition[1], ref_lat: state.refMarkerPosition[0],
@@ -66,7 +117,8 @@ export default function AnimationExport() {
   };
   const catalog = new URLSearchParams(location.search).get('dataset');
   const suffix = catalog ? `?dataset=${encodeURIComponent(catalog)}` : '';
-  const bodyKey = JSON.stringify(body);
+  // The outlines arrive already serialized (memoized above) and are appended as the last key.
+  const bodyKey = outlines?.json ? `${JSON.stringify(body).slice(0, -1)},"outlines":${outlines.json}}` : JSON.stringify(body);
   const planKey = suffix + bodyKey;
   useSpacedEffect(() => {
     if (!basicEligible || busy) return;
@@ -77,7 +129,7 @@ export default function AnimationExport() {
     }).then(async response => {
       const result = await response.json();
       if (request.signal.aborted) return;
-      if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : 'The selected GIF settings could not be validated.');
+      if (!response.ok) throw new Error(errorDetail(result) ?? 'The selected GIF settings could not be validated.');
       setPlan({ key: planKey, width: result.output_width, height: result.output_height });
     }).catch(e => { if (!request.signal.aborted) setPlan({ key: planKey, error: (e as Error).message }); });
     return () => request.abort();
@@ -98,7 +150,7 @@ export default function AnimationExport() {
       });
       if (!response.ok) {
         const problem = await response.json().catch(() => null);
-        throw new Error(typeof problem?.detail === 'string' ? problem.detail : `GIF export failed (HTTP ${response.status})`);
+        throw new Error(errorDetail(problem) ?? `GIF export failed (HTTP ${response.status})`);
       }
       if (!response.headers.get('Content-Type')?.startsWith('image/gif')) throw new Error('The server did not return a GIF.');
       const blob = await response.blob();
@@ -142,7 +194,7 @@ export default function AnimationExport() {
           <input aria-label="Include vector outlines in GIF" type="checkbox" checked={includeOutlines} onChange={e => setIncludeOutlines(e.target.checked)} />
           Include visible vector outlines (black)
         </label>
-        {includeOutlines && <div className="row-label">Uses 1–5 visible vector layers, at most 5,000 vertices. Black outlines with a white halo; no fills, text labels or feature properties.</div>}
+        {includeOutlines && <div className="row-label">Uses 1–5 visible vector layers, at most 100 features per layer and 5,000 vertices in total. Large files drawn from server tiles are not included. Black outlines with a white halo; no fills, text labels or feature properties.</div>}
       </fieldset>
       <button type="button" className="hist-btn" style={{ width: '100%' }} disabled={!eligible || busy} onClick={download}>
         <i className={`fa-solid ${busy ? 'fa-spinner fa-spin' : 'fa-download'}`} style={{ marginRight: 6 }}></i>
@@ -157,8 +209,10 @@ export default function AnimationExport() {
       {!busy && eligible && <div className="row-label">{count} frames · {plan?.width} × {plan?.height} output pixels</div>}
       {unsupportedMask && <div className="row-label">Uploaded/configured GeoTIFF masks need a later GIF contribution. Use native GeoTIFF export for these settings.</div>}
       {invalidPoints && <div className="row-label">Point histories need 1–5 visible points: {visiblePoints.length === 0 ? 'click the map to add one, or show one in the Points panel' : `${visiblePoints.length} are visible, hide some in the Points panel`}.</div>}
-      {invalidOutlines && <div className="row-label">Outlines need 1–5 visible vector layers: add or show a vector layer, or hide extra layers in Overlays.</div>}
-      {!basicEligible && !invalidPoints && !invalidOutlines && <div className="row-label">Choose 2–90 saved epochs from a real-valued time series, with Rewrap off.</div>}
+      {invalidOutlines && <div className="row-label">Outlines need 1–5 visible vector layers: {outlines!.count > MAX_OUTLINE_LAYERS ? 'hide extra layers in Overlays' : outlines!.tiled.length ? 'add or show a smaller vector layer in Overlays' : 'add or show a vector layer in Overlays'}.</div>}
+      {outlines && outlines.tiled.length > 0 && <div className="row-label">Not included in outlines, drawn from server tiles: {outlines.tiled.map(name => `“${name}”`).join(', ')}.</div>}
+      {outlineProblem && <div role="alert" className="row-label">{outlineProblem}</div>}
+      {!basicEligible && !invalidPoints && !invalidOutlines && !outlineProblem && <div className="row-label">Choose 2–90 saved epochs from a real-valued time series, with Rewrap off.</div>}
       {error && <div role="alert" className="row-label" style={{ color: 'var(--sb-red)' }}>{error}</div>}
     </>
   </div>;
