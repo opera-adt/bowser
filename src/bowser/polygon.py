@@ -11,7 +11,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Literal
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from .mask_alignment import validate_mask_threshold
 
 if TYPE_CHECKING:
     import xarray as xr
@@ -41,7 +43,12 @@ class PolygonMask(BaseModel):
     model_config = ConfigDict(extra="forbid")
     dataset: str = Field(min_length=1)
     threshold: float = Field(default=0.5, allow_inf_nan=False)
-    mode: Literal["min", "max"] = "min"
+    mode: Literal["min", "max", "abs_min", "abs_max"] = "min"
+
+    @model_validator(mode="after")
+    def _threshold(self) -> "PolygonMask":
+        validate_mask_threshold(self.mode, self.threshold)
+        return self
 
 
 class PolygonRequest(BaseModel):
