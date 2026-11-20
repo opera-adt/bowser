@@ -53,3 +53,30 @@ export function timeIndexOfDate(xValues: readonly (string | number)[] | undefine
   const i = (xValues ?? []).findIndex(v => day(v) === wanted);
   return i >= 0 ? i : null;
 }
+
+/** A chart series' observed values: a point's data, a buffer median, an area median. */
+const OBSERVED = new Set(['data', 'median', 'area_median']);
+
+type ChartPoint = { x?: unknown } | null | undefined;
+type ChartSeries = { hidden?: boolean; data?: ChartPoint[]; _series?: { role?: string } };
+
+/**
+ * The date of the observed chart point nearest ``time`` (ms), for a click on the chart.
+ * Fitted models, residuals and area bands are left out: their dates are not acquisitions,
+ * and in the chart's "index" interaction their index does not line up with the data's.
+ * Null when no observed series has a point.
+ */
+export function observedDateNear(datasets: readonly ChartSeries[], time: number): string | null {
+  let best: string | null = null;
+  let bestGap = Infinity;
+  for (const series of datasets) {
+    if (series.hidden || !OBSERVED.has(series._series?.role ?? '')) continue;
+    for (const point of series.data ?? []) {
+      const x = point && typeof point === 'object' ? point.x : undefined;
+      if (typeof x !== 'string') continue;
+      const gap = Math.abs(Date.parse(x.length === 10 ? `${x}T00:00:00Z` : x) - time);
+      if (gap < bestGap) { bestGap = gap; best = x; }
+    }
+  }
+  return best;
+}
