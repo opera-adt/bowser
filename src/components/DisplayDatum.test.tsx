@@ -1,6 +1,6 @@
 /** An explicitly non-independent datum is visible without becoming a measurement. */
 import { useEffect } from 'react';
-import { act, cleanup, render, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppProvider, useAppContext } from '../context/AppContext';
 import type { AppAction, AppState, RasterGroup } from '../types';
@@ -90,4 +90,21 @@ describe('explicit display datum', () => {
     expect(drawn.data?.datasets.find(d => d.label === 'Point 1')?.data.map(p => p.y)).toEqual([-1, 0, 1]);
     expect(Object.values(getChart(stateRef.chartWindows[0].id)!.snapshot()!.fits)[0].points).toHaveLength(3);
   });
+  it('shows an explicit unavailable-data notice for a malformed declaration', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (!url.startsWith('/multi_point')) return new Response('{}');
+      const body = JSON.parse(init!.body as string);
+      return new Response(JSON.stringify({ labels: ['2026-01-01', ...LABELS],
+        display_datum: { date: '2026-01-01', value: 1, independent_observation: false },
+        datasets: body.points.map((p: { id: string; name: string }) => ({ label: p.name,
+          pointId: p.id, data: [{ x: '2026-01-01', y: 0 }, ...VALID.map((x, i) => ({ x, y: i + 2 }))] })) }));
+    }));
+    try {
+      render(<AppProvider><App onMap="displacement" /></AppProvider>);
+      expect(await screen.findByText(/Point data unavailable for these settings/)).toBeTruthy();
+      expect(drawn.data?.datasets.some(d => d.label === 'Point 1')).not.toBe(true);
+    } finally { vi.restoreAllMocks(); }
+  });
+
 });

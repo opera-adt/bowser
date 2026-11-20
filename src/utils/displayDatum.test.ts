@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import downstreamResponse from '../test/fixtures/downstream-display-datum.json';
 import { bufferObservations, pointObservations, polygonObservations } from './displayDatum';
 import type { MultiPointTimeSeriesData } from '../types';
 import { areaChartDatasets, type PolygonTimeSeries } from './polygonSeries';
@@ -25,6 +26,13 @@ const polygon = () => ({ labels: [date, ...labels], display_datum: declaration,
 });
 
 describe('explicit non-observation datums', () => {
+  it('reads a response captured from the downstream with_datum producer', () => {
+    const out = pointObservations(downstreamResponse);
+    expect(out.labels).toEqual(labels);
+    expect(out.datasets[0].data).toEqual(data);
+    expect(out.datasets[0].displayDatum).toEqual({ x: date, y: 0 });
+    expect(downstreamResponse.labels).toHaveLength(4);
+  });
   it('separates immutably and idempotently, preserving the observation-only fit', () => {
     const original = payload();
     const copy = structuredClone(original);

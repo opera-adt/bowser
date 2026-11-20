@@ -1,0 +1,41 @@
+{
+  "labels": [
+    "2026-01-01",
+    "2026-01-13",
+    "2026-02-13",
+    "2026-03-13"
+  ],
+  "datasets": [
+    {
+      "label": "Point",
+      "pointId": "p",
+      "borderColor": "#123456",
+      "backgroundColor": "#123456",
+      "data": [
+        {
+          "x": "2026-01-01",
+          "y": 0.0
+        },
+        {
+          "x": "2026-01-13",
+          "y": 2
+        },
+        {
+          "x": "2026-02-13",
+          "y": 3
+        },
+        {
+          "x": "2026-03-13",
+          "y": 4
+        }
+      ]
+    }
+  ],
+  "display_datum": {
+    "date": "2026-01-01",
+    "value": 0.0,
+    "independent_observation": false,
+    "support": "Zero only for complete valid displayed histories; missing histories remain missing",
+    "changes": "Plots only; saved rasters, map dates, masks, velocity and trend fits unchanged"
+  }
+}
