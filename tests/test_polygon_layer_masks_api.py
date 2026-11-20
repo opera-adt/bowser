@@ -64,6 +64,12 @@ for storage, state, app in [('md', md, main.app), ('cog', cog, main.app),
         main._default_state = state
     client = TestClient(app)
     for name, options in [('raw', {}), ('masked', {'layer_masks': mask}),
+                          ('curves', {'layer_masks': mask, 'curve_mode': 'all',
+                                      'support': 'per_date'}),
+                          ('sample', {'layer_masks': mask, 'curve_mode': 'sample',
+                                      'sample_count': 2}),
+                          ('invalid_sample', {'curve_mode': 'sample',
+                                              'sample_count': 0}),
                           ('unknown', {'layer_masks': [{'dataset': 'absent'}]}),
                           ('unsupported_reference', {'ref_lon': 10, 'ref_lat': 45})]:
         response = client.post('/polygon_timeseries',
@@ -135,3 +141,27 @@ def test_explicit_api_masks_match_actual_exported_values(responses, storage):
 def test_catalog_mask_context_stays_with_the_selected_cube(responses, storage):
     assert responses[storage + "_catalog"]["status"] == 200
     assert responses[storage + "_catalog"]["body"]["common_pixels"] == 0
+
+
+@pytest.mark.parametrize("storage", ["md", "lite", "cog"])
+def test_pixel_curves_follow_masks_and_missing_support_through_http(responses, storage):
+    import numpy as np
+    result = responses[storage + "_curves"]
+    assert result["status"] == 200
+    body = result["body"]
+    frames = np.array(responses[storage + "_exports"], dtype=float)
+    preview = body["pixel_curves"]
+    assert preview["eligible_pixels"] == np.isfinite(frames).any(axis=0).sum()
+    for curve in preview["curves"]:
+        values = frames[:, curve["row"], curve["col"]]
+        assert curve["values"] == [float(v) if np.isfinite(v) else None for v in values]
+    sampled = responses[storage + "_sample"]
+    assert sampled["status"] == 200
+    sampled_body = dict(sampled["body"])
+    sample = sampled_body.pop("pixel_curves")
+    assert sampled_body == responses[storage + "_masked"]["body"]
+    eligible = int(np.isfinite(frames).all(axis=0).sum())
+    assert sample["eligible_pixels"] == eligible
+    assert sample["plotted_pixels"] == min(2, eligible)
+    assert sample["sample_seed"] == 42
+    assert responses[storage + "_invalid_sample"]["status"] == 422

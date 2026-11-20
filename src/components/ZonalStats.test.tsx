@@ -150,6 +150,28 @@ describe('Zonal stats on polygons', () => {
     await waitFor(() => expect(screen.getByRole('status').textContent).toBe(`Only the first ${ZONAL_MAX_FEATURES} of ${ZONAL_MAX_FEATURES + 5} polygons.`));
   });
 
+  it('does not add identified polygons again after their source order changes', async () => {
+    const a = { ...polygon(0, 'First'), id: 'A' }; const b = { ...polygon(1, 'Second'), id: 'B' };
+    const view = renderRow(vector([a, b]));
+    await act(async () => { fireEvent.click(zonalButton()!); });
+    await waitFor(() => expect(zonalButton()!.disabled).toBe(false));
+    expect(stateRef.chartAreas.map(a => a.source?.featureId)).toEqual(['A', 'B']);
+    view.rerender(<AppProvider><Row overlay={vector([b, a])} /></AppProvider>);
+    await act(async () => { fireEvent.click(zonalButton()!); });
+    await waitFor(() => expect(zonalButton()!.disabled).toBe(false));
+    expect(stateRef.chartAreas).toHaveLength(2);
+    expect(polygonRequests).toHaveLength(2);
+  });
+
+  it('does not duplicate a legacy index-only chart area when IDs are newly available', async () => {
+    renderRow(vector([{ ...polygon(0, 'First'), id: 'A' }]), [{ type: 'ADD_CHART_AREA', payload: {
+      name: 'Existing', geometry: { ...square(0), type: 'Polygon' }, source: { overlayId: 'v1', layer: 'areas.geojson', index: 0 },
+    } }]);
+    await act(async () => { fireEvent.click(zonalButton()!); });
+    expect(stateRef.chartAreas).toHaveLength(1);
+    expect(polygonRequests).toHaveLength(0);
+  });
+
   it('does not add the same polygons twice', async () => {
     renderRow(vector([polygon(0), polygon(1)]));
     await act(async () => { fireEvent.click(zonalButton()!); });
