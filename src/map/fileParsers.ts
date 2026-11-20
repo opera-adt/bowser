@@ -105,7 +105,7 @@ function guessDelimiter(header: string): string {
 
 /** Points from a table with lon/lat (or longitude/latitude, lng, x/y) columns; other columns become properties. */
 export function parseCsv(text: string, delimiter?: string): FeatureCollection {
-  const body = text.replace(/^﻿/, "");
+  const body = text.replace(/^\uFEFF/, "");
   const firstLine = body.split(/\r?\n/, 1)[0] ?? "";
   const rows = splitDelimited(body, delimiter ?? guessDelimiter(firstLine));
   if (rows.length < 2) throw new Error("the table has no data rows");

@@ -13,6 +13,8 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   page names a layer over the limits before sending it, and names server-tiled
   layers as not included. Geometry-only annotations leave measurements, masks and
   native point histories unchanged. See [docs/raster-animation.md](docs/raster-animation.md).
+- Choose source layers before adding small multi-layer converted vector files;
+  preserve source geometry and attributes without exposing unconfirmed features.
 
 - Absolute-value layer masks (`|value| ≤` and `|value| ≥`) across native
   display, analysis and export paths, preserving measurement signs and nodata.
