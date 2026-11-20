@@ -26,12 +26,20 @@ describe('source-layer picker in the real overlay provider', () => {
     expect(await screen.findByRole('group', { name: 'Choose source layers' })).toBeTruthy();
     expect(state.overlays[0].data?.features).toEqual([]);
     expect(screen.queryByLabelText('Zonal stats')).toBeNull();
+    expect(screen.getByRole('status').textContent).toBe('Waiting for a layer choice');
+    expect((screen.getByTitle('Hide') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTitle('Style') as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByLabelText('Opacity of Inventory')).toBeNull();
     fireEvent.click(screen.getByLabelText('stations (1 features)'));
     fireEvent.click(screen.getByText('Add'));
     await waitFor(() => expect(state.overlays[0].pendingSourceLayers).toBeUndefined());
     expect(state.overlays[0].data?.features).toEqual([collection.features[0]]);
     expect(state.overlays[0].bounds).toEqual([0,0,2,2]);
     expect(screen.getByLabelText('Zonal stats')).toBeTruthy();
+    expect(screen.queryByText('Waiting for a layer choice')).toBeNull();
+    expect((screen.getByTitle('Hide') as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByTitle('Style') as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByLabelText('Opacity of Inventory')).toBeTruthy();
     expect(JSON.parse(JSON.stringify(state.overlays))[0].data.features).toHaveLength(1);
   });
   it('refuses an empty selection and cancels only the pending overlay', async () => {

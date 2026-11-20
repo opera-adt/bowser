@@ -45,6 +45,8 @@ export default function OverlayRow({ overlay: o, dropSide, onDragStart, onDragEn
   const zonal = zonalKinds(o);
   const [zonalStatus, setZonalStatus] = useState<{ progress: ZonalProgress | null; notes: string[] }>({ progress: null, notes: [] });
   const zonalBusy = !!zonalStatus.progress && zonalStatus.progress.done < zonalStatus.progress.total;
+  // Nothing is drawn until its source layers are chosen, so showing, opacity and style wait too.
+  const pending = !!o.pendingSourceLayers;
 
   return (
     <div ref={rowRef} className={`ov-row${dropSide ? ` drop-${dropSide}` : ''}`}
@@ -63,7 +65,7 @@ export default function OverlayRow({ overlay: o, dropSide, onDragStart, onDragEn
         <span className="ov-grip" title="Drag to reorder" aria-hidden="true"
           onPointerDown={() => { if (rowRef.current) rowRef.current.draggable = true; }}
           onPointerUp={() => { if (rowRef.current) rowRef.current.draggable = false; }}>⋮⋮</span>
-        <button type="button" className="ov-icon-btn" title={o.visible ? 'Hide' : 'Show'} aria-pressed={o.visible}
+        <button type="button" className="ov-icon-btn" title={o.visible ? 'Hide' : 'Show'} aria-pressed={o.visible} disabled={pending}
           onClick={() => update({ visible: !o.visible })}>
           <i className={`fa-solid ${o.visible ? 'fa-eye' : 'fa-eye-slash'}`}></i>
         </button>
@@ -83,8 +85,8 @@ export default function OverlayRow({ overlay: o, dropSide, onDragStart, onDragEn
           </button>
         )}
         {(
-          <button type="button" className="ov-icon-btn" title="Style" aria-expanded={open} onClick={() => setOpen(v => !v)}>
-            <span className={`disclosure-chevron${open ? ' open' : ''}`} aria-hidden="true" />
+          <button type="button" className="ov-icon-btn" title="Style" aria-expanded={open && !pending} disabled={pending} onClick={() => setOpen(v => !v)}>
+            <span className={`disclosure-chevron${open && !pending ? ' open' : ''}`} aria-hidden="true" />
           </button>
         )}
         <button type="button" className="ov-icon-btn danger" title="Remove" onClick={() => dispatch({ type: 'REMOVE_OVERLAY', payload: o.id })}>
@@ -98,9 +100,6 @@ export default function OverlayRow({ overlay: o, dropSide, onDragStart, onDragEn
             : <span style={{ color: 'var(--sb-red)', wordBreak: 'break-word' }}>Could not add it: {o.conversion.error ?? 'unknown error'}</span>}
         </div>
       )}
-      {o.pendingSourceLayers && <SourceLayerPicker key={o.id} data={o.pendingSourceLayers}
-        onAdd={data => update({ data, pendingSourceLayers: undefined, bounds: featureBounds(data) })}
-        onCancel={() => dispatch({ type: 'REMOVE_OVERLAY', payload: o.id })} />}
       {(zonalBusy || zonalStatus.notes.length > 0) && (
         <div className="ov-zonal-note" role="status">
           {zonalBusy && <span>Zonal stats: {zonalStatus.progress!.done}/{zonalStatus.progress!.total} areas</span>}
@@ -109,11 +108,16 @@ export default function OverlayRow({ overlay: o, dropSide, onDragStart, onDragEn
       )}
       <div className="ov-opacity">
         <span className="ov-type">{o.dem ? 'DEM' : TYPE_LABEL[o.type]}</span>
-        <input type="range" className="sidebar-range" min="0" max="1" step="0.05" value={o.opacity} aria-label={`Opacity of ${o.name}`}
-          onChange={e => update({ opacity: parseFloat(e.target.value) })} />
-        <span className="slider-value">{Math.round(o.opacity * 100)}%</span>
+        {pending ? <span className="ov-zonal-note" role="status">Waiting for a layer choice</span> : <>
+          <input type="range" className="sidebar-range" min="0" max="1" step="0.05" value={o.opacity} aria-label={`Opacity of ${o.name}`}
+            onChange={e => update({ opacity: parseFloat(e.target.value) })} />
+          <span className="slider-value">{Math.round(o.opacity * 100)}%</span>
+        </>}
       </div>
-      {open && (
+      {o.pendingSourceLayers && <SourceLayerPicker key={o.id} data={o.pendingSourceLayers}
+        onAdd={data => update({ data, pendingSourceLayers: undefined, bounds: featureBounds(data) })}
+        onCancel={() => dispatch({ type: 'REMOVE_OVERLAY', payload: o.id })} />}
+      {open && !pending && (
         <div className="ov-style">
           {state.splitScreen && (
             <div className="toggle-row">

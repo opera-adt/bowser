@@ -2,7 +2,8 @@
 
 Small multi-layer GeoPackages are read by the existing full-server converter.
 Once ready, the overlay row lists each non-empty source layer and feature count.
-All are initially checked. Uncheck unwanted layers, then **Add**.
+All are initially checked. Uncheck unwanted layers, then **Add**. Until then the
+row says it is waiting for a layer choice, and its show, opacity and style controls are off.
 Nothing from this collection is drawn, exported or used for polygon statistics
 before confirmation. **None** clears the selection; adding an empty selection is
 disabled. **Cancel** removes only the pending overlay, never the original file.
