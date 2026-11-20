@@ -490,8 +490,8 @@ ROUTES: dict[str, dict[str, Any]] = {
         "description": "Per-date statistics (count, mean, median, spread, "
         "percentiles) of the stored pixels inside a WGS84 GeoJSON Polygon or "
         "MultiPolygon, on the native grid. Named quality masks are opt-in; "
-        "the stored reference is retained. See "
-        "docs/polygon-statistics.md.",
+        "the stored reference is retained. Optional bounded pixel histories "
+        "do not change the all-pixel statistics. See docs/polygon-statistics.md.",
         "tags": [STATS],
     },
     "POST /profile": {
@@ -1777,6 +1777,29 @@ class AppliedPolygonMask(_Fixed):
     temporal_support: Literal["static", "matching_axis"]
 
 
+class PolygonPixelCurve(_Fixed):
+    """One stored native-pixel history, aligned to the response labels."""
+
+    row: int = Field(description="Row in the returned native grid.")
+    col: int = Field(description="Column in the returned native grid.")
+    x: float = Field(description="Pixel-center X coordinate in grid.crs.")
+    y: float = Field(description="Pixel-center Y coordinate in grid.crs.")
+    values: list[Optional[float]] = Field(
+        description="Stored values aligned to labels; null retains missing support."
+    )
+
+
+class PolygonPixelCurves(_Fixed):
+    """Optional bounded preview; summary statistics never use just this sample."""
+
+    mode: Literal["sample", "all"]
+    sample_seed: Optional[int]
+    eligible_pixels: int
+    plotted_pixels: int
+    sampled: bool
+    curves: list[PolygonPixelCurve]
+
+
 class PolygonStatistics(_Fixed):
     """``POST /polygon_timeseries``."""
 
@@ -1789,6 +1812,7 @@ class PolygonStatistics(_Fixed):
     valid_per_date: list[int]
     common_pixels: int
     statistics: list[PolygonRow]
+    pixel_curves: Optional[PolygonPixelCurves] = None
     reference: Literal["stored"]
     optional_masks_applied: bool
     masks: list[AppliedPolygonMask] = Field(default_factory=list)

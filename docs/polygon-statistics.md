@@ -27,6 +27,55 @@ result = response.json()
 print(result["labels"], [row["median"] for row in result["statistics"]])
 ```
 
+## Optional bounded pixel histories (API)
+
+The existing chart continues to request summaries only. API clients can opt in
+with `curve_mode: "sample"` (and `sample_count`, default 200) or `curve_mode: "all"`.
+`curve_mode: "none"` is the default and preserves the earlier response and read
+behavior. A chart control for this preview is a separate frontend addition.
+
+For example, add these fields to the request above:
+
+```json
+"curve_mode": "sample",
+"sample_count": 50
+```
+
+The extra `pixel_curves` object reports the mode, `eligible_pixels`,
+`plotted_pixels`, whether this is a subset (`sampled`), the fixed sample seed
+(42 for sample mode), and a `curves` array. Each curve includes `row`, `col`,
+`x`, `y` and `values`. Values align exactly to the response `labels`, retain
+source units and the stored reference, and use `null` for missing support.
+A finite zero is a valid measurement. No zero-valued reference epoch or
+interpolation across gaps is invented.
+
+Rows/columns index the **returned grid**, and X/Y are pixel-center coordinates
+in `grid.crs`, not automatically latitude/longitude. The lightweight server can
+normalize a reversed axis; its reported grid describes that normalization.
+
+Selection uses the same native centers, polygon parts/holes and explicit quality
+masks as the summaries. With `common` support, candidates must be valid at every
+epoch. With `per_date`, candidates are the union of pixels valid on at least one
+epoch, retaining gaps on other dates. The preview does not establish connected-
+component compatibility; the existing warning still applies.
+
+Sample mode selects without replacement using the fixed seed from the eligible
+row-major native pixels. It is a reproducible visualization preview for the same
+input/grid and dependency environment, not an estimator or a guarantee of spatial
+representativeness. Summary counts, medians, means, percentiles and spread always
+use **all eligible pixels** under the chosen support policy, never just the sample.
+
+At most 500 curves and 100,000 curve values (`curves × epochs`) may be returned.
+`sample_count` must be an integer from 1 to 500. An oversized all-pixel or value-
+budget request is refused with 422; Bowser does not silently truncate it or change
+the summary/support. Use a smaller explicit sample or summaries only. The sample
+is collected during the existing second pass; it adds no full-raster read or
+extra processing/inversion. General polygon pixel-epoch limits still apply.
+
+Uploaded/configured masks and reference transformations retain the limitations
+described below. This option does not create new scientific defaults or apply
+any mask/reference that the existing polygon API cannot support.
+
 ## In the time-series chart
 
 The chart's **+ Area** button lists the polygons on the map (drawn with the

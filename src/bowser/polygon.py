@@ -20,6 +20,9 @@ if TYPE_CHECKING:
     import xarray as xr
     from rasterio.windows import Window
 
+MAX_PIXEL_CURVES = 500
+MAX_CURVE_VALUES = 100_000
+CURVE_SAMPLE_SEED = 42
 MAX_VERTICES = 10_000
 MAX_WINDOW_PIXELS = 2_000_000
 MAX_PIXEL_EPOCHS = 50_000_000
@@ -67,6 +70,23 @@ class PolygonRequest(BaseModel):
     )
     custom_mask_path: str | None = Field(
         default=None, min_length=1, max_length=4096, **PARAMS["custom_mask_path"]
+    )
+    curve_mode: Literal["none", "sample", "all"] = Field(
+        default="none",
+        description=(
+            "Optional bounded stored-pixel histories; summaries always use "
+            "all eligible pixels."
+        ),
+    )
+    sample_count: int = Field(
+        default=200,
+        ge=1,
+        le=MAX_PIXEL_CURVES,
+        strict=True,
+        description=(
+            "Maximum curves in sample mode, with a fixed reproducible seed; "
+            "not a summary-statistic sample."
+        ),
     )
 
     @field_validator("percentiles")
@@ -231,13 +251,41 @@ def _summaries(
     pixels: int,
     support: str,
     percentiles: list[float],
-) -> tuple[list[dict], list[int], int]:
+    curve_mode: str = "none",
+    sample_count: int = 200,
+) -> tuple[list[dict], list[int], int, dict | None]:
     common = np.ones(pixels, dtype=bool)
     counts = []
+    union = np.zeros(pixels, dtype=bool) if curve_mode != "none" else None
     for index in range(count):
         valid = np.isfinite(load(index))
         common &= valid
+        if union is not None:
+            union |= valid
         counts.append(int(valid.sum()))
+    chosen = np.array([], dtype=np.int64)
+    curve_values = None
+    eligible = np.array([], dtype=np.int64)
+    if union is not None:
+        eligible = np.flatnonzero(common if support == "common" else union)
+        if curve_mode == "all":
+            if eligible.size > MAX_PIXEL_CURVES:
+                raise ValueError(
+                    "All-pixel curve limit exceeded; choose sample mode or summaries"
+                )
+            chosen = eligible
+        else:
+            chosen = np.sort(
+                np.random.default_rng(CURVE_SAMPLE_SEED).choice(
+                    eligible, min(sample_count, eligible.size), replace=False
+                )
+            )
+        if chosen.size * count > MAX_CURVE_VALUES:
+            raise ValueError(
+                "Pixel-curve value budget exceeded; "
+                "choose a smaller sample or summaries"
+            )
+        curve_values = np.full((count, chosen.size), np.nan)
     statistics = []
     for index in range(count):
         frame = load(index)
@@ -245,6 +293,8 @@ def _summaries(
         if support == "common":
             valid &= common
         values = frame[valid]
+        if curve_values is not None:
+            curve_values[index] = np.where(valid[chosen], frame[chosen], np.nan)
         statistics.append(
             {
                 "count": int(values.size),
@@ -263,7 +313,25 @@ def _summaries(
                 },
             }
         )
-    return statistics, counts, int(common.sum())
+    preview = None
+    if curve_values is not None:
+        preview = {
+            "mode": curve_mode,
+            "sample_seed": CURVE_SAMPLE_SEED if curve_mode == "sample" else None,
+            "eligible_pixels": int(eligible.size),
+            "plotted_pixels": int(chosen.size),
+            "sampled": chosen.size < eligible.size,
+            "curves": [
+                {
+                    "pixel_index": int(pixel),
+                    "values": [
+                        float(v) if np.isfinite(v) else None for v in curve_values[:, i]
+                    ],
+                }
+                for i, pixel in enumerate(chosen)
+            ],
+        }
+    return statistics, counts, int(common.sum()), preview
 
 
 def _external_mask(masks, paths, grid, threshold, operator, *, primary=False, warp):
@@ -389,7 +457,17 @@ def summarize_xarray(
         return selected
 
     return masks.finish(
-        _result(load, count, inside, clipped, grid, labels, units, request)
+        _result(
+            load,
+            count,
+            inside,
+            clipped,
+            grid,
+            labels,
+            units,
+            request,
+            window_origin=(int(window.row_off), int(window.col_off)),
+        )
     )
 
 
@@ -474,6 +552,7 @@ def summarize_rasters(
             None,
             request,
             units,
+            window_origin=(int(window.row_off), int(window.col_off)),
         )
     )
 
@@ -488,15 +567,19 @@ def _result(
     units: str | None,
     request: PolygonRequest,
     raster_units: list | None = None,
+    *,
+    window_origin: tuple[int, int] = (0, 0),
 ) -> dict:
     if len(labels) != count:
         raise ValueError("Labels must match the source axis length")
-    statistics, valid_counts, common = _summaries(
+    statistics, valid_counts, common, preview = _summaries(
         load,
         count,
         int(inside.sum()),
         request.support,
         request.percentiles,
+        request.curve_mode,
+        request.sample_count,
     )
     if raster_units:
         units = raster_units[0]
@@ -528,7 +611,26 @@ def _result(
         warnings.append(
             "No pixels satisfy the requested support; no values were fabricated."
         )
+    if preview is not None:
+        # The curve's source index is within the selected polygon window.
+        # Report centers on the returned native grid, including the window offset.
+        indices = np.asarray(
+            [c["pixel_index"] for c in preview["curves"]], dtype=np.int64
+        )
+        flat = np.flatnonzero(inside)[indices]
+        rows, cols = np.unravel_index(flat, inside.shape)
+        a, b, c, d, e, f = grid.transform[:6]
+        for curve, row, col in zip(preview["curves"], rows, cols):
+            row, col = int(row) + window_origin[0], int(col) + window_origin[1]
+            curve.pop("pixel_index")
+            curve.update(
+                row=row,
+                col=col,
+                x=float(c + (col + 0.5) * a + (row + 0.5) * b),
+                y=float(f + (col + 0.5) * d + (row + 0.5) * e),
+            )
     return {
+        **({"pixel_curves": preview} if preview is not None else {}),
         "variable": request.variable,
         "labels": labels,
         "units": units,

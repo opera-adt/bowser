@@ -484,5 +484,15 @@ def summarize_cube(
         return np.where(keep[inside], values, np.nan)
 
     return masks.finish(
-        _full._result(load, count, inside, clipped, grid, labels, units, request)
+        _full._result(
+            load,
+            count,
+            inside,
+            clipped,
+            grid,
+            labels,
+            units,
+            request,
+            window_origin=(row_off, col_off),
+        )
     )
