@@ -3,6 +3,7 @@ import { featureSourceKey } from '../map/featureIdentity';
 import { useAppDispatch, useGetAppState } from '../context/AppContext';
 import { useApi } from './useApi';
 import { AREA_NEEDS_SERVER } from './usePolygonStats';
+import { uploadedMaskSupport } from './useUploadedChartMaskSupport';
 import { pointChoices, polygonChoices } from '../utils/polygonSeries';
 import { areaFetchOptions, chartDatasets, fetchAreaStats, ZONAL_MAX_FEATURES } from '../utils/zonalStats';
 import type { Overlay } from '../types';
@@ -61,8 +62,10 @@ export function useZonalStats(polygonStats: boolean) {
       }
     }
     if (added && !state.showChart) dispatch({ type: 'TOGGLE_CHART' });
+    // As the chart does: an uploaded mask is left out where the server cannot read it.
+    const uploaded = !state.customMaskPath || areas.length === 0 || (await uploadedMaskSupport()) === 'enabled';
     await fetchAreaStats(areas, chartDatasets(state), fetchPolygonTimeSeries, dispatch,
-      (done, total) => onProgress({ done, total }), areaFetchOptions(state));
+      (done, total) => onProgress({ done, total }), areaFetchOptions(state, uploaded));
     return notes;
   }, [getState, dispatch, fetchPolygonTimeSeries, polygonStats]);
 }

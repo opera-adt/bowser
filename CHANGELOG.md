@@ -8,6 +8,19 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Optional bounded vector outlines in raster GIFs, including polygon holes, from
+  up to five layers of at most 100 features each and 5,000 vertices in total. The
+  page names a layer over the limits before sending it, and names server-tiled
+  layers as not included. Geometry-only annotations leave measurements, masks and
+  native point histories unchanged. See [docs/raster-animation.md](docs/raster-animation.md).
+- Choose source layers before adding small multi-layer converted vector files;
+  preserve source geometry and attributes without exposing unconfirmed features.
+- Configured and uploaded masks in full-server polygon summaries, with native
+  bounded reads, explicit support records and no unmasked fallback. Masks on
+  another grid keep the same pixels as the map and the point/radius charts. On
+  bowser-lite, areas and the GNSS comparison leave an uploaded mask out and say
+  so, as point charts do. See [docs/polygon-statistics.md](docs/polygon-statistics.md).
+
 - Absolute-value layer masks (`|value| ≤` and `|value| ≥`) across native
   display, analysis and export paths, preserving measurement signs and nodata.
   See [docs/absolute-value-masks.md](docs/absolute-value-masks.md).
