@@ -71,6 +71,20 @@ describe('clicking a date in the chart', () => {
     expect(stateRef.currentTimeIndex).toBe(2);
   });
 
+  it('with the model on, the fitted line under the click does not decide the date', async () => {
+    render(<AppProvider><App onMap="displacement" /></AppProvider>);
+    await waitFor(() => expect(series()?.data.map(p => p.x.slice(0, 10))).toEqual(VALID));
+    // What Chart.js hands over in "index" mode with the model line drawn first: the model's
+    // element (its own dates are not acquisitions) and the click's time on the x scale.
+    const model = { label: 'Point 1 model', _series: { role: 'model' }, data: [{ x: '2020-02-10', y: 0 }, { x: '2020-04-20', y: 0 }] };
+    const datasets = [model, ...drawn.data!.datasets.map(d => d.label === 'Point 1' ? { ...d, _series: { role: 'data' } } : d)];
+    const at = (iso: string) => ({ x: 7, scales: { x: { getValueForPixel: () => Date.parse(`${iso}T00:00:00Z`) } }, data: { datasets } });
+    act(() => { const c = at('2020-04-25'); drawn.options.onClick({ x: c.x }, [{ datasetIndex: 0, index: 1 }], c); });
+    expect(stateRef.currentTimeIndex).toBe(4);   // 2020-05-01, the observation nearest the click
+    act(() => { const c = at('2020-02-20'); drawn.options.onClick({ x: c.x }, [{ datasetIndex: 0, index: 0 }], c); });
+    expect(stateRef.currentTimeIndex).toBe(2);   // 2020-03-01
+  });
+
   it('leaves the map alone when its layer has no such date', async () => {
     render(<AppProvider><App onMap="velocity" /></AppProvider>);
     await waitFor(() => expect(series()).toBeTruthy());

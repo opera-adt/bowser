@@ -46,6 +46,10 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A click in the chart goes to the right date with the model on.** The fitted line is
+  drawn first, and the click took its date, which is not an acquisition: the map often
+  stayed where it was or went elsewhere. The map now goes to the observed point nearest
+  the click.
 - A reference circle that cannot be read (for example over a layer's native read
   budget) no longer silently becomes the single pixel at its centre for the map
   shift and area statistics; the previous reference is kept and the error logged.
