@@ -18,7 +18,6 @@ custom mask GeoTIFF (reading one needs GDAL).
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import numpy as np
@@ -27,7 +26,12 @@ from fastapi import HTTPException
 from xarray.conventions import encode_cf_variable
 
 from ..export_provenance import export_provenance
-from ..mask_alignment import align_mask, mask_condition
+from ..mask_alignment import (
+    align_mask,
+    mask_condition,
+    mask_operator,
+    parse_layer_masks,
+)
 from ..reference import SourceGrid, reference_offset
 from ..utils import _uses_spatial_reference
 from . import geo, geotiff
@@ -167,22 +171,20 @@ def mask_provenance(
         if mask_variable is not None:
             threshold = 0.1 if mask_min_value is None else mask_min_value
             add(mask_variable, threshold, ">", "primary")
-        parsed = json.loads(layer_masks) if layer_masks else []
+        parsed = parse_layer_masks(layer_masks)
         if not isinstance(parsed, list):
             raise ValueError("layer_masks must be a JSON list")
         for mask in parsed:
             if not isinstance(mask, dict):
                 raise ValueError("Each layer mask must be an object")
             mode = mask.get("mode", "min")
-            if mode not in ("min", "max"):
-                raise ValueError("Mask mode must be min or max")
             name = mask.get("dataset")
             if not isinstance(name, str) or not name:
                 raise ValueError("Each layer mask needs a dataset name")
             add(
                 name,
                 float(mask.get("threshold", 0.5)),
-                ">=" if mode == "min" else "<=",
+                mask_operator(mode),
                 "layer",
             )
     except (ValueError, TypeError) as exc:
@@ -222,7 +224,7 @@ def masked_slice(
             (
                 m["dataset"],
                 m["threshold"],
-                "<=" if m.get("mode", "min") == "max" else ">=",
+                mask_operator(m.get("mode", "min")),
             )
             for m in layer_masks
         ]:

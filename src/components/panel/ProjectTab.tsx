@@ -7,6 +7,8 @@ import { saveFile } from '../../utils/saveFile';
 import { setDebug, useDebug } from '../../utils/debug';
 import { RENDER_MODES, setRenderMode, useRenderMode } from '../../map/gpu/renderMode';
 import { DEFAULT_RENDER_MODE } from '../../map/gpu/capability';
+import { validMaskMode } from '../../utils/maskControls';
+import type { LayerMask } from '../../types';
 
 const APPEARANCE: { value: ThemeChoice; label: string }[] = [
   { value: 'system', label: 'System' },
@@ -227,7 +229,7 @@ export default function ProjectTab() {
     const isAnnotation = (v: unknown) =>
       obj(v) && isStr(v.id) && isPair(v.position) && isStr(v.text);
     const isMask = (v: unknown) =>
-      obj(v) && isStr(v.id) && isStr(v.dataset) && isNum(v.threshold);
+      obj(v) && isStr(v.id) && isStr(v.dataset) && isNum(v.threshold) && validMaskMode(v.mode, v.threshold);
     const isOverlay = (v: unknown) =>
       obj(v) && isStr(v.id) && isStr(v.name) && isBool(v.visible) && isNum(v.opacity)
       && ['geotiff', 'wms', 'wmts', 'vector', 'context', 'pmtiles'].includes(v.type as string)
@@ -267,6 +269,9 @@ export default function ProjectTab() {
         if (validators[k](p[k])) payload[k] = p[k];
         else skipped.push(k);
       });
+      if (Array.isArray(payload.layerMasks)) {
+        payload.layerMasks = (payload.layerMasks as LayerMask[]).map(mask => ({ ...mask, mode: mask.mode ?? 'min' }));
+      }
       if (Object.keys(payload).length === 0) {
         throw new Error('no valid project fields found');
       }
