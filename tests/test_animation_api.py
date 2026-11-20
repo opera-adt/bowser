@@ -177,6 +177,53 @@ def exercise(work, mode):
     ]:
         rejected = client.post("/export/animation", json={**point_body, **invalid})
         assert rejected.status_code == 422, rejected.text[:300]
+    ends = [list(tr.transform(500005, 15)), list(tr.transform(500035, 15))]
+    outline_body = {
+        **body,
+        "width": 320,
+        "outlines": [
+            {
+                "name": "Example line",
+                "geometries": [{"type": "LineString", "coordinates": ends}],
+            }
+        ],
+    }
+    outlined = client.post("/export/animation", json=outline_body)
+    assert outlined.status_code == 200, outlined.text[:300]
+    outlined_image = Image.open(io.BytesIO(outlined.content))
+    outlined_meta = json.loads(outlined_image.info["comment"])
+    assert outlined_meta["valid_native_pixels"] == [15, 13, 15]
+    assert outlined_meta["outlines"][0]["name"] == "Example line"
+    np.testing.assert_array_equal(
+        np.asarray(outlined_image.convert("RGB"))[224, 120], [0, 0, 0]
+    )
+    plain = Image.open(
+        io.BytesIO(
+            client.post("/export/animation", json={**body, "width": 320}).content
+        )
+    )
+    np.testing.assert_array_equal(
+        np.asarray(outlined_image.convert("RGB"))[304, 120],
+        np.asarray(plain.convert("RGB"))[304, 120],
+    )
+    both = client.post(
+        "/export/animation", json={**point_body, "outlines": outline_body["outlines"]}
+    )
+    assert both.status_code == 200, both.text[:300]
+    assert json.loads(Image.open(io.BytesIO(both.content)).info["comment"])[
+        "point_histories"
+    ][0]["values"] == [0, None, 10]
+    for geometry in [
+        {"type": "GeometryCollection", "geometries": []},
+        {"type": "LineString", "coordinates": [[0, 0], [200, 0]]},
+        {"type": "Point", "coordinates": [True, 0]},
+        {"type": "Point", "coordinates": [1, 2], "properties": {"note": "not allowed"}},
+        {"type": "LineString", "coordinates": [[179, 0], [-179, 0]]},
+    ]:
+        bad = client.post(
+            "/export/animation", json={**body, "outlines": [{"geometries": [geometry]}]}
+        )
+        assert bad.status_code == 422
     for change in [
         {"end_index": 99},
         {"end_index": 0},

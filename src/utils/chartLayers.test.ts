@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RasterGroup } from '../types';
-import { addChartLayer, chartLayerFor, hasTimeAxis, timeIndexOfDate, timeSeriesLayers } from './chartLayers';
+import { addChartLayer, chartLayerFor, hasTimeAxis, observedDateNear, timeIndexOfDate, timeSeriesLayers } from './chartLayers';
 
 const layer = (x_values: Array<number | string>) => ({ x_values }) as RasterGroup;
 const DATES = ['2024-01-01', '2024-01-13'];
@@ -80,5 +80,23 @@ describe('the time step of a date', () => {
     expect(timeIndexOfDate(['2024-01-01'], '2024-02-01')).toBeNull();
     expect(timeIndexOfDate([], '2024-01-01')).toBeNull();
     expect(timeIndexOfDate(undefined, '2024-01-01')).toBeNull();
+  });
+});
+
+describe('the observed date nearest a click', () => {
+  const t = (d: string) => Date.parse(`${d}T00:00:00Z`);
+  const data = { _series: { role: 'data' }, data: [{ x: '2026-01-01' }, { x: '2026-01-13' }, { x: '2026-01-25' }] };
+  const model = { _series: { role: 'model' }, data: [{ x: '2026-01-04' }, { x: '2026-01-14' }, { x: '2026-01-24' }] };
+
+  it('takes the nearest observation, never the fitted model', () => {
+    expect(observedDateNear([model, data], t('2026-01-14'))).toBe('2026-01-13');
+    expect(observedDateNear([model, data], t('2026-01-24'))).toBe('2026-01-25');
+  });
+
+  it('counts buffer and area medians as observations, and skips hidden series and bands', () => {
+    const median = { _series: { role: 'median' }, data: [{ x: '2026-02-01' }] };
+    const band = { _series: { role: 'band_upper' }, data: [{ x: '2026-01-14' }] };
+    expect(observedDateNear([band, median], t('2026-01-14'))).toBe('2026-02-01');
+    expect(observedDateNear([{ ...data, hidden: true }, model], t('2026-01-14'))).toBeNull();
   });
 });
