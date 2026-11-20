@@ -180,16 +180,30 @@ describe('polygon masking controls', () => {
     await waitFor(() => expect(medians()).toEqual([0, 9, 18]));
     expect(screen.queryByText(/mask not applied/)).toBeNull();
     change({ type: 'SET_CUSTOM_MASK_PATH', payload: 'uploaded-mask.tif' });
-    await waitFor(() => expect(screen.getByText('Areas: uploaded masks requested; unavailable masks suppress summaries')).toBeTruthy());
     // The old unmasked summary is invalidated; only confirmed masked values return.
     await waitFor(() => expect(posted).toHaveLength(2));
     await waitFor(() => expect(medians()).toEqual([0, 5, 10]));
+    // Applied: said once, without a note that masks might be missing.
+    expect(screen.getByText(/Area quality masks applied/)).toBeTruthy();
+    expect(screen.queryByText(/suppress summaries|mask not applied/)).toBeNull();
     expect(posted[1].body.custom_mask_path).toBe('uploaded-mask.tif');
     expect(posted[1].body.support).toBe('per_date');
     expect(posted[1].body.layer_masks).toBeUndefined();
     change({ type: 'SET_CUSTOM_MASK_PATH', payload: null });
     await waitFor(() => expect(screen.queryByText(/mask not applied/)).toBeNull());
     await waitFor(() => expect(medians()).toEqual([0, 9, 18]));
+  });
+
+  it('leaves the uploaded mask out on bowser-lite, as for points, and says so in the chart and Stats', async () => {
+    const stub = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation((async (url: string, init?: RequestInit) => (url.startsWith('/config')
+      ? new Response(JSON.stringify({ polygon_stats: true, geotiff_upload: false })) : stub(url, init))) as typeof fetch);
+    show([{ type: 'SET_CUSTOM_MASK_PATH', payload: 'uploaded-mask.tif' }], true);
+    await waitFor(() => expect(medians()).toEqual([0, 9, 18]));
+    expect(posted.length).toBeGreaterThan(0);
+    for (const { body } of posted) expect(body.custom_mask_path).toBeUndefined();
+    expect(current.areaStats['displacement::area']?.error).toBeUndefined();
+    expect(screen.getAllByText(/Uploaded mask not applied: this server cannot read GeoTIFF masks/)).toHaveLength(2);
   });
 
   it('refetches an edited geometry and does not resurrect a removed area', async () => {
@@ -212,7 +226,8 @@ describe('polygon masking controls', () => {
     await waitFor(() => expect(medians()).toEqual([0, 5, 10]));
     expect(current.areaStats['displacement::area']?.error).toBeUndefined();
     expect(posted[0].body).toMatchObject({ primary_mask: true, mask_min_value: 0.1, support: 'per_date' });
-    expect(screen.getByText('Areas: configured masks requested; unavailable masks suppress summaries')).toBeTruthy();
+    expect(screen.getByText(/Area quality masks applied/)).toBeTruthy();
+    expect(screen.queryByText(/suppress summaries/)).toBeNull();
     expect(screen.queryByText(/Masking hides every date/)).toBeNull();
   });
 

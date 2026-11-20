@@ -24,14 +24,17 @@ export interface AreaFetchOptions {
   customMaskPath: string | null;
   dataMode: string;
   datasetInfo: Record<string, RasterGroup>;
+  /** False on a server that cannot read uploaded masks (bowser-lite): they are left out, as in charts. */
+  uploadedMaskSupported?: boolean;
 }
 
 /** Keep numerical request settings separate from references and display options. */
 export function areaFetchOptions(state: Pick<AppState,
   'areaStatsRevision' | 'layerMasks' | 'customMaskPath' | 'dataMode' | 'datasetInfo'
->): AreaFetchOptions {
+>, uploadedMaskSupported = true): AreaFetchOptions {
   return { revision: state.areaStatsRevision, layerMasks: state.layerMasks,
-    customMaskPath: state.customMaskPath, dataMode: state.dataMode, datasetInfo: state.datasetInfo };
+    customMaskPath: state.customMaskPath, dataMode: state.dataMode, datasetInfo: state.datasetInfo,
+    uploadedMaskSupported };
 }
 
 type Dispatch = (a: AppAction) => void;
@@ -49,15 +52,6 @@ let nextRequestId = 0;
 function maskError(options: AreaFetchOptions): string | null {
   if (options.layerMasks.some(m => !Number.isFinite(m.threshold))) return 'Area mask thresholds must be finite numbers.';
   return null;
-}
-
-/** Disclose explicit external-mask requests; failures never fall back to unmasked summaries. */
-export function unappliedAreaMasks(datasets: string[], state: Pick<AppState, 'customMaskPath' | 'dataMode' | 'datasetInfo'>): string | null {
-  const kinds = [
-    ...(state.customMaskPath ? ['uploaded'] : []),
-    ...(state.dataMode === 'cog' && datasets.some(ds => state.datasetInfo[ds]?.mask_file_list?.some(Boolean)) ? ['configured'] : []),
-  ];
-  return kinds.length ? `Areas: ${kinds.join(' and ')} masks requested; unavailable masks suppress summaries` : null;
 }
 
 /** Run ``worker`` on every item, at most ``limit`` at a time, in order of start. */
@@ -140,7 +134,7 @@ export async function fetchAreaStats(
           if (error) return { error };
           try {
             const masks = applicableMasks(options.datasetInfo[ds], options.layerMasks);
-            const extra = chartMaskOptions(options, ds);
+            const extra = chartMaskOptions(options, ds, options.uploadedMaskSupported ?? true);
             return toAreaStats(await (Object.keys(extra).length
               ? fetchPolygon(ds, area.geometry, masks, record.controller.signal, extra)
               : fetchPolygon(ds, area.geometry, masks, record.controller.signal)));

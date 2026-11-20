@@ -26,7 +26,6 @@ import ChartAreaButton from './ChartAreaButton';
 import { AREA_BAND_LABELS, areaChartDatasets, areaStatsKey, type AreaBand } from '../utils/polygonSeries';
 import { useAreaReference } from '../hooks/useAreaReference';
 import { useAreaStatsFetch } from '../hooks/useAreaStatsFetch';
-import { unappliedAreaMasks } from '../utils/zonalStats';
 import { REQUEST_GAP_MS, useSpacedEffect } from '../hooks/useSpacedEffect';
 import { readChartDisplayOpen, saveChartDisplayOpen } from '../utils/chartDisplayPref';
 import { refIndexOf, toIsoDate } from '../utils/areaStats';
@@ -1171,7 +1170,6 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
           {visibleAreas.length > 0 && (visibleAreas.some(a => activeDatasetsForChart.some(ds => areaResults[areaStatsKey(ds, a.id)]?.data?.support === 'per_date'))
             ? <> · Areas use the pixels valid on each date</>
             : <> · Areas use common valid pixels</>)}
-          {visibleAreas.length > 0 && unappliedAreaMasks(activeDatasetsForChart, state) && <> · <strong>{unappliedAreaMasks(activeDatasetsForChart, state)}</strong></>}
           {visibleAreas.some(a => activeDatasetsForChart.some(ds => areaResults[areaStatsKey(ds, a.id)]?.data?.optional_masks_applied)) && <> · Area quality masks applied</>}
           {state.bufferEnabled && Object.keys(bufferData).length > 0 && (
             <> · Buffer: {Object.values(bufferData).map((b: any) => b.n_pixels).join(', ')} px</>

@@ -9,7 +9,10 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - Configured and uploaded masks in full-server polygon summaries, with native
-  bounded reads, explicit support records and no unmasked fallback.
+  bounded reads, explicit support records and no unmasked fallback. Masks on
+  another grid keep the same pixels as the map and the point/radius charts. On
+  bowser-lite, areas and the GNSS comparison leave an uploaded mask out and say
+  so, as point charts do. See [docs/polygon-statistics.md](docs/polygon-statistics.md).
 
 - Absolute-value layer masks (`|value| ≤` and `|value| ≥`) across native
   display, analysis and export paths, preserving measurement signs and nodata.
