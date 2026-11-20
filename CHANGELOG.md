@@ -17,6 +17,12 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   unsupported/error handling. Shared named-mask and reference policies remain
   unchanged. See [docs/chart-extra-masks.md](docs/chart-extra-masks.md).
 
+- **Optional pixel histories inside a polygon.** The polygon statistics API can
+  return a reproducible sample or all pixels within strict response limits,
+  alongside unchanged all-pixel summaries. Native coordinates, valid zeros,
+  holes, quality masks and missing dates are retained. Summary-only behavior
+  remains the default; chart controls are separate work.
+
 - Optional synchronized native-pixel histories in raster GIFs. Point samples
   stay native under cropped/pyramid displays; preflight includes point/reference
   work and plot height. See [docs/raster-animation.md](docs/raster-animation.md).
