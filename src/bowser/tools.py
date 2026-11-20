@@ -26,7 +26,7 @@ from typing import Annotated, Any, Literal
 from urllib.parse import urlencode
 
 import httpx
-from pydantic import BaseModel, Field, create_model
+from pydantic import BaseModel, Field, create_model, model_validator
 
 from .chart_tools import CHART_COMMANDS, CHART_INSTRUCTIONS, register_chart_tools
 from .file_tools import register_file_tools
@@ -374,9 +374,20 @@ class LayerMask(BaseModel):
 
     dataset: str = Field(description="Layer to mask with, e.g. temporal_coherence.")
     threshold: float = Field(description="Threshold value.")
-    mode: Literal["min", "max"] = Field(
-        "min", description="min keeps pixels >= threshold, max keeps <= threshold."
+    mode: Literal["min", "max", "abs_min", "abs_max"] = Field(
+        "min",
+        description=(
+            "min/max compare signed values; "
+            "abs_min/abs_max compare magnitudes inclusively."
+        ),
     )
+
+    @model_validator(mode="after")
+    def _threshold(self) -> "LayerMask":
+        from .mask_alignment import validate_mask_threshold
+
+        validate_mask_threshold(self.mode, self.threshold)
+        return self
 
 
 class BowserError(RuntimeError):

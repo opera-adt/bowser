@@ -5,14 +5,15 @@
  * the data tools run on the server (src/bowser/tools.py). Also how the data tools' results
  * appear on the page (`showResult`) and the page state each question starts with (`pageState`).
  */
-import { refDragEnd, type RefApi } from '../map/interactions';
+import { chartRadiusLimit, refDragEnd, type RefApi } from '../map/interactions';
 import { getNavigator } from '../map/navigator';
 import { EXAGGERATION_MAX, EXAGGERATION_MIN } from '../map/terrain';
 import { datasetRangeUrl } from '../hooks/useApi';
 import { COLORMAP_OPTIONS, isInverted, withInvert } from '../utils/colormaps';
 import { fetchHistogram, presetRange, RANGE_PRESETS, type RangePreset } from '../utils/colorPresets';
 import { defaultMasks } from '../utils/defaultMasks';
-import type { AppAction, AppState, Overlay } from '../types';
+import { validMaskMode } from '../utils/maskControls';
+import type { AppAction, AppState, LayerMaskMode, Overlay } from '../types';
 import { listCommands, runCommand, type CommandEnv } from './commands';
 import {
   addService, clearHighlights, drawResult, isHighlight, listServices, removeService,
@@ -243,6 +244,12 @@ async function moveReference(ctx: PageContext, lon: number, lat: number, radius?
   let bufferRadius = s.refBufferRadius;
   if (radius !== undefined && radius !== null) {
     if (!isNum(radius) || radius < 0 || radius > 5000) throw new Error('Give radius_m between 0 and 5000.');
+    // As the panel's radius slider: the layers' native read budget bounds the circle, checked
+    // before anything moves so an unreadable circle is never requested.
+    const limit = chartRadiusLimit(s.datasetInfo);
+    if (radius > 0 && Math.round(radius) > limit) {
+      throw new Error(`Give radius_m of at most ${limit} m: the layers' native read budget (Main › Reference).`);
+    }
     // "Sample around ref marker" (Main › Reference): the switch and its radius slider.
     if (radius > 0) {
       bufferRadius = Math.round(radius);
@@ -310,8 +317,8 @@ function setMasks(ctx: PageContext, input: Record<string, unknown>) {
     const threshold = Number(m.threshold);
     if (!Number.isFinite(threshold)) throw new Error(`Give a number threshold for ${layer}.`);
     const mode = m.mode ?? 'min';
-    if (mode !== 'min' && mode !== 'max') throw new Error('mode is min (keep >= threshold) or max (keep <= threshold).');
-    return { layer, threshold, mode: mode as 'min' | 'max' };
+    if (!validMaskMode(mode, threshold)) throw new Error('mode is min/max or abs_min/abs_max; absolute limits must be nonnegative.');
+    return { layer, threshold, mode: mode as LayerMaskMode };
   });
   const replace = input.replace !== false;
   // As the Masking panel: remove (the x), add (Add layer mask), or change a row's threshold and mode.
@@ -331,7 +338,7 @@ function setMasks(ctx: PageContext, input: Record<string, unknown>) {
   return {
     ok: true,
     masks: applied,
-    kept: applied.map(m => `${m.layer} ${m.mode === 'min' ? '>=' : '<='} ${m.threshold}`),
+    kept: applied.map(m => `${m.layer} ${({ min: '>=', max: '<=', abs_min: '|value| >=', abs_max: '|value| <=' })[m.mode]} ${m.threshold}`),
     note: 'Pixels are shown where every mask holds.',
   };
 }
@@ -781,6 +788,6 @@ export function pageState(state: AppState, dataset: string | null): Record<strin
 }
 
 /** The page's layer masks as the server's data tools take them. */
-export function pageMasks(state: AppState): { dataset: string; threshold: number; mode: 'min' | 'max' }[] {
+export function pageMasks(state: AppState): { dataset: string; threshold: number; mode: LayerMaskMode }[] {
   return state.layerMasks.map(m => ({ dataset: m.dataset, threshold: m.threshold, mode: m.mode }));
 }
