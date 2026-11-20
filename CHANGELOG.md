@@ -8,10 +8,20 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Absolute-value layer masks (`|value| ≤` and `|value| ≥`) across native
+  display, analysis and export paths, preserving measurement signs and nodata.
+  See [docs/absolute-value-masks.md](docs/absolute-value-masks.md).
+
 - Configured and uploaded masks in full-server point/radius chart requests,
   including bounded native reads, per-layer configured thresholds and clear
   unsupported/error handling. Shared named-mask and reference policies remain
   unchanged. See [docs/chart-extra-masks.md](docs/chart-extra-masks.md).
+
+- **Optional pixel histories inside a polygon.** The polygon statistics API can
+  return a reproducible sample or all pixels within strict response limits,
+  alongside unchanged all-pixel summaries. Native coordinates, valid zeros,
+  holes, quality masks and missing dates are retained. Summary-only behavior
+  remains the default; chart controls are separate work.
 
 - Optional synchronized native-pixel histories in raster GIFs. Point samples
   stay native under cropped/pyramid displays; preflight includes point/reference
@@ -38,6 +48,20 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Chart-to-map date selection preserves both dates of a pair and does not jump
   to another pair with the same end date. Ambiguous selections leave the map unchanged.
+- **A click in the chart goes to the right date with the model on.** The fitted line is
+  drawn first, and the click took its date, which is not an acquisition: the map often
+  stayed where it was or went elsewhere. The map now goes to the observed point nearest
+  the click.
+- A reference circle that cannot be read (for example over a layer's native read
+  budget) no longer silently becomes the single pixel at its centre for the map
+  shift and area statistics; the previous reference is kept and the error logged.
+  The assistant's `set_reference_point` now honors the same radius limit as the
+  Main panel slider and refuses a larger circle before changing anything.
+- **Imported GeoJSON keeps feature IDs.** Unique source IDs keep polygon selections
+  and chart colors attached after feature reordering. Explicit source-layer
+  provenance distinguishes repeated IDs across combined layers; missing or
+  ambiguous IDs retain index-based behavior. Projects preserve these source
+  records. See [imported feature identity](docs/vector-feature-identity.md).
 
 - Static configured GeoTIFF masks now remain on the map at every date.
 - Native GeoTIFF exports now reject configured-mask zero even at a zero

@@ -56,6 +56,9 @@ export function gpuParamsFromTileQuery(params: Record<string, string>, dataMode:
     if (masks.length > 1) return { ok: false, reason: 'more than one layer mask not on the GPU path yet' };
     if (masks.length === 1) {
       const m = masks[0];
+      if (m.mode !== undefined && m.mode !== 'min' && m.mode !== 'max') {
+        return { ok: false, reason: 'this mask comparison uses server-rendered tiles' };
+      }
       if (layers) {
         if (!layers[params.variable]?.mask_compatibility)
           return { ok: false, reason: 'mask coordinate compatibility unavailable; using server tiles' };
