@@ -6,10 +6,10 @@ the current map view. Set the layer's color limits beforehand: the same limits
 and palette apply to every frame. Downloading does not advance the map slider
 or change the current reference.
 
-This first contribution exports an **opaque scalar raster**, not a screenshot
-of the map. It does not include basemaps, terrain backgrounds, text labels,
-style/opacity compositing or a colorbar graphic. Optional native-pixel histories
-and geometry-only vector outlines are described below.
+By default this exports an opaque scalar raster, not a screenshot of the
+browser. Optional native-pixel histories, vector outlines, captured background
+layers with opacity, and geographic text labels are described below. A colorbar
+graphic is not currently drawn; numerical color limits and units are shown.
 Dates and numerical color limits appear on each frame. Large labels or narrow
 frames can truncate that visible text; complete labels and settings remain in
 the GIF comment metadata. GIFs are display products, not georeferenced numeric
@@ -25,16 +25,18 @@ export; GIF export does not impose a separate mask-selection policy. On saved
 pyramids, the requested quality layers must also exist on that display grid.
 COG display windows use the native exporter’s nearest-neighbor mask alignment.
 
-Uploaded masks and configured primary GeoTIFF masks are **not supported yet**;
-the controls disable export and the API rejects these settings. Rewrapped and
-complex-valued layers are also unsupported. No missing observation is replaced
-with zero. An all-invalid epoch remains an empty, dated frame. Existing source
-files and native GeoTIFF export behavior are unchanged.
+Uploaded and configured primary GeoTIFF masks are supported, with bounded
+reads and strict error handling as described below. Rewrapped and complex-valued
+layers remain unsupported. Missing observations are never replaced with zero.
+An all-invalid epoch remains dated and reveals the background if one is included.
+Source files and native GeoTIFF export behavior are unchanged.
 
 The image uses nearest-neighbor display resizing and 254 fixed data colors
 without point plots, or 248 with plots (the remaining colors mark the selected
 points, plot cursor, text and invalid support);
-white marks invalid data and white/black are also used for text. Values beyond
+Without a background, white marks invalid data; with a background, it shows
+through. White/black are also used for text. Backgrounds use a shared palette
+including blended display colors, as described below. Values beyond
 the chosen limits receive the end colors. Frames have equal playback durations,
 even when acquisition intervals differ. No smoothing, interpolation, velocity
 fitting, baseline adjustment or inferred initial epoch is added.
@@ -132,8 +134,8 @@ not. Without the option, existing raster-only frame rendering is retained.
 The POST request accepts optional `points`, each with `id`, `name`, `lon`, `lat`
 and a six-digit hex `color`. IDs must be unique; at most five points are allowed.
 Names and coordinates are included intentionally in the exported GIF metadata.
-This is a follow-up contribution to the raster foundation, not basemap/context
-compositing, general styled annotation export, buffer plots, polygon plots or video.
+Point histories use individual native pixels. Backgrounds and text labels are
+independent options below; buffer/polygon animation plots and video are not claimed.
 
 
 ## Optional vector outlines
@@ -168,8 +170,8 @@ unchanged.
 The server projects WGS84 geometry into the raster CRS and clips the actual
 boundary segments to the exported window. It does not draw a newly created
 crop-box edge or fill holes. Clipping/projection are prepared once per export.
-There are no basemap requests, source file paths or feature properties in this
-option. The GIF comment records bounded layer display names, normalized XY
+Vector outlines do not make basemap requests or include source file paths or
+feature properties. The optional browser background capture is separate. The GIF comment records bounded layer display names, normalized XY
 geometry, style and the number of visible clipped primitives. Layer names and
 geometry are deliberately included in the exported file.
 
@@ -179,3 +181,53 @@ WGS84. The same fixed GIF palette is used; white/black annotation colors are
 already reserved, so enabling outlines does not change data color quantization.
 No extra runtime dependency is introduced: it reuses the full server's existing
 Shapely and PyProj support. Lite still explicitly rejects GIF rendering.
+
+
+## Backgrounds, opacity and text annotations
+
+**Include background and its opacity** captures the loaded map layers below the
+active raster, including static terrain/hillshade overlays. It requires Crop to
+current view, one flat north-up map, and loaded tiles. Leaflet and MapLibre are
+supported. The raster's opacity is captured when the download begins. Moving the
+view or changing capture settings requires retrying; cancellation restores map
+layer visibility. The viewer's date slider is not advanced by the export.
+
+The background is a single static snapshot, limited to 1024 pixels per side.
+It is aligned to the chosen raster display grid; only the display image is warped.
+Measurement values, references, masks and native point histories are unchanged.
+Nodata reveals the background without becoming a displacement observation.
+Every frame uses one shared GIF palette, including colors blended at the chosen
+opacity. GIF color quantization is display-only. GeoTIFF exports retain numeric
+measurements without background composition.
+
+Visible-source attribution is included in the image and metadata. Source URLs,
+credentials, PNG bytes and feature properties are not embedded in GIF metadata.
+Attribution longer than 280 characters is refused rather than silently truncated.
+Leaflet reuses only visible loaded tiles (at most 128), fetching them with browser
+CORS restrictions; inaccessible/provider-restricted tiles fail visibly. MapLibre
+captures its already rendered background. There is no server-side tile crawler,
+remote URL fetching or new satellite download. Tilted terrain, wrapping views and
+split-screen background composition are rejected explicitly.
+
+**Include text annotations** adds up to 20 labels, at their WGS84 positions, with
+stored text, color and font size. Labels are clipped to the raster extent and do
+not become data or masks. Their font uses Matplotlib's existing bundled DejaVuSans;
+no font package is installed. Vector outlines and synchronized native point
+histories remain separate optional controls and can be combined with backgrounds.
+
+Configured and uploaded masks are now supported by full-server GIF export. They
+use the same source-specific conventions as native exports: configured GeoTIFF
+mask flags must be finite, nonzero and meet the threshold; uploaded GeoTIFF masks
+use >0.5, and GeoZarr uploaded masks use >0. Measurement zeros remain valid.
+External masks count toward read budgets, and missing/unreadable masks reject
+rather than falling back to unmasked imagery. Aligned masks are read in bounded windows. A different mask grid reuses the
+map's nearest-neighbor mask warp on the full selected saved grid before cropping;
+this preserves exact map membership at crop edges. That two-dimensional mask
+warp must fit the configured cache budget or the export is refused. Source
+measurements remain windowed and are never resampled for mask evaluation.
+Configured masks must be static or complete for the saved record, with no temporal
+clamping. Metadata records external-mask use without exposing file paths.
+
+A regression also fixes Leaflet's initial viewport publication: cropped exports
+can be planned before the user first pans the map. Its regression fails before
+repair and passes after; map centering and measurement values are unchanged.

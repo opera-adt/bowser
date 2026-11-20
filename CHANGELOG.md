@@ -8,6 +8,9 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Optional GIF background snapshots, opacity and text annotations.
+- Publish the initial Leaflet viewport immediately for cropped exports.
+
 - Optional bounded vector outlines in raster GIFs, including polygon holes, from
   up to five layers of at most 100 features each and 5,000 vertices in total. The
   page names a layer over the limits before sending it, and names server-tiled

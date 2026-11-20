@@ -116,6 +116,81 @@ def exercise(work, mode):
         )
         np.testing.assert_array_equal(pixel, expected)
     # Mask all dates: no missing observations become zero; labels still retain
+    # Existing map conventions, including invalid zero mask flags and valid zero data.
+    external = ds.quality.isel(time=0).copy()
+    external.values[:] = 1
+    external.values[0, 1] = external.values[1, 1] = 0
+    external.rio.to_raster(work / "external.tif")
+    extra = client.post(
+        "/export/animation",
+        json={**body, "custom_mask_path": str(work / "external.tif")},
+    )
+    assert extra.status_code == 200, extra.text[:300]
+    with Image.open(io.BytesIO(extra.content)) as masked:
+        assert json.loads(masked.info["comment"])["valid_native_pixels"] == [13, 12, 13]
+    if mode == "cog":
+        main._default_state.raster_groups["displacement"].mask_file_list = [
+            str(work / "external.tif")
+        ]
+        configured = client.post(
+            "/export/animation", json={**body, "mask_min_value": 0}
+        )
+        assert configured.status_code == 200, configured.text[:300]
+        with Image.open(io.BytesIO(configured.content)) as masked:
+            assert json.loads(masked.info["comment"])["valid_native_pixels"] == [
+                13,
+                12,
+                13,
+            ]
+        main._default_state.raster_groups["displacement"].mask_file_list = []
+    # Cross-grid GIFs must select pixels from the same full-level warp as the
+    # map, not approximate a fresh warp for each cropped destination window.
+    cross_path = work / "external_wgs84.tif"
+    external.rio.reproject(4326).rio.to_raster(cross_path)
+    projector = Transformer.from_crs(32631, 4326, always_xy=True)
+    west, south = projector.transform(500010, 0)
+    east, north = projector.transform(500040, 30)
+    cropped = client.post(
+        "/export/animation",
+        json={
+            **body,
+            "custom_mask_path": str(cross_path),
+            "bounds": [west, south, east, north],
+        },
+    )
+    assert cropped.status_code == 200, cropped.text[:500]
+    with Image.open(io.BytesIO(cropped.content)) as gif:
+        manifest = json.loads(gif.info["comment"])
+    full = ds.displacement.isel(time=0)
+    keep = (
+        main._custom_mask_on(full, str(cross_path))
+        if mode == "md"
+        else (main._warped_mask(full, str(cross_path), values=True) > 0.5)
+    )
+    # Native center selection is fixed by the actual metadata-only render plan.
+    from bowser.animation import AnimationRequest, plan_render
+
+    plan = plan_render(
+        main._default_state,
+        AnimationRequest(
+            **{
+                **body,
+                "custom_mask_path": str(cross_path),
+                "bounds": [west, south, east, north],
+            }
+        ),
+    )
+    r0, r1, c0, c1 = plan.window
+    expected = [
+        int(
+            (np.isfinite(values[i]) & keep.values & (quality[i] > 0.5))[
+                r0:r1, c0:c1
+            ].sum()
+        )
+        for i in range(3)
+    ]
+    assert manifest["valid_native_pixels"] == expected
+
     # three separate saved frames instead of GIF coalescing an empty image.
     empty = client.post(
         "/export/animation",

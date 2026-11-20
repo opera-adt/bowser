@@ -1,3 +1,4 @@
+import { registerAnimationContext, captureLeafletContext } from '../map/animationContext';
 import { useEffect, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
 import { MapContainer as LeafletMapContainer, TileLayer, WMSTileLayer, Marker, useMapEvents, useMap } from 'react-leaflet';
@@ -105,7 +106,7 @@ function AnnotationLayer() {
 // reports the bounds (no seq bump), so the map doesn't fly back to
 // itself — that round-trip was drifting the center south on zoom-out because
 // bounds.getCenter() is the arithmetic mean of N/S, not the Mercator center.
-function MapViewController() {
+export function MapViewController() {
   const { state } = useAppContext();
   const map = useMap();
 
@@ -124,6 +125,11 @@ function MapViewController() {
       setViewBounds(roundedBounds(b.getSouth(), b.getWest(), b.getNorth(), b.getEast()));
     },
   });
+  useEffect(() => {
+    const b = map.getBounds();
+    setViewBounds(roundedBounds(b.getSouth(), b.getWest(), b.getNorth(), b.getEast()));
+  }, [map]);
+
 
   // The Assistant's map tools (src/map/navigator.ts); zoom levels converted to MapLibre's.
   useEffect(() => {
@@ -597,6 +603,12 @@ function OverlayLayers() {
   );
 }
 
+function AnimationContextBridge() {
+  const map=useMap(); const { state }=useAppContext();
+  useEffect(() => registerAnimationContext(signal => captureLeafletContext(map,state.splitScreen,signal)), [map,state.splitScreen]);
+  return null;
+}
+
 export default function MapContainer({ toolbarsVisible, onToggleToolbars }: { toolbarsVisible: boolean; onToggleToolbars: () => void }) {
   const { state } = useAppContext();
 
@@ -688,6 +700,7 @@ export default function MapContainer({ toolbarsVisible, onToggleToolbars }: { to
           eventHandlers={{ tileloadstart: onTileStart, tileload: onTileEnd, tileerror: onTileEnd }}
         />
       )}
+      <AnimationContextBridge />
       <OverlayLayers />
       <SplitScreenControl />
       <RasterTileLayer

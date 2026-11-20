@@ -1,3 +1,4 @@
+import { registerAnimationContext, captureLibreContext } from '../map/animationContext';
 /**
  * The bowser map on MapLibre GL (the default; ``?map=leaflet`` for the Leaflet map).
  *
@@ -326,6 +327,12 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
       },
     });
   }, [ready]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const map=mapRef.current;
+    if (!ready || !map) return;
+    return registerAnimationContext(signal => captureLibreContext(map, getState().splitScreen, signal));
+  }, [ready, getState]);
 
   // ── basemaps, data raster (double-buffered) ────────────────────────────────
   useBasemapLayers(mapRef.current, ready);

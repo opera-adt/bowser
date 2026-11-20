@@ -4,6 +4,7 @@ import { setViewBounds } from '../../map/viewBounds';
 import type { AppState } from '../../types';
 import AnimationExport from './AnimationExport';
 import { saveFile } from '../../utils/saveFile';
+import { registerAnimationContext } from '../../map/animationContext';
 
 let state: AppState;
 vi.mock('../../context/AppContext', async () =>
@@ -84,6 +85,27 @@ describe('raster GIF export controls', () => {
     expect(body.outlines).toEqual([{ name: 'Example area', geometries: [geometry] }]);
     expect(String(call[1]?.body)).not.toContain('not exported');
   });
+  it('retains validated outlines when a background snapshot is included', async () => {
+    state.opacity = 0.6;
+    state.overlays = [{ id: 'area', name: 'Area', type: 'vector', visible: true, opacity: 1,
+      data: { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {},
+        geometry: { type: 'Point', coordinates: [3, 1] } }] } }];
+    const release = registerAnimationContext(async () => ({ png: 'data:image/png;base64,fixture',
+      bounds: [0, 0, 100, 100], attribution: 'Synthetic background' }));
+    try {
+      render(<AnimationExport />);
+      await waitFor(() => expect((button() as HTMLButtonElement).disabled).toBe(false));
+      fireEvent.click(screen.getByLabelText('Include vector outlines in GIF'));
+      fireEvent.click(screen.getByLabelText('Include background and its opacity'));
+      await waitFor(() => expect((button() as HTMLButtonElement).disabled).toBe(false));
+      fireEvent.click(button());
+      await waitFor(() => expect(saveFile).toHaveBeenCalled());
+      const call = vi.mocked(fetch).mock.calls.find(([url, init]) => init?.method === 'POST' && !String(url).includes('/plan'))!;
+      expect(JSON.parse(String(call[1]?.body))).toMatchObject({ raster_opacity: 0.6,
+        background: { attribution: 'Synthetic background' },
+        outlines: [{ name: 'Area', geometries: [{ type: 'Point', coordinates: [3, 1] }] }] });
+    } finally { release(); }
+  });
   it('keeps lightweight export explicitly unsupported', async () => {
     supported = false;
     render(<AnimationExport />);
@@ -98,13 +120,20 @@ describe('raster GIF export controls', () => {
     await waitFor(() => expect((button() as HTMLButtonElement).disabled).toBe(true));
     expect(screen.getByText(/Rewrap off/)).toBeTruthy();
   });
-  it.each(['uploaded', 'configured'])('rejects unsupported %s masks without sending an export', async (kind) => {
+  it.each(['uploaded', 'configured'])('forwards %s masks through preflight and export', async (kind) => {
     if (kind === 'uploaded') state.customMaskPath = 'mask.tif';
-    else { state.dataMode = 'cog'; state.datasetInfo!.displacement.mask_file_list = ['mask.tif']; }
+    else { state.dataMode = 'cog'; state.datasetInfo!.displacement.mask_file_list = ['mask.tif']; state.datasetInfo!.displacement.mask_min_value = 0; }
     render(<AnimationExport />);
-    await waitFor(() => expect(screen.getByText(/Uploaded\/configured GeoTIFF masks/)).toBeTruthy());
-    expect((button() as HTMLButtonElement).disabled).toBe(true);
-    expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+    await waitFor(() => expect((button() as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(button());
+    await waitFor(() => expect(saveFile).toHaveBeenCalled());
+    const posts = vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === 'POST');
+    expect(posts.length).toBeGreaterThanOrEqual(2);
+    for (const [, init] of posts) {
+      const body = JSON.parse(String(init!.body));
+      if (kind === 'uploaded') expect(body.custom_mask_path).toBe('mask.tif');
+      else expect(body.mask_min_value).toBe(0);
+    }
   });
   it('requires increasing finite color limits', async () => {
     state.vmax = state.vmin;
