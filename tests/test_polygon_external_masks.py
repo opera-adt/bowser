@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 import rasterio
-import rioxarray  # noqa: F401
+import rioxarray
 import xarray as xr
 from pyproj import CRS
 from rasterio.transform import from_origin
@@ -66,12 +66,22 @@ def case(tmp_path):
     return ds, group, body, write
 
 
+def _warped(da, path):
+    """Warp a mask to the whole grid of ``da``, as the full server's map does."""
+    mask = rioxarray.open_rasterio(path, masked=True).squeeze("band", drop=True)
+    return mask.rio.reproject_match(da)
+
+
 def run(storage, case, **updates):
     ds, group, body, _ = case
     request = PolygonRequest(**{**body, **updates})
     if storage == "cog":
-        return summarize_rasters(group, request)
-    return summarize_xarray(ds.d, request, list(ds.time.values), external_masks=True)
+        return summarize_rasters(
+            group, request, warp=lambda path: _warped(ds.d.isel(time=0), path)
+        )
+    return summarize_xarray(
+        ds.d, request, list(ds.time.values), warp=lambda da, p: _warped(da, p) > 0
+    )
 
 
 @pytest.mark.parametrize("storage", ["md", "cog"])
@@ -119,6 +129,144 @@ def test_mask_warp_is_bounded_and_outside_coverage_invalid(case, storage):
     assert [r["count"] for r in out["statistics"]] == [8, 8]
     assert out["statistics"][0]["mean"] == np.mean(case[0].d.values[0, :, :2])
     assert out["statistics"][1]["mean"] == np.mean(case[0].d.values[1, :, :2])
+
+
+MAP_SCRIPT = r"""
+import json
+import sys
+import numpy as np
+from fastapi.testclient import TestClient
+from bowser import main
+from bowser.state import BowserState
+from bowser.titiler import RasterGroup
+
+inputs = json.loads(open(sys.argv[1]).read())
+ds = main.state.dataset
+mask = inputs["mask"]
+plain = BowserState(mode="cog", raster_groups={"d": RasterGroup(
+    name="d", file_list=inputs["files"])})
+configured = BowserState(mode="cog", raster_groups={"d": RasterGroup(
+    name="d", file_list=inputs["files"], mask_file_list=[mask], mask_min_value=0.5)})
+
+
+def geotiff_map(state, custom):
+    # The GeoTIFF map's masked layer (its configured mask, if any, and ``custom``).
+    return lambda i: np.isfinite(main._build_masked_cog_dataarray(
+        state, "d", i, None, None, custom, strict_masks=True).values)
+
+
+cases = {
+    # The GeoZarr map: the cached whole-grid warp, kept where > 0.
+    "md_uploaded": (main._default_state, {"custom_mask_path": mask},
+                    lambda i: main._custom_mask_on(ds.d.isel(time=i), mask).values),
+    "cog_uploaded": (plain, {"custom_mask_path": mask}, geotiff_map(plain, mask)),
+    "cog_configured": (configured, {"primary_mask": True},
+                       geotiff_map(configured, None)),
+}
+out = {}
+for name, (state, fields, keep) in cases.items():
+    main._default_state = state
+    with TestClient(main.app) as client:
+        r = client.post("/polygon_timeseries", json={**inputs["body"], **fields,
+                                                     "support": "per_date"})
+    out[name] = {"status": r.status_code, "body": r.json(),
+                 "keep": [np.asarray(keep(i)).tolist() for i in range(2)]}
+print(json.dumps(out))
+"""
+
+
+@pytest.mark.parametrize("storage", ["md", "cog"])
+def test_reprojected_masks_keep_the_maps_pixels(tmp_path, storage):
+    """Areas keep exactly the pixels the map keeps for a mask on another grid.
+
+    A windowed warp of a geographic mask flips a few edge pixels against the
+    map's whole-grid warp once the grid is wider than GDAL's 512-pixel warp
+    chunks, so the grid here is wider than that.
+    """
+    import json
+    import os
+    import subprocess
+    import sys
+
+    from pyproj import Transformer
+
+    n = 560
+    x = 230015.0 + 30 * np.arange(n)
+    y = 3850015.0 - 30 * np.arange(n)
+    values = (1 + np.arange(2 * n * n, dtype="float32")).reshape(2, n, n)
+    ds = xr.Dataset(
+        {"d": (("time", "y", "x"), values, {"units": "meters"})},
+        coords={
+            "time": np.array(["2026-01-01", "2026-01-13"], dtype="datetime64[ns]"),
+            "x": x,
+            "y": y,
+        },
+    ).rio.write_crs(32615)
+    ds.to_zarr(tmp_path / "cube.zarr", consolidated=False)
+    files = []
+    for i in range(2):
+        files.append(str(tmp_path / f"d_{i}.tif"))
+        ds.d.isel(time=i).rio.to_raster(files[-1])
+    west, south, east, north = ds.d.isel(time=0).rio.reproject(4326).rio.bounds()
+    res = 9.887e-5
+    width, height = int((east - west) / res) + 4, int((north - south) / res) + 4
+    mask = str(tmp_path / "geographic.tif")
+    with rasterio.open(
+        mask,
+        "w",
+        driver="GTiff",
+        width=width,
+        height=height,
+        count=1,
+        dtype="uint8",
+        crs=4326,
+        transform=from_origin(west - 2 * res, north + 2 * res, res, res),
+    ) as f:
+        rng = np.random.default_rng(1)
+        f.write(rng.integers(0, 2, (height, width)).astype("uint8"), 1)
+    # Rows 0-39, columns 100-219: their window differs from the whole-grid warp.
+    rows, cols = slice(0, 40), slice(100, 220)
+    to_wgs84 = Transformer.from_crs(32615, 4326, always_xy=True).transform
+    x0, x1 = x[cols.start] - 15, x[cols.stop - 1] + 15
+    y0, y1 = y[rows.start] + 15, y[rows.stop - 1] - 15
+    ring = [to_wgs84(a, b) for a, b in [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]]
+    body = {
+        "variable": "d",
+        "geometry": {"type": "Polygon", "coordinates": [ring + ring[:1]]},
+    }
+    (tmp_path / "input.json").write_text(
+        json.dumps({"body": body, "mask": mask, "files": files})
+    )
+    env = {k: v for k, v in os.environ.items() if not k.startswith("BOWSER_")}
+    env.update(
+        BOWSER_STACK_DATA_FILE=str(tmp_path / "cube.zarr"),
+        BOWSER_DATASET_CONFIG_FILE=str(tmp_path / "absent.json"),
+        BOWSER_REF_WARMUP="0",
+        MPLCONFIGDIR=str(tmp_path / "mpl"),
+    )
+    run = subprocess.run(
+        [sys.executable, "-B", "-c", MAP_SCRIPT, str(tmp_path / "input.json")],
+        cwd=tmp_path,
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=180,
+    )
+    assert run.returncode == 0, run.stderr[-3000:]
+    results = json.loads(run.stdout.strip().splitlines()[-1])
+    names = ["md_uploaded"] if storage == "md" else ["cog_uploaded", "cog_configured"]
+    for name in names:
+        result = results[name]
+        assert result["status"] == 200, result
+        for i, stats in enumerate(result["body"]["statistics"]):
+            keep = np.asarray(result["keep"][i], dtype=bool)[rows, cols]
+            kept = values[i, rows, cols][keep]
+            assert 0 < kept.size < keep.size
+            # Same pixels, same order: the same count, mean and spread exactly.
+            assert stats["count"] == kept.size, name
+            assert stats["mean"] == float(np.mean(kept.astype(float))), name
+            assert stats["spatial_std"] == float(np.std(kept.astype(float))), name
+        assert result["body"]["polygon_pixels"] == 40 * 120
 
 
 @pytest.mark.parametrize("storage", ["md", "cog"])

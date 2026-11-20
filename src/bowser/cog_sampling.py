@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import rasterio
@@ -20,7 +20,7 @@ from .polygon import (
     _linear,
     _values,
 )
-from .polygon_masks import raster_masks
+from .polygon_masks import PolygonMasks, raster_masks
 from .reference import select_circle
 
 
@@ -79,6 +79,59 @@ def read_native_mask(path: str, grid: NativeGrid, window: Window) -> np.ndarray:
         return _values(source.read(1, window=window, masked=True))
 
 
+def attach_external_mask(
+    masks: PolygonMasks,
+    paths: list[str],
+    grid: NativeGrid,
+    threshold: float,
+    operator: str,
+    *,
+    primary: bool = False,
+    warp: Callable[[str], Any] | None = None,
+) -> None:
+    """Attach a bounded, cached configured/uploaded mask reader to ``masks``.
+
+    A mask on the exact native grid is read window by window. Without ``warp``
+    any other grid is refused. With ``warp`` (``path -> mask on the whole native
+    grid``, as the map warps it), the window is taken from that warp, so area
+    summaries keep the same pixels as the map.
+    """
+    kept: dict[str, Any] = {"key": None, "values": None}
+
+    def read(index: int, rows: slice, cols: slice) -> np.ndarray:
+        path = paths[0 if len(paths) == 1 else index]
+        key = (path, rows.start, rows.stop, cols.start, cols.stop)
+        if kept["key"] != key:
+            window = Window(
+                cols.start,
+                rows.start,
+                cols.stop - cols.start,
+                rows.stop - rows.start,
+            )
+            try:
+                values = read_native_mask(path, grid, window)
+            except ValueError:
+                if warp is None:
+                    raise
+                values = np.asarray(warp(path)[rows, cols], dtype=float)
+            # Configured-mask zero is invalid, independently of valid zero
+            # displacement. Preserve the map's nonzero-and->= convention.
+            if primary:
+                values = np.where(values == 0, np.nan, values)
+            kept.update(key=key, values=values)
+        return kept["values"]
+
+    masks.readers.append(read)
+    masks.records.append(
+        {
+            "dataset": "configured mask" if primary else "uploaded mask",
+            "threshold": threshold,
+            "operator": operator,
+            "temporal_support": "static" if len(paths) == 1 else "matching_axis",
+        }
+    )
+
+
 class CogSampler:
     """Sample real-valued band-one stacks without resampling or date inference."""
 
@@ -128,34 +181,8 @@ class CogSampler:
 
     def _external_mask(self, paths, threshold, operator, *, primary=False):
         """Attach a bounded cached reader to the shared mask engine."""
-        kept = {"key": None, "values": None}
-
-        def read(index, rows, cols):
-            path = paths[0 if len(paths) == 1 else index]
-            key = (path, rows.start, rows.stop, cols.start, cols.stop)
-            if kept["key"] != key:
-                window = Window(
-                    cols.start,
-                    rows.start,
-                    cols.stop - cols.start,
-                    rows.stop - rows.start,
-                )
-                values = read_native_mask(path, self.grid, window)
-                # Configured-mask zero is invalid, independently of valid zero
-                # displacement. Preserve the map's nonzero-and->= convention.
-                if primary:
-                    values = np.where(values == 0, np.nan, values)
-                kept.update(key=key, values=values)
-            return kept["values"]
-
-        self.masks.readers.append(read)
-        self.masks.records.append(
-            {
-                "dataset": "configured mask" if primary else "uploaded mask",
-                "threshold": threshold,
-                "operator": operator,
-                "temporal_support": "static" if len(paths) == 1 else "matching_axis",
-            }
+        attach_external_mask(
+            self.masks, paths, self.grid, threshold, operator, primary=primary
         )
 
     def _xy(self, lon: float, lat: float) -> tuple[float, float]:

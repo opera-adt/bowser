@@ -261,15 +261,43 @@ def _summaries(
     return statistics, counts, int(common.sum())
 
 
+def _external_mask(masks, paths, grid, threshold, operator, *, primary=False, warp):
+    """Attach the charts' configured/uploaded mask reader; refuse unreadable masks."""
+    import rasterio  # noqa: PLC0415
+    from rioxarray.exceptions import RioXarrayError  # noqa: PLC0415
+
+    from .cog_sampling import attach_external_mask  # noqa: PLC0415
+
+    attach_external_mask(
+        masks, paths, grid, threshold, operator, primary=primary, warp=warp
+    )
+    read = masks.readers[-1]
+
+    def checked(index: int, rows: slice, cols: slice) -> np.ndarray:
+        try:
+            return read(index, rows, cols)
+        except (OSError, rasterio.errors.RasterioError, RioXarrayError) as exc:
+            raise ValueError(
+                "Could not read the requested polygon mask; no unmasked fallback"
+            ) from exc
+
+    masks.readers[-1] = checked
+
+
 def summarize_xarray(
     source: xr.DataArray,
     request: PolygonRequest,
     labels: list[str],
     *,
     mask_dataset: xr.Dataset | None = None,
-    external_masks: bool = False,
+    warp: Callable[[xr.DataArray, str], Any] | None = None,
 ) -> dict:
-    """Summarize a level-zero GeoZarr variable using bounded spatial reads."""
+    """Summarize a level-zero GeoZarr variable using bounded spatial reads.
+
+    ``warp(source, path)`` aligns an uploaded mask on another grid as the map
+    does (the full server's cached whole-grid warp); without it, uploaded masks
+    are refused.
+    """
     from .polygon_masks import xarray_masks  # noqa: PLC0415
 
     if not {"x", "y"}.issubset(source.dims):
@@ -307,11 +335,16 @@ def summarize_xarray(
     if request.primary_mask:
         raise ValueError("Configured raster masks require a GeoTIFF source")
     if request.custom_mask_path:
-        if not external_masks:
+        if warp is None:
             raise ValueError("Uploaded polygon masks require the full server")
-        from .polygon_external_masks import attach_mask
-
-        attach_mask(masks, [request.custom_mask_path], grid, 0.0, ">", primary=False)
+        _external_mask(
+            masks,
+            [request.custom_mask_path],
+            grid,
+            0.0,
+            ">",
+            warp=lambda path: warp(source, path),
+        )
 
     window, inside, clipped = _selection(grid, request.geometry, masks.work(count))
     rows = slice(int(window.row_off), int(window.row_off + window.height))
@@ -360,8 +393,13 @@ def summarize_rasters(
     request: PolygonRequest,
     *,
     mask_groups: dict | None = None,
+    warp: Callable[[str], Any] | None = None,
 ) -> dict:
-    """Summarize identical-grid, identical-unit GeoTIFFs with windowed reads."""
+    """Summarize identical-grid, identical-unit GeoTIFFs with windowed reads.
+
+    ``warp(path)`` returns a configured/uploaded mask on another grid warped to
+    the whole native grid, as the map does; without it such masks are refused.
+    """
     import rasterio  # noqa: PLC0415
 
     from .polygon_masks import raster_masks  # noqa: PLC0415
@@ -372,8 +410,6 @@ def summarize_rasters(
         grid = NativeGrid(first.crs, first.transform, first.width, first.height)
     labels = [str(v) for v in group.x_values]
     masks = raster_masks(mask_groups, request.layer_masks, labels, grid)
-    from .polygon_external_masks import attach_mask
-
     if request.primary_mask:
         paths = list(group.mask_file_list)
         if not paths or any(not p for p in paths) or len(paths) not in (1, len(labels)):
@@ -385,9 +421,11 @@ def summarize_rasters(
         )
         if not np.isfinite(threshold):
             raise ValueError("Configured mask threshold must be finite")
-        attach_mask(masks, paths, grid, float(threshold), ">=", primary=True)
+        _external_mask(
+            masks, paths, grid, float(threshold), ">=", primary=True, warp=warp
+        )
     if request.custom_mask_path:
-        attach_mask(masks, [request.custom_mask_path], grid, 0.5, ">", primary=False)
+        _external_mask(masks, [request.custom_mask_path], grid, 0.5, ">", warp=warp)
 
     window, inside, clipped = _selection(
         grid, request.geometry, masks.work(len(group.file_list))
