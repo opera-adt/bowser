@@ -57,6 +57,27 @@ describe('the model in a project', () => {
     expect(project.fitSettings).toEqual(FIT);
   });
 
+  it('round-trips imported IDs and source-layer provenance without converting number IDs to strings', async () => {
+    const source = { overlayId: 'v', layer: 'Inventory', index: 0, featureId: 0,
+      sourceLayer: 'regions', featureKey: 'id:["regions",0]' };
+    const data = { type: 'FeatureCollection' as const, bowser_source_layer_property: 'source_layer', features: [
+      { type: 'Feature', id: 0, properties: { source_layer: 'regions' }, geometry: { type: 'Point', coordinates: [0, 0] } },
+    ] };
+    const setup: AppAction[] = [
+      { type: 'ADD_TIME_SERIES_POINT', payload: { name: 'Station', position: [0, 0], source } },
+      { type: 'ADD_OVERLAY', payload: { id: 'v', name: 'Inventory', type: 'vector', visible: true, opacity: 1, data } },
+    ];
+    const first = render(<AppProvider><Seed setup={setup} /></AppProvider>);
+    await act(async () => { fireEvent.click(screen.getByTitle(/Save points/)); });
+    const savedProject = JSON.parse(await readBlob(saved.files[0].data as Blob));
+    expect(savedProject.timeSeriesPoints[0].source).toEqual(source);
+    first.unmount();
+    render(<AppProvider><Seed setup={[]} /></AppProvider>);
+    await load(savedProject);
+    expect(stateRef.timeSeriesPoints[0].source).toEqual(source);
+    expect(stateRef.overlays[0].data).toEqual(data);
+  });
+
   it('comes back on load', async () => {
     render(<AppProvider><Seed setup={[]} /></AppProvider>);
     expect(stateRef.showTrends).toBe(false);
