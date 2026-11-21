@@ -8,6 +8,10 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Quality masks on the reference-area preview (optional).** The reference buffer chart can
+  apply the current compatible quality masks to its preview. It is a diagnostic only: the map
+  reference, charts and exports are unchanged.
+
 - Optional bounded vector outlines in raster GIFs, including polygon holes, from
   up to five layers of at most 100 features each and 5,000 vertices in total. The
   page names a layer over the limits before sending it, and names server-tiled

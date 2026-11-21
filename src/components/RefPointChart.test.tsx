@@ -100,12 +100,39 @@ describe('optional quality-screened reference diagnostic', () => {
     let finish!: (value: typeof reply) => void;
     ctx.fetch.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
     fireEvent.click(screen.getByRole('checkbox'));
-    await waitFor(() => expect(finish).toBeTypeOf('function'));
+    // The screened request goes out after the request gap; wait until it has been sent.
+    await waitFor(() => expect(ctx.fetch).toHaveBeenCalledTimes(2));
+    expect(ctx.fetch.mock.calls[1].length).toBeGreaterThan(5);   // with masks
     fireEvent.click(screen.getByRole('checkbox'));
     await screen.findByTestId('chart');
     await act(async () => finish({ ...reply, median: series([99, 99, 99]) }));
     expect(curve('Median')).toEqual([0, 2, 4]);
   });
+});
+
+
+it('shows Loading, not the previous curve under the new settings, while the request waits', async () => {
+  const view = render(<RefPointChart />); await screen.findByTestId('chart');
+  ctx.state = { ...ctx.state, refBufferRadius: 999 };
+  view.rerender(<RefPointChart />);
+  // Within the request gap the 999 m request has not gone out yet.
+  expect(ctx.fetch).toHaveBeenLastCalledWith(2, 1, 'displacement', 15, 20);
+  expect(screen.queryByTestId('chart')).toBeNull();
+  expect(screen.getByText('Loading reference buffer…')).toBeTruthy();
+  await screen.findByTestId('chart');
+  expect(ctx.fetch).toHaveBeenLastCalledWith(2, 1, 'displacement', 999, 20);
+});
+
+
+it('says the masks may leave no valid pixel when the screened request fails', async () => {
+  render(<RefPointChart />); await screen.findByTestId('chart');
+  ctx.fetch.mockResolvedValue(undefined);
+  fireEvent.click(screen.getByRole('checkbox'));
+  const alert = await screen.findByRole('alert');
+  expect(alert.textContent).toMatch(/current quality masks: they may leave no valid pixel/);
+  // Only the message is announced, not the controls.
+  expect(alert.querySelector('input')).toBeNull();
+  expect(screen.getByRole('checkbox')).toBeTruthy();
 });
 
 
