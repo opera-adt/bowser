@@ -16,6 +16,8 @@
  * graticule: MapLibreGraticule; annotations: MapLibreAnnotations.
  * User overlays (GeoTIFF/WMS/WMTS) and buffer circles: maplibreLayers.
  */
+import { registerAnimationContext, captureLibreContext } from '../map/animationContext';
+
 import { useEffect, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -326,6 +328,12 @@ export default function MapLibreMap({ toolbarsVisible = true, onToggleToolbars =
       },
     });
   }, [ready]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const map=mapRef.current;
+    if (!ready || !map) return;
+    return registerAnimationContext(signal => captureLibreContext(map, getState().splitScreen, signal));
+  }, [ready, getState]);
 
   // ── basemaps, data raster (double-buffered) ────────────────────────────────
   useBasemapLayers(mapRef.current, ready);

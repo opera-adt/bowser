@@ -2919,6 +2919,50 @@ def _warped_mask(
     return keep
 
 
+def _animation_mask_window(full, selected, path, *, boolean):
+    """Use native windows or the map's whole-grid warp for a cropped GIF mask."""
+    from rasterio.windows import Window
+
+    from .cog_sampling import read_native_mask
+    from .polygon import NativeGrid
+
+    grid = NativeGrid(
+        full.rio.crs, full.rio.transform(), full.sizes["x"], full.sizes["y"]
+    )
+    cols = full.get_index("x").get_indexer(selected.x.values)
+    rows = full.get_index("y").get_indexer(selected.y.values)
+    if not len(cols) or not len(rows) or min(cols.min(), rows.min()) < 0:
+        raise ValueError("GIF mask grid does not contain the selected native pixels")
+    window = Window(int(cols[0]), int(rows[0]), len(cols), len(rows))
+    try:
+        values = read_native_mask(path, grid, window)
+        if boolean:
+            values = np.isfinite(values) & (values > 0)
+        return xr.DataArray(
+            values, dims=("y", "x"), coords={"y": selected.y, "x": selected.x}
+        )
+    except ValueError:
+        if full.sizes["x"] * full.sizes["y"] * 8 > CUSTOM_MASK_CACHE_BYTES:
+            raise ValueError(
+                "GIF cross-grid mask exceeds the map-mask cache budget"
+            ) from None
+        warped = _warped_mask(full, path, values=not boolean)
+        return warped.isel(y=rows, x=cols)
+
+
+def _animation_full_mask_grid(target, variable, cropped):
+    """Find the full saved level for a cropped display or native point window."""
+    candidates = [target.dataset] + [level.dataset for level in target.levels or []]
+    for ds in candidates:
+        if variable in ds:
+            full = ds[variable]
+            if full.rio.crs == cropped.rio.crs and np.allclose(
+                full.rio.resolution(), cropped.rio.resolution(), rtol=1e-10, atol=1e-10
+            ):
+                return full
+    raise ValueError("No full saved grid matches the GIF mask window")
+
+
 # MD mode: use xarray approach
 def _build_masked_md_dataarray(
     ds: "xr.Dataset",
@@ -2931,6 +2975,8 @@ def _build_masked_md_dataarray(
     *,
     strict_masks: bool = False,
     ref_time_idx: Optional[int] = None,
+    bounded_masks: bool = False,
+    full_mask_grid: xr.DataArray | None = None,
 ) -> "xr.DataArray":
     """Build the masked 2-D/3-D DataArray for ``variable`` from a GeoZarr ``ds``.
 
@@ -2987,7 +3033,16 @@ def _build_masked_md_dataarray(
     # Custom mask (uploaded GeoTIFF) — reproject to match da
     if custom_mask_path and (strict_masks or Path(custom_mask_path).exists()):
         try:
-            da = da.where(_custom_mask_on(da, custom_mask_path))
+            if bounded_masks:
+                keep = _animation_mask_window(
+                    full_mask_grid if full_mask_grid is not None else da,
+                    da,
+                    custom_mask_path,
+                    boolean=True,
+                )
+                da = da.where(keep)
+            else:
+                da = da.where(_custom_mask_on(da, custom_mask_path))
         except Exception as exc:
             if strict_masks:
                 raise HTTPException(
@@ -3032,31 +3087,16 @@ def _build_masked_cog_dataarray(
     da = rxr.open_rasterio(rg.file_list[idx], masked=True, **options).squeeze(
         "band", drop=True
     )
+    full_mask_grid = da
     if display_window is not None:
         r0, r1, c0, c1 = display_window
         da = da.isel(y=slice(r0, r1), x=slice(c0, c1))
 
     def _keep(da_, path, thr, inclusive=False, mode="min"):
         if display_window is not None:
-            # GIF-only bounded destination read, including masks with another
-            # grid. Native GeoTIFF exports retain their existing preparation.
-            import rasterio  # noqa: PLC0415
-            from rasterio.vrt import WarpedVRT  # noqa: PLC0415
-
-            with (
-                rasterio.open(path) as src,
-                WarpedVRT(
-                    src,
-                    crs=da_.rio.crs,
-                    transform=da_.rio.transform(),
-                    width=da_.sizes["x"],
-                    height=da_.sizes["y"],
-                ) as vrt,
-            ):
-                values = vrt.read(1, masked=True).astype(float).filled(np.nan)
-            m = xr.DataArray(values, dims=("y", "x"), coords={"y": da_.y, "x": da_.x})
+            m = _animation_mask_window(full_mask_grid, da_, path, boolean=False)
             if inclusive:
-                return da_.where(m >= thr)
+                return da_.where(np.isfinite(m) & (m != 0) & (m >= thr))
             return da_.where(np.isfinite(m) & (m <= thr if mode == "max" else m > thr))
         m = rxr.open_rasterio(path, masked=True).squeeze("band", drop=True)
         if (
@@ -3460,6 +3500,12 @@ def _prepare_native_export(
             custom_mask_path,
             strict_masks=True,
             ref_time_idx=None if ref_step is None else ref_step["index"],
+            bounded_masks=display_dataset is not None,
+            full_mask_grid=_animation_full_mask_grid(
+                target, variable, display_dataset[variable]
+            )
+            if display_dataset is not None
+            else None,
         )
         fallback_crs = target.dataset.rio.crs
     else:  # cog
@@ -3654,7 +3700,7 @@ def export_animation(body: AnimationRequest, dataset: str | None = Query(None)):
                 dataset,
                 index,
                 None,
-                None,
+                body.mask_min_value,
                 masks,
                 body.custom_mask_path,
                 body.ref_lon,

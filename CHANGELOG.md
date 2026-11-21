@@ -8,6 +8,10 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Configured/uploaded masks in GIFs reuse map alignment, including cropped exports.
+
+- Optional GIF background snapshots, opacity and text annotations.
+- Publish the initial Leaflet viewport immediately for cropped exports.
 - **Quality masks on the reference-area preview (optional).** The reference buffer chart can
   apply the current compatible quality masks to its preview. It is a diagnostic only: the map
   reference, charts and exports are unchanged.
