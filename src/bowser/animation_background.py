@@ -123,12 +123,20 @@ class AnimationLabel(BaseModel):
     color: str = Field(default="#ffffff", pattern=r"^#[0-9a-fA-F]{6}$")
 
 
-def draw_labels(image, da, labels, size, palette):
-    """Place fixed-size labels on the raster; geographic coordinates stay explicit."""
+def annotation_font(size):
+    """Use the existing bundled Unicode font for labels and source attribution."""
     from pathlib import Path
 
     import matplotlib
-    from PIL import ImageDraw, ImageFont
+    from PIL import ImageFont
+
+    path = Path(matplotlib.get_data_path()) / "fonts/ttf/DejaVuSans.ttf"
+    return ImageFont.truetype(str(path), size)
+
+
+def draw_labels(image, da, labels, size, palette):
+    """Place fixed-size labels on the raster; geographic coordinates stay explicit."""
+    from PIL import ImageDraw
     from pyproj import Transformer
 
     transform = Transformer.from_crs(4326, da.rio.crs, always_xy=True)
@@ -141,8 +149,12 @@ def draw_labels(image, da, labels, size, palette):
             continue
         color = np.array(list(bytes.fromhex(label.color[1:])), dtype=float)
         index = int(np.argmin(((palette.astype(float) - color) ** 2).sum(axis=1)))
-        font_path = Path(matplotlib.get_data_path()) / "fonts/ttf/DejaVuSans.ttf"
-        font = ImageFont.truetype(str(font_path), label.font_size)
+        font = annotation_font(label.font_size)
         draw.text(
-            (px, py), label.text, font=font, fill=index, stroke_width=1, stroke_fill=255
+            (px, py),
+            label.text,
+            font=font,
+            fill=index,
+            stroke_width=1,
+            stroke_fill=254 if color.mean() < 128 else 255,
         )

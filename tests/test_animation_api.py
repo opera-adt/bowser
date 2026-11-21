@@ -95,6 +95,12 @@ def exercise(work, mode):
         "width": 64,
         "layer_masks": [{"dataset": "quality", "threshold": 0.5, "mode": "min"}],
     }
+    missing = client.post(
+        "/export/animation/plan",
+        json={**body, "custom_mask_path": str(work / "absent.tif")},
+    )
+    assert missing.status_code == 422
+    assert "GIF mask is unavailable" in missing.text
     response = client.post("/export/animation", json=body)
     assert response.status_code == 200, response.text[:500]
     assert response.headers["content-type"] == "image/gif"
@@ -369,3 +375,22 @@ def test_animation_contract(tmp_path, mode):
 
 if __name__ == "__main__":
     exercise(Path(sys.argv[1]), sys.argv[2])
+
+
+def test_cropped_animation_masks_match_full_grid_with_negative_control(tmp_path):
+    """A grid larger than GDAL's warp chunk exposes the former crop-edge error."""
+    run = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(Path(__file__).parent / "regression" / "animation_mask_alignment.py"),
+            "--repo",
+            str(Path(__file__).resolve().parents[1]),
+            "--output",
+            str(tmp_path / "alignment"),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert run.returncode == 0, run.stdout + run.stderr

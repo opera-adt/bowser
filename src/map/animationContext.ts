@@ -49,7 +49,12 @@ export async function captureLibreContext(map: LibreMap, split: boolean, signal:
         const source=map.getCanvas(),scale=Math.min(1,1024/Math.max(source.width,source.height));
         const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(source.width*scale));canvas.height=Math.max(1,Math.round(source.height*scale));
         const ctx=canvas.getContext('2d');if(!ctx)throw new Error('Canvas unavailable');
-        ctx.drawImage(source,0,0,canvas.width,canvas.height);resolve(canvas.toDataURL('image/png'));
+        ctx.drawImage(source,0,0,canvas.width,canvas.height);
+        const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+        if (!pixels.some((value, index) => index % 4 === 3 && value > 0)) {
+          throw new Error('No visible background pixels; the provider may prohibit capture.');
+        }
+        resolve(canvas.toDataURL('image/png'));
       }catch {reject(new Error('Background capture failed; the provider or browser may prohibit image export.'));}};
       const timer=setTimeout(()=>{cleanup();reject(new Error('Background capture timed out.'));},15000);
       signal.addEventListener('abort',abort,{once:true});map.on('render',render);map.triggerRepaint();

@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .animation_background import (
     AnimationBackground,
     AnimationLabel,
+    annotation_font,
     background_image,
     composite_background,
     context_palette,
@@ -259,6 +260,25 @@ def _reference_work(grid, request, count):
 def plan_render(target: Any, request: AnimationRequest) -> RenderPlan:
     """Budget the actual read footprint and all display frames before pixel IO."""
     labels, indices = source_info(target, request)
+    # Reject missing local masks during planning, before any background is captured.
+    from pathlib import Path
+    from urllib.parse import urlparse
+
+    paths = [(request.custom_mask_path, "Uploaded")]
+    if target.mode == "cog":
+        group = target.raster_groups[request.variable]
+        paths.extend((path, "Configured") for path in group.mask_file_list if path)
+    for path, kind in paths:
+        if (
+            path
+            and not urlparse(path).scheme
+            and not path.startswith("/vsi")
+            and not Path(path).is_file()
+        ):
+            raise ValueError(
+                f"{kind} GIF mask is unavailable; "
+                "select an existing mask before exporting"
+            )
     candidates = []
     if target.mode == "md":
         levels = [("native", target.dataset)]
@@ -581,7 +601,13 @@ def render(request: AnimationRequest, target: Any, prepare: Callable):
                 attribution = textwrap.fill(
                     request.background.attribution, max(12, (size[0] - 8) // 7)
                 )
-                draw.multiline_text((4, size[1] + 42), attribution, fill=255, spacing=1)
+                draw.multiline_text(
+                    (4, size[1] + 42),
+                    attribution,
+                    font=annotation_font(10),
+                    fill=255,
+                    spacing=1,
+                )
             if point_records:
                 draw_locations(frame, da, point_records, plan.native_grid[1], size)
             frames.append(frame)

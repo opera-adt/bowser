@@ -231,3 +231,11 @@ clamping. Metadata records external-mask use without exposing file paths.
 A regression also fixes Leaflet's initial viewport publication: cropped exports
 can be planned before the user first pans the map. Its regression fails before
 repair and passes after; map centering and measurement values are unchanged.
+
+
+Export preflight names overlong annotations and refuses missing local masks before
+capturing a background. A background requires Crop to current view. Completely
+transparent MapLibre captures are refused rather than producing a misleading blank
+background. Label colors use the shared GIF palette and may be approximate; a
+contrasting halo improves readability. Cross-grid regression uses a 560-pixel grid
+and a cropped-warp negative control, exposing GDAL chunk-boundary differences.

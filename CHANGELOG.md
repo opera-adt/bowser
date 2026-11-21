@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Configured/uploaded masks in GIFs reuse map alignment, including cropped exports.
+
 - Optional GIF background snapshots, opacity and text annotations.
 - Publish the initial Leaflet viewport immediately for cropped exports.
 

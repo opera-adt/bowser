@@ -1,4 +1,3 @@
-import { registerAnimationContext, captureLibreContext } from '../map/animationContext';
 /**
  * The bowser map on MapLibre GL (the default; ``?map=leaflet`` for the Leaflet map).
  *
@@ -17,6 +16,8 @@ import { registerAnimationContext, captureLibreContext } from '../map/animationC
  * graticule: MapLibreGraticule; annotations: MapLibreAnnotations.
  * User overlays (GeoTIFF/WMS/WMTS) and buffer circles: maplibreLayers.
  */
+import { registerAnimationContext, captureLibreContext } from '../map/animationContext';
+
 import { useEffect, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';

@@ -18,7 +18,7 @@ afterEach(()=>vi.restoreAllMocks());
 describe('read-only animation background capture',()=>{
   it('limits image size, strips attribution markup and restores every visibility',async()=>{
     const {map,emit}=fake();const drawImage=vi.fn();
-    vi.spyOn(HTMLCanvasElement.prototype,'getContext').mockImplementation(()=>({drawImage}) as never);
+    vi.spyOn(HTMLCanvasElement.prototype,'getContext').mockImplementation(()=>({drawImage,getImageData:()=>({data:new Uint8ClampedArray([0,0,0,255])})}) as never);
     vi.spyOn(HTMLCanvasElement.prototype,'toDataURL').mockImplementation(function(this:HTMLCanvasElement){
       expect(this.width).toBe(1024);expect(this.height).toBe(512);return 'data:image/png;base64,fixture';
     });
@@ -27,6 +27,15 @@ describe('read-only animation background capture',()=>{
     emit();const result=await promise;
     expect(result.attribution).toBe('Synthetic tiles');expect(result.bounds[2]).toBeCloseTo(111319.490793);
     expect(drawImage).toHaveBeenCalledOnce();
+    expect(map.setLayoutProperty.mock.calls.slice(-2)).toEqual([['data-1','visibility','visible'],['overlay-labels','visibility','none']]);
+  });
+  it('refuses a transparent failed capture and restores map layers', async () => {
+    const {map,emit}=fake();
+    vi.spyOn(HTMLCanvasElement.prototype,'getContext').mockImplementation(()=>({
+      drawImage:vi.fn(),getImageData:()=>({data:new Uint8ClampedArray([0,0,0,0])}),
+    }) as never);
+    const promise=captureLibreContext(map as unknown as Map,false,new AbortController().signal);
+    emit();await expect(promise).rejects.toThrow(/provider|capture/i);
     expect(map.setLayoutProperty.mock.calls.slice(-2)).toEqual([['data-1','visibility','visible'],['overlay-labels','visibility','none']]);
   });
   it('rejects loading, tilted and split maps before changing visibility',async()=>{

@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setViewBounds } from '../../map/viewBounds';
 import type { AppState } from '../../types';
-import AnimationExport from './AnimationExport';
+import AnimationExport, { animationLabelProblem } from './AnimationExport';
 import { saveFile } from '../../utils/saveFile';
 import { registerAnimationContext } from '../../map/animationContext';
 
@@ -29,6 +29,21 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); setViewBounds(null); vi.unstubAllGlobals(); vi.clearAllMocks(); window.history.replaceState({}, '', '/'); });
 const button = () => screen.getByRole('button', { name: 'Download raster GIF' });
+
+it('names excessive or overlong text annotations before export', () => {
+  expect(animationLabelProblem([{ text: 'Long annotation '.repeat(8) }])).toContain('Annotation 1');
+  expect(animationLabelProblem(Array.from({length:21},()=>({text:'Example'})))).toContain('21 labels');
+  expect(animationLabelProblem([{text:'Known location'}])).toBeNull();
+});
+
+it('explains that background capture requires the current crop', async () => {
+  render(<AnimationExport />);
+  await waitFor(() => expect((button() as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByLabelText('Include background and its opacity'));
+  fireEvent.click(screen.getByLabelText('Crop GIF to current view'));
+  expect(screen.getByText('Background export requires Crop to current view.')).toBeTruthy();
+  expect((button() as HTMLButtonElement).disabled).toBe(true);
+});
 
 describe('raster GIF export controls', () => {
   it('sends fixed view limits, catalog, chosen epochs, masks and raw-reference options without moving the slider', async () => {

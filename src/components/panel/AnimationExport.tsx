@@ -61,6 +61,15 @@ function outlineSelection(overlays: Overlay[] | undefined) {
   return { count: layers.length, tiled, problem: null, json: JSON.stringify(payload) };
 }
 
+/** Name the offending annotation before any export request is sent. */
+export function animationLabelProblem(annotations: { text: string }[]): string | null {
+  if (annotations.length > 20) return `Text annotations: ${annotations.length} labels; at most 20 can be exported. Hide or remove extra labels.`;
+  for (const [i, a] of annotations.entries()) {
+    if (!a.text || a.text.length > 80) return `Annotation ${i + 1} (“${a.text.slice(0, 40)}”): use 1–80 characters before exporting.`;
+  }
+  return null;
+}
+
 /** First GIF contribution: scalar raster only; no hidden viewer-state changes. */
 export default function AnimationExport() {
   const state = useAppFields('annotations', 'colormap', 'currentDataset', 'customMaskPath', 'dataMode', 'datasetInfo', 'layerMasks', 'overlays', 'refBufferEnabled', 'refBufferRadius', 'refEnabled', 'refMarkerPosition', 'refTimeIndex', 'timeSeriesPoints', 'vmax', 'vmin', 'wrapEnabled');
@@ -102,7 +111,8 @@ export default function AnimationExport() {
   const invalidOutlines = !!outlines && (outlines.count < 1 || outlines.count > MAX_OUTLINE_LAYERS);
   const outlineProblem = outlines?.problem ?? null;
   const invalidPoints = includePoints && (visiblePoints.length < 1 || visiblePoints.length > 5);
-  const basicEligible = (!includeContext || crop) && !invalidOutlines && !outlineProblem && !invalidPoints && supported && !!layer && labels.length >= 2 && count >= 2 && count <= 90 && !state.wrapEnabled && !complex && Number.isFinite(state.vmin) && Number.isFinite(state.vmax) && state.vmax > state.vmin && (!crop || !!viewBounds);
+  const labelProblem = includeLabels ? animationLabelProblem(state.annotations) : null;
+  const basicEligible = !labelProblem && (!includeContext || crop) && !invalidOutlines && !outlineProblem && !invalidPoints && supported && !!layer && labels.length >= 2 && count >= 2 && count <= 90 && !state.wrapEnabled && !complex && Number.isFinite(state.vmin) && Number.isFinite(state.vmax) && state.vmax > state.vmin && (!crop || !!viewBounds);
   const ref = state.refEnabled && info?.uses_spatial_ref && info.algorithm === 'shift';
   const refTime = info ? activeRefTime(info, state.refTimeIndex?.[layer], state.dataMode) : null;
   const b = crop ? viewBounds : null;
@@ -206,9 +216,9 @@ export default function AnimationExport() {
           Include visible vector outlines (black)
         </label>
         {includeOutlines && <div className="row-label">Uses 1–5 visible vector layers, at most 100 features per layer and 5,000 vertices in total. Large files drawn from server tiles are not included. Black outlines with a white halo; no fills, text labels or feature properties.</div>}
-      <label className="toggle-row"><input type="checkbox" checked={includeLabels} disabled={busy}
+      <label className="row-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}><input aria-label="Include text annotations (up to 20)" type="checkbox" checked={includeLabels} disabled={busy}
         onChange={e => setIncludeLabels(e.target.checked)} />Include text annotations (up to 20)</label>
-      <label className="toggle-row"><input type="checkbox" checked={includeContext} disabled={busy}
+      <label className="row-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}><input aria-label="Include background and its opacity" type="checkbox" checked={includeContext} disabled={busy}
         onChange={e => setIncludeContext(e.target.checked)} />Include background and its opacity</label>
       {includeContext && <div className="row-label">Current viewport only. Keep one flat, north-up map; background tiles must be loaded. Source attribution is included. Foreground opacity follows the map.</div>}
       </fieldset>
@@ -227,7 +237,9 @@ export default function AnimationExport() {
       {invalidOutlines && <div className="row-label">Outlines need 1–5 visible vector layers: {outlines!.count > MAX_OUTLINE_LAYERS ? 'hide extra layers in Overlays' : outlines!.tiled.length ? 'add or show a smaller vector layer in Overlays' : 'add or show a vector layer in Overlays'}.</div>}
       {outlines && outlines.tiled.length > 0 && <div className="row-label">Not included in outlines, drawn from server tiles: {outlines.tiled.map(name => `“${name}”`).join(', ')}.</div>}
       {outlineProblem && <div role="alert" className="row-label">{outlineProblem}</div>}
-      {!basicEligible && !invalidPoints && !invalidOutlines && !outlineProblem && <div className="row-label">Choose 2–90 saved epochs from a real-valued time series, with Rewrap off.</div>}
+      {includeContext && !crop && <div role="alert" className="row-label">Background export requires Crop to current view.</div>}
+      {labelProblem && <div role="alert" className="row-label">{labelProblem}</div>}
+      {!labelProblem && !(includeContext && !crop) && !basicEligible && !invalidPoints && !invalidOutlines && !outlineProblem && <div className="row-label">Choose 2–90 saved epochs from a real-valued time series, with Rewrap off.</div>}
       {error && <div role="alert" className="row-label" style={{ color: 'var(--sb-red)' }}>{error}</div>}
     </>
   </div>;
