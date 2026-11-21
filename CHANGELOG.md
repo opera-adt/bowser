@@ -8,6 +8,9 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Polygon style for added vector layers (Overlays › Style): outline, filled, or both, with
+  its own fill opacity, kept in saved projects. Shown for layers with polygons; a tiled
+  (PMTiles) layer shows it unless its metadata says it has none.
 - Configured/uploaded masks in GIFs reuse map alignment, including cropped exports.
 
 - Optional GIF background snapshots, opacity and text annotations.

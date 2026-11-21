@@ -477,3 +477,21 @@ describe('DEM controls', () => {
     expect(screen.queryByRole('switch', { name: 'Use as DEM' })).toBeNull();
   });
 });
+
+describe('polygon style control on tiled layers', () => {
+  const tiled = { id: 't1', name: 'roads', type: 'pmtiles', pmtilesKind: 'vector', url: 'https://x.org/a.pmtiles',
+    visible: true, opacity: 1, sourceLayers: ['roads'] } as Overlay;
+  it('is shown when the archive has polygons or does not say, hidden when it has none', async () => {
+    await renderTab([{ ...tiled, hasPolygons: false }]);
+    openStyle();
+    expect(screen.queryByLabelText('Polygon style')).toBeNull();
+    cleanup();
+    await renderTab([tiled]);
+    openStyle();
+    expect(screen.getByLabelText('Polygon style')).toBeTruthy();
+    cleanup();
+    await renderTab([{ ...tiled, hasPolygons: true }]);
+    openStyle();
+    expect(screen.getByLabelText('Polygon style')).toBeTruthy();
+  });
+});

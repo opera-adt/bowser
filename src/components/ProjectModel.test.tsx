@@ -143,3 +143,16 @@ describe('polygon support in saved projects', () => {
     expect(alert).toHaveBeenCalledWith(expect.stringContaining('areaSupport'));
   });
 });
+
+
+it('round-trips polygon style and fill opacity in saved projects', async () => {
+  const setup: AppAction[] = [{ type: 'ADD_OVERLAY', payload: { id: 'polygon', name: 'Region', type: 'vector',
+    visible: true, opacity: 1, polygonStyle: 'fill', fillOpacity: 0.6,
+    data: { type: 'FeatureCollection', features: [] } } }];
+  render(<AppProvider><Seed setup={setup} /></AppProvider>);
+  await act(async () => { fireEvent.click(screen.getByTitle(/Save points/)); });
+  const project = JSON.parse(await readBlob(saved.files[0].data as Blob));
+  expect(project.overlays[0]).toMatchObject({ polygonStyle: 'fill', fillOpacity: 0.6 });
+  await load(project);
+  expect(stateRef.overlays[0]).toMatchObject({ polygonStyle: 'fill', fillOpacity: 0.6 });
+});

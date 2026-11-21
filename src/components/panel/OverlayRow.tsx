@@ -177,6 +177,25 @@ export default function OverlayRow({ overlay: o, dropSide, onDragStart, onDragEn
             </div>
           )}
           {o.type === 'pmtiles' && o.conversion && <div className="ov-zonal-note">{tiledNote(o.featureCount)}</div>}
+          {/* Polygons only: a file's own features, or a tiled archive unless its metadata says it has none. */}
+          {((o.type === 'vector' && zonal.polygons > 0) || (o.pmtilesKind === 'vector' && o.hasPolygons !== false)) && (
+            <>
+              <label className="toggle-row">
+                <span className="row-label">Polygon style</span>
+                <select className="sidebar-select" style={{ width: 'auto', fontSize: '0.76em' }} aria-label="Polygon style"
+                  value={o.polygonStyle ?? 'both'} onChange={e => update({ polygonStyle: e.target.value as Overlay['polygonStyle'] })}>
+                  <option value="outline">Outline</option>
+                  <option value="fill">Filled</option>
+                  <option value="both">Outline + filled</option>
+                </select>
+              </label>
+              {o.polygonStyle !== 'outline' && <div className="slider-group">
+                <div className="slider-label"><span>Fill opacity</span><span className="slider-value">{Math.round((o.fillOpacity ?? 0.25) * 100)}%</span></div>
+                <input aria-label="Polygon fill opacity" className="sidebar-range" type="range" min="0" max="1" step="0.05"
+                  value={o.fillOpacity ?? 0.25} onChange={e => update({ fillOpacity: Number(e.target.value) })} />
+              </div>}
+            </>
+          )}
           {(o.type === 'vector' || o.pmtilesKind === 'vector') && !o.classColors && (
             <>
               <div className="toggle-row">
