@@ -13,6 +13,10 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   search, and goes back to the dataset picker. When there is work on the page (points, areas,
   annotations, masks or overlays) it offers to save the project first, since switching reloads
   the page. The desktop app adds a File menu with Open Dataset… and Dataset Picker.
+- **Dataset picker on a globe, with search.** The start screen draws the catalog on a MapLibre
+  globe (small cubes get a dot when zoomed out). Its search box narrows the datasets as you
+  type; Enter zooms to the matches, or to a place when none match and the server's place
+  search is on (the desktop app and `bowser run`).
 - Configured/uploaded masks in GIFs reuse map alignment, including cropped exports.
 
 - Optional GIF background snapshots, opacity and text annotations.
