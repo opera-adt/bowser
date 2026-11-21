@@ -629,6 +629,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
           },
         },
         tooltip: {
+          filter: (item: { dataset: unknown }) => !(item.dataset as { _pixelCurve?: boolean })._pixelCurve,
           callbacks: {
             title: (context: any) => `${context[0]?.label || ''}`,
             label: (context: any) => {
@@ -703,6 +704,27 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     const r = areaResults[areaStatsKey(ds, a.id)];
     return !r || !!r.pending || (!!r.data && areaReference(ds) === undefined);
   }));
+
+  const dateStart = state.dateRangeStart ? new Date(state.dateRangeStart).getTime() : -Infinity;
+  const dateEnd   = state.dateRangeEnd   ? new Date(state.dateRangeEnd).getTime()   : Infinity;
+  const inRange = (x: string) => { const t = new Date(x).getTime(); return t >= dateStart && t <= dateEnd; };
+
+  const pixelDatasets = (() => {
+    const selection = pixels.selection;
+    const result = pixels.data;
+    if (!selection || !result) return [];
+    const area = visibleAreas.find(a => a.id === selection.areaId);
+    const reference = areaReference(selection.dataset);
+    if (!area || reference === undefined) return [];
+    const summary = areaResults[areaStatsKey(selection.dataset, area.id)]?.data;
+    if (!summary || JSON.stringify(summary.labels) !== JSON.stringify(result.labels)) return [];
+    const unit = displayUnit(state.datasetInfo[selection.dataset]?.unit, state.units);
+    return pixelPreviewDatasets({ result, name: area.name, color: dsColorOverrides[selection.dataset] ?? area.color,
+      factor: unit.factor, unit: unit.label, yAxisID: `y${activeChartDs.indexOf(selection.dataset)}`,
+      reference, toX: toIsoDate, inRange,
+      refIndex: selection.dataset in refX ? refIndexOf(result, refX[selection.dataset]) : null,
+    }).map(d => ({ ...d, _series: { kind: 'area', id: area.id, name: area.name, layer: selection.dataset, role: 'sample' } as SeriesTag }));
+  })();
 
   const headerContent = (
     <>
@@ -819,8 +841,8 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
       {pixelLabelsMismatch && <p className="chart-area-error" role="alert">Pixel history dates do not match the area summary; no pixel preview is shown.</p>}
       {pixels.pending && <p className="chart-area-note" role="status">Loading pixel histories…</p>}
       {pixels.error && <p className="chart-area-error" role="alert">Pixel histories: {pixels.error} Area summaries are unchanged.</p>}
-      {pixels.data && <p className="chart-area-note">{pixels.data.pixel_curves.plotted_pixels} of {pixels.data.pixel_curves.eligible_pixels} eligible pixels selected
-        {pixels.data.pixel_curves.sampled ? ' (sample)' : ''}; {pixels.data.support} support. Null gaps are retained; no component compatibility is established.</p>}
+      {pixels.data && <p className="chart-area-note">{pixelDatasets.length} curves drawn; {pixels.data.pixel_curves.plotted_pixels} of {pixels.data.pixel_curves.eligible_pixels} eligible pixels selected
+        {pixels.data.pixel_curves.sampled ? ' (sample)' : ''}; {pixels.data.support === 'common' ? 'same pixels across dates' : 'available pixels on each date'}. Some selected curves may be hidden if their reference date is missing. Gaps remain missing; separate unwrapped regions may not share a valid displacement reference.</p>}
       {areaErrors.length > 0 && (
         <div className="chart-area-error" role="alert">{areaErrors.join(' · ')}</div>
       )}
@@ -858,9 +880,6 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
   }
 
   // ── Area series: median, dashed mean and p10–p90 band per area, in the area's colour ──
-  const dateStart = state.dateRangeStart ? new Date(state.dateRangeStart).getTime() : -Infinity;
-  const dateEnd   = state.dateRangeEnd   ? new Date(state.dateRangeEnd).getTime()   : Infinity;
-  const inRange = (x: string) => { const t = new Date(x).getTime(); return t >= dateStart && t <= dateEnd; };
   const areaDatasets = activeChartDs.flatMap(dsName => {
     const reference = areaReference(dsName);
     if (reference === undefined) return [];
@@ -877,22 +896,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     });
   });
 
-  const pixelDatasets = (() => {
-    const selection = pixels.selection;
-    const result = pixels.data;
-    if (!selection || !result) return [];
-    const area = visibleAreas.find(a => a.id === selection.areaId);
-    const reference = areaReference(selection.dataset);
-    if (!area || reference === undefined) return [];
-    const summary = areaResults[areaStatsKey(selection.dataset, area.id)]?.data;
-    if (!summary || JSON.stringify(summary.labels) !== JSON.stringify(result.labels)) return [];
-    const unit = displayUnit(state.datasetInfo[selection.dataset]?.unit, state.units);
-    return pixelPreviewDatasets({ result, name: area.name, color: dsColorOverrides[selection.dataset] ?? area.color,
-      factor: unit.factor, unit: unit.label, yAxisID: `y${activeChartDs.indexOf(selection.dataset)}`,
-      reference, toX: toIsoDate, inRange,
-      refIndex: selection.dataset in refX ? refIndexOf(result, refX[selection.dataset]) : null,
-    }).map(d => ({ ...d, _series: { kind: 'area', id: area.id, name: area.name, layer: selection.dataset, role: 'sample' } as SeriesTag }));
-  })();
+
   const hasAreaData = areaDatasets.some(d => (d.data as unknown[]).length > 0);
 
   // A masked point comes back as a dataset with no points: that is no data too.

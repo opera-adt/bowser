@@ -5,11 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppProvider, useAppContext } from '../context/AppContext';
 import type { AppAction, AppState, RasterGroup } from '../types';
 import { newDone, runPageTool } from '../assistant/pageTools';
-const drawn = vi.hoisted(() => ({ data: null as null | { datasets: Record<string, unknown>[] } }));
+type DrawOptions = { plugins: { tooltip: { filter: (item: { dataset: Record<string, unknown> }) => boolean } } };
+const drawn = vi.hoisted(() => ({ options: null as DrawOptions | null, data: null as null | { datasets: Record<string, unknown>[] } }));
 vi.mock('react-chartjs-2', async () => {
   const { forwardRef, useEffect } = await import('react');
-  return { Line: forwardRef((props: { data: typeof drawn.data }, _ref) => {
-    drawn.data = props.data;
+  return { Line: forwardRef((props: { data: typeof drawn.data; options: DrawOptions }, _ref) => {
+    drawn.data = props.data; drawn.options = props.options;
     useEffect(() => () => { drawn.data = null; }, []);
     return null;
   }) };
@@ -102,6 +103,14 @@ describe('polygon pixel controls', () => {
     expect(pixels()).toHaveLength(0);
     change({ type: 'SET_CUSTOM_MASK_PATH', payload: null });
     await waitFor(() => expect(pixels()).toHaveLength(2));
+  });
+  it('excludes pixel previews from index-mode tooltips while retaining summaries', async () => {
+    await show(); choose('sample');
+    await waitFor(() => expect(pixels()).toHaveLength(2));
+    const filter = drawn.options!.plugins.tooltip.filter;
+    expect(filter({ dataset: pixels()[0] })).toBe(false);
+    expect(filter({ dataset: { label: 'Region median' } })).toBe(true);
+    expect(filter({ dataset: { label: 'Point' } })).toBe(true);
   });
   it('reuses native curves when references, baseline dates and display ranges change', async () => {
     await show(); choose('sample');

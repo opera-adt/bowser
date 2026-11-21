@@ -1,6 +1,7 @@
 /** A bounded display preview, never an input to area statistics or fitted rates. */
 import type { PolygonTimeSeries } from './polygonSeries';
 import type { AreaSeriesOptions } from './polygonSeries';
+import { referencedValues } from './areaStats';
 import { withOpacity } from '../map/seriesStyle';
 
 export interface PixelPreviewOptions { curve_mode: 'sample' | 'all'; sample_count: number; support?: 'common' | 'per_date' }
@@ -45,14 +46,7 @@ export function checkedPixelPreview(result: PolygonTimeSeries, options: PixelPre
 export function pixelPreviewDatasets(o: AreaSeriesOptions & { result: PixelPreview }): Record<string, unknown>[] {
   if (o.refIndex === -1) return [];
   return o.result.pixel_curves.curves.flatMap(c => {
-    let values = c.values.map((v, i) => {
-      const ref = o.reference === null ? 0 : o.reference[i];
-      return finite(v) && finite(ref) ? v - ref : null;
-    });
-    if ((o.refIndex ?? null) !== null) {
-      const base = values[o.refIndex!];
-      values = values.map(v => finite(v) && finite(base) ? v - base : null);
-    }
+    const values = referencedValues(c.values, o.reference, o.refIndex ?? null);
     const data = values.map((v, i) => ({ x: o.toX(o.result.labels[i]), y: v === null ? null : v * o.factor })).filter(p => o.inRange(p.x));
     if (!data.some(p => p.y !== null)) return [];
     return [{ label: `${o.name} pixel [${c.row}, ${c.col}]`, _pixelCurve: true,

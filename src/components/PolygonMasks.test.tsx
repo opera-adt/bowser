@@ -305,9 +305,11 @@ describe('explicit polygon pixel support', () => {
     show([{ type: 'ADD_LAYER_MASK', payload: mask },
       { type: 'SET_CUSTOM_MASK_PATH', payload: 'session-mask.tif' }], true);
     await waitFor(() => expect(medians()).toEqual([0, 5, 10]));
-    expect((screen.getByRole('combobox', { name: 'Area pixel support' }) as HTMLSelectElement).value).toBe('auto');
-    fireEvent.change(screen.getByRole('combobox', { name: 'Area pixel support' }), { target: { value: 'common' } });
+    expect(screen.getAllByRole('combobox', { name: 'Area pixel support' })).toHaveLength(2);
+    expect(screen.getAllByRole('combobox', { name: 'Area pixel support' }).every(e => (e as HTMLSelectElement).value === 'auto')).toBe(true);
+    fireEvent.change(screen.getAllByRole('combobox', { name: 'Area pixel support' })[0], { target: { value: 'common' } });
     await waitFor(() => expect(current.areaStats['displacement::area']?.data?.support).toBe('common'));
+    expect(screen.getAllByRole('combobox', { name: 'Area pixel support' }).every(e => (e as HTMLSelectElement).value === 'common')).toBe(true);
     expect(posted).toHaveLength(2);
     expect(posted[1].body).toMatchObject({ support: 'common', custom_mask_path: 'session-mask.tif', layer_masks: [{ dataset: 'quality', threshold: 0.5, mode: 'min' }] });
     const revision = current.areaStatsRevision;

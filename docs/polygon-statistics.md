@@ -357,3 +357,12 @@ lazy GeoZarr chunk reads, windowed GeoTIFF reads, explicit mask/date/grid suppor
 agreement with actual masked GeoTIFF exports, catalog isolation, actual
 HTTP responses, lite dependency isolation and the equality of bowser-lite's
 answers with the full server's. They require no real data.
+
+
+Pixel-preview lines are excluded from index-mode tooltips, so dense previews do
+not create hundreds of tooltip rows. The preview reports both selected pixels
+and curves actually drawn; missing reference dates can hide selected histories.
+The support choice is available in both the chart and Stats tab and is shared
+between them. Choosing common support with an uploaded mask explicitly retains
+only pixels valid across every date. Spatial then temporal display referencing
+uses the same helper for area summaries and optional pixel previews.
