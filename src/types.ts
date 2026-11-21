@@ -247,6 +247,8 @@ export interface Overlay {
   pendingSourceLayers?: OverlayFeatures;
   color?: string;
   lineWidth?: number;
+  polygonStyle?: 'outline' | 'fill' | 'both';
+  fillOpacity?: number;  // polygon fill fraction, multiplied by layer opacity
   pointRadius?: number;
   marker?: PointMarker;  // point shape (circle unless set)
   labelField?: string;   // the attribute written beside each point (none unless set)
