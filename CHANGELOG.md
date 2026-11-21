@@ -8,6 +8,11 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Open another dataset from the app.** The side panel's new Open button (and Ctrl/Cmd+O)
+  lists the catalog's datasets, links to Project › Open data for a cube by path or folder
+  search, and goes back to the dataset picker. When there is work on the page (points, areas,
+  annotations, masks or overlays) it offers to save the project first, since switching reloads
+  the page. The desktop app adds a File menu with Open Dataset… and Dataset Picker.
 - Configured/uploaded masks in GIFs reuse map alignment, including cropped exports.
 
 - Optional GIF background snapshots, opacity and text annotations.

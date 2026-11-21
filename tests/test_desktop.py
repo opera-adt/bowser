@@ -198,3 +198,59 @@ def test_the_app_packs_what_the_assistant_needs():
         (root / "packaging" / "requirements-desktop.txt").read_text().splitlines()
     )
     assert extra and extra <= packed, sorted(extra - packed)
+
+
+def _fake_menu_module(monkeypatch):
+    """A ``webview.menu`` with pywebview's Menu and MenuAction shapes."""
+    import types  # noqa: PLC0415
+
+    menu = types.ModuleType("webview.menu")
+
+    class Menu:
+        def __init__(self, title, items):
+            self.title, self.items = title, items
+
+    class MenuAction:
+        def __init__(self, title, function):
+            self.title, self.function = title, function
+
+    menu.Menu, menu.MenuAction = Menu, MenuAction
+    pkg = types.ModuleType("webview")
+    pkg.menu = menu
+    monkeypatch.setitem(sys.modules, "webview", pkg)
+    monkeypatch.setitem(sys.modules, "webview.menu", menu)
+
+
+def test_file_menu_asks_the_page_to_open_a_dataset_or_the_picker(monkeypatch):
+    _fake_menu_module(monkeypatch)
+    api = desktop._WindowApi()
+    sent = []
+    api.window = type("W", (), {"evaluate_js": lambda _self, js: sent.append(js)})()
+    (file_menu,) = desktop.file_menu(api)
+    assert file_menu.title == "File"
+    titles = [item.title for item in file_menu.items]
+    assert titles == ["Open Dataset…", "Dataset Picker"]
+    for item in file_menu.items:
+        item.function()
+    # The page's event (OPEN_EVENT in OpenDataset.tsx), with the picker as the fallback.
+    assert all("bowser:open-dataset" in js and "/picker" in js for js in sent)
+    assert "('open')" in sent[0] and "('picker')" in sent[1]
+
+
+def test_file_menu_is_empty_without_pywebview_menus(monkeypatch):
+    import types  # noqa: PLC0415
+
+    monkeypatch.setitem(sys.modules, "webview", types.ModuleType("webview"))
+    monkeypatch.setitem(sys.modules, "webview.menu", None)
+    assert desktop.file_menu(desktop._WindowApi()) == []
+
+
+def test_menu_goes_to_create_window_only_when_it_takes_one():
+    def new(_title, _url, menu=None):
+        return menu
+
+    def old(_title, _url, js_api=None):  # noqa: ARG001
+        return None
+
+    assert desktop._takes(new, "menu") is True
+    assert desktop._takes(old, "menu") is False

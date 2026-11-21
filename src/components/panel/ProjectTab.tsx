@@ -3,7 +3,7 @@ import { useAppDispatch, useAppFields, useGetAppState } from '../../context/AppC
 import { applyTheme, readThemeChoice, THEME_EVENT, type ThemeChoice } from '../../utils/theme';
 import { SectionHeader } from './controls';
 import ExportSection from './ExportSection';
-import { saveFile } from '../../utils/saveFile';
+import { PROJECT_KEYS, saveProjectFile, type ProjectKey } from '../../utils/project';
 import { setDebug, useDebug } from '../../utils/debug';
 import { RENDER_MODES, setRenderMode, useRenderMode } from '../../map/gpu/renderMode';
 import { DEFAULT_RENDER_MODE } from '../../map/gpu/capability';
@@ -98,7 +98,7 @@ function OpenData() {
   };
 
   return (
-    <div className="sidebar-section">
+    <div className="sidebar-section" id="open-data">
       <SectionHeader label="Open data" />
       {allowed === false ? (
         <div className="row-label" style={{ fontSize: '0.76em' }}>
@@ -183,28 +183,8 @@ export default function ProjectTab() {
   }, []);
 
   // ── Project save/load: persist points, reference, annotations and masks. ──
-  const PROJECT_KEYS = [
-    'currentDataset', 'currentTimeIndex', 'colormap', 'vmin', 'vmax',
-    'opacity', 'dataMode',
-    'refMarkerPosition', 'refEnabled', 'refMarkerVisible', 'refTimeIndex',
-    'timeSeriesPoints', 'annotations', 'layerMasks', 'customMaskPath', 'overlays', 'units',
-    'chartAreas', 'areaBand', 'areaSupport',
-    // The chart's model: whether it and its residuals are shown, and its terms.
-    'showTrends', 'showResiduals', 'fitSettings',
-  ] as const;
-  const saveProject = useCallback(() => {
-    // The project is the state as it is when saved: read then, not followed.
-    const all = getState();
-    const project: Record<string, unknown> = { bowser_project: 1, saved: new Date().toISOString() };
-    PROJECT_KEYS.forEach(k => {
-      // Drop cached time-series/trend values from points — they refetch on load.
-      project[k] = k === 'timeSeriesPoints'
-        ? all.timeSeriesPoints.map(({ data, trendData, ...rest }) => rest)
-        : all[k];
-    });
-    const blob = new Blob([JSON.stringify(project, null, 2)], { type: 'application/json' });
-    void saveFile(blob, `bowser-project-${new Date().toISOString().slice(0, 16).replace(/[:.]/g, '-')}.json`);
-  }, [getState]);
+  // The project is the state as it is when saved: read then, not followed.
+  const saveProject = useCallback(() => { void saveProjectFile(getState()); }, [getState]);
   // Validate each field before merging it into state. LOAD_PROJECT spreads the
   // payload straight onto state, so a hand-edited/corrupt file with a wrong type
   // (e.g. timeSeriesPoints not an array, refMarkerPosition not a pair) would
@@ -234,7 +214,7 @@ export default function ProjectTab() {
       obj(v) && isStr(v.id) && isStr(v.name) && isBool(v.visible) && isNum(v.opacity)
       && ['geotiff', 'wms', 'wmts', 'vector', 'context', 'pmtiles'].includes(v.type as string)
       && (v.type !== 'vector' || (obj(v.data) && Array.isArray(v.data.features)));
-    const validators: Record<(typeof PROJECT_KEYS)[number], (v: unknown) => boolean> = {
+    const validators: Record<ProjectKey, (v: unknown) => boolean> = {
       currentDataset: isStr,
       currentTimeIndex: (v) => isNum(v) && v >= 0,
       colormap: isStr,
