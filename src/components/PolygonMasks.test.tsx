@@ -1,15 +1,17 @@
 /** Polygon charts and Stats share masked summaries and discard obsolete answers. */
 import { useEffect } from 'react';
-import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppProvider, useAppContext } from '../context/AppContext';
 import type { AppAction, AppState, RasterGroup } from '../types';
 
 const drawn = vi.hoisted(() => ({ data: null as null | { datasets: Array<{ label: string; data: Array<{ y: number }> }> } }));
 vi.mock('react-chartjs-2', async () => {
-  const { forwardRef } = await import('react');
+  const { forwardRef, useEffect } = await import('react');
   return { Line: forwardRef((props: { data: typeof drawn.data }, _ref) => {
-    drawn.data = props.data; return null;
+    drawn.data = props.data;
+    useEffect(() => () => { drawn.data = null; }, []);
+    return null;
   }) };
 });
 
@@ -287,4 +289,68 @@ describe('polygon masking controls', () => {
       expect(current.areaStats['displacement::area']?.error).toBeUndefined();
     },
   );
+});
+
+
+describe('explicit polygon pixel support', () => {
+  function supported() {
+    answer = async body => new Response(JSON.stringify({
+      ...result(!!(body.layer_masks?.length || body.primary_mask || body.custom_mask_path)),
+      masks: body.custom_mask_path ? [{ dataset: 'uploaded mask' }] : [],
+      support: body.support ?? 'common',
+    }));
+  }
+  it('keeps Automatic as the default and shares an explicit common choice with Stats despite masks', async () => {
+    supported();
+    show([{ type: 'ADD_LAYER_MASK', payload: mask },
+      { type: 'SET_CUSTOM_MASK_PATH', payload: 'session-mask.tif' }], true);
+    await waitFor(() => expect(medians()).toEqual([0, 5, 10]));
+    expect(screen.getAllByRole('combobox', { name: 'Area pixel support' })).toHaveLength(2);
+    expect(screen.getAllByRole('combobox', { name: 'Area pixel support' }).every(e => (e as HTMLSelectElement).value === 'auto')).toBe(true);
+    fireEvent.change(screen.getAllByRole('combobox', { name: 'Area pixel support' })[0], { target: { value: 'common' } });
+    await waitFor(() => expect(current.areaStats['displacement::area']?.data?.support).toBe('common'));
+    expect(screen.getAllByRole('combobox', { name: 'Area pixel support' }).every(e => (e as HTMLSelectElement).value === 'common')).toBe(true);
+    expect(posted).toHaveLength(2);
+    expect(posted[1].body).toMatchObject({ support: 'common', custom_mask_path: 'session-mask.tif', layer_masks: [{ dataset: 'quality', threshold: 0.5, mode: 'min' }] });
+    const revision = current.areaStatsRevision;
+    change({ type: 'SET_AREA_SUPPORT', payload: 'common' });
+    expect(current.areaStatsRevision).toBe(revision);
+    expect(posted).toHaveLength(2);
+  });
+  it('allows available-per-date support without any quality mask', async () => {
+    supported(); show();
+    await waitFor(() => expect(medians()).toEqual([0, 9, 18]));
+    change({ type: 'SET_AREA_SUPPORT', payload: 'per_date' });
+    await waitFor(() => expect(current.areaStats['displacement::area']?.data?.support).toBe('per_date'));
+    expect(posted[1].body).toMatchObject({ support: 'per_date' });
+  });
+  it('clears a previous curve if the server does not confirm the explicit support', async () => {
+    supported(); show();
+    await waitFor(() => expect(medians()).toEqual([0, 9, 18]));
+    answer = async () => new Response(JSON.stringify({ ...result(false), support: 'common' }));
+    change({ type: 'SET_AREA_SUPPORT', payload: 'per_date' });
+    await waitFor(() => expect(current.areaStats['displacement::area']?.error).toContain('requested pixel support'));
+    expect(current.areaStats['displacement::area']?.data).toBeUndefined();
+    expect(medians()).toBeUndefined();
+  });
+  it('ignores obsolete support replies after common to per-date to common changes', async () => {
+    const pending: Array<(response: Response) => void> = [];
+    answer = () => new Promise(resolve => pending.push(resolve));
+    show([{ type: 'SET_AREA_SUPPORT', payload: 'common' }]);
+    await waitFor(() => expect(pending).toHaveLength(1));
+    change({ type: 'SET_AREA_SUPPORT', payload: 'per_date' });
+    await waitFor(() => expect(pending).toHaveLength(2));
+    change({ type: 'SET_AREA_SUPPORT', payload: 'common' });
+    await waitFor(() => expect(pending).toHaveLength(3));
+    expect(posted[0].signal?.aborted).toBe(true);
+    expect(posted[1].signal?.aborted).toBe(true);
+    await act(async () => pending[2](new Response(JSON.stringify({ ...result(false), support: 'common' }))));
+    await waitFor(() => expect(medians()).toEqual([0, 9, 18]));
+    await act(async () => {
+      pending[1](new Response(JSON.stringify({ ...result(false, 0), support: 'per_date' })));
+      pending[0](new Response(JSON.stringify({ ...result(false, 0), support: 'common' })));
+    });
+    expect(current.areaStats['displacement::area']?.data?.common_pixels).toBe(9);
+    expect(medians()).toEqual([0, 9, 18]);
+  });
 });

@@ -392,3 +392,35 @@ def test_mask_fields_are_documented_like_the_chart_options():
     for name in ("primary_mask", "mask_min_value", "custom_mask_path"):
         field = PolygonRequest.model_fields[name]
         assert field.description == PARAMS[name]["description"]
+
+
+
+@pytest.mark.parametrize("storage", ["md", "cog"])
+@pytest.mark.parametrize("support", ["common", "per_date"])
+def test_external_mask_pixel_curves_match_summary_support(case, storage, support):
+    """Merged APIs must apply masks to summaries and curves identically."""
+    ds, group, _, write = case
+    ds.d.values[1, 1, 1] = np.nan
+    # Refresh raster fixtures after adding one missing measurement.
+    for i, path in enumerate(group.file_list):
+        ds.d.isel(time=i).rio.to_raster(path)
+    mask = np.ones((4, 4))
+    mask[0, 1] = 0
+    path = write(mask)
+    baseline = run(storage, case, custom_mask_path=path, support=support)
+    output = run(
+        storage, case, custom_mask_path=path, support=support, curve_mode="all"
+    )
+    curves = output.pop("pixel_curves")["curves"]
+    assert output == baseline
+    assert [s["count"] for s in output["statistics"]] == (
+        [14, 14] if support == "common" else [15, 14]
+    )
+    assert all((c["row"], c["col"]) != (0, 1) for c in curves)
+    assert any(c["values"] == [0, 0] for c in curves)
+    for curve in curves:
+        expected = ds.d.values[:, curve["row"], curve["col"]]
+        assert curve["values"] == [
+            float(v) if np.isfinite(v) else None for v in expected
+        ]
+    assert any(None in c["values"] for c in curves) == (support == "per_date")

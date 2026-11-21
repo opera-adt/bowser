@@ -4,7 +4,7 @@
  * clicked on the map. Requests run a few at a time so a file of many polygons can't flood the
  * server.
  */
-import type { AppAction, AppState, AreaStats, ChartArea, LayerMask, RasterGroup } from '../types';
+import type { AppAction, AppState, AreaStats, AreaSupport, ChartArea, LayerMask, RasterGroup } from '../types';
 import { chartLayerFor, timeSeriesLayers } from './chartLayers';
 import { applicableMasks } from './maskCompatibility';
 import { chartMaskOptions, type ChartMaskOptions } from './chartMasks';
@@ -15,10 +15,11 @@ export const ZONAL_MAX_FEATURES = 50;
 /** Polygon requests in flight at once. */
 export const ZONAL_CONCURRENCY = 3;
 
-type FetchPolygon = (dataset: string, geometry: ChartArea['geometry'], masks: LayerMask[], signal: AbortSignal, options?: ChartMaskOptions) =>
+type FetchPolygon = (dataset: string, geometry: ChartArea['geometry'], masks: LayerMask[], signal: AbortSignal, options?: ChartMaskOptions & { support?: 'common' | 'per_date' }) =>
   Promise<{ data: PolygonTimeSeries } | { error: string }>;
 
 export interface AreaFetchOptions {
+  areaSupport?: AreaSupport;
   revision: number;
   layerMasks: LayerMask[];
   customMaskPath: string | null;
@@ -31,8 +32,8 @@ export interface AreaFetchOptions {
 /** Keep numerical request settings separate from references and display options. */
 export function areaFetchOptions(state: Pick<AppState,
   'areaStatsRevision' | 'layerMasks' | 'customMaskPath' | 'dataMode' | 'datasetInfo'
->, uploadedMaskSupported = true): AreaFetchOptions {
-  return { revision: state.areaStatsRevision, layerMasks: state.layerMasks,
+> & Partial<Pick<AppState, 'areaSupport'>>, uploadedMaskSupported = true): AreaFetchOptions {
+  return { areaSupport: state.areaSupport ?? 'auto', revision: state.areaStatsRevision, layerMasks: state.layerMasks,
     customMaskPath: state.customMaskPath, dataMode: state.dataMode, datasetInfo: state.datasetInfo,
     uploadedMaskSupported };
 }
@@ -134,7 +135,8 @@ export async function fetchAreaStats(
           if (error) return { error };
           try {
             const masks = applicableMasks(options.datasetInfo[ds], options.layerMasks);
-            const extra = chartMaskOptions(options, ds, options.uploadedMaskSupported ?? true);
+            const extra: ChartMaskOptions & { support?: 'common' | 'per_date' } = chartMaskOptions(options, ds, options.uploadedMaskSupported ?? true);
+            if (options.areaSupport === 'common' || options.areaSupport === 'per_date') extra.support = options.areaSupport;
             return toAreaStats(await (Object.keys(extra).length
               ? fetchPolygon(ds, area.geometry, masks, record.controller.signal, extra)
               : fetchPolygon(ds, area.geometry, masks, record.controller.signal)));

@@ -119,3 +119,27 @@ describe('the model in a project', () => {
     expect(alert).toHaveBeenCalledWith(expect.stringContaining('showTrends'));
   });
 });
+
+
+describe('polygon support in saved projects', () => {
+  it('saves and restores an explicit choice and invalidates previous summaries', async () => {
+    render(<AppProvider><Seed setup={[{ type: 'SET_AREA_SUPPORT', payload: 'common' }]} /></AppProvider>);
+    await act(async () => { fireEvent.click(screen.getByTitle(/Save points/)); });
+    const project = JSON.parse(await readBlob(saved.files[0].data as Blob));
+    expect(project.areaSupport).toBe('common');
+    const revision = stateRef.areaStatsRevision;
+    await load({ bowser_project: 1, areaSupport: 'per_date' });
+    expect(stateRef.areaSupport).toBe('per_date');
+    expect(stateRef.areaStatsRevision).toBeGreaterThan(revision);
+    expect(stateRef.areaStats).toEqual({});
+  });
+  it('accepts old projects and ignores malformed support without replacing the choice', async () => {
+    render(<AppProvider><Seed setup={[]} /></AppProvider>);
+    await load({ bowser_project: 1, currentTimeIndex: 2 });
+    expect(stateRef.areaSupport).toBe('auto');
+    expect(alert).not.toHaveBeenCalled();
+    await load({ bowser_project: 1, currentTimeIndex: 3, areaSupport: 'all' });
+    expect(stateRef.areaSupport).toBe('auto');
+    expect(alert).toHaveBeenCalledWith(expect.stringContaining('areaSupport'));
+  });
+});

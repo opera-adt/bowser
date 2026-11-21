@@ -37,6 +37,17 @@ export function toIsoDate(xVal: string | number): string {
 
 const finite = (v: number | null | undefined): v is number => typeof v === 'number' && Number.isFinite(v);
 
+/** Shared display-only spatial then temporal reference; missing values stay gaps. */
+export function referencedValues(values: (number | null)[], reference: number[] | null, refIndex: number | null): (number | null)[] {
+  const shifted = values.map((v, i) => {
+    const ref = reference === null ? 0 : reference[i];
+    return finite(v) && finite(ref) ? v - ref : null;
+  });
+  if (refIndex === null) return shifted;
+  const base = shifted[refIndex];
+  return shifted.map(v => finite(v) && finite(base) ? v - base : null);
+}
+
 /**
  * Each date's statistics in data units, minus ``reference[i]`` (the viewer's spatial reference
  * on that date) when given, and minus each statistic's own value at ``refIndex`` (a chosen
@@ -45,21 +56,13 @@ const finite = (v: number | null | undefined): v is number => typeof v === 'numb
  */
 export function areaRows(result: PolygonTimeSeries, reference: number[] | null, refIndex: number | null = null): AreaRow[] {
   const [lo, hi] = AREA_PERCENTILES.map(String);
-  const rows = result.statistics.map((r, i) => {
-    const ref = reference ? reference[i] : 0;
-    const shift = (v: number | null | undefined) => (finite(v) && finite(ref) ? v - ref : null);
-    return {
-      label: String(result.labels[i]), count: r.count,
-      mean: shift(r.mean), median: shift(r.median), std: finite(r.spatial_std) ? r.spatial_std : null,
-      p10: shift(r.percentiles[lo]), p90: shift(r.percentiles[hi]),
-    };
-  });
-  if (refIndex === null) return rows;
-  const at = rows[refIndex];
-  const less = (v: number | null, base: number | null | undefined) => (finite(v) && finite(base) ? v - base : null);
-  return rows.map(r => ({
-    ...r, mean: less(r.mean, at?.mean), median: less(r.median, at?.median), p10: less(r.p10, at?.p10), p90: less(r.p90, at?.p90),
-  }));
+  const shifted = (pick: (r: PolygonTimeSeries['statistics'][number]) => number | null) =>
+    referencedValues(result.statistics.map(pick), reference, refIndex);
+  const mean = shifted(r => r.mean), median = shifted(r => r.median);
+  const low = shifted(r => r.percentiles[lo]), high = shifted(r => r.percentiles[hi]);
+  return result.statistics.map((r, i) => ({ label: String(result.labels[i]), count: r.count,
+    mean: mean[i], median: median[i], std: finite(r.spatial_std) ? r.spatial_std : null,
+    p10: low[i], p90: high[i] }));
 }
 
 /** Where a layer's chosen reference date (its x value) is among an answer's dates, or null. */
