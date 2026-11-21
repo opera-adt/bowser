@@ -53,3 +53,21 @@ describe('source-layer picker in the real overlay provider', () => {
     await waitFor(() => expect(state.overlays).toEqual([]));
   });
 });
+
+
+it('changes polygon appearance without changing the imported features', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => new Response('{}')));
+  render(<AppProvider><View /></AppProvider>);
+  await screen.findByText('Add');fireEvent.click(screen.getByText('Add'));
+  await waitFor(() => expect(state.overlays[0].pendingSourceLayers).toBeUndefined());
+  fireEvent.click(screen.getByTitle('Style'));
+  const before = JSON.stringify(state.overlays[0].data);
+  expect((screen.getByLabelText('Polygon style') as HTMLSelectElement).value).toBe('both');
+  fireEvent.change(screen.getByLabelText('Polygon style'), { target: { value: 'outline' } });
+  expect(state.overlays[0].polygonStyle).toBe('outline');
+  expect(screen.queryByLabelText('Polygon fill opacity')).toBeNull();
+  fireEvent.change(screen.getByLabelText('Polygon style'), { target: { value: 'fill' } });
+  fireEvent.change(screen.getByLabelText('Polygon fill opacity'), { target: { value: '0.6' } });
+  expect(state.overlays[0]).toMatchObject({ polygonStyle: 'fill', fillOpacity: 0.6 });
+  expect(JSON.stringify(state.overlays[0].data)).toBe(before);
+});

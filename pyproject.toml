@@ -35,6 +35,10 @@ dependencies = [
   "aiobotocore>=2.13.0",
   "python-multipart",
   "starlette>=1.0.1",
+  # Place search and the context services (src/bowser/geocode.py, context.py), which
+  # the server imports at start: without it the Docker image and a plain
+  # `pip install bowser-insar` could not start the server.
+  "httpx",
 ]
 
 classifiers = [
