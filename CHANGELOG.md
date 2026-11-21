@@ -8,6 +8,14 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Configured/uploaded masks in GIFs reuse map alignment, including cropped exports.
+
+- Optional GIF background snapshots, opacity and text annotations.
+- Publish the initial Leaflet viewport immediately for cropped exports.
+- **Quality masks on the reference-area preview (optional).** The reference buffer chart can
+  apply the current compatible quality masks to its preview. It is a diagnostic only: the map
+  reference, charts and exports are unchanged.
+
 - Optional bounded vector outlines in raster GIFs, including polygon holes, from
   up to five layers of at most 100 features each and 5,000 vertices in total. The
   page names a layer over the limits before sending it, and names server-tiled
@@ -65,6 +73,11 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Chart-to-map date selection keeps both dates of an acquisition pair, for point and
+  buffer charts: each chart point keeps its step's own label (compact or hyphenated), and
+  of two steps ending on the same date (drawn at the same place on the time axis) a click
+  takes the one whose dot is nearer. The time axis still shows the ending date. Ambiguous
+  selections leave the map unchanged.
 - **A click in the chart goes to the right date with the model on.** The fitted line is
   drawn first, and the click took its date, which is not an acquisition: the map often
   stayed where it was or went elsewhere. The map now goes to the observed point nearest

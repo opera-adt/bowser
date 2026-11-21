@@ -11,6 +11,15 @@ from typing import Any, Callable
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .animation_background import (
+    AnimationBackground,
+    AnimationLabel,
+    annotation_font,
+    background_image,
+    composite_background,
+    context_palette,
+    draw_labels,
+)
 from .animation_points import (
     PLOT_HEIGHT,
     AnimationPoint,
@@ -46,7 +55,12 @@ class AnimationRequest(BaseModel):
     layer_masks: list[PolygonMask] = Field(default_factory=list, max_length=10)
     points: list[AnimationPoint] = Field(default_factory=list, max_length=5)
     outlines: list[AnimationOutline] = Field(default_factory=list, max_length=5)
-    custom_mask_path: str | None = None
+    labels: list[AnimationLabel] = Field(default_factory=list, max_length=20)
+    include_context: bool = False
+    background: AnimationBackground | None = None
+    raster_opacity: float = Field(default=1, ge=0, le=1)
+    mask_min_value: float | None = Field(default=None, allow_inf_nan=False)
+    custom_mask_path: str | None = Field(default=None, min_length=1, max_length=4096)
     ref_lon: float | None = Field(default=None, ge=-180, le=180)
     ref_lat: float | None = Field(default=None, ge=-90, le=90)
     ref_buffer_m: float = Field(default=0, ge=0, le=5000)
@@ -63,12 +77,14 @@ class AnimationRequest(BaseModel):
             raise ValueError("Point plots need width at least 320 and unique point IDs")
         if sum(layer.vertex_count for layer in self.outlines) > 5000:
             raise ValueError("Outlines exceed the 5000-vertex total budget")
+        if self.background is not None and not self.include_context:
+            raise ValueError("Background needs explicit context opt-in")
+        if self.include_context and (self.bounds is None or self.width < 320):
+            raise ValueError("Context needs cropped bounds and width at least 320")
         if self.vmin >= self.vmax:
             raise ValueError("Color limits must increase")
         if (self.ref_lon is None) != (self.ref_lat is None):
             raise ValueError("Supply both reference coordinates")
-        if self.custom_mask_path is not None:
-            raise ValueError("Uploaded masks are not supported by raster GIF yet")
         if self.ref_buffer_m and self.ref_lon is None:
             raise ValueError("A reference radius needs coordinates")
         if self.bounds is not None:
@@ -112,9 +128,12 @@ def source_info(target, request):
         labels = list(map(str, group.x_values))
         if not group.file_list or len(labels) != len(group.file_list):
             raise ValueError("Source files and epoch labels must match")
-        if any(group.mask_file_list):
+        if any(group.mask_file_list) and (
+            any(not path for path in group.mask_file_list)
+            or len(group.mask_file_list) not in (1, len(group.file_list))
+        ):
             raise ValueError(
-                "Configured GeoTIFF masks are not supported by raster GIF yet"
+                "Configured GIF masks must be complete and match source dates"
             )
         with rasterio.open(group.file_list[0]) as source:
             if source.count != 1 or np.dtype(source.dtypes[0]).kind not in "biuf":
@@ -150,6 +169,7 @@ class RenderPlan:
     native_grid: tuple
     size: tuple[int, int]
     point_records: list[dict] = field(default_factory=list)
+    context_height: int = 0
 
     def summary(self) -> dict:
         """Return bounded public provenance without source paths."""
@@ -161,6 +181,7 @@ class RenderPlan:
             "output_width": self.size[0],
             "output_height": self.size[1]
             + 48
+            + self.context_height
             + (PLOT_HEIGHT if self.point_records else 0),
             "frames": len(self.indices),
         }
@@ -239,6 +260,25 @@ def _reference_work(grid, request, count):
 def plan_render(target: Any, request: AnimationRequest) -> RenderPlan:
     """Budget the actual read footprint and all display frames before pixel IO."""
     labels, indices = source_info(target, request)
+    # Reject missing local masks during planning, before any background is captured.
+    from pathlib import Path
+    from urllib.parse import urlparse
+
+    paths = [(request.custom_mask_path, "Uploaded")]
+    if target.mode == "cog":
+        group = target.raster_groups[request.variable]
+        paths.extend((path, "Configured") for path in group.mask_file_list if path)
+    for path, kind in paths:
+        if (
+            path
+            and not urlparse(path).scheme
+            and not path.startswith("/vsi")
+            and not Path(path).is_file()
+        ):
+            raise ValueError(
+                f"{kind} GIF mask is unavailable; "
+                "select an existing mask before exporting"
+            )
     candidates = []
     if target.mode == "md":
         levels = [("native", target.dataset)]
@@ -350,14 +390,17 @@ def plan_render(target: Any, request: AnimationRequest) -> RenderPlan:
     reference_work = _reference_work(candidates[0][3], request, len(indices)) * (
         1 + len(point_records)
     )
-    point_work = len(point_records) * len(indices) * (1 + len(request.layer_masks))
+    extra_masks = int(bool(request.custom_mask_path)) + int(
+        target.mode == "cog"
+        and any(target.raster_groups[request.variable].mask_file_list)
+    )
+    mask_work = 1 + len(request.layer_masks) + extra_masks
+    point_work = len(point_records) * len(indices) * mask_work
 
     def bounded(item):
         return (
             pixels(item) <= MAX_NATIVE_PIXELS
-            and pixels(item) * len(indices) * (1 + len(request.layer_masks))
-            + reference_work
-            + point_work
+            and pixels(item) * len(indices) * mask_work + reference_work + point_work
             <= MAX_PIXEL_EPOCHS
         )
 
@@ -387,7 +430,12 @@ def plan_render(target: Any, request: AnimationRequest) -> RenderPlan:
     if request.points and size[0] < 320:
         raise ValueError("Point plot raster aspect requires output width at least 320")
     plot_height = PLOT_HEIGHT if request.points else 0
-    if size[0] * (size[1] + 48 + plot_height) * len(indices) > MAX_DISPLAY_PIXELS:
+    if (
+        size[0]
+        * (size[1] + 48 + plot_height + (80 if request.include_context else 0))
+        * len(indices)
+        > MAX_DISPLAY_PIXELS
+    ):
         raise ValueError("Display exceeds GIF pixel budget; reduce width or epochs")
     if ds is not None:
         from rasterio.windows import Window
@@ -400,7 +448,15 @@ def plan_render(target: Any, request: AnimationRequest) -> RenderPlan:
     else:
         cropped = None
     return RenderPlan(
-        labels, indices, cropped, win, name, candidates[0][3], size, point_records
+        labels,
+        indices,
+        cropped,
+        win,
+        name,
+        candidates[0][3],
+        size,
+        point_records,
+        80 if request.include_context else 0,
     )
 
 
@@ -413,6 +469,8 @@ def render(request: AnimationRequest, target: Any, prepare: Callable):
         lut = make_lut(cmap.get(request.colormap.lower()))
     except Exception as exc:
         raise ValueError("Unknown animation colormap") from exc
+    if request.include_context and request.background is None:
+        raise ValueError("Capture the visible background before rendering")
     plan = plan_render(target, request)
     labels, indices = plan.labels, plan.indices
     selected_labels = [labels[i] for i in indices]
@@ -436,6 +494,8 @@ def render(request: AnimationRequest, target: Any, prepare: Callable):
             )
         ).astype("uint8")
     outline_paths = None
+    background = None
+    output_palette = palette
     point_records = plan.point_records
     frames: list[Image.Image] = []
     support, references = [], []
@@ -509,12 +569,23 @@ def render(request: AnimationRequest, target: Any, prepare: Callable):
             ).astype("uint8")
             image = Image.fromarray(pixels).resize(size, Image.Resampling.NEAREST)
             image.putpalette(palette.ravel().tolist())
+            if request.background is not None:
+                if background is None:
+                    background = background_image(request.background, da, size)
+                    output_palette = context_palette(
+                        background, palette, request.raster_opacity
+                    )
+                image = composite_background(
+                    image, valid, background, request.raster_opacity, output_palette
+                )
             if request.outlines:
                 if outline_paths is None:
                     outline_paths = prepare_outlines(da, request.outlines, size)
                 draw_outlines(image, outline_paths)
-            frame = Image.new("P", (size[0], size[1] + 48), 254)
-            frame.putpalette(palette.ravel().tolist())
+            if request.labels:
+                draw_labels(image, da, request.labels, size, output_palette)
+            frame = Image.new("P", (size[0], size[1] + 48 + plan.context_height), 254)
+            frame.putpalette(output_palette.ravel().tolist())
             frame.paste(image, (0, 24))
             draw = ImageDraw.Draw(frame)
             label = labels[index][:100]
@@ -524,6 +595,19 @@ def render(request: AnimationRequest, target: Any, prepare: Callable):
                 f"{request.vmin:g} to {request.vmax:g} {units}",
                 fill=255,
             )
+            if request.background is not None:
+                import textwrap
+
+                attribution = textwrap.fill(
+                    request.background.attribution, max(12, (size[0] - 8) // 7)
+                )
+                draw.multiline_text(
+                    (4, size[1] + 42),
+                    attribution,
+                    font=annotation_font(10),
+                    fill=255,
+                    spacing=1,
+                )
             if point_records:
                 draw_locations(frame, da, point_records, plan.native_grid[1], size)
             frames.append(frame)
@@ -535,8 +619,30 @@ def render(request: AnimationRequest, target: Any, prepare: Callable):
     duration = int(round(1000 / request.fps / 10) * 10)
     manifest = {
         "kind": "raster GIF display",
+        "external_masks": {
+            "uploaded": bool(request.custom_mask_path),
+            "configured": target.mode == "cog"
+            and any(target.raster_groups[request.variable].mask_file_list),
+            "configured_threshold": request.mask_min_value
+            if request.mask_min_value is not None
+            else (
+                target.raster_groups[request.variable].mask_min_value
+                if target.mode == "cog"
+                else None
+            ),
+            "uploaded_operator": "> 0.5" if target.mode == "cog" else "> 0",
+        },
+        "background": None
+        if request.background is None
+        else {
+            "attribution": request.background.attribution,
+            "bounds_3857": request.background.bounds,
+            "raster_opacity": request.raster_opacity,
+            "display_only": True,
+        },
         "point_histories": point_records,
         "outlines": [layer.model_dump() for layer in request.outlines],
+        "text_labels": [label.model_dump() for label in request.labels],
         "outline_style": "black with white halo; no fill; display only",
         "visible_outline_primitives": len(outline_paths or []),
         "plot": plot,
@@ -565,13 +671,13 @@ def render(request: AnimationRequest, target: Any, prepare: Callable):
         "layer_masks": [m.model_dump() for m in request.layer_masks],
         "custom_mask_applied": bool(request.custom_mask_path),
         "limitations": [
-            (f"Display only: {data_colors} data colors; nearest-neighbor resize"),
+            "Display only: one shared GIF palette; nearest-neighbor display resize",
             "Equal playback durations do not represent unequal acquisition intervals",
             "No inferred zero epochs, numeric interpolation, smoothing or new fitting",
-            (
-                "No basemap, terrain context, text annotations, "
-                "opacity blending; optional native-pixel histories only"
-            ),
+            "Static background snapshot; measurements and native histories unchanged"
+            if request.background is not None
+            else "No background context requested",
+            f"{len(request.labels)} text labels requested; display only",
         ],
     }
     output = BytesIO()

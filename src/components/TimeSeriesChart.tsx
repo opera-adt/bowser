@@ -15,7 +15,7 @@ import { useApi } from '../hooks/useApi';
 import { applicableMasks } from '../utils/maskCompatibility';
 import { MultiPointTimeSeriesData } from '../types';
 import { downloadChartAsPng } from '../utils/screenshot';
-import { addChartLayer, chartLayerFor, observedDateNear, timeIndexOfDate, timeSeriesLayers } from '../utils/chartLayers';
+import { addChartLayer, chartLayerFor, observedLabelNear, timeIndexOfDate, timeSeriesLayers } from '../utils/chartLayers';
 import { LayerOptions } from './panel/controls';
 import MaskedReferenceNotice from './MaskedReferenceNotice';
 import ModelCard, { type PickKind } from './ModelCard';
@@ -421,10 +421,14 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     // under the mouse: with the model on, that is the fitted line, whose dates are not
     // acquisitions. Not a position in a series either: masked dates and a date range leave a
     // series shorter than the layer.
+    // Two steps of an interval layer can end on the same date: drawn at the same x, they are
+    // told apart by the height of their dots.
     const time = chart?.scales?.x?.getValueForPixel?.(event?.x);
-    const near = typeof time === 'number' && Number.isFinite(time) ? observedDateNear(chart?.data?.datasets ?? [], time) : null;
+    const dots = typeof chart?.getDatasetMeta === 'function' ? (i: number) => chart.getDatasetMeta(i)?.data : undefined;
+    const near = typeof time === 'number' && Number.isFinite(time)
+      ? observedLabelNear(chart?.data?.datasets ?? [], time, dots, event?.y) : null;
     const clicked = chart?.data?.datasets?.[elements[0].datasetIndex]?.data?.[elements[0].index];
-    const date = near ?? (clicked && typeof clicked === 'object' ? clicked.x : firstDs.labels[elements[0].index]);
+    const date = near ?? (clicked && typeof clicked === 'object' ? (clicked._sourceLabel ?? clicked.x) : firstDs.labels[elements[0].index]);
     const step = date === undefined ? null : timeIndexOfDate(state.datasetInfo[state.currentDataset]?.x_values, date);
     if (step !== null) dispatch({ type: 'SET_TIME_INDEX', payload: step });
   }, [firstDs, dispatch, picking, state.fitSettings, state.datasetInfo, state.currentDataset]);
@@ -992,7 +996,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
             _unit: unit,
             yAxisID,
             data: sample
-              .map(pt => ({ x: toIsoDate(pt.x), y: pt.y * k }))
+              .map(pt => ({ x: toIsoDate(pt.x), _sourceLabel: pt.x, y: pt.y * k }))
               .filter(pt => { const t = new Date(pt.x).getTime(); return t >= dateStart && t <= dateEnd; }),
             borderColor: borderColor + '28',
             backgroundColor: 'transparent',
@@ -1001,7 +1005,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
         });
 
         const medianData = buf.median
-          .map((pt: { x: string; y: number }) => ({ x: toIsoDate(pt.x), y: pt.y * k }))
+          .map((pt: { x: string; y: number }) => ({ x: toIsoDate(pt.x), _sourceLabel: pt.x, y: pt.y * k }))
           .filter((pt: { x: string; y: number }) => { const t = new Date(pt.x).getTime(); return t >= dateStart && t <= dateEnd; });
         datasetList.push({
           label: `${baseLabel} median`,
@@ -1017,7 +1021,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
         });
       } else {
         const isoData = dataset.data
-          .map(pt => ({ x: toIsoDate(pt.x as string), y: pt.y * k }))
+          .map(pt => ({ x: toIsoDate(pt.x as string), _sourceLabel: pt.x, y: pt.y * k }))
           .filter(pt => { const t = new Date(pt.x).getTime(); return t >= dateStart && t <= dateEnd; });
 
         datasetList.push({
@@ -1062,7 +1066,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
               _baseLabel: baseLabel,
               _unit: unit,
               yAxisID,
-              data: isoData.map(pt => ({ x: pt.x, y: pt.y - fit.predict(Date.parse(`${pt.x.slice(0, 10)}T00:00:00Z`)) })),
+              data: isoData.map(pt => ({ ...pt, y: pt.y - fit.predict(Date.parse(`${pt.x.slice(0, 10)}T00:00:00Z`)) })),
               borderColor, backgroundColor,
               borderWidth: 1, borderDash: [2, 3],
               pointRadius: ms > 2 ? ms - 1 : 2, pointHoverRadius: ms + 1, tension: 0, fill: false,
