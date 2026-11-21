@@ -17,7 +17,8 @@ permissions:
 
 jobs:
   publish:
-    if: ${{ vars.HF_SPACE != '' }}
+    # Only version releases (v*), not data releases such as demo-data; or by hand.
+    if: ${{ vars.HF_SPACE != '' && (github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'v')) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
