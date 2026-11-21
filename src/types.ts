@@ -266,6 +266,7 @@ export interface Overlay {
   // --- pmtiles (a custom archive; url is the archive) ---
   pmtilesKind?: 'raster' | 'vector';
   sourceLayers?: string[];
+  hasPolygons?: boolean;  // a vector archive's tilestats say whether it has polygons (unset: unknown)
   minzoom?: number;
   // vector colour by an attribute: text classes, or numeric classes split at `breaks`
   classColors?: { property: string; classes: [string, string][]; breaks?: number[]; other?: string };
