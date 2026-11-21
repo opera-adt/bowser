@@ -33,35 +33,40 @@ import { registerChart, type ChartSnapshot, type LayerDisplay, type SeriesTag } 
 
 // Chart.js plugin to wire legend-click visibility to all related datasets (raw, trend,
 // residual, samples, median) that share the same base label.
-const linkedLegendPlugin = {
-  id: 'linkedLegend',
-  afterInit(chart: ChartJS) {
-    if ((chart as any)._linkedLegendPatched) return;
-    (chart as any)._linkedLegendPatched = true;
-    const origClick = (chart.options.plugins?.legend as any)?.onClick;
-    (chart.options.plugins!.legend as any).onClick = function(
-      e: any, legendItem: any, legend: any
-    ) {
-      // Run default toggle on the clicked dataset first
-      if (origClick) origClick.call(this, e, legendItem, legend);
-      else ChartJS.defaults.plugins.legend.onClick.call(this, e, legendItem, legend);
+// The click handler is put back on every update: the chart's options are replaced whenever
+// they change (react-chartjs-2 sets new options), which would drop a handler added once.
+const LINKED = Symbol('linkedLegend');
+function linkLegendClicks(chart: ChartJS) {
+  const legend = chart.options.plugins?.legend as any;
+  if (!legend || legend.onClick?.[LINKED]) return;
+  const origClick = legend.onClick;
+  const onClick = function(this: any, e: any, legendItem: any, legendCtx: any) {
+    // Run default toggle on the clicked dataset first
+    if (origClick) origClick.call(this, e, legendItem, legendCtx);
+    else ChartJS.defaults.plugins.legend.onClick.call(this, e, legendItem, legendCtx);
 
-      // Then sync visibility of all datasets that share the same base label
-      const clickedDs = chart.data.datasets[legendItem.datasetIndex];
-      if (!clickedDs) return;
-      const baseLabel = (clickedDs as any)._baseLabel as string | undefined;
-      if (!baseLabel) return;
-      const hidden = !chart.isDatasetVisible(legendItem.datasetIndex);
-      chart.data.datasets.forEach((ds: any, i: number) => {
-        if (i === legendItem.datasetIndex) return;
-        if (ds._baseLabel === baseLabel) {
-          const meta = chart.getDatasetMeta(i);
-          meta.hidden = hidden;
-        }
-      });
-      chart.update();
-    };
-  },
+    // Then sync visibility of all datasets that share the same base label
+    const clickedDs = chart.data.datasets[legendItem.datasetIndex];
+    if (!clickedDs) return;
+    const baseLabel = (clickedDs as any)._baseLabel as string | undefined;
+    if (!baseLabel) return;
+    const hidden = !chart.isDatasetVisible(legendItem.datasetIndex);
+    chart.data.datasets.forEach((ds: any, i: number) => {
+      if (i === legendItem.datasetIndex) return;
+      if (ds._baseLabel === baseLabel) {
+        const meta = chart.getDatasetMeta(i);
+        meta.hidden = hidden;
+      }
+    });
+    chart.update();
+  };
+  (onClick as any)[LINKED] = true;
+  legend.onClick = onClick;
+}
+export const linkedLegendPlugin = {
+  id: 'linkedLegend',
+  afterInit: linkLegendClicks,
+  beforeUpdate: linkLegendClicks,
 };
 
 /** Least time between two rounds of chart requests (see useSpacedEffect). */

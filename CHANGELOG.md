@@ -67,6 +67,8 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Hiding a point from the chart legend hides its model and residuals again; this had stopped
+  working after the first change to the chart's settings.
 - Chart-to-map date selection keeps both dates of an acquisition pair, for point and
   buffer charts: each chart point keeps its step's own label (compact or hyphenated), and
   of two steps ending on the same date (drawn at the same place on the time axis) a click
