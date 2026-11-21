@@ -38,6 +38,7 @@ const initialState: AppState = {
   areaStatsRevision: 0,
   panelTab: 'main',
   areaBand: readAreaBand(),
+  areaSupport: 'auto',
   areaDrawing: false,
   areaOpenedTools: false,
   refMarkerPosition: [0, 0],
@@ -181,6 +182,9 @@ function appReducer(state: AppState, action: AppAction | LegacyAppAction): AppSt
       }
       return { ...state, chartAreas };
     }
+    case 'SET_AREA_SUPPORT':
+      if (!['auto', 'common', 'per_date'].includes(action.payload) || action.payload === state.areaSupport) return state;
+      return { ...state, areaSupport: action.payload, ...invalidateAreaStats(state) };
     case 'SET_AREA_BAND':
       saveAreaBand(action.payload);
       return { ...state, areaBand: action.payload };

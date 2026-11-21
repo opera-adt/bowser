@@ -1,3 +1,4 @@
+import PolygonSupportControl from '../PolygonSupportControl';
 import { useMemo, useState } from 'react';
 import { useAppDispatch, useAppFields } from '../../context/AppContext';
 import { useAreaReference } from '../../hooks/useAreaReference';
@@ -88,6 +89,7 @@ export default function StatsTab() {
 
   return (
     <div className="sidebar-section">
+      {areas.length > 0 && <PolygonSupportControl />}
       <SectionHeader label="Zonal stats" />
       {areas.length === 0 ? (
         <div className="row-label" style={{ fontSize: '0.76em', lineHeight: 1.45 }}>
