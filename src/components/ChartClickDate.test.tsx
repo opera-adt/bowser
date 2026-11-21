@@ -21,6 +21,8 @@ import TimeSeriesChart from './TimeSeriesChart';
 const LABELS = ['2020-01-01', '2020-02-01', '2020-03-01', '2020-04-01', '2020-05-01'];
 // A mask hid the first two dates and the fourth at this point.
 const VALID = ['2020-03-01', '2020-05-01'];
+let chartLabels = LABELS;
+let validLabels = VALID;
 const layer = (x_values: string[]) => ({
   name: 'displacement', unit: 'meters', file_list: [], mask_file_list: [], mask_min_value: 0, nodata: null,
   uses_spatial_ref: false, algorithm: null, x_values, latlon_bounds: [-1, -1, 1, 1], available_mask_vars: [],
@@ -31,7 +33,7 @@ function App({ onMap }: { onMap: string }) {
   const { state, dispatch } = useAppContext();
   stateRef = state;
   useEffect(() => {
-    dispatch({ type: 'SET_DATASETS', payload: { displacement: layer(LABELS), velocity: layer([]) } });
+    dispatch({ type: 'SET_DATASETS', payload: { displacement: layer(chartLabels), velocity: layer([]) } });
     dispatch({ type: 'SET_CURRENT_DATASET', payload: onMap });
     dispatch({ type: 'TOGGLE_CHART' });
     dispatch({ type: 'ADD_TIME_SERIES_POINT', payload: { position: [0.1, 0.2], name: 'Point 1' } });
@@ -40,7 +42,7 @@ function App({ onMap }: { onMap: string }) {
 }
 
 beforeEach(() => {
-  drawn.data = null;
+  drawn.data = null; chartLabels = LABELS; validLabels = VALID;
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     if (!url.startsWith('/multi_point')) return new Response('{}');
     const body = JSON.parse(init!.body as string);
@@ -48,7 +50,7 @@ beforeEach(() => {
       labels: LABELS,
       datasets: body.points.map((p: { id: string; name: string; color: string }) => ({
         label: p.name, pointId: p.id, borderColor: p.color, backgroundColor: p.color,
-        data: VALID.map((x, i) => ({ x, y: i / 100 })),
+        data: validLabels.map((x, i) => ({ x, y: i / 100 })),
       })),
     }));
   }));
@@ -92,4 +94,17 @@ describe('clicking a date in the chart', () => {
     click(1);
     expect(stateRef.currentTimeIndex).toBe(before);
   });
+});
+
+
+it.each([['2026-01-01_2026-01-25', '2026-01-13_2026-01-25'], ['20260101_20260125', '20260113_20260125']])('clicks the second acquisition pair for %s when ending dates match', async (first, second) => {
+  chartLabels = [first, second];
+  validLabels = chartLabels;
+  render(<AppProvider><App onMap="displacement" /></AppProvider>);
+  await waitFor(() => expect(series()?.data).toHaveLength(2));
+  expect(series()?.data.map(p => p.x)).toEqual(['2026-01-25', '2026-01-25']);
+  click(1);
+  expect(stateRef.currentTimeIndex).toBe(1);
+  click(0);
+  expect(stateRef.currentTimeIndex).toBe(0);
 });
