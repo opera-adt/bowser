@@ -48,6 +48,13 @@ jobs:
           pixi install
           pixi install -e all
 
+      - name: Server starts without extras
+        # The Docker image ships the default env; the tests run in `all`, which has
+        # every extra and so cannot see a runtime import missing from the default.
+        run: |
+          pixi run -e default python -c "import sys; sys.path.insert(0, 'tests/regression'); from pathlib import Path; from cube import make_cube; make_cube(Path('smoke.zarr'))"
+          BOWSER_STACK_DATA_FILE=smoke.zarr pixi run -e default python -c "import bowser.main, bowser.lite.main"
+
       - name: Test
         run: |
           pixi run -e all pytest
