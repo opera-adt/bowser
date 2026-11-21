@@ -5,7 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppProvider, useAppContext } from '../context/AppContext';
 import type { AppAction, AppState, RasterGroup } from '../types';
 import { newDone, runPageTool } from '../assistant/pageTools';
-type DrawOptions = { plugins: { tooltip: { filter: (item: { dataset: Record<string, unknown> }) => boolean } } };
+type DrawOptions = {
+  transitions?: { active?: { animation?: { duration?: number } } };
+  plugins: { tooltip: { filter: (item: { dataset: Record<string, unknown> }) => boolean; animation?: false } };
+};
 const drawn = vi.hoisted(() => ({ options: null as DrawOptions | null, data: null as null | { datasets: Record<string, unknown>[] } }));
 vi.mock('react-chartjs-2', async () => {
   const { forwardRef, useEffect } = await import('react');
@@ -111,6 +114,18 @@ describe('polygon pixel controls', () => {
     expect(filter({ dataset: pixels()[0] })).toBe(false);
     expect(filter({ dataset: { label: 'Region median' } })).toBe(true);
     expect(filter({ dataset: { label: 'Point' } })).toBe(true);
+  });
+  it('turns hover and tooltip animations off only while pixel curves are shown', async () => {
+    await show();
+    expect(drawn.options!.transitions).toBeUndefined();
+    expect(drawn.options!.plugins.tooltip.animation).toBeUndefined();
+    choose('sample');
+    await waitFor(() => expect(pixels()).toHaveLength(2));
+    expect(drawn.options!.transitions?.active?.animation?.duration).toBe(0);
+    expect(drawn.options!.plugins.tooltip.animation).toBe(false);
+    choose('none');
+    await waitFor(() => expect(pixels()).toHaveLength(0));
+    await waitFor(() => expect(drawn.options!.transitions).toBeUndefined());
   });
   it('reuses native curves when references, baseline dates and display ranges change', async () => {
     await show(); choose('sample');

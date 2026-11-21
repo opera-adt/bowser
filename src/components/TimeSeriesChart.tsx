@@ -504,6 +504,8 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     layerMasks: state.layerMasks, datasetInfo: state.datasetInfo, revision: state.areaStatsRevision, enabled: state.showChart, areaSupport: state.areaSupport, customMaskPath: state.customMaskPath, dataMode: state.dataMode });
   const previewSummary = pixels.selection ? areaResults[areaStatsKey(pixels.selection.dataset, pixels.selection.areaId)]?.data : undefined;
   const pixelLabelsMismatch = !!pixels.data && !!previewSummary && JSON.stringify(pixels.data.labels) !== JSON.stringify(previewSummary.labels);
+  // Hundreds of pixel lines make Chart.js hover and tooltip animations redraw for seconds; draw them at once instead.
+  const pixelPreviewShown = !!pixels.selection && !!pixels.data;
 
 
 
@@ -589,6 +591,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
       maintainAspectRatio: false,
       animation: { duration: 300 },
       interaction: { mode: 'index' as const, intersect: false },
+      ...(pixelPreviewShown ? { transitions: { active: { animation: { duration: 0 } } } } : {}),
       plugins: {
         legend: {
           display: true,
@@ -634,6 +637,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
         },
         tooltip: {
           filter: (item: { dataset: unknown }) => !(item.dataset as { _pixelCurve?: boolean })._pixelCurve,
+          ...(pixelPreviewShown ? { animation: false as const } : {}),
           callbacks: {
             title: (context: any) => `${context[0]?.label || ''}`,
             label: (context: any) => {
@@ -665,7 +669,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
       onClick: handleChartClick,
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [themeVersion, refX, state.units, state.showTrends, state.vmin, state.vmax, state.datasetInfo, state.bufferEnabled, handleChartClick, JSON.stringify(activeChartDs), JSON.stringify(dsOffsets), JSON.stringify(dsColorOverrides), JSON.stringify(dsYLimits), firstAreaLabel, JSON.stringify(Object.fromEntries(Object.entries(chartDataMap).map(([k, v]) => [k, v.datasets.flatMap(d => d.data.map(pt => pt.y))]))) ]);
+  }, [themeVersion, refX, state.units, state.showTrends, state.vmin, state.vmax, state.datasetInfo, state.bufferEnabled, handleChartClick, JSON.stringify(activeChartDs), JSON.stringify(dsOffsets), JSON.stringify(dsColorOverrides), JSON.stringify(dsYLimits), firstAreaLabel, pixelPreviewShown, JSON.stringify(Object.fromEntries(Object.entries(chartDataMap).map(([k, v]) => [k, v.datasets.flatMap(d => d.data.map(pt => pt.y))]))) ]);
 
   /** What the chart shows now, for the chart tools: ``datasets`` exactly as handed to <Line>. */
   const snapshot = (status: ChartSnapshot['status'], datasets: ChartSnapshot['datasets'] = [], message?: string, dates: string[] = []): ChartSnapshot => ({
