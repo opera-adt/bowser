@@ -33,6 +33,12 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   display, analysis and export paths, preserving measurement signs and nodata.
   See [docs/absolute-value-masks.md](docs/absolute-value-masks.md).
 
+- Opt-in, bounded individual pixel histories in area charts. Sample or request
+  all eligible pixels within response limits; preserve full-polygon summaries,
+  native gaps and existing reference transformations. Off by default. A saved
+  area-pixel choice offers common or per-date support; Automatic retains the
+  existing mask-dependent behavior.
+
 - Configured and uploaded masks in full-server point/radius chart requests,
   including bounded native reads, per-layer configured thresholds and clear
   unsupported/error handling. Shared named-mask and reference policies remain
@@ -67,6 +73,8 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Hiding a point from the chart legend hides its model and residuals again; this had stopped
+  working after the first change to the chart's settings.
 - Chart-to-map date selection keeps both dates of an acquisition pair, for point and
   buffer charts: each chart point keeps its step's own label (compact or hyphenated), and
   of two steps ending on the same date (drawn at the same place on the time axis) a click

@@ -1,3 +1,7 @@
+import PolygonSupportControl from './PolygonSupportControl';
+import PolygonPixelControls from './PolygonPixelControls';
+import { usePolygonPixelPreview } from '../hooks/usePolygonPixelPreview';
+import { pixelPreviewDatasets } from '../utils/polygonPixelPreview';
 import { chartMaskOptions } from '../utils/chartMasks';
 import { useUploadedChartMaskSupport } from '../hooks/useUploadedChartMaskSupport';
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
@@ -33,35 +37,40 @@ import { registerChart, type ChartSnapshot, type LayerDisplay, type SeriesTag } 
 
 // Chart.js plugin to wire legend-click visibility to all related datasets (raw, trend,
 // residual, samples, median) that share the same base label.
-const linkedLegendPlugin = {
-  id: 'linkedLegend',
-  afterInit(chart: ChartJS) {
-    if ((chart as any)._linkedLegendPatched) return;
-    (chart as any)._linkedLegendPatched = true;
-    const origClick = (chart.options.plugins?.legend as any)?.onClick;
-    (chart.options.plugins!.legend as any).onClick = function(
-      e: any, legendItem: any, legend: any
-    ) {
-      // Run default toggle on the clicked dataset first
-      if (origClick) origClick.call(this, e, legendItem, legend);
-      else ChartJS.defaults.plugins.legend.onClick.call(this, e, legendItem, legend);
+// The click handler is put back on every update: the chart's options are replaced whenever
+// they change (react-chartjs-2 sets new options), which would drop a handler added once.
+const LINKED = Symbol('linkedLegend');
+function linkLegendClicks(chart: ChartJS) {
+  const legend = chart.options.plugins?.legend as any;
+  if (!legend || legend.onClick?.[LINKED]) return;
+  const origClick = legend.onClick;
+  const onClick = function(this: any, e: any, legendItem: any, legendCtx: any) {
+    // Run default toggle on the clicked dataset first
+    if (origClick) origClick.call(this, e, legendItem, legendCtx);
+    else ChartJS.defaults.plugins.legend.onClick.call(this, e, legendItem, legendCtx);
 
-      // Then sync visibility of all datasets that share the same base label
-      const clickedDs = chart.data.datasets[legendItem.datasetIndex];
-      if (!clickedDs) return;
-      const baseLabel = (clickedDs as any)._baseLabel as string | undefined;
-      if (!baseLabel) return;
-      const hidden = !chart.isDatasetVisible(legendItem.datasetIndex);
-      chart.data.datasets.forEach((ds: any, i: number) => {
-        if (i === legendItem.datasetIndex) return;
-        if (ds._baseLabel === baseLabel) {
-          const meta = chart.getDatasetMeta(i);
-          meta.hidden = hidden;
-        }
-      });
-      chart.update();
-    };
-  },
+    // Then sync visibility of all datasets that share the same base label
+    const clickedDs = chart.data.datasets[legendItem.datasetIndex];
+    if (!clickedDs) return;
+    const baseLabel = (clickedDs as any)._baseLabel as string | undefined;
+    if (!baseLabel) return;
+    const hidden = !chart.isDatasetVisible(legendItem.datasetIndex);
+    chart.data.datasets.forEach((ds: any, i: number) => {
+      if (i === legendItem.datasetIndex) return;
+      if (ds._baseLabel === baseLabel) {
+        const meta = chart.getDatasetMeta(i);
+        meta.hidden = hidden;
+      }
+    });
+    chart.update();
+  };
+  (onClick as any)[LINKED] = true;
+  legend.onClick = onClick;
+}
+export const linkedLegendPlugin = {
+  id: 'linkedLegend',
+  afterInit: linkLegendClicks,
+  beforeUpdate: linkLegendClicks,
 };
 
 /** Least time between two rounds of chart requests (see useSpacedEffect). */
@@ -89,6 +98,7 @@ function useThemeVersion(): number {
 
 /** Which part of an area a dataset of areaChartDatasets draws. */
 function areaRole(d: Record<string, unknown>): SeriesTag['role'] {
+  if (d._pixelCurve) return 'sample';
   const label = String(d.label ?? '');
   if (d.fill === '+1') return 'band_upper';
   if (label.endsWith(' median')) return 'area_median';
@@ -105,7 +115,7 @@ interface BufferResult {
 }
 
 export default function TimeSeriesChart({ windowId }: { windowId: string }) {
-  const state = useAppFields('areaBand', 'areaDrawing', 'areaStats', 'bufferEnabled', 'bufferRadius', 'bufferSamples', 'chartAreas', 'chartWindows', 'currentDataset', 'customMaskPath', 'dataMode', 'datasetInfo', 'dateRangeEnd', 'dateRangeStart', 'fitSettings', 'layerMasks', 'markerSize', 'refBufferEnabled', 'refBufferRadius', 'refEnabled', 'refMarkerPosition', 'refTimeIndex', 'showChart', 'showResiduals', 'showTrends', 'timeSeriesPoints', 'units', 'vmax', 'vmin');
+  const state = useAppFields('areaSupport', 'areaStatsRevision', 'areaBand', 'areaDrawing', 'areaStats', 'bufferEnabled', 'bufferRadius', 'bufferSamples', 'chartAreas', 'chartWindows', 'currentDataset', 'customMaskPath', 'dataMode', 'datasetInfo', 'dateRangeEnd', 'dateRangeStart', 'fitSettings', 'layerMasks', 'markerSize', 'refBufferEnabled', 'refBufferRadius', 'refEnabled', 'refMarkerPosition', 'refTimeIndex', 'showChart', 'showResiduals', 'showTrends', 'timeSeriesPoints', 'units', 'vmax', 'vmin');
   const dispatch = useAppDispatch();
   const window_ = state.chartWindows.find(w => w.id === windowId);
   const { fetchMultiPointTimeSeries, fetchBufferTimeSeries } = useApi();
@@ -495,6 +505,14 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     .find(l => l !== undefined);
   // Ordered list of dataset names in the chart (one y axis each)
   const activeChartDs = [...new Set([...Object.keys(chartDataMap), ...areaDsNames])];
+  const pixels = usePolygonPixelPreview({ areas: visibleAreas, layers: activeDatasetsForChart,
+    layerMasks: state.layerMasks, datasetInfo: state.datasetInfo, revision: state.areaStatsRevision, enabled: state.showChart, areaSupport: state.areaSupport, customMaskPath: state.customMaskPath, dataMode: state.dataMode });
+  const previewSummary = pixels.selection ? areaResults[areaStatsKey(pixels.selection.dataset, pixels.selection.areaId)]?.data : undefined;
+  const pixelLabelsMismatch = !!pixels.data && !!previewSummary && JSON.stringify(pixels.data.labels) !== JSON.stringify(previewSummary.labels);
+  // Hundreds of pixel lines make Chart.js hover and tooltip animations redraw for seconds; draw them at once instead.
+  const pixelPreviewShown = !!pixels.selection && !!pixels.data;
+
+
 
   const chartOptions = useMemo(() => {
     const textColor  = cssVar('--sb-text',   '#dde0f0');
@@ -578,6 +596,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
       maintainAspectRatio: false,
       animation: { duration: 300 },
       interaction: { mode: 'index' as const, intersect: false },
+      ...(pixelPreviewShown ? { transitions: { active: { animation: { duration: 0 } } } } : {}),
       plugins: {
         legend: {
           display: true,
@@ -591,6 +610,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
               return chart.data.datasets
                 .map((ds: any, index: number) => ({ ds, index }))
                 .filter(({ ds }: any) => {
+                  if (ds._pixelCurve) return false;
                   // An area: one entry each for its median, mean and band.
                   if (ds._area) return !!ds._legend;
                   if (ds.label.includes(' sample ')) return false;
@@ -621,6 +641,8 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
           },
         },
         tooltip: {
+          filter: (item: { dataset: unknown }) => !(item.dataset as { _pixelCurve?: boolean })._pixelCurve,
+          ...(pixelPreviewShown ? { animation: false as const } : {}),
           callbacks: {
             title: (context: any) => `${context[0]?.label || ''}`,
             label: (context: any) => {
@@ -652,7 +674,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
       onClick: handleChartClick,
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [themeVersion, refX, state.units, state.showTrends, state.vmin, state.vmax, state.datasetInfo, state.bufferEnabled, handleChartClick, JSON.stringify(activeChartDs), JSON.stringify(dsOffsets), JSON.stringify(dsColorOverrides), JSON.stringify(dsYLimits), firstAreaLabel, JSON.stringify(Object.fromEntries(Object.entries(chartDataMap).map(([k, v]) => [k, v.datasets.flatMap(d => d.data.map(pt => pt.y))]))) ]);
+  }, [themeVersion, refX, state.units, state.showTrends, state.vmin, state.vmax, state.datasetInfo, state.bufferEnabled, handleChartClick, JSON.stringify(activeChartDs), JSON.stringify(dsOffsets), JSON.stringify(dsColorOverrides), JSON.stringify(dsYLimits), firstAreaLabel, pixelPreviewShown, JSON.stringify(Object.fromEntries(Object.entries(chartDataMap).map(([k, v]) => [k, v.datasets.flatMap(d => d.data.map(pt => pt.y))]))) ]);
 
   /** What the chart shows now, for the chart tools: ``datasets`` exactly as handed to <Line>. */
   const snapshot = (status: ChartSnapshot['status'], datasets: ChartSnapshot['datasets'] = [], message?: string, dates: string[] = []): ChartSnapshot => ({
@@ -695,6 +717,27 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     const r = areaResults[areaStatsKey(ds, a.id)];
     return !r || !!r.pending || (!!r.data && areaReference(ds) === undefined);
   }));
+
+  const dateStart = state.dateRangeStart ? new Date(state.dateRangeStart).getTime() : -Infinity;
+  const dateEnd   = state.dateRangeEnd   ? new Date(state.dateRangeEnd).getTime()   : Infinity;
+  const inRange = (x: string) => { const t = new Date(x).getTime(); return t >= dateStart && t <= dateEnd; };
+
+  const pixelDatasets = (() => {
+    const selection = pixels.selection;
+    const result = pixels.data;
+    if (!selection || !result) return [];
+    const area = visibleAreas.find(a => a.id === selection.areaId);
+    const reference = areaReference(selection.dataset);
+    if (!area || reference === undefined) return [];
+    const summary = areaResults[areaStatsKey(selection.dataset, area.id)]?.data;
+    if (!summary || JSON.stringify(summary.labels) !== JSON.stringify(result.labels)) return [];
+    const unit = displayUnit(state.datasetInfo[selection.dataset]?.unit, state.units);
+    return pixelPreviewDatasets({ result, name: area.name, color: dsColorOverrides[selection.dataset] ?? area.color,
+      factor: unit.factor, unit: unit.label, yAxisID: `y${activeChartDs.indexOf(selection.dataset)}`,
+      reference, toX: toIsoDate, inRange,
+      refIndex: selection.dataset in refX ? refIndexOf(result, refX[selection.dataset]) : null,
+    }).map(d => ({ ...d, _series: { kind: 'area', id: area.id, name: area.name, layer: selection.dataset, role: 'sample' } as SeriesTag }));
+  })();
 
   const headerContent = (
     <>
@@ -806,6 +849,13 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
           {state.areaDrawing && <span className="chart-area-note">Draw the area on the map: click the first point to finish.</span>}
         </div>
       )}
+      {state.chartAreas.length > 0 && <PolygonSupportControl />}
+      <PolygonPixelControls areas={visibleAreas} layers={activeDatasetsForChart} selection={pixels.selection} onChange={pixels.setSelection} />
+      {pixelLabelsMismatch && <p className="chart-area-error" role="alert">Pixel history dates do not match the area summary; no pixel preview is shown.</p>}
+      {pixels.pending && <p className="chart-area-note" role="status">Loading pixel histories…</p>}
+      {pixels.error && <p className="chart-area-error" role="alert">Pixel histories: {pixels.error} Area summaries are unchanged.</p>}
+      {pixels.data && <p className="chart-area-note">{pixelDatasets.length} curves drawn; {pixels.data.pixel_curves.plotted_pixels} of {pixels.data.pixel_curves.eligible_pixels} eligible pixels selected
+        {pixels.data.pixel_curves.sampled ? ' (sample)' : ''}; {pixels.data.support === 'common' ? 'same pixels across dates' : 'available pixels on each date'}. Some selected curves may be hidden if their reference date is missing. Gaps remain missing; separate unwrapped regions may not share a valid displacement reference.</p>}
       {areaErrors.length > 0 && (
         <div className="chart-area-error" role="alert">{areaErrors.join(' · ')}</div>
       )}
@@ -843,9 +893,6 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
   }
 
   // ── Area series: median, dashed mean and p10–p90 band per area, in the area's colour ──
-  const dateStart = state.dateRangeStart ? new Date(state.dateRangeStart).getTime() : -Infinity;
-  const dateEnd   = state.dateRangeEnd   ? new Date(state.dateRangeEnd).getTime()   : Infinity;
-  const inRange = (x: string) => { const t = new Date(x).getTime(); return t >= dateStart && t <= dateEnd; };
   const areaDatasets = activeChartDs.flatMap(dsName => {
     const reference = areaReference(dsName);
     if (reference === undefined) return [];
@@ -861,6 +908,8 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
       }).map(d => ({ ...d, _series: { kind: 'area', id: area.id, name: area.name, layer: dsName, role: areaRole(d) } as SeriesTag }) as Record<string, unknown>);
     });
   });
+
+
   const hasAreaData = areaDatasets.some(d => (d.data as unknown[]).length > 0);
 
   // A masked point comes back as a dataset with no points: that is no data too.
@@ -1037,7 +1086,7 @@ export default function TimeSeriesChart({ windowId }: { windowId: string }) {
     });
   });
 
-  const formattedChartData = { labels: isoLabels, datasets: [...datasetList, ...areaDatasets] };
+  const formattedChartData = { labels: isoLabels, datasets: [...pixelDatasets, ...datasetList, ...areaDatasets] };
   const minDate = allIsoLabels[0] ?? '';
   const maxDate = allIsoLabels[allIsoLabels.length - 1] ?? '';
   const sliderStart = state.dateRangeStart ?? minDate;
