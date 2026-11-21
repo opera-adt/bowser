@@ -174,6 +174,7 @@ export async function jobUpdates(o: Overlay, job: DataJob): Promise<Partial<Over
     return {
       conversion, url, sourceLayers: info.layers.length ? info.layers : o.sourceLayers,
       minzoom: info.minzoom, maxNativeZoom: info.maxzoom, bounds: info.bounds ?? o.bounds,
+      ...(info.polygons !== null ? { hasPolygons: info.polygons } : {}),
     };
   }
   const data = parseGeoJson(await (await fetch(url)).text());

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { pmtilesOverlay, pmtilesVectorSpecs, type PmtilesInfo } from './pmtiles';
+import { hasPolygonLayers, pmtilesOverlay, pmtilesVectorSpecs, type PmtilesInfo } from './pmtiles';
 import { overlayIdOfLayer } from './identify';
 
-const vector: PmtilesInfo = { kind: 'vector', layers: ['roads', 'buildings'], bounds: [11, 43, 12, 44], minzoom: 0, maxzoom: 14, name: null, attribution: 'OSM' };
+const vector: PmtilesInfo = { kind: 'vector', layers: ['roads', 'buildings'], bounds: [11, 43, 12, 44], minzoom: 0, maxzoom: 14, name: null, attribution: 'OSM', polygons: null };
 
 describe('pmtiles overlays', () => {
   it('names the overlay after the archive and keeps its layers', () => {
@@ -19,5 +19,18 @@ describe('pmtiles overlays', () => {
       ['overlay-p1__1-fill', 'buildings'], ['overlay-p1__1-line', 'buildings'], ['overlay-p1__1-point', 'buildings'],
     ]);
     expect(overlayIdOfLayer('overlay-p1__1-line')).toBe('p1');
+  });
+});
+
+describe('polygons in a vector archive', () => {
+  it('come from the tilestats GDAL and tippecanoe write, else are unknown', () => {
+    expect(hasPolygonLayers({ layers: [{ geometry: 'LineString' }, { geometry: 'Polygon' }] })).toBe(true);
+    expect(hasPolygonLayers({ layers: [{ geometry: 'LineString' }, { geometry: 'Point' }] })).toBe(false);
+    expect(hasPolygonLayers(undefined)).toBeNull();
+    expect(hasPolygonLayers({ layers: [{}] })).toBeNull();
+  });
+  it('are kept on the overlay only when known', () => {
+    expect(pmtilesOverlay('https://x.org/a.pmtiles', { ...vector, polygons: false }, 'p1').hasPolygons).toBe(false);
+    expect('hasPolygons' in pmtilesOverlay('https://x.org/a.pmtiles', vector, 'p1')).toBe(false);
   });
 });

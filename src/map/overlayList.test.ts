@@ -101,3 +101,17 @@ describe('point markers', () => {
     expect(vectorLayerSpecs({ ...v, marker: 'pin' })[2].layout).toMatchObject({ 'icon-anchor': 'bottom' });
   });
 });
+
+
+describe('polygon display modes', () => {
+  it('retains the old default and changes only polygon fill/border paints', () => {
+    const o = { ...ov('polygon'), type: 'vector' as const, opacity: 0.8 };
+    expect(vectorLayerSpecs(o)[0].paint['fill-opacity']).toBe(0.2);
+    expect(vectorLayerSpecs({ ...o, polygonStyle: 'outline' })[0].paint['fill-opacity']).toBe(0);
+    const fill = vectorLayerSpecs({ ...o, polygonStyle: 'fill', fillOpacity: 0.5 });
+    expect(fill[0].paint['fill-opacity']).toBe(0.4);
+    expect(fill[1].paint['line-opacity']).toEqual(['case', ['in', ['geometry-type'], ['literal', ['Polygon', 'MultiPolygon']]], 0, 0.8]);
+    expect(fill[2]).toEqual(vectorLayerSpecs(o)[2]);
+    expect(vectorLayerSpecs({ ...o, polygonStyle: 'both', fillOpacity: 0 })[0].paint['fill-opacity']).toBe(0);
+  });
+});

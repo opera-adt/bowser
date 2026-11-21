@@ -8,6 +8,9 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Polygon style for added vector layers (Overlays › Style): outline, filled, or both, with
+  its own fill opacity, kept in saved projects. Shown for layers with polygons; a tiled
+  (PMTiles) layer shows it unless its metadata says it has none.
 - Configured/uploaded masks in GIFs reuse map alignment, including cropped exports.
 
 - Optional GIF background snapshots, opacity and text annotations.
@@ -73,6 +76,9 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The Docker image and a plain `pip install bowser-insar` start the server again: `httpx`,
+  which place search and the context services import at start, is a base dependency now
+  (it was only in the Assistant and MCP extras). CI checks the server starts without extras.
 - Hiding a point from the chart legend hides its model and residuals again; this had stopped
   working after the first change to the chart's settings.
 - Chart-to-map date selection keeps both dates of an acquisition pair, for point and

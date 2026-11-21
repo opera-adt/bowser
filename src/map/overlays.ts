@@ -254,8 +254,8 @@ export function vectorLayerSpecs(o: Overlay, charted: Map<number, string> = new 
   const base: unknown = o.classColors ? classColorExpression(o.classColors, o.color ?? '#a3a3a3') : o.color ?? '#5bc0be';
   const color = linkedColor(base, charted);
   return [
-    { id: `${id}-fill`, type: 'fill', filter: POLYGONS, paint: { 'fill-color': color, 'fill-opacity': o.opacity * 0.25 } },
-    { id: `${id}-line`, type: 'line', filter: LINES, paint: { 'line-color': color, 'line-opacity': o.opacity, 'line-width': o.lineWidth ?? 2 } },
+    { id: `${id}-fill`, type: 'fill', filter: POLYGONS, paint: { 'fill-color': color, 'fill-opacity': o.polygonStyle === 'outline' ? 0 : o.opacity * (o.fillOpacity ?? 0.25) } },
+    { id: `${id}-line`, type: 'line', filter: LINES, paint: { 'line-color': color, 'line-opacity': o.polygonStyle === 'fill' ? ['case', POLYGONS, 0, o.opacity] : o.opacity, 'line-width': o.lineWidth ?? 2 } },
     pointSpec(`${id}-point`, o, color),
     ...(o.labelField ? [labelSpec(`${id}-label`, o, o.labelField)] : []),
   ];
