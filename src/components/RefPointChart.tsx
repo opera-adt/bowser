@@ -1,8 +1,12 @@
-import { useEffect, useState, useRef } from 'react';
+import { useState, useRef } from 'react';
 import { Line } from 'react-chartjs-2';
 import { useAppFields } from '../context/AppContext';
+import { useSpacedEffect, REQUEST_GAP_MS } from '../hooks/useSpacedEffect';
+import { useUploadedChartMaskSupport } from '../hooks/useUploadedChartMaskSupport';
 import { useApi } from '../hooks/useApi';
 import { useDraggableResizable } from '../hooks/useDraggableResizable';
+import { applicableMasks } from '../utils/maskCompatibility';
+import { chartMaskOptions } from '../utils/chartMasks';
 import { chartLayerFor } from '../utils/chartLayers';
 
 interface BufferResult {
@@ -13,8 +17,10 @@ interface BufferResult {
 }
 
 export default function RefPointChart() {
-  const state = useAppFields('currentDataset', 'datasetInfo', 'refBufferEnabled', 'refBufferRadius', 'refMarkerPosition', 'showRefChart');
+  const state = useAppFields('layerMasks', 'customMaskPath', 'dataMode', 'currentDataset', 'datasetInfo', 'refBufferEnabled', 'refBufferRadius', 'refMarkerPosition', 'showRefChart');
   const { fetchBufferTimeSeries } = useApi();
+  const [screened, setScreened] = useState(false);
+  const uploadedMask = useUploadedChartMaskSupport(screened && !!state.customMaskPath);
   const [bufferData, setBufferData] = useState<BufferResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -28,7 +34,7 @@ export default function RefPointChart() {
 
   const chartDs = chartLayerFor(state.currentDataset, state.datasetInfo);
 
-  useEffect(() => {
+  useSpacedEffect(() => {
     if (!state.refBufferEnabled || !state.showRefChart || !chartDs) {
       setBufferData(null);
       setError(null);
@@ -36,6 +42,7 @@ export default function RefPointChart() {
       return;
     }
 
+    if (!uploadedMask.ready) { setBufferData(null); setLoading(true); return; }
     abortRef.current?.abort();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -45,35 +52,79 @@ export default function RefPointChart() {
     setLoading(true);
     setBufferData(null);
     setError(null);
-    fetchBufferTimeSeries(lng, lat, chartDs, state.refBufferRadius, 20)
+    // The buffer request gives no reason on failure. With masks on, the likely one is that
+    // they leave no valid pixel in the circle; the unscreened circle is one click away.
+    const failure = screened
+      ? 'No reference-area summary with the current quality masks: they may leave no valid pixel in this circle. Untick the option to see the unscreened circle.'
+      : 'Could not load the reference-area summary. Try another area or check data availability.';
+    const request = screened
+      ? fetchBufferTimeSeries(lng, lat, chartDs, state.refBufferRadius, 20,
+        undefined, undefined, applicableMasks(state.datasetInfo[chartDs], state.layerMasks ?? []),
+        0, chartMaskOptions({ dataMode: state.dataMode, datasetInfo: state.datasetInfo, customMaskPath: state.customMaskPath }, chartDs, uploadedMask.enabled))
+      : fetchBufferTimeSeries(lng, lat, chartDs, state.refBufferRadius, 20);
+    request
       .then(data => {
         if (!ctrl.signal.aborted) {
           if (data) setBufferData(data);
-          else setError('Could not load the reference-area summary. Try another area or check data availability.');
+          else setError(failure);
         }
       })
-      .catch(() => { if (!ctrl.signal.aborted) setError('Could not load the reference-area summary. Try another area or check data availability.'); })
+      .catch(() => { if (!ctrl.signal.aborted) setError(failure); })
       .finally(() => { if (!ctrl.signal.aborted) setLoading(false); });
 
     return () => ctrl.abort();
   }, [
+    uploadedMask.ready, uploadedMask.enabled, screened, state.layerMasks, state.customMaskPath, state.dataMode, state.datasetInfo,
     state.refBufferEnabled,
     state.showRefChart,
     chartDs,
     state.refMarkerPosition,
     state.refBufferRadius,
     fetchBufferTimeSeries,
-  ]);
+  ], REQUEST_GAP_MS, () => {
+    // Waiting for the request gap after a change: show that, not the previous curve under
+    // the new settings.
+    setBufferData(null);
+    setError(null);
+    setLoading(true);
+  });
 
+  // As the time-series chart: the title bar first (it drags the window), the options under it.
+  const header = (title: string) => (
+    <div className="chart-header" onMouseDown={onDragMouseDown} style={{ cursor: 'grab' }}>
+      <h4>{title}</h4>
+    </div>
+  );
+  const controls = (
+    <div className="chart-sliders" style={{ flexWrap: 'wrap', marginBottom: 4 }}>
+      <label className="row-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+        title="Applies the current compatible quality masks to this preview only.">
+        <input type="checkbox" checked={screened} aria-label="Apply current quality masks to preview"
+          onChange={e => setScreened(e.target.checked)} />
+        Apply quality masks
+      </label>
+      <span className="row-label" style={{ fontSize: '0.72em' }}>
+        {screened ? 'Quality-screened' : 'Raw source'} preview: does not change the map reference or exports, and does not prove stable ground.
+      </span>
+      {screened && uploadedMask.warning && <span className="row-label" role="status" style={{ fontSize: '0.72em' }}>{uploadedMask.warning}</span>}
+    </div>
+  );
+  const radiusTitle = `Ref Buffer — r=${state.refBufferRadius} m`;
   if (!state.refBufferEnabled || !state.showRefChart) return null;
   if (loading) {
     return (
       <div ref={panelRef} className="profile-panel" style={panelStyle} onMouseDown={e => e.stopPropagation()}>
-        <div className="chart-placeholder"><p>Loading reference buffer…</p></div>
+        {header(radiusTitle)}{controls}<div className="chart-placeholder"><p>Loading reference buffer…</p></div>
       </div>
     );
   }
-  if (error) return <div ref={panelRef} className="profile-panel" style={panelStyle} role="alert" onMouseDown={e => e.stopPropagation()}>{error}</div>;
+  if (error) {
+    return (
+      <div ref={panelRef} className="profile-panel" style={panelStyle} onMouseDown={e => e.stopPropagation()}>
+        {header(radiusTitle)}{controls}<div className="chart-placeholder" role="alert"><p>{error}</p></div>
+      </div>
+    );
+  }
   if (!bufferData || bufferData.labels.length === 0) return null;
 
   // Use dataset info x_values as the authoritative label source — identical to
@@ -213,11 +264,8 @@ export default function RefPointChart() {
 
   return (
     <div ref={panelRef} className="profile-panel" style={panelStyle} onMouseDown={e => e.stopPropagation()}>
-      <div className="chart-header" onMouseDown={onDragMouseDown} style={{ cursor: 'grab' }}>
-        <h4>
-          Ref Buffer — {bufferData.n_pixels} px, r={state.refBufferRadius} m
-        </h4>
-      </div>
+      {header(`Ref Buffer — ${bufferData.n_pixels} px, r=${state.refBufferRadius} m`)}
+      {controls}
       <div style={{ flex: 1, minHeight: 120, position: 'relative' }}>
         <Line data={chartData as any} options={options as any} />
       </div>
