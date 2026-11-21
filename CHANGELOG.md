@@ -8,6 +8,9 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **A demo to try without installing:** an *Open in GitHub Codespaces* button in the README
+  starts Bowser on a small Hawaii cube (OPERA DISP-S1, 2016–2026, 240 m, 70 dates), and a
+  workflow publishes the same demo to a Hugging Face Space on each release. See `demo/`.
 - Configured/uploaded masks in GIFs reuse map alignment, including cropped exports.
 
 - Optional GIF background snapshots, opacity and text annotations.
