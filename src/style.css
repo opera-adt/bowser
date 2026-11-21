@@ -1199,6 +1199,9 @@ img.huechange { filter: hue-rotate(120deg); }
 .map-toolbar { left: 10px; }
 .map-toolbar-right { right: 10px; }
 
+/* Open toolbar controls must remain above the floating Points control. */
+.map-toolbar-right:has(.basemap-popover) { z-index: 4100; }
+
 .map-tool-btn[disabled] {
   opacity: 0.4;
   cursor: default;
