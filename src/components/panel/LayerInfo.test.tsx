@@ -78,3 +78,35 @@ describe('LayerInfo', () => {
     expect(container.innerHTML).toBe('');
   });
 });
+
+
+it('shows a short summary first while keeping producer text and caveats in details', () => {
+  render(<LayerInfo info={info({ summary: 'Ground movement accumulated over time.',
+    description: 'Positive values indicate motion away from the satellite.', description_source: 'source',
+    source_description: 'Positive values indicate motion away from the satellite.', guidance: 'Not total 3D movement.' })} />);
+  const note = screen.getByRole('note', { name: 'Layer information' });
+  expect(note.querySelector('p')?.textContent).toBe('Ground movement accumulated over time.');
+  expect(screen.getByText(/Positive values indicate/).closest('details')).not.toBeNull();
+  expect(screen.getByText('Not total 3D movement.').closest('details')).not.toBeNull();
+  expect(note.querySelector('details')?.open).toBe(false);
+});
+
+it('reads actual measurement conventions without substituting OPERA signs', () => {
+  render(<LayerInfo info={info({ summary: 'How much the ground has moved since the reference date.',
+    unit: 'centimeters', measurement: { kind: 'line_of_sight', positive_direction: 'away from the satellite' },
+    reference_date: '2025-11-01', source_flags: [{ value: '0', label: 'valid' }] })} />);
+  expect(screen.getByText('How to read this layer')).toBeTruthy();
+  expect(screen.getByText('Source units: centimeters')).toBeTruthy();
+  expect(screen.getByText('Positive values: away from the satellite')).toBeTruthy();
+  expect(screen.getByText('Source reference date: 2025-11-01')).toBeTruthy();
+  expect(screen.getByText('Value meanings: 0: valid').closest('details')).toBeNull();
+  expect(screen.queryByText(/Positive values: toward/)).toBeNull();
+});
+
+it('does not guess directions, signs or dates from a generic summary', () => {
+  render(<LayerInfo info={info({ summary: 'How much the ground has moved since the reference date.', unit: '' })} />);
+  expect(screen.queryByText(/Measurement direction:/)).toBeNull();
+  expect(screen.queryByText(/Positive values:/)).toBeNull();
+  expect(screen.queryByText(/Source reference date:/)).toBeNull();
+  expect(screen.getByText('Units not supplied')).toBeTruthy();
+});
