@@ -1391,6 +1391,11 @@ class DatasetInfo(_Fixed):
         description="GeoZarr mode only, when the cube records it: the radar "
         "wavelength in metres (unwrapping errors are multiples of half of it).",
     )
+    summary: Optional[str] = Field(
+        None,
+        description="Optional brief explanation from Bowser; source metadata "
+        "defines units, conventions and categories for the particular file.",
+    )
     description: str
     description_source: Literal["bowser", "source", "unknown"]
     source_description: Optional[str]

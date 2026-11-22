@@ -39,7 +39,7 @@ is identified as coming from its first raster.
   overrides dataset tags; an explicit band unit takes precedence over tags.
   The layer-info request does not reopen files just to retrieve those fields.
 
-`/datasets` retains its existing identifiers and fields and adds `description`,
+`/datasets` retains its existing identifiers and fields and adds `summary`, `description`,
 `description_source`, `source_description`, `source_flags` and `unit_status`.
 Raster groups can also have explanatory `metadata_notes`. New fields are
 optional on the frontend for compatibility with older dataset responses.
