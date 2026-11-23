@@ -287,10 +287,10 @@
     },
     "mask_compatibility": {
      "amplitude_dispersion": null,
-     "displacement": "Dynamic mask axis and coordinates must match the selected layer exactly; use a static summary for a static layer",
-     "phase_similarity": "Dynamic mask axis and coordinates must match the selected layer exactly; use a static summary for a static layer",
-     "recommended_mask": "Dynamic mask axis and coordinates must match the selected layer exactly; use a static summary for a static layer",
-     "temporal_coherence": "Dynamic mask axis and coordinates must match the selected layer exactly; use a static summary for a static layer",
+     "displacement": null,
+     "phase_similarity": null,
+     "recommended_mask": null,
+     "temporal_coherence": null,
      "velocity": null
     },
     "mask_min_value": 0.1,
@@ -675,10 +675,10 @@
     },
     "mask_compatibility": {
      "amplitude_dispersion": null,
-     "displacement": "Dynamic mask axis and coordinates must match the selected layer exactly; use a static summary for a static layer",
-     "phase_similarity": "Dynamic mask axis and coordinates must match the selected layer exactly; use a static summary for a static layer",
-     "recommended_mask": "Dynamic mask axis and coordinates must match the selected layer exactly; use a static summary for a static layer",
-     "temporal_coherence": "Dynamic mask axis and coordinates must match the selected layer exactly; use a static summary for a static layer",
+     "displacement": null,
+     "phase_similarity": null,
+     "recommended_mask": null,
+     "temporal_coherence": null,
      "velocity": null
     },
     "mask_min_value": 0.1,

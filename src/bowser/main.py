@@ -905,7 +905,8 @@ def _apply_layer_masks_md(
     abs_min/abs_max compare magnitudes inclusively, retaining data signs.
     Validate the complete layer via ``source`` when values are preselected;
     ``select`` picks the same window/date from each validated mask before where.
-    Static masks broadcast; unrelated axes return HTTP 422.
+    Static masks broadcast; a dated mask on a layer without dates keeps the
+    pixels that pass on every date; unrelated axes return HTTP 422.
 
     ``source_ds`` is the Dataset to look up mask variables in. Tile-rendering
     callers MUST pass the same pyramid-level Dataset that ``da`` came from —
@@ -915,7 +916,7 @@ def _apply_layer_masks_md(
     to ``state.dataset`` (level 0) for the non-tile callers that already
     operate at full resolution.
     """
-    from .mask_alignment import align_mask, mask_condition, parse_layer_masks
+    from .mask_alignment import mask_keep, parse_layer_masks
 
     ds = source_ds if source_ds is not None else state.dataset
     source = source if source is not None else da
@@ -924,11 +925,10 @@ def _apply_layer_masks_md(
             var = mask["dataset"]
             if var not in ds.data_vars:
                 raise ValueError(f"Unknown mask layer: {var}")
-            aligned = align_mask(source, ds[var])
-            if select is not None:
-                aligned = select(aligned)
             operator = mask_operator(mask["mode"])
-            da = da.where(mask_condition(aligned, mask["threshold"], operator))
+            da = da.where(
+                mask_keep(source, ds[var], mask["threshold"], operator, select)
+            )
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return da
@@ -1093,13 +1093,19 @@ def _point_values_direct(
     Validate complete coordinates first; slice pixels and the selected date
     before applying ``where`` so direct (non-dask) reads stay bounded.
     """
-    from .mask_alignment import align_mask, mask_condition, parse_layer_masks
+    from .mask_alignment import (
+        align_mask,
+        combines_dates,
+        mask_condition,
+        parse_layer_masks,
+    )
 
     source = ds[name]
+    dim = _non_spatial_dim(source)
 
     def at_pixel(array):
-        dim = _non_spatial_dim(array)
-        if time_idx is not None and dim is not None:
+        # The layer's date; a dated mask on a layer without dates keeps all dates.
+        if time_idx is not None and dim is not None and dim in array.dims:
             array = array.isel({dim: max(0, min(time_idx, array.sizes[dim] - 1))})
         return select_point(array, x, y, "nearest").values[..., 0, 0]
 
@@ -1109,14 +1115,16 @@ def _point_values_direct(
             var = spec["dataset"]
             if var not in ds.data_vars:
                 raise ValueError(f"Unknown mask layer: {var}")
-            mask = at_pixel(align_mask(source, ds[var]))
+            aligned = align_mask(source, ds[var])
             operator = mask_operator(spec["mode"])
             keep = mask_condition(
-                xr.DataArray(np.atleast_1d(mask), attrs=ds[var].attrs),
+                xr.DataArray(np.atleast_1d(at_pixel(aligned)), attrs=ds[var].attrs),
                 spec["threshold"],
                 operator,
-            )
-            point = point.where(keep.values)
+            ).values
+            if combines_dates(source, aligned):
+                keep = np.atleast_1d(keep.all())
+            point = point.where(keep)
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return np.atleast_1d(point.values)
@@ -3026,11 +3034,10 @@ def _build_masked_md_dataarray(
 
     da = select(source)
     if mask_da is not None:
-        from .mask_alignment import align_mask, mask_condition
+        from .mask_alignment import mask_keep
 
         try:
-            mask_da = select(align_mask(source, mask_da))
-            da = da.where(mask_condition(mask_da, mask_min_value, ">"))
+            da = da.where(mask_keep(source, mask_da, mask_min_value, ">", select))
         except (ValueError, TypeError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
     da = _apply_layer_masks_md(
@@ -3291,6 +3298,8 @@ def _export_mask_provenance(
         raise HTTPException(status_code=404, detail=f"Unknown layer: {variable}")
     if target.mode == "cog" and not target.raster_groups[variable].file_list:
         raise HTTPException(status_code=404, detail=f"No files for layer: {variable}")
+    from .mask_alignment import combines_dates  # noqa: PLC0415
+
     details = []
 
     def add(name: str, threshold: float, operator: str, kind: str) -> None:
@@ -3301,14 +3310,19 @@ def _export_mask_provenance(
         if not np.isfinite(threshold):
             raise ValueError("Mask thresholds must be finite")
         context = _export_time_context(target, name, time_idx)
+        # A dated mask on a layer without dates: kept where every date passes.
+        every_date = target.mode == "md" and combines_dates(
+            target.dataset[variable], target.dataset[name]
+        )
         details.append(
             {
                 "kind": kind,
                 "layer": name,
                 "operator": operator,
                 "threshold": threshold,
-                "time_index": context["selected_index"],
-                "time_label": context["selected_label"],
+                "time_index": None if every_date else context["selected_index"],
+                "time_label": None if every_date else context["selected_label"],
+                **({"dates": "every date"} if every_date else {}),
                 "threshold_units": target.dataset[name].attrs.get("units")
                 if target.mode == "md"
                 else None,

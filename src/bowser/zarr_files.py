@@ -16,6 +16,10 @@ What is served, and what is refused:
 - only zarr's own files: ``zarr.json`` metadata and chunk files (``c/0/1/2`` or
   ``c.0.1.2``); any other file in the folder, and any hidden file or folder, is a
   404;
+- and two virtual arrays per dated ``(date, y, x)`` mask, computed from it:
+  ``<mask>@lowest_over_dates`` and ``<mask>@highest_over_dates``, its lowest and
+  highest value over the dates (``mask_dates``), which the GPU path draws on a
+  layer without dates;
 - nothing outside the store: the path, with symlinks followed, must stay inside
   the store's folder, so ``..``, absolute paths, encoded variants and symlinks
   that point out are a 404;
@@ -41,6 +45,7 @@ from fastapi import Path as PathParam
 from starlette.responses import FileResponse, Response
 
 from . import api_models as api
+from .mask_dates import virtual_file
 
 #: A zarr v3 metadata document, or a chunk key of the default encoding ("/" or ".").
 _ZARR_KEY = re.compile(r"^(?:[^/]+/)*(?:zarr\.json|c(?:/\d+)+|c(?:\.\d+)+)$")
@@ -146,6 +151,21 @@ def make_router(
         root = local_store_root(store_uri())
         if root is None:
             raise HTTPException(status_code=404, detail="No local zarr v3 cube")
+        # A dated mask combined over its dates, for the GPU path (mask_dates).
+        try:
+            virtual = virtual_file(root, path, resolve_inside)
+        except (LookupError, KeyError, ValueError) as exc:
+            raise HTTPException(status_code=404, detail=_NOT_FOUND) from exc
+        if virtual is not None:
+            content, media = virtual
+            return Response(
+                content=b"" if request.method == "HEAD" else content,
+                media_type=media,
+                headers={
+                    "Cache-Control": "private, max-age=600",
+                    "Content-Length": str(len(content)),
+                },
+            )
         target = resolve_inside(root, path)
         media = "application/json" if target.name == "zarr.json" else None
         return FileResponse(

@@ -62,18 +62,26 @@ def apply_layer_masks(
     ``source`` is the complete, unsliced data variable used to validate axes
     before selecting corresponding mask dates or pixels.
     ``min`` keeps pixels >= threshold, ``max`` keeps pixels <= threshold, as
-    ``bowser.main._apply_layer_masks_md``.
+    ``bowser.main._apply_layer_masks_md``. A dated mask on a layer without
+    dates keeps the pixels that pass on every date.
     """
     try:
         for m in mask_alignment.parse_layer_masks(layer_masks):
             var = m["dataset"]
             if var not in ds.data_vars:
                 raise ValueError(f"Unknown mask layer: {var}")
-            mask = mask_alignment.align_mask(source, ds[var])
-            mask = select(_mask_frame(mask, time_idx))
             operator = mask_alignment.mask_operator(m["mode"])
+            # The layer's date for a dated layer; a layer without dates combines
+            # all of a dated mask's dates (``mask_keep``).
+            frame = time_idx if non_spatial_dim(source) is not None else None
             values = values.where(
-                mask_alignment.mask_condition(mask, m["threshold"], operator)
+                mask_alignment.mask_keep(
+                    source,
+                    ds[var],
+                    m["threshold"],
+                    operator,
+                    lambda mask, frame=frame: select(_mask_frame(mask, frame)),
+                )
             )
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

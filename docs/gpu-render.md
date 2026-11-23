@@ -42,7 +42,8 @@ the page would send to the tile server:
   computer that runs the server, with or without a pyramid (the same pyramid
   level as tiles at each zoom);
 - the date, the reference date (*ref: date*), the reference point's shift, one
-  threshold layer mask (such as *recommended_mask* or a coherence threshold),
+  threshold layer mask (such as *recommended_mask* or a coherence threshold; on a
+  layer without dates, a dated mask is read combined over its dates, below),
   the colormap, the range and the opacity;
 - fill values, `scale_factor` and `add_offset` decoded as the servers decode
   them.
@@ -131,6 +132,16 @@ read-only and serves only `zarr.json` metadata and chunk files of a store on the
 server's disk: any other file of the folder, hidden files, paths that lead out
 of the store (`..`, absolute paths, encoded forms, symlinks pointing out) and
 remote stores answer 404; a request from another web site answers 403.
+
+It also serves two computed arrays for each dated `(date, y, x)` mask:
+`<mask>@lowest_over_dates` and `<mask>@highest_over_dates`, the mask's lowest
+and highest value over its dates (NaN where any date is missing or a fill). On
+a layer without dates (velocity, a coherence summary) the page draws a `≥`
+mask by comparing the threshold with the lowest value and a `≤` mask with the
+highest, which keeps exactly the pixels passing on every date, as the server's
+tiles do. Their chunks have the mask's own spatial chunking, uncompressed
+float32 (float64 for other mask types), computed from the mask a block at a
+time and kept in the server's memory (`bowser.mask_dates`).
 
 The route serves nothing the data API does not already give (`/point` returns
 the same values), but it does let a client read a whole cube quickly. A server
