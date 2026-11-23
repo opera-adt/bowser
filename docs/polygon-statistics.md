@@ -255,8 +255,10 @@ the selected variable. Dynamic GeoTIFF groups must match its configured labels
 and file count. All masks must match the exact native grid and CRS. Unknown
 layers, mismatched dates/grids, multiband masks and unsupported comparisons
 return 422. There is no date clamping, nearest-date matching, inferred ministack
-mapping, mask reprojection or automatic resampling. Use a suitable static
-quality summary when a dynamic mask has a different axis.
+mapping, mask reprojection or automatic resampling. On a layer without dates, a
+dated mask keeps the pixels that pass on every date (`temporal_support:
+"every_date"`). Use a suitable static quality summary when a dated mask has
+different dates from a dated layer.
 
 Masks apply before `common` support is intersected across dates, or before each
 `per_date` summary. The reported `valid_per_date`, `common_pixels` and row counts

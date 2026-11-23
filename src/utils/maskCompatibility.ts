@@ -23,3 +23,21 @@ export function maskProblems(info: RasterGroup | undefined, masks: LayerMask[]):
 export function applicableMasks(info: RasterGroup | undefined, masks: LayerMask[]): LayerMask[] {
   return masks.filter(m => !maskProblem(info, m.dataset));
 }
+
+/**
+ * How many dates of ``mask`` the server combines for ``info``: a dated mask on a layer without
+ * dates (a velocity, a coherence summary) keeps a pixel only where it passes on every date.
+ * 0 when the mask applies as it is (a single map, or date by date on a dated layer).
+ */
+export function combinedDates(info: RasterGroup | undefined, mask: RasterGroup | undefined): number {
+  const dates = (layer: RasterGroup | undefined) => layer?.x_values?.length ?? 0;
+  return info && dates(info) <= 1 && dates(mask) > 1 ? dates(mask) : 0;
+}
+
+/**
+ * The server's virtual array (``/zarr/``, bowser.mask_dates) holding a dated mask combined over
+ * its dates: its lowest value, which a ``min`` (>=) mask compares, or its highest, for ``max`` (<=).
+ */
+export function combinedMaskVariable(mask: string, mode: 'min' | 'max'): string {
+  return `${mask}@${mode === 'min' ? 'lowest' : 'highest'}_over_dates`;
+}

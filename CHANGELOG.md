@@ -73,6 +73,14 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The recommended mask, and any other dated mask, now works on layers without dates
+  (velocity, its uncertainty, average temporal coherence, water mask, valid epochs): a
+  pixel is kept only where it passes on every date. Dated layers still use it date by
+  date. Tiles, exports, area statistics and the lite server all follow this, and the
+  Masking panel says how the mask applies. Each mask block's lowest and highest values
+  over the dates are computed once and cached, so moving the map or the threshold stays
+  as fast as with a single-map mask, and the GPU renderer draws it too.
+
 - **A lighter page while you work.** Every part of the page used to redraw for any change:
   a map move, a drag of the split-screen divider, a tick of a slider, a step of the date
   player. Each part now follows only what it shows. A divider drag redraws none of the
@@ -81,6 +89,8 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The Codespaces demo container now has git, which the Codespaces editor needs; the
+  Bowser image itself has none.
 - The Docker image and a plain `pip install bowser-insar` start the server again: `httpx`,
   which place search and the context services import at start, is a base dependency now
   (it was only in the Assistant and MCP extras). CI checks the server starts without extras.

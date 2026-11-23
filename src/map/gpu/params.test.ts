@@ -112,3 +112,18 @@ for (const mode of ['abs_min', 'abs_max', 'unknown']) {
     if (!result.ok) expect(result.reason).toContain('server-rendered');
   });
 }
+
+it.each([['min', 'quality@lowest_over_dates'], ['max', 'quality@highest_over_dates']] as const)(
+  'draws a dated %s mask on a layer without dates from its combined array', (mode, variable) => {
+    const q = query({ layerMasks: [{ dataset: 'quality', threshold: .5, mode }] });
+    const single = { ...dsInfo, x_values: ['velocity'], mask_compatibility: { quality: null } } as unknown as RasterGroup;
+    const combined = gpuParamsFromTileQuery(q, 'md', { displacement: single, quality: dsInfo });
+    expect(combined.ok && combined.params.mask).toEqual({ dataset: variable, threshold: .5, mode });
+    // A single-map mask on a single map, and a dated mask on its dated layer, read the mask itself.
+    const plain = gpuParamsFromTileQuery(q, 'md', { displacement: single, quality: single });
+    expect(plain.ok && plain.params.mask?.dataset).toBe('quality');
+    const dated = gpuParamsFromTileQuery(q, 'md', {
+      displacement: { ...dsInfo, mask_compatibility: { quality: null } }, quality: dsInfo,
+    });
+    expect(dated.ok && dated.params.mask?.dataset).toBe('quality');
+  });

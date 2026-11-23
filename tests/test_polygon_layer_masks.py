@@ -11,6 +11,7 @@ import xarray as xr
 from pyproj import CRS
 
 from bowser.lite.polygon import summarize_cube
+from bowser.mask_alignment import mask_condition
 from bowser.polygon import PolygonRequest, summarize_rasters, summarize_xarray
 
 
@@ -202,7 +203,7 @@ def test_mismatched_temporal_axis_is_rejected(inputs, storage):
     ds["wrong_dates"] = ds.quality.rename(time="quality_time").assign_coords(
         quality_time=ds.time.values + np.timedelta64(1, "D")
     )
-    with pytest.raises(ValueError, match="Dynamic mask"):
+    with pytest.raises(ValueError, match="same dates"):
         run(storage, ds, groups, {**body, "layer_masks": [{"dataset": "wrong_dates"}]})
 
 
@@ -304,13 +305,24 @@ def test_external_mask_context_must_match_native_grid_and_crs(inputs, bad_contex
 
 
 @pytest.mark.parametrize("mode", ["min", "max"])
-def test_dynamic_mask_cannot_be_applied_to_a_static_summary(inputs, mode):
+def test_dated_mask_on_a_static_summary_keeps_pixels_passing_every_date(inputs, mode):
     ds, _, body = inputs
-    request = PolygonRequest(**body, layer_masks=[{"dataset": "quality", "mode": mode}])
-    with pytest.raises(ValueError, match="Dynamic mask"):
-        summarize_xarray(
-            ds.displacement.isel(time=0), request, ["static"], mask_dataset=ds
+    passes = mask_condition(ds.quality, 0.5, ">=" if mode == "min" else "<=")
+    ds["every_date"] = passes.all("time").astype("float32")
+    static = ds.displacement.isel(time=0, drop=True)
+
+    def summary(name, threshold, kept_mode):
+        request = PolygonRequest(
+            **body,
+            layer_masks=[{"dataset": name, "mode": kept_mode, "threshold": threshold}],
         )
+        return summarize_xarray(static, request, ["static"], mask_dataset=ds)
+
+    combined = summary("quality", 0.5, mode)
+    expected = summary("every_date", 1, "min")
+    assert combined["masks"][0]["temporal_support"] == "every_date"
+    for key in ("valid_per_date", "common_pixels", "statistics"):
+        assert combined[key] == expected[key]
 
 
 @pytest.mark.parametrize("case", ["grid", "multiband", "short"])

@@ -12,7 +12,14 @@ from typing import TYPE_CHECKING, Any, Callable, Protocol
 import numpy as np
 from pyproj import CRS
 
-from .mask_alignment import _axis, _crs, align_mask, mask_condition, mask_operator
+from .mask_alignment import (
+    _axis,
+    _crs,
+    align_mask,
+    combines_dates,
+    mask_condition,
+    mask_operator,
+)
 from .polygon import STORED_WARNING, NativeGrid, PolygonMask, _linear, _values
 
 if TYPE_CHECKING:
@@ -39,6 +46,8 @@ class PolygonMasks:
 
     readers: list[Reader] = field(default_factory=list)
     records: list[dict] = field(default_factory=list)
+    #: Dates read for each dated mask combined for a layer without dates.
+    combined_dates: list[int] = field(default_factory=list)
 
     def valid(
         self, index: int, rows: slice, cols: slice, shape: tuple[int, ...]
@@ -47,9 +56,12 @@ class PolygonMasks:
         keep = np.ones(shape, dtype=bool)
         for read, record in zip(self.readers, self.records):
             mask = read(index, rows, cols)
-            if mask.shape != shape:
+            every_date = record["temporal_support"] == "every_date"
+            if (mask.shape[1:] if every_date else mask.shape) != shape:
                 raise ValueError("Mask window must match the native data window")
-            keep &= mask_condition(mask, record["threshold"], record["operator"])
+            test = mask_condition(mask, record["threshold"], record["operator"])
+            # A dated mask on a layer without dates: kept where every date passes.
+            keep &= test.all(axis=0) if every_date else test
         return keep
 
     def apply(
@@ -65,10 +77,13 @@ class PolygonMasks:
         """Return the frames read for ``count`` data frames and these masks.
 
         A mask that follows the data's axis costs one frame per data frame; a
-        static mask is read once, so it costs one frame.
+        static mask is read once, so it costs one frame; a dated mask combined
+        for a layer without dates is read once, all of its dates.
         """
         dynamic = sum(r["temporal_support"] == "matching_axis" for r in self.records)
-        return count * (1 + dynamic) + (len(self.records) - dynamic)
+        combined = sum(self.combined_dates)
+        static = sum(r["temporal_support"] == "static" for r in self.records)
+        return count * (1 + dynamic) + static + combined
 
     def finish(self, result: dict) -> dict:
         """Report the masks actually applied without claiming connectivity."""
@@ -108,15 +123,31 @@ def xarray_masks(
         dim = _axis(mask)
         mask = mask.sortby("x").sortby("y", ascending=False)
         mask = align_mask(source, mask)
+        every_date = combines_dates(source, mask)
         if _crs(mask, crs) != CRS.from_user_input(crs):
             raise ValueError("Masks must share the exact native data grid and CRS")
 
         stored = dataset[spec.dataset].encoding.get("preferred_chunks", {})
         kept: dict[str, Any] = {"key": None, "values": None}
 
-        def read(index, rows, cols, mask=mask, dim=dim, stored=stored, kept=kept):
+        def read(
+            index,
+            rows,
+            cols,
+            mask=mask,
+            dim=dim,
+            stored=stored,
+            kept=kept,
+            every_date=every_date,
+        ):
             window = (rows.start, rows.stop, cols.start, cols.stop)
             part = mask.isel(y=rows, x=cols)
+            if every_date:
+                # A layer without dates: all of the mask's dates, read once per window.
+                if kept["key"] != window:
+                    values = _values(part.transpose(dim, "y", "x").values, mask.attrs)
+                    kept.update(key=window, values=values)
+                return kept["values"]
             if dim is None:
                 # A static mask is the same at every date: read its window once.
                 if kept["key"] != window:
@@ -135,12 +166,16 @@ def xarray_masks(
             return kept["values"][index - start]
 
         masks.readers.append(read)
+        if every_date:
+            masks.combined_dates.append(int(mask.sizes[dim]))
         masks.records.append(
             {
                 "dataset": spec.dataset,
                 "threshold": spec.threshold,
                 "operator": mask_operator(spec.mode),
-                "temporal_support": "matching_axis" if dim else "static",
+                "temporal_support": (
+                    "every_date" if every_date else "matching_axis" if dim else "static"
+                ),
             }
         )
     return masks
