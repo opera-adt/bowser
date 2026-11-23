@@ -10,6 +10,7 @@ import AssistantTab from './panel/AssistantTab';
 import { useWaiting } from '../assistant/attention';
 import operaEmblem from '../assets/opera-emblem.png';
 import bowserMark from '../assets/bowser-mark.svg';
+import OpenDataset from './OpenDataset';
 
 const svg = (body: JSX.Element) => (
   <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.6"
@@ -67,6 +68,7 @@ export default function ControlPanel({ title, operaLogo }: { title: string; oper
             <span className="panel-rail-label">{t.label}</span>
           </button>
         ))}
+        <OpenDataset icon={svg(<><path d="M3.5 7.5V18a1.5 1.5 0 0 0 1.5 1.5h14a1.5 1.5 0 0 0 1.5-1.5V9.5A1.5 1.5 0 0 0 19 8h-7l-2-2.5H5A1.5 1.5 0 0 0 3.5 7v.5Z" /></>)} />
         <ThemeToggle />
       </nav>
       <div className="panel-body">

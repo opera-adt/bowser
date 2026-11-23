@@ -16,6 +16,15 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **A demo to try without installing:** an *Open in GitHub Codespaces* button in the README
   starts Bowser on a small Hawaii cube (OPERA DISP-S1, 2016–2026, 240 m, 70 dates), and a
   workflow publishes the same demo to a Hugging Face Space on each release. See `demo/`.
+- **Open another dataset from the app.** The side panel's new Open button (and Ctrl/Cmd+O)
+  lists the catalog's datasets, links to Project › Open data for a cube by path or folder
+  search, and goes back to the dataset picker. When there is work on the page (points, areas,
+  annotations, masks or overlays) it offers to save the project first, since switching reloads
+  the page. The desktop app adds a File menu with Open Dataset… and Dataset Picker.
+- **Dataset picker on a globe, with search.** The start screen draws the catalog on a MapLibre
+  globe (small cubes get a dot when zoomed out). Its search box narrows the datasets as you
+  type; Enter zooms to the matches, or to a place when none match and the server's place
+  search is on (the desktop app and `bowser run`).
 - Configured/uploaded masks in GIFs reuse map alignment, including cropped exports.
 
 - Optional GIF background snapshots, opacity and text annotations.

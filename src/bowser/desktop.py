@@ -14,6 +14,7 @@ GeoTIFF uploads and COG stacks but needs rasterio/titiler installed.
 from __future__ import annotations
 
 import base64
+import inspect
 import os
 import socket
 import sys
@@ -190,6 +191,50 @@ class _WindowApi:
         return self.window.create_file_dialog(flag, **kwargs)
 
 
+#: The page's event for the File menu (OPEN_EVENT in OpenDataset.tsx). The page
+#: cancels it when it handles the request; on a page without the app (the picker)
+#: the menu loads the picker instead.
+_OPEN_JS = (
+    "(function(kind){{var e=new CustomEvent('bowser:open-dataset',"
+    "{{detail:kind,cancelable:true}});"
+    "if(window.dispatchEvent(e))window.location.href='/picker';}})('{kind}')"
+)
+
+
+def file_menu(api: _WindowApi) -> list[Any]:
+    """Return the window's File menu, or [] when pywebview has no menus (before 5.0).
+
+    "Open Dataset…" shows the page's Open list; "Dataset Picker" goes back to the
+    start screen. The page asks to save the project first when there is work on it.
+    """
+    try:
+        from webview.menu import Menu, MenuAction  # noqa: PLC0415
+    except ImportError:
+        return []
+
+    def ask(kind: str) -> None:
+        if api.window is not None:
+            api.window.evaluate_js(_OPEN_JS.format(kind=kind))
+
+    return [
+        Menu(
+            "File",
+            [
+                MenuAction("Open Dataset…", lambda: ask("open")),
+                MenuAction("Dataset Picker", lambda: ask("picker")),
+            ],
+        )
+    ]
+
+
+def _takes(func: Any, name: str) -> bool:
+    """Whether ``func`` accepts a keyword argument ``name``."""
+    try:
+        return name in inspect.signature(func).parameters
+    except (TypeError, ValueError):
+        return False
+
+
 def _first(chosen: Any) -> str | None:
     """Return the path a dialog chose: a string, a list of them, or nothing."""
     if not chosen:
@@ -225,8 +270,16 @@ def run(browser: bool = False, server: str | None = None) -> None:
             local.stop()
         return
     api = _WindowApi()
+    menu = file_menu(api)
     api.window = webview.create_window(
-        APP_NAME, local.url, js_api=api, width=1440, height=900, min_size=(900, 600)
+        APP_NAME,
+        local.url,
+        js_api=api,
+        width=1440,
+        height=900,
+        min_size=(900, 600),
+        # Older pywebview has no per-window menu: no File menu, the rail's Open remains.
+        **({"menu": menu} if menu and _takes(webview.create_window, "menu") else {}),
     )
     try:
         webview.start()
