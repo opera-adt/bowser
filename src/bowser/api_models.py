@@ -190,13 +190,15 @@ PARAMS: dict[str, dict[str, Any]] = {
     "layer_masks": {
         "description": "Masks as {dataset, threshold, mode}: mode min keeps "
         "pixels >= threshold in cubes (> in GeoTIFFs), max keeps pixels <= threshold; "
-        "abs_min/abs_max compare magnitude inclusively.",
+        "abs_min/abs_max compare magnitude inclusively. "
+        "A dated mask on a layer without dates keeps pixels passing on every date.",
         "examples": [_LAYER_MASKS],
     },
     "layer_masks_json": {
         "description": "JSON list of {dataset, threshold, mode} masks: mode min "
         "keeps pixels >= threshold in cubes (> in GeoTIFFs), "
-        "max keeps pixels <= threshold; abs_min/abs_max compare magnitude inclusively.",
+        "max keeps pixels <= threshold; abs_min/abs_max compare magnitude inclusively. "
+        "A dated mask on a layer without dates keeps pixels passing on every date.",
         "examples": [json.dumps(_LAYER_MASKS)],
     },
     "ref_buffer_m": {
@@ -1779,7 +1781,13 @@ class AppliedPolygonMask(_Fixed):
     dataset: str
     threshold: float
     operator: Literal[">", ">=", "<="]
-    temporal_support: Literal["static", "matching_axis"]
+    temporal_support: Literal["static", "matching_axis", "every_date"] = Field(
+        description=(
+            "static: one map for every date; matching_axis: date by date; "
+            "every_date: a dated mask on a layer without dates, kept where every "
+            "date passes."
+        )
+    )
 
 
 class PolygonPixelCurve(_Fixed):

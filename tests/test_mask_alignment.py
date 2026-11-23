@@ -4,7 +4,13 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from bowser.mask_alignment import align_mask, mask_condition, parse_layer_masks
+from bowser.mask_alignment import (
+    align_mask,
+    combines_dates,
+    mask_condition,
+    mask_keep,
+    parse_layer_masks,
+)
 
 
 def arrays(axis="time"):
@@ -40,10 +46,39 @@ def test_static_mask_broadcasts_but_one_element_dynamic_axis_is_not_static():
     data, mask = arrays()
     static = mask.isel(time=0, drop=True)
     assert align_mask(data, static).dims == ("y", "x")
-    with pytest.raises(ValueError, match="Dynamic mask"):
+    with pytest.raises(ValueError, match="same dates"):
         align_mask(data, mask.isel(time=slice(0, 1)))
-    with pytest.raises(ValueError, match="Dynamic mask"):
-        align_mask(data.isel(time=0, drop=True), mask)
+    # A layer without dates (a velocity) accepts a dated mask: mask_keep combines it.
+    assert align_mask(data.isel(time=0, drop=True), mask).dims == mask.dims
+
+
+def test_dated_mask_on_a_layer_without_dates_keeps_pixels_passing_every_date():
+    data, mask = arrays()
+    mask.values[:, 1, 1] = [1, 1, np.nan]  # missing on one date: not kept
+    velocity = data.isel(time=0, drop=True)
+    assert combines_dates(velocity, mask)
+    assert not combines_dates(data, mask)
+    assert not combines_dates(velocity, mask.isel(time=0, drop=True))
+    keep = mask_keep(velocity, mask, 0.5, ">=")
+    assert keep.dims == ("y", "x")
+    np.testing.assert_array_equal(keep.values, [[False, True], [True, False]])
+    # The same mask on the dated layer still applies date by date.
+    dated = mask_keep(data, mask, 0.5, ">=")
+    np.testing.assert_array_equal(dated.values[:, 0, 0], [True, False, True])
+
+
+def test_combined_mask_selects_only_the_window():
+    data, mask = arrays()
+    velocity = data.isel(time=0, drop=True)
+    seen = []
+
+    def select(array):
+        seen.append(array.dims)
+        return array.isel(x=slice(0, 1))
+
+    keep = mask_keep(velocity, mask, 0.5, ">=", select)
+    assert seen == [("time", "y", "x")]
+    np.testing.assert_array_equal(keep.values, [[False], [True]])
 
 
 @pytest.mark.parametrize(
@@ -170,5 +205,5 @@ def test_mask_validation_does_not_read_raster_values_on_failure():
 
     data, mask = arrays()
     mask.data = da.from_delayed(delayed(forbidden)(), shape=(3, 2, 2), dtype="float32")
-    with pytest.raises(ValueError, match="Dynamic mask"):
+    with pytest.raises(ValueError, match="same dates"):
         align_mask(data, mask.rename(time="ministack"))

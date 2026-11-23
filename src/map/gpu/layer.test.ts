@@ -100,7 +100,7 @@ describe('GpuCubeLayer', () => {
     cube.variable = async (...args: unknown[]) => ({ ndim: 3, tChunk: 8, nTime: args[1] === 'quality' ? 28 : 269 });
     layer.setParams(params({ timeIdx: 200, mask: { dataset: 'quality', threshold: .5, mode: 'min' } }), 1);
     await frames(layer, gl, 4);
-    expect(onFailure).toHaveBeenCalledWith(expect.stringContaining('Mask axis does not match'));
+    expect(onFailure).toHaveBeenCalledWith(expect.stringContaining('Mask dates do not match'));
     expect(calls.filter(c => c.variable === 'quality')).toHaveLength(0);
   });
 

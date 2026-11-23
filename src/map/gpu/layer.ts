@@ -420,7 +420,7 @@ export class GpuCubeLayer implements maplibregl.CustomLayerInterface {
     const tb = Math.floor(t / info.tChunk);
     const tr = p.refTimeIdx !== null && info.ndim === 3 ? Math.max(0, Math.min(p.refTimeIdx, info.nTime - 1)) : null;
     if (maskInfo?.ndim === 3 && (info.ndim !== 3 || maskInfo.nTime !== info.nTime))
-      throw new Error('Mask axis does not match the data; use a compatible static summary');
+      throw new Error('Mask dates do not match the data; a dated mask on a layer without dates uses server tiles');
     const mt = maskInfo?.ndim === 3 ? t : 0;
 
     const want: DrawItem[] = [];

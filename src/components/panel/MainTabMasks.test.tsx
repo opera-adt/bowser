@@ -182,3 +182,25 @@ it('bounds both chart radius sliders by the advertised native read budget', asyn
   });
   expect(screen.getByText(/Native chart radius limit: 100 m/)).toBeTruthy();
 });
+
+it("says a dated mask's dates are combined on a layer without dates, instead of one date's share", async () => {
+  function CombinedSeed() {
+    const { dispatch } = useAppContext();
+    useEffect(() => {
+      const velocity = { name: 'velocity', x_values: [], mask_compatibility: { quality: null } } as unknown as RasterGroup;
+      const quality = { name: 'quality', x_values: ['2020-01-01', '2020-01-13', '2020-01-25'] } as unknown as RasterGroup;
+      dispatch({ type: 'SET_DATASETS', payload: { velocity, quality } });
+      dispatch({ type: 'SET_CURRENT_DATASET', payload: 'velocity' });
+      dispatch({ type: 'ADD_LAYER_MASK', payload: { id: 'q', dataset: 'quality', threshold: .5, mode: 'min' } });
+    }, [dispatch]);
+    return <MainTab />;
+  }
+  render(<AppProvider><CombinedSeed /></AppProvider>);
+  fireEvent.click(await screen.findByText('Masking · 1 on'));
+  // Applied, not left out.
+  expect(screen.queryByText(/is not applied to this layer/)).toBeNull();
+  await waitFor(() => expect(screen.getByText(/mask's 3 dates are combined/).textContent)
+    .toBe("This layer has no dates, so the mask's 3 dates are combined: a pixel is kept only where it passes on every date."));
+  await new Promise(r => setTimeout(r, 300));
+  expect(screen.queryByText(/Keeps .* of this layer's pixels/)).toBeNull();
+});

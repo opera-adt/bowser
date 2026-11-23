@@ -112,3 +112,16 @@ for (const mode of ['abs_min', 'abs_max', 'unknown']) {
     if (!result.ok) expect(result.reason).toContain('server-rendered');
   });
 }
+
+it('leaves a dated mask on a layer without dates to the server, which combines its dates', () => {
+  const q = query({ layerMasks: [{ dataset: 'quality', threshold: .5, mode: 'min' }] });
+  const single = { ...dsInfo, x_values: ['velocity'], mask_compatibility: { quality: null } } as unknown as RasterGroup;
+  const combined = gpuParamsFromTileQuery(q, 'md', { displacement: single, quality: dsInfo });
+  expect(combined.ok).toBe(false);
+  if (!combined.ok) expect(combined.reason).toContain('server-rendered');
+  // A single-map mask on a single map, and a dated mask on its dated layer, stay on the GPU.
+  expect(gpuParamsFromTileQuery(q, 'md', { displacement: single, quality: single }).ok).toBe(true);
+  expect(gpuParamsFromTileQuery(q, 'md', {
+    displacement: { ...dsInfo, mask_compatibility: { quality: null } }, quality: dsInfo,
+  }).ok).toBe(true);
+});

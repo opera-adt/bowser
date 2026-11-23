@@ -82,12 +82,14 @@ def _axis(array: xr.DataArray) -> str | None:
 
 
 def align_mask(data: xr.DataArray, mask: xr.DataArray) -> xr.DataArray:
-    """Require shared spatial coordinates and an explicit matching dynamic axis.
+    """Require shared spatial coordinates, and matching dates for dated data.
 
     Validate complete arrays before selecting a date or spatial window. A 2-D
-    mask broadcasts over the data record. A dynamic mask requires the same
-    non-spatial dimension and coordinates; unrelated axes are not mapped.
-    Raster values remain lazy and input arrays are never modified.
+    mask broadcasts over the data record. A dated mask on dated data requires
+    the same non-spatial dimension and coordinates; unrelated axes are not
+    mapped. A dated mask on a layer without dates is allowed: ``mask_keep``
+    combines its dates. Raster values remain lazy and input arrays are never
+    modified.
     """
     if mask.dtype.kind not in "biuf":
         raise ValueError("Masks must contain real numeric or Boolean values")
@@ -106,18 +108,47 @@ def align_mask(data: xr.DataArray, mask: xr.DataArray) -> xr.DataArray:
     if _crs(mask, source_crs) != source_crs:
         raise ValueError("Masks must share the exact native data grid and CRS")
     axis, mask_axis = _axis(data), _axis(mask)
-    if mask_axis is not None and (
-        axis is None
-        or mask_axis != axis
-        or axis not in data.coords
-        or mask_axis not in mask.coords
-        or not np.array_equal(data[axis].values, mask[mask_axis].values)
-    ):
-        raise ValueError(
-            "Dynamic mask axis and coordinates must match the selected layer "
-            "exactly; use a static summary for a static layer"
+    if (
+        mask_axis is not None
+        and axis is not None
+        and (
+            mask_axis != axis
+            or axis not in data.coords
+            or mask_axis not in mask.coords
+            or not np.array_equal(data[axis].values, mask[mask_axis].values)
         )
+    ):
+        raise ValueError("A dated mask needs the same dates as the selected layer")
     return mask
+
+
+def combines_dates(source: xr.DataArray, mask: xr.DataArray) -> bool:
+    """Whether ``mask_keep`` combines ``mask``'s dates for ``source`` (a single map)."""
+    return _axis(source) is None and _axis(mask) is not None
+
+
+def mask_keep(
+    source: xr.DataArray,
+    mask: xr.DataArray,
+    threshold: float,
+    operator: str,
+    select: Any = None,
+) -> Any:
+    """Where ``mask`` keeps pixels of ``source``.
+
+    A mask without dates applies the same way to every date. A dated mask on a
+    layer with the same dates compares date by date (``select`` picks the
+    date and window, as for the data). On a layer without dates (a velocity, a
+    coherence summary) its dates are combined: a pixel is kept only where it
+    passes on every date. ``select`` then picks only the window.
+    """
+    aligned = align_mask(source, mask)
+    combine = combines_dates(source, aligned)
+    dim = _axis(aligned)
+    if select is not None:
+        aligned = select(aligned)
+    keep = mask_condition(aligned, threshold, operator)
+    return keep.all(dim) if combine and dim in getattr(keep, "dims", ()) else keep
 
 
 def mask_condition(mask: Any, threshold: float, operator: str) -> Any:

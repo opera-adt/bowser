@@ -88,6 +88,23 @@ def _exercise(work: Path, server: str) -> None:
                 special, "displacement", x[8], y[8], masks, index
             )
             np.testing.assert_array_equal(sample, samples[[max(0, min(index, 2))]])
+        # A single map (velocity) with the dated mask: kept only where every
+        # date passes, even when the page asks at one date. Column 3 passes on
+        # the first date only; column 9 passes on all three.
+        velocity = ds[["velocity", "quality"]]
+        keep_all = [{"dataset": "quality", "threshold": 0.5, "mode": "min"}]
+        for index in (None, 0):
+            assert np.isnan(
+                full._point_values_direct(
+                    velocity, "velocity", x[3], y[8], keep_all, index
+                )
+            ).all()
+            np.testing.assert_array_equal(
+                full._point_values_direct(
+                    velocity, "velocity", x[9], y[8], keep_all, index
+                ),
+                [data[8, 9]],
+            )
 
     for name, mode in (
         ("quality", "min"),
@@ -220,15 +237,51 @@ def _exercise(work: Path, server: str) -> None:
             },
         )
         result[f"invalid_export_{name}"] = response.status_code
-    response = client.post(
-        "/multi_point",
-        json={
-            "dataset_name": "velocity",
-            "points": [{"id": "a", "lon": lon, "lat": lat}],
-            "layer_masks": [{"dataset": "quality"}],
-        },
-    )
-    result["invalid_static_dynamic"] = response.status_code
+    # A single map (velocity) with the dated mask, asked at a date as the page
+    # does: kept only where every date passes, on tiles and in exports.
+    every_date = np.isfinite(data) & (quality >= 0.5).all(0)
+    static_dynamic = {}
+    for kind, mask_params in (
+        ("layer", {"layer_masks": json.dumps([{"dataset": "quality"}])}),
+        ("primary", {"mask_variable": "quality", "mask_min_value": 0.5}),
+    ):
+        response = client.get(
+            f"/md/tiles/WebMercatorQuad/{zoom}/{tile_x}/{tile_y}.png",
+            params={
+                "variable": "velocity",
+                "time_idx": 0,
+                "rescale": "0,600",
+                "colormap_name": "rdbu",
+                "tilesize": 256,
+                **mask_params,
+            },
+        )
+        assert response.status_code == 200, response.text[:200]
+        alpha = (
+            np.asarray(Image.open(io.BytesIO(response.content)).convert("RGBA"))[
+                :, :, 3
+            ]
+            > 0
+        )
+        static_dynamic[f"tile_{kind}"] = bool(
+            np.array_equal(alpha, every_date.repeat(16, 0).repeat(16, 1))
+        )
+        response = client.get(
+            "/export/geotiff",
+            params={"variable": "velocity", "time_idx": 0, **mask_params},
+        )
+        assert response.status_code == 200, response.text[:200]
+        from rasterio.io import MemoryFile  # noqa: PLC0415
+
+        with MemoryFile(response.content) as memory, memory.open() as src:
+            band = src.read(1, masked=True).filled(np.nan)
+            tags = src.tags()
+        static_dynamic[f"export_{kind}"] = bool(
+            np.array_equal(np.isfinite(band), every_date)
+        )
+        applied = json.loads(tags["BOWSER_EXPORT_PROVENANCE"])["masks"]["applied"]
+        static_dynamic[f"export_{kind}_record"] = applied[0]
+    result["static_dynamic"] = static_dynamic
     if server == "full":
         import dask.array as darr
 
@@ -309,16 +362,23 @@ def test_incompatible_mask_axes_are_explicit_errors(responses, name, route):
     assert responses[f"invalid_{route}_{name}"] == 422
 
 
-def test_dynamic_mask_not_guessed_for_static_velocity(responses):
-    assert responses["invalid_static_dynamic"] == 422
+def test_dated_mask_on_static_velocity_keeps_pixels_passing_every_date(responses):
+    checks = responses["static_dynamic"]
+    for kind in ("layer", "primary"):
+        assert checks[f"tile_{kind}"], kind
+        assert checks[f"export_{kind}"], kind
+        record = checks[f"export_{kind}_record"]
+        assert record["dates"] == "every date"
+        assert record["time_index"] is None and record["time_label"] is None
 
 
 def test_mask_metadata_explains_axes_and_static_summaries(responses):
     layers = responses["layer_info"]
     assert layers["displacement"]["mask_compatibility"]["quality"] is None
     assert layers["displacement"]["mask_compatibility"]["static_quality"] is None
-    assert "Dynamic" in layers["displacement"]["mask_compatibility"]["short_quality"]
-    assert "Dynamic" in layers["velocity"]["mask_compatibility"]["quality"]
+    assert "same dates" in layers["displacement"]["mask_compatibility"]["short_quality"]
+    # A layer without dates combines a dated mask's dates.
+    assert layers["velocity"]["mask_compatibility"]["quality"] is None
     assert layers["velocity"]["mask_compatibility"]["static_quality"] is None
     assert responses["empty_masks"] == 200
 

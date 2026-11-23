@@ -73,6 +73,12 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The recommended mask, and any other dated mask, now works on layers without dates
+  (velocity, its uncertainty, average temporal coherence, water mask, valid epochs): a
+  pixel is kept only where it passes on every date. Dated layers still use it date by
+  date. Tiles, exports, area statistics and the lite server all follow this, and the
+  Masking panel says how the mask applies.
+
 - **A lighter page while you work.** Every part of the page used to redraw for any change:
   a map move, a drag of the split-screen divider, a tick of a slider, a step of the date
   player. Each part now follows only what it shows. A divider drag redraws none of the

@@ -23,9 +23,15 @@ defaults. No date, spatial coordinate or measurement is invented or interpolated
   compatible layer before applying it through these paths.
 - A one-frame dynamic mask is not silently treated as static. Supply a 2-D
   mask to declare static support explicitly.
-- A static velocity/rate layer cannot use an arbitrary frame of a dynamic
-  mask. Select an explicit static quality summary instead. The viewer does not
-  choose or compute that summary on the user's behalf.
+- A layer without dates (velocity, its uncertainty, a coherence summary, a
+  water mask) does not pick one frame of a dated mask. The mask's dates are
+  combined: a pixel is kept only where it passes the threshold on **every**
+  date (missing or fill values fail). The same rule applies to tiles, exports,
+  area statistics and the primary mask, in the full and lite servers. Exports
+  record it as `"dates": "every date"`, with no selected date. The Masking
+  panel says so on that layer instead of showing one date's kept share. On the
+  Hawaii demo cube, `recommended_mask` kept this way leaves 30% of velocity
+  pixels, against about 37% on a typical single date.
 - Existing source-index clamping is retained for single-date requests, after
   compatibility is checked. Data and masks select the same resolved source
   index. A full-series request never substitutes the first mask frame.
@@ -83,10 +89,10 @@ mask remains visible as a disabled option, with a persistent explanation and
 instructions to remove it or select a static summary—even when the panel is
 collapsed. Adding a new mask selects from compatible options only.
 
-When switching from displacement to velocity, a previously selected dynamic
-mask can become incompatible. It is **not silently removed**: the user sees the
-warning and chooses a static summary or removes it. Such explicit API requests
-still return 422. This implements the review's UI option, not its alternative of
+When switching from displacement to velocity, a previously selected dated
+mask now applies with its dates combined (above). A mask that still does not fit
+(another grid, or dated data with different dates) is **not silently removed**:
+the user sees the warning and removes it. Such explicit API requests return 422. This implements the review's UI option, not its alternative of
 retaining legacy temporal clamping. It does not make a ministack index an
 acquisition index or decide an all-record/percentile summary on the user's behalf.
 Ministack quality layers remain viewable as layers. To mask acquisition dates,
@@ -111,8 +117,9 @@ Synthetic HTTP tests first reproduce incorrect histories and accepted
 incompatible axes on the original full/lite implementations. Corrected tests
 compare map alpha and exported values/masks on an aligned grid, and check
 point/buffer histories for changing and static support. They verify that
-unrelated date/ministack masks and dynamic masks on static velocity return
-explicit errors. Unit tests cover date and pair axes, transposed masks,
+unrelated date/ministack masks return explicit errors, and that a dated mask on
+static velocity keeps exactly the pixels passing on every date (tiles, exports,
+primary mask). Unit tests cover date and pair axes, transposed masks,
 reversed/shifted/missing coordinates, signed comparisons, zeros, sentinels,
 nonfinite values, malformed requests and source immutability. Lazy tests prove
 that a selected date evaluates only that date's data/mask tasks, and that axis

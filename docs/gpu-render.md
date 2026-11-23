@@ -42,7 +42,9 @@ the page would send to the tile server:
   computer that runs the server, with or without a pyramid (the same pyramid
   level as tiles at each zoom);
 - the date, the reference date (*ref: date*), the reference point's shift, one
-  threshold layer mask (such as *recommended_mask* or a coherence threshold),
+  threshold layer mask (such as *recommended_mask* or a coherence threshold; a
+  dated mask on a layer without dates, whose dates the server combines, uses
+  server tiles),
   the colormap, the range and the opacity;
 - fill values, `scale_factor` and `add_offset` decoded as the servers decode
   them.

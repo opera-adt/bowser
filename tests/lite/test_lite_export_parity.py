@@ -227,10 +227,8 @@ def test_regression_cube(tmp_path):
     }
     lite = _assert_equal(*_both(cube, requests, tmp_path / "run"))
     ok = {k for k, v in lite.items() if k != "config" and v["status"] == 200}
-    # A static velocity cannot pick an arbitrary date from a dynamic mask.
-    assert ok == set(list(requests)[:11]) - {"mask_variable"}
-    assert lite["mask_variable"]["status"] == 422
-    assert "static summary" in lite["mask_variable"]["body"]["detail"]
+    # A static velocity combines a dated mask's dates instead of picking one.
+    assert ok == set(list(requests)[:11])
     assert lite["everything"]["disposition"] == (
         'attachment; filename="displacement_20260113-20260218_masked.tif"'
     )
