@@ -10,7 +10,8 @@ vi.mock('../utils/saveFile', () => ({
   saveFile: async (_data: Blob | string, name: string) => { saved.files.push(name); return saved.answer; },
 }));
 
-import OpenDataset, { nav, OPEN_EVENT } from './OpenDataset';
+import { nav, OPEN_EVENT } from '../utils/openDataset';
+import OpenDataset from './OpenDataset';
 
 let stateRef: AppState;
 function Seed({ setup = [] }: { setup?: AppAction[] }) {

@@ -7,21 +7,13 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useAppDispatch, useGetAppState } from '../context/AppContext';
+import { nav, OPEN_EVENT } from '../utils/openDataset';
 import { hasProjectWork, saveProjectFile } from '../utils/project';
 
 type Entry = { id: string; name: string; description?: string | null };
 type Catalog = { datasets: Entry[]; allow_open: boolean };
 
-/**
- * The desktop app's File menu asks the page with this event (detail: "open" or "picker"). The page
- * cancels it when it handles the request; an uncancelled event (no page app, e.g. on the picker)
- * lets the menu fall back to loading the picker.
- */
-export const OPEN_EVENT = 'bowser:open-dataset';
-
 const currentId = () => new URLSearchParams(window.location.search).get('dataset');
-/** The page for a dataset, or the picker. Kept small so tests can replace navigation. */
-export const nav = { go: (href: string) => { window.location.href = href; } };
 
 export default function OpenDataset({ icon }: { icon: JSX.Element }) {
   const dispatch = useAppDispatch();

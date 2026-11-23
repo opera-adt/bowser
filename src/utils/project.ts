@@ -24,7 +24,7 @@ export function buildProject(state: AppState): Record<string, unknown> {
   PROJECT_KEYS.forEach(k => {
     // Drop cached time-series/trend values from points — they refetch on load.
     project[k] = k === 'timeSeriesPoints'
-      ? state.timeSeriesPoints.map(({ data, trendData, ...rest }) => rest)
+      ? state.timeSeriesPoints.map(({ data: _data, trendData: _trendData, ...rest }) => rest)
       : state[k];
   });
   return project;
