@@ -1,0 +1,51 @@
+# Publish the Bowser demo (the Hawaii cube) to a Hugging Face Docker Space.
+# Needs the secret HF_TOKEN (a write token) and the variable HF_SPACE (e.g. "opera-adt/bowser-demo").
+# Runs on each release, with the release's image, or by hand with any image tag.
+name: Demo Space
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Bowser image tag on ghcr.io (latest = the last release, develop = main)"
+        default: latest
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    # Only version releases (v*), not data releases such as demo-data; or by hand.
+    if: ${{ vars.HF_SPACE != '' && (github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'v')) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Upload the Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_SPACE: ${{ vars.HF_SPACE }}
+          IMAGE: ghcr.io/${{ github.repository }}:${{ inputs.image_tag || 'latest' }}
+          DEMO_URL: https://github.com/${{ github.repository }}/releases/download/demo-data/hawaii_demo.zarr.tar
+        run: |
+          python -m pip install --quiet "huggingface_hub>=0.24"
+          mkdir space
+          cp demo/space/README.md demo/run_demo.sh space/
+          # The image and cube this repository publishes (a fork publishes its own).
+          sed -e "s|^ARG BOWSER_IMAGE=.*|ARG BOWSER_IMAGE=${IMAGE}|" \
+              -e "s|^ARG BOWSER_DEMO_URL=.*|ARG BOWSER_DEMO_URL=${DEMO_URL}|" \
+              demo/space/Dockerfile > space/Dockerfile
+          python - <<'PY'
+          import os
+          from huggingface_hub import HfApi
+          api = HfApi(token=os.environ["HF_TOKEN"])
+          space = os.environ["HF_SPACE"]
+          api.create_repo(space, repo_type="space", space_sdk="docker", exist_ok=True)
+          api.upload_folder(repo_id=space, repo_type="space", folder_path="space",
+                            commit_message=f"Bowser demo from {os.environ['GITHUB_SHA'][:8]}")
+          print(f"https://huggingface.co/spaces/{space}")
+          PY
