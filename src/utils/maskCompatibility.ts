@@ -33,3 +33,11 @@ export function combinedDates(info: RasterGroup | undefined, mask: RasterGroup |
   const dates = (layer: RasterGroup | undefined) => layer?.x_values?.length ?? 0;
   return info && dates(info) <= 1 && dates(mask) > 1 ? dates(mask) : 0;
 }
+
+/**
+ * The server's virtual array (``/zarr/``, bowser.mask_dates) holding a dated mask combined over
+ * its dates: its lowest value, which a ``min`` (>=) mask compares, or its highest, for ``max`` (<=).
+ */
+export function combinedMaskVariable(mask: string, mode: 'min' | 'max'): string {
+  return `${mask}@${mode === 'min' ? 'lowest' : 'highest'}_over_dates`;
+}

@@ -77,7 +77,9 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (velocity, its uncertainty, average temporal coherence, water mask, valid epochs): a
   pixel is kept only where it passes on every date. Dated layers still use it date by
   date. Tiles, exports, area statistics and the lite server all follow this, and the
-  Masking panel says how the mask applies.
+  Masking panel says how the mask applies. Each mask block's lowest and highest values
+  over the dates are computed once and cached, so moving the map or the threshold stays
+  as fast as with a single-map mask, and the GPU renderer draws it too.
 
 - **A lighter page while you work.** Every part of the page used to redraw for any change:
   a map move, a drag of the split-screen divider, a tick of a slider, a step of the date

@@ -28,7 +28,7 @@ import xarray as xr
 from fastapi import HTTPException
 
 from ..constants import TILE_SIZE
-from ..mask_alignment import align_mask, combines_dates, mask_condition
+from ..mask_alignment import align_mask, combines_dates, mask_condition, mask_keep
 from . import colormaps, geo, warp
 from .cube import Cube, spatial_ref_attrs
 from .meta import non_spatial_dim
@@ -240,9 +240,12 @@ def tile_source(
             window = minus_reference_step(window, select(ref))
         if mask_da is not None:
             try:
-                keep = mask_condition(select(mask_da), q.mask_min_value, ">")
                 if every_date:
-                    keep = keep.all(non_spatial_dim(mask_da))
+                    keep = mask_keep(
+                        ds[q.variable], mask_da, q.mask_min_value, ">", select
+                    )
+                else:
+                    keep = mask_condition(select(mask_da), q.mask_min_value, ">")
                 window = window.where(keep)
             except (ValueError, TypeError) as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc

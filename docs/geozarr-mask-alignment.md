@@ -32,6 +32,14 @@ defaults. No date, spatial coordinate or measurement is invented or interpolated
   panel says so on that layer instead of showing one date's kept share. On the
   Hawaii demo cube, `recommended_mask` kept this way leaves 30% of velocity
   pixels, against about 37% on a typical single date.
+- "Every date passes" is one comparison against the pixel's lowest value over
+  the dates (`≥`, `>`), its highest (`≤`), or its smallest/largest magnitude
+  (`|value| ≥` / `|value| ≤`). `bowser.mask_dates` reads these a block (the
+  mask's storage chunk) at a time over all dates and keeps them in a 256 MB
+  cache, so moving the map or the threshold does not read the dates again: a
+  masked velocity tile then costs about what a single-map mask does. The GPU
+  path draws from the same values, served by `/zarr/` as
+  `<mask>@lowest_over_dates` and `<mask>@highest_over_dates`.
 - Existing source-index clamping is retained for single-date requests, after
   compatibility is checked. Data and masks select the same resolved source
   index. A full-series request never substitutes the first mask frame.

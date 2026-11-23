@@ -143,12 +143,20 @@ def mask_keep(
     passes on every date. ``select`` then picks only the window.
     """
     aligned = align_mask(source, mask)
-    combine = combines_dates(source, aligned)
-    dim = _axis(aligned)
+    if combines_dates(source, aligned):
+        # One comparison against the pixel's lowest/highest value over the dates,
+        # read by block and cached (mask_dates), instead of every date each time.
+        from .mask_dates import date_range, keep_from_range  # noqa: PLC0415
+
+        ends = date_range(aligned, _axis(aligned))
+        if operator != "|value| >=":
+            ends = ends[:2]  # the smallest magnitude is read only when needed
+        if select is not None:
+            ends = tuple(select(end) for end in ends)
+        return keep_from_range(*ends[:2], threshold, operator, *ends[2:])
     if select is not None:
         aligned = select(aligned)
-    keep = mask_condition(aligned, threshold, operator)
-    return keep.all(dim) if combine and dim in getattr(keep, "dims", ()) else keep
+    return mask_condition(aligned, threshold, operator)
 
 
 def mask_condition(mask: Any, threshold: float, operator: str) -> Any:

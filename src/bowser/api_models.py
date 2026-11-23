@@ -518,7 +518,11 @@ ROUTES: dict[str, dict[str, Any]] = {
         "HTTP Range and HEAD. Only `zarr.json` metadata and chunk files (`c/...`) "
         "of a store on this computer's disk are served: a remote store, any other "
         "file and any path outside the store answer 404, a request from another "
-        "web site 403. `BOWSER_ZARR_FILES=false` turns the route off.",
+        "web site 403. `BOWSER_ZARR_FILES=false` turns the route off. Each dated "
+        "`(date, y, x)` mask also has two computed arrays, "
+        "`<mask>@lowest_over_dates` and `<mask>@highest_over_dates` (its lowest "
+        "and highest value over the dates, NaN where a date is missing), which the "
+        "GPU renderer draws as the mask on a layer without dates.",
         "tags": [TILES],
         **_DATASET_EXTRA,
     },

@@ -77,8 +77,9 @@ def test_combined_mask_selects_only_the_window():
         return array.isel(x=slice(0, 1))
 
     keep = mask_keep(velocity, mask, 0.5, ">=", select)
-    assert seen == [("time", "y", "x")]
-    np.testing.assert_array_equal(keep.values, [[False], [True]])
+    # Only the combined (y, x) maps are selected: no date is picked.
+    assert seen == [("y", "x"), ("y", "x")]
+    np.testing.assert_array_equal(np.asarray(keep), [[False], [True]])
 
 
 @pytest.mark.parametrize(
@@ -207,3 +208,17 @@ def test_mask_validation_does_not_read_raster_values_on_failure():
     mask.data = da.from_delayed(delayed(forbidden)(), shape=(3, 2, 2), dtype="float32")
     with pytest.raises(ValueError, match="same dates"):
         align_mask(data, mask.rename(time="ministack"))
+
+
+@pytest.mark.parametrize("operator", [">=", ">", "<=", "|value| >=", "|value| <="])
+def test_combined_mask_equals_every_date_for_each_comparison(operator):
+    rng = np.random.default_rng(7)
+    data, mask = arrays()
+    mask = mask.copy(data=rng.uniform(-1, 1, mask.shape).astype("float32"))
+    mask.values[1, 1, 0] = np.nan
+    velocity = data.isel(time=0, drop=True)
+    expected = mask_condition(mask, 0.3, operator).all("time").values
+    for _ in range(2):  # the second time from the cached blocks
+        np.testing.assert_array_equal(
+            np.asarray(mask_keep(velocity, mask, 0.3, operator)), expected
+        )
