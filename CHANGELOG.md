@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Plain-language descriptions for OPERA DISP-S1 layers, with producer explanations
+  and source metadata visible in the layer panel.
 - Polygon style for added vector layers (Overlays › Style): outline, filled, or both, with
   its own fill opacity, kept in saved projects. Shown for layers with polygons; a tiled
   (PMTiles) layer shows it unless its metadata says it has none.

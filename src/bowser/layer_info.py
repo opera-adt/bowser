@@ -153,10 +153,13 @@ _GUIDANCE = {
 
 # Brief catalog for official DISP-S1 and DISP-STATIC fields only.
 _SUMMARIES = {
-    "displacement": ("How much the ground has moved since the reference date."),
+    "displacement": (
+        "How far the ground has moved in the measured direction since "
+        "the reference date."
+    ),
     "short_wavelength_displacement": (
-        "Ground movement with broad-scale patterns removed to make local "
-        "changes easier to see."
+        "Movement in the measured direction with broad-scale patterns removed "
+        "to make local changes easier to see."
     ),
     "temporal_coherence": (
         "How consistent the radar signal is over time. Higher values "
@@ -207,6 +210,17 @@ _SUMMARIES = {
     "perpendicular_baseline": (
         "The separation between satellite orbits perpendicular to the "
         "radar viewing direction."
+    ),
+}
+
+_LOS_SUMMARIES = {
+    "displacement": (
+        "How far the ground has moved toward or away from the satellite "
+        "since the reference date."
+    ),
+    "short_wavelength_displacement": (
+        "Movement toward or away from the satellite, with broad-scale patterns "
+        "removed to make local changes easier to see."
     ),
 }
 
@@ -303,7 +317,9 @@ def _flags(attrs: Mapping[str, Any]) -> list[dict[str, str]]:
         return []
 
 
-def describe_layer(name: str, attrs: Mapping[str, Any] | None = None) -> LayerInfo:
+def describe_layer(
+    name: str, attrs: Mapping[str, Any] | None = None, *, line_of_sight: bool = False
+) -> LayerInfo:
     """Return general guidance and separately identified source metadata.
 
     Parameters
@@ -314,6 +330,8 @@ def describe_layer(name: str, attrs: Mapping[str, Any] | None = None) -> LayerIn
     attrs : mapping, optional
         Read-only source attributes. Units, sign conventions and mask thresholds
         are never assigned from a name or from the description catalog.
+    line_of_sight : bool, optional
+        Whether measurement metadata identifies motion along the radar line of sight.
 
     Returns
     -------
@@ -390,13 +408,16 @@ def describe_layer(name: str, attrs: Mapping[str, Any] | None = None) -> LayerIn
         "unit_status": "provided" if unit else "missing",
     }
     if key in _SUMMARIES:
-        info["summary"] = _SUMMARIES[key]
+        summaries = _LOS_SUMMARIES if line_of_sight else {}
+        info["summary"] = summaries.get(key, _SUMMARIES[key])
     if guidance and producer:
         info["guidance"] = guidance
     return info
 
 
-def describe_raster_group(name: str, headers: Sequence[Mapping[str, Any]]) -> LayerInfo:
+def describe_raster_group(
+    name: str, headers: Sequence[Mapping[str, Any]], *, line_of_sight: bool = False
+) -> LayerInfo:
     """Describe cached raster headers without implying identical units or flags.
 
     Producer text is from the first raster. A shared unit or category dictionary
@@ -404,8 +425,10 @@ def describe_raster_group(name: str, headers: Sequence[Mapping[str, Any]]) -> La
     Differing units are not converted or inferred to be equivalent.
 
     """
-    items = [describe_layer(name, attrs) for attrs in headers]
-    info = items[0].copy() if items else describe_layer(name)
+    items = [
+        describe_layer(name, attrs, line_of_sight=line_of_sight) for attrs in headers
+    ]
+    info = items[0].copy() if items else describe_layer(name, line_of_sight=line_of_sight)
     notes = []
     if len(items) > 1:
         notes.append("Producer text is from the first raster in this group.")

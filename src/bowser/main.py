@@ -525,6 +525,9 @@ def create_xarray_dataset_info(ds: xr.Dataset) -> dict:
         labels = _dim_labels(var, dim) if dim is not None else []
         n = len(labels) if dim is not None else 1
         attrs = dict(var.attrs)
+        measurement = describe_measurement(
+            str(var_name), attrs, dict(ds.attrs), los_metadata, wavelength
+        )
         dataset_info[var_name] = {
             "mask_compatibility": compatibility(ds, var),
             "name": var_name,
@@ -543,10 +546,14 @@ def create_xarray_dataset_info(ds: xr.Dataset) -> dict:
             "los_metadata": los_metadata,
             "reference_lonlat": reference_lonlat,
             **({"radar_wavelength_m": wavelength} if wavelength else {}),
-            **describe_layer(str(var_name), attrs),
-            "measurement": describe_measurement(
-                str(var_name), attrs, dict(ds.attrs), los_metadata, wavelength
+            **describe_layer(
+                str(var_name),
+                attrs,
+                line_of_sight=(
+                    measurement is not None and measurement["kind"] == "line_of_sight"
+                ),
             ),
+            "measurement": measurement,
         }
 
     return dataset_info
@@ -582,6 +589,9 @@ def create_rastergroup_dataset_info(raster_groups: dict) -> dict:
 
     dataset_info = {}
     for name, rg in raster_groups.items():
+        headers = [r.layer_attrs for r in rg._reader.readers]
+        los = rg.los_metadata.model_dump() if rg.los_metadata is not None else None
+        measurement = describe_measurement(name, headers[0] if headers else {}, los=los)
         dataset_info[name] = {
             "name": rg.name,
             "file_list": [str(f) for f in rg.file_list],
@@ -595,15 +605,15 @@ def create_rastergroup_dataset_info(raster_groups: dict) -> dict:
             "latlon_bounds": list(rg.latlon_bounds),
             "x_values": rg.x_values,
             "reference_date": rg.reference_date,
-            "los_metadata": (
-                rg.los_metadata.model_dump() if rg.los_metadata is not None else None
-            ),
-            **describe_raster_group(name, [r.layer_attrs for r in rg._reader.readers]),
-            "measurement": describe_measurement(
+            "los_metadata": los,
+            **describe_raster_group(
                 name,
-                rg._reader.readers[0].layer_attrs if rg._reader.readers else {},
-                los=rg.los_metadata.model_dump() if rg.los_metadata else None,
+                headers,
+                line_of_sight=(
+                    measurement is not None and measurement["kind"] == "line_of_sight"
+                ),
             ),
+            "measurement": measurement,
         }
     return dataset_info
 

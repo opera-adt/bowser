@@ -389,7 +389,7 @@
     ],
     "source_description": "LOS displacement",
     "source_flags": [],
-    "summary": "How much the ground has moved since the reference date.",
+    "summary": "How far the ground has moved toward or away from the satellite since the reference date.",
     "unit": "meters",
     "unit_status": "provided",
     "uses_spatial_ref": true,

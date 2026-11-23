@@ -69,8 +69,11 @@ metadata supplies direction and positive-value meaning when present; an explicit
 reference date is labeled **Source reference date**. No signs, categories, units,
 thresholds or dates are inferred from the brief or a familiar product name.
 
-Producer descriptions remain unmodified and identified as source information
-under **More about this layer**, alongside the existing technical guidance.
+Producer descriptions appear directly below the brief when supplied, including
+mask explanations written without a category table. **More about this layer**
+holds Bowser's technical guidance and additional notes. Displacement briefs
+describe movement toward or away from the satellite when the measurement
+metadata identifies a line-of-sight layer.
 Unknown layers retain the previous source-description fallback. All supplied
 text is rendered as text, not HTML. Viewing information does not apply a mask,
 correction or reference change.
