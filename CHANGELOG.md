@@ -89,6 +89,8 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The Codespaces demo container now has git, which the Codespaces editor needs; the
+  Bowser image itself has none.
 - The Docker image and a plain `pip install bowser-insar` start the server again: `httpx`,
   which place search and the context services import at start, is a base dependency now
   (it was only in the Assistant and MCP extras). CI checks the server starts without extras.
