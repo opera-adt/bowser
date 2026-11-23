@@ -3,6 +3,11 @@
 {
   "name": "Bowser demo (Hawaii)",
   "image": "ghcr.io/opera-adt/bowser:develop",
+  // The image has no git, which the Codespaces editor needs (source control, the
+  // repository checkout); "os-provided" installs Ubuntu's package rather than building it.
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": { "version": "os-provided", "ppa": false }
+  },
   "forwardPorts": [8080],
   "portsAttributes": {
     "8080": { "label": "Bowser", "onAutoForward": "openBrowser" }
