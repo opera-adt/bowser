@@ -24,6 +24,16 @@ export interface PmtilesInfo {
   maxzoom: number;
   name: string | null;
   attribution: string | null;
+  /** Whether a vector archive has polygons, from its tilestats; null when it does not say. */
+  polygons: boolean | null;
+}
+
+type Tilestats = { layers?: { geometry?: string }[] };
+/** Whether the metadata's tilestats (GDAL and tippecanoe write them) list a polygon layer. */
+export function hasPolygonLayers(tilestats: Tilestats | undefined): boolean | null {
+  const layers = tilestats?.layers;
+  if (!Array.isArray(layers) || !layers.some(l => typeof l.geometry === 'string')) return null;
+  return layers.some(l => l.geometry === 'Polygon');
 }
 
 const RASTER = new Set<TileType>([TileType.Png, TileType.Jpeg, TileType.Webp, TileType.Avif]);
@@ -32,7 +42,7 @@ const RASTER = new Set<TileType>([TileType.Png, TileType.Jpeg, TileType.Webp, Ti
 export async function inspectPmtiles(url: string): Promise<PmtilesInfo> {
   const archive = new PMTiles(url);
   const header = await archive.getHeader();
-  const meta = (await archive.getMetadata().catch(() => ({}))) as { name?: string; attribution?: string; vector_layers?: { id: string }[] };
+  const meta = (await archive.getMetadata().catch(() => ({}))) as { name?: string; attribution?: string; vector_layers?: { id: string }[]; tilestats?: Tilestats };
   const kind = header.tileType === TileType.Mvt ? 'vector' : RASTER.has(header.tileType) ? 'raster' : null;
   if (!kind) throw new Error('unknown tile type in this archive');
   const bounds: [number, number, number, number] = [header.minLon, header.minLat, header.maxLon, header.maxLat];
@@ -44,6 +54,7 @@ export async function inspectPmtiles(url: string): Promise<PmtilesInfo> {
     maxzoom: header.maxZoom,
     name: meta.name ?? null,
     attribution: meta.attribution ?? null,
+    polygons: kind === 'vector' ? hasPolygonLayers(meta.tilestats) : false,
   };
 }
 
@@ -55,6 +66,7 @@ export function pmtilesOverlay(url: string, info: PmtilesInfo, id: string): Over
     aboveData: info.kind === 'vector', pmtilesKind: info.kind, sourceLayers: info.layers, bounds: info.bounds,
     minzoom: info.minzoom, maxNativeZoom: info.maxzoom, color: '#e377c2', lineWidth: 1.5, pointRadius: 4,
     attribution: info.attribution ?? undefined,
+    ...(info.polygons !== null ? { hasPolygons: info.polygons } : {}),
   };
 }
 

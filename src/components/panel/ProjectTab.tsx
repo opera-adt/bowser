@@ -213,6 +213,8 @@ export default function ProjectTab() {
     const isOverlay = (v: unknown) =>
       obj(v) && isStr(v.id) && isStr(v.name) && isBool(v.visible) && isNum(v.opacity)
       && ['geotiff', 'wms', 'wmts', 'vector', 'context', 'pmtiles'].includes(v.type as string)
+      && (v.polygonStyle === undefined || ['outline', 'fill', 'both'].includes(v.polygonStyle as string))
+      && (v.fillOpacity === undefined || (isNum(v.fillOpacity) && v.fillOpacity >= 0 && v.fillOpacity <= 1))
       && (v.type !== 'vector' || (obj(v.data) && Array.isArray(v.data.features)));
     const validators: Record<ProjectKey, (v: unknown) => boolean> = {
       currentDataset: isStr,

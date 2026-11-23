@@ -4,6 +4,14 @@ Map-based viewer for InSAR time-series outputs — GeoZarr cubes, dolphin workfl
 
 ![Bowser: OPERA DISP-S1 velocity over the Island of Hawaiʻi, with five points in the time-series chart: Kīlauea's 2018 collapse and recovery, its south flank and east rift, and Mauna Loa's 2022 eruption](docs/images/viewer.jpg)
 
+## Try it
+
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/opera-adt/bowser?devcontainer_path=.devcontainer%2Fdemo%2Fdevcontainer.json&quickstart=1)
+
+The button starts Bowser in a GitHub Codespace (your own, from your free hours) with a small demo cube:
+OPERA DISP-S1 over the Island of Hawaiʻi, 2016–2026. The page opens in your browser in a minute or two.
+See [demo/](demo/README.md).
+
 ## What you can do
 
 - **Browse the cube in time.** Step through dates with ‹ ›, click an arrow again to play forward or backward, and right-click it to set the speed.

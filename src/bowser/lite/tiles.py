@@ -28,7 +28,7 @@ import xarray as xr
 from fastapi import HTTPException
 
 from ..constants import TILE_SIZE
-from ..mask_alignment import align_mask, mask_condition
+from ..mask_alignment import align_mask, combines_dates, mask_condition, mask_keep
 from . import colormaps, geo, warp
 from .cube import Cube, spatial_ref_attrs
 from .meta import non_spatial_dim
@@ -216,6 +216,8 @@ def tile_source(
             mask_da = align_mask(da, ds[q.mask_variable])
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+    # A dated primary mask on a layer without dates keeps pixels passing on every date.
+    every_date = mask_da is not None and combines_dates(da, mask_da)
     if q.time_idx is not None:
         dim = non_spatial_dim(da)
         if dim is not None:
@@ -223,7 +225,11 @@ def tile_source(
                 at = _clamp(q.ref_time_idx, da.sizes[dim])
                 ref = da.isel({dim: at}, drop=True)
             da = da.isel({dim: _clamp(q.time_idx, da.sizes[dim])})
-        if mask_da is not None and (mdim := non_spatial_dim(mask_da)) is not None:
+        if (
+            mask_da is not None
+            and not every_date
+            and (mdim := non_spatial_dim(mask_da)) is not None
+        ):
             mask_da = mask_da.isel({mdim: _clamp(q.time_idx, mask_da.sizes[mdim])})
     layer_masks = parse_layer_masks(q.layer_masks)
 
@@ -234,9 +240,13 @@ def tile_source(
             window = minus_reference_step(window, select(ref))
         if mask_da is not None:
             try:
-                window = window.where(
-                    mask_condition(select(mask_da), q.mask_min_value, ">")
-                )
+                if every_date:
+                    keep = mask_keep(
+                        ds[q.variable], mask_da, q.mask_min_value, ">", select
+                    )
+                else:
+                    keep = mask_condition(select(mask_da), q.mask_min_value, ">")
+                window = window.where(keep)
             except (ValueError, TypeError) as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
         return apply_layer_masks(

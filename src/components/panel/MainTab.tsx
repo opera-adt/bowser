@@ -12,7 +12,7 @@ import MaskHistogram from './MaskHistogram';
 import { displayUnit } from '../../utils/units';
 import { readLayerInfoShown, saveLayerInfoShown } from '../../utils/layerInfoPref';
 import { baseColormap } from '../../utils/colormaps';
-import { maskProblem, maskProblems } from '../../utils/maskCompatibility';
+import { combinedDates, maskProblem, maskProblems } from '../../utils/maskCompatibility';
 import { LayerOptions, SectionHeader, Switch } from './controls';
 import { chartRadiusLimit, referenceValues } from '../../map/interactions';
 import { absoluteMask, maskControlRange, maskDefaultThreshold } from '../../utils/maskControls';
@@ -529,6 +529,7 @@ export default function MainTab() {
           <>
             {state.layerMasks.map(mask => {
               const range = datasetRanges[mask.dataset];
+              const combined = combinedDates(state.datasetInfo[state.currentDataset], state.datasetInfo[mask.dataset]);
               const [rMin, rMax] = maskControlRange(range, mask.mode);
               const step = rMax - rMin > 0 ? parseFloat(((rMax - rMin) / 200).toPrecision(2)) : 0.01;
               return (
@@ -589,7 +590,13 @@ export default function MainTab() {
                       awaitingDefault.current.delete(mask.id);
                       dispatch({ type: 'UPDATE_LAYER_MASK', payload: { id: mask.id, updates: { threshold: parseFloat(e.target.value) } } });
                     }} />
-                  {range && (mask.mode === 'min' || mask.mode === 'max') && (
+                  {combined > 0 ? (
+                    // Its histogram shows one date, so its share would not be what is kept here.
+                    <div className="row-label" style={{ fontSize: '0.7em' }} role="status">
+                      This layer has no dates, so the mask's {combined} dates are combined: a pixel is
+                      kept only where it passes on every date.
+                    </div>
+                  ) : range && (mask.mode === 'min' || mask.mode === 'max') && (
                     <MaskHistogram dataset={mask.dataset} threshold={mask.threshold} mode={mask.mode} lo={rMin} hi={rMax}
                       timeIndex={(state.datasetInfo[mask.dataset]?.x_values?.length ?? 0) > 1 ? state.currentTimeIndex : 0}
                       paused={state.playing} />

@@ -28,7 +28,8 @@ from xarray.conventions import encode_cf_variable
 from ..export_provenance import export_provenance
 from ..mask_alignment import (
     align_mask,
-    mask_condition,
+    combines_dates,
+    mask_keep,
     mask_operator,
     parse_layer_masks,
 )
@@ -155,14 +156,17 @@ def mask_provenance(
             raise ValueError("Mask thresholds must be finite")
         align_mask(ds[variable], ds[name])
         context = time_context(ds, name, time_idx)
+        # A dated mask on a layer without dates: kept where every date passes.
+        every_date = combines_dates(ds[variable], ds[name])
         details.append(
             {
                 "kind": kind,
                 "layer": name,
                 "operator": operator,
                 "threshold": threshold,
-                "time_index": context["selected_index"],
-                "time_label": context["selected_label"],
+                "time_index": None if every_date else context["selected_index"],
+                "time_label": None if every_date else context["selected_label"],
+                **({"dates": "every date"} if every_date else {}),
                 "threshold_units": ds[name].attrs.get("units"),
             }
         )
@@ -228,10 +232,20 @@ def masked_slice(
             )
             for m in layer_masks
         ]:
-            mask = align_mask(ds[variable], ds[name])
-            # An export with no explicit date selects the first source step.
-            mask = _mask_frame(mask, time_idx if time_idx is not None else 0)
-            da = da.where(mask_condition(mask, threshold, operator))
+            # An export with no explicit date selects the first source step; a
+            # layer without dates combines a dated mask's dates (``mask_keep``).
+            frame = None
+            if dim is not None:
+                frame = time_idx if time_idx is not None else 0
+            da = da.where(
+                mask_keep(
+                    ds[variable],
+                    ds[name],
+                    threshold,
+                    operator,
+                    lambda mask, frame=frame: _mask_frame(mask, frame),
+                )
+            )
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return da.transpose("y", "x")

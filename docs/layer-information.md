@@ -39,7 +39,7 @@ is identified as coming from its first raster.
   overrides dataset tags; an explicit band unit takes precedence over tags.
   The layer-info request does not reopen files just to retrieve those fields.
 
-`/datasets` retains its existing identifiers and fields and adds `description`,
+`/datasets` retains its existing identifiers and fields and adds `summary`, `description`,
 `description_source`, `source_description`, `source_flags` and `unit_status`.
 Raster groups can also have explanatory `metadata_notes`. New fields are
 optional on the frontend for compatibility with older dataset responses.
@@ -52,3 +52,33 @@ Definitions were cross-checked against the [Dolphin documentation](https://dolph
 and [OPERA DISP-S1 product specification](https://d2pn8kiwq2w21t.cloudfront.net/documents/OPERA_DISP_S1_Final_Product_Spec.pdf).
 Different product versions can use different conventions, so source metadata
 and the applicable version's documentation take precedence over general guidance.
+
+## Brief descriptions and reading guides
+
+Recognized official DISP-S1 and DISP-STATIC fields have an optional `summary`:
+short, plain-language text displayed ahead of the full explanation. This catalog
+covers displacement, short-wavelength displacement, quality indicators, masks,
+DEM, LOS unit vectors, and supplied correction/baseline fields. It adds no
+pipeline-specific downslope, background-removal, tracking, velocity-estimation
+or record-summary catalog. Existing explanations for other layers are preserved.
+
+The shared main/split-view component shows **How to read this layer** alongside
+briefs. Units and category values come from source metadata, retaining valid
+zero categories and explicit missing/conflicting units. Existing measurement
+metadata supplies direction and positive-value meaning when present; an explicit
+reference date is labeled **Source reference date**. No signs, categories, units,
+thresholds or dates are inferred from the brief or a familiar product name.
+
+Producer descriptions appear directly below the brief when supplied, including
+mask explanations written without a category table. **More about this layer**
+holds Bowser's technical guidance and additional notes. Displacement briefs
+describe movement toward or away from the satellite when the measurement
+metadata identifies a line-of-sight layer.
+Unknown layers retain the previous source-description fallback. All supplied
+text is rendered as text, not HTML. Viewing information does not apply a mask,
+correction or reference change.
+
+The panel does not yet receive a complete product record, verified velocity-fit
+period/estimator, temporal-support classification, or all active transformations.
+This change does not invent those fields, classify static/per-date/ministack
+support, or claim that a source reference date represents the active user datum.

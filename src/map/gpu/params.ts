@@ -1,5 +1,5 @@
 import type { RasterGroup } from '../../types';
-import { maskProblem } from '../../utils/maskCompatibility';
+import { combinedDates, combinedMaskVariable, maskProblem } from '../../utils/maskCompatibility';
 /**
  * What the GPU draws, taken from the very query the tile path would send
  * (``buildTileRequest``), so both renderers read the same state the same way. A query
@@ -65,7 +65,14 @@ export function gpuParamsFromTileQuery(params: Record<string, string>, dataMode:
         const reason = maskProblem(layers[params.variable], m.dataset);
         if (reason) return { ok: false, reason };
       }
-      mask = { dataset: m.dataset, threshold: Number(m.threshold ?? 0.5), mode: m.mode === 'max' ? 'max' : 'min' };
+      const mode = m.mode === 'max' ? 'max' : 'min';
+      // A dated mask on a layer without dates keeps pixels passing on every date: the server
+      // serves its lowest (for >=) and highest (for <=) value over the dates as virtual arrays.
+      const combined = layers && combinedDates(layers[params.variable], layers[m.dataset]) > 0;
+      mask = {
+        dataset: combined ? combinedMaskVariable(m.dataset, mode) : m.dataset,
+        threshold: Number(m.threshold ?? 0.5), mode,
+      };
     }
   }
   return {

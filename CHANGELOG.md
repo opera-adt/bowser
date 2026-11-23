@@ -8,6 +8,14 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Plain-language descriptions for OPERA DISP-S1 layers, with producer explanations
+  and source metadata visible in the layer panel.
+- Polygon style for added vector layers (Overlays › Style): outline, filled, or both, with
+  its own fill opacity, kept in saved projects. Shown for layers with polygons; a tiled
+  (PMTiles) layer shows it unless its metadata says it has none.
+- **A demo to try without installing:** an *Open in GitHub Codespaces* button in the README
+  starts Bowser on a small Hawaii cube (OPERA DISP-S1, 2016–2026, 240 m, 70 dates), and a
+  workflow publishes the same demo to a Hugging Face Space on each release. See `demo/`.
 - **Open another dataset from the app.** The side panel's new Open button (and Ctrl/Cmd+O)
   lists the catalog's datasets, links to Project › Open data for a cube by path or folder
   search, and goes back to the dataset picker. When there is work on the page (points, areas,
@@ -74,6 +82,14 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The recommended mask, and any other dated mask, now works on layers without dates
+  (velocity, its uncertainty, average temporal coherence, water mask, valid epochs): a
+  pixel is kept only where it passes on every date. Dated layers still use it date by
+  date. Tiles, exports, area statistics and the lite server all follow this, and the
+  Masking panel says how the mask applies. Each mask block's lowest and highest values
+  over the dates are computed once and cached, so moving the map or the threshold stays
+  as fast as with a single-map mask, and the GPU renderer draws it too.
+
 - **A lighter page while you work.** Every part of the page used to redraw for any change:
   a map move, a drag of the split-screen divider, a tick of a slider, a step of the date
   player. Each part now follows only what it shows. A divider drag redraws none of the
@@ -82,6 +98,11 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The Codespaces demo container now has git, which the Codespaces editor needs; the
+  Bowser image itself has none.
+- The Docker image and a plain `pip install bowser-insar` start the server again: `httpx`,
+  which place search and the context services import at start, is a base dependency now
+  (it was only in the Assistant and MCP extras). CI checks the server starts without extras.
 - Hiding a point from the chart legend hides its model and residuals again; this had stopped
   working after the first change to the chart's settings.
 - Chart-to-map date selection keeps both dates of an acquisition pair, for point and

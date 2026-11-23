@@ -193,6 +193,9 @@ def dataset_info(cube: Cube, use_spatial_reference: bool) -> dict:
         labels = dim_labels(var, dim) if dim is not None else []
         n = len(labels) if dim is not None else 1
         attrs = dict(var.attrs)
+        measurement = describe_measurement(
+            str(name), attrs, dict(ds.attrs), los, wavelength
+        )
         info[name] = {
             "mask_compatibility": compatibility(ds, var),
             "name": name,
@@ -210,9 +213,13 @@ def dataset_info(cube: Cube, use_spatial_reference: bool) -> dict:
             "los_metadata": los,
             "reference_lonlat": ref_ll,
             **({"radar_wavelength_m": wavelength} if wavelength else {}),
-            **describe_layer(str(name), attrs),
-            "measurement": describe_measurement(
-                str(name), attrs, dict(ds.attrs), los, wavelength
+            **describe_layer(
+                str(name),
+                attrs,
+                line_of_sight=(
+                    measurement is not None and measurement["kind"] == "line_of_sight"
+                ),
             ),
+            "measurement": measurement,
         }
     return info

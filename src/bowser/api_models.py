@@ -190,13 +190,15 @@ PARAMS: dict[str, dict[str, Any]] = {
     "layer_masks": {
         "description": "Masks as {dataset, threshold, mode}: mode min keeps "
         "pixels >= threshold in cubes (> in GeoTIFFs), max keeps pixels <= threshold; "
-        "abs_min/abs_max compare magnitude inclusively.",
+        "abs_min/abs_max compare magnitude inclusively. "
+        "A dated mask on a layer without dates keeps pixels passing on every date.",
         "examples": [_LAYER_MASKS],
     },
     "layer_masks_json": {
         "description": "JSON list of {dataset, threshold, mode} masks: mode min "
         "keeps pixels >= threshold in cubes (> in GeoTIFFs), "
-        "max keeps pixels <= threshold; abs_min/abs_max compare magnitude inclusively.",
+        "max keeps pixels <= threshold; abs_min/abs_max compare magnitude inclusively. "
+        "A dated mask on a layer without dates keeps pixels passing on every date.",
         "examples": [json.dumps(_LAYER_MASKS)],
     },
     "ref_buffer_m": {
@@ -516,7 +518,11 @@ ROUTES: dict[str, dict[str, Any]] = {
         "HTTP Range and HEAD. Only `zarr.json` metadata and chunk files (`c/...`) "
         "of a store on this computer's disk are served: a remote store, any other "
         "file and any path outside the store answer 404, a request from another "
-        "web site 403. `BOWSER_ZARR_FILES=false` turns the route off.",
+        "web site 403. `BOWSER_ZARR_FILES=false` turns the route off. Each dated "
+        "`(date, y, x)` mask also has two computed arrays, "
+        "`<mask>@lowest_over_dates` and `<mask>@highest_over_dates` (its lowest "
+        "and highest value over the dates, NaN where a date is missing), which the "
+        "GPU renderer draws as the mask on a layer without dates.",
         "tags": [TILES],
         **_DATASET_EXTRA,
     },
@@ -1391,6 +1397,11 @@ class DatasetInfo(_Fixed):
         description="GeoZarr mode only, when the cube records it: the radar "
         "wavelength in metres (unwrapping errors are multiples of half of it).",
     )
+    summary: Optional[str] = Field(
+        None,
+        description="Optional brief explanation from Bowser; source metadata "
+        "defines units, conventions and categories for the particular file.",
+    )
     description: str
     description_source: Literal["bowser", "source", "unknown"]
     source_description: Optional[str]
@@ -1774,7 +1785,13 @@ class AppliedPolygonMask(_Fixed):
     dataset: str
     threshold: float
     operator: Literal[">", ">=", "<="]
-    temporal_support: Literal["static", "matching_axis"]
+    temporal_support: Literal["static", "matching_axis", "every_date"] = Field(
+        description=(
+            "static: one map for every date; matching_axis: date by date; "
+            "every_date: a dated mask on a layer without dates, kept where every "
+            "date passes."
+        )
+    )
 
 
 class PolygonPixelCurve(_Fixed):

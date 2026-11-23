@@ -1,0 +1,17 @@
+// The Bowser demo in a Codespace: the published image, the Hawaii cube, the page in the browser.
+// Open it from the README's "Open in GitHub Codespaces" button.
+{
+  "name": "Bowser demo (Hawaii)",
+  "image": "ghcr.io/opera-adt/bowser:develop",
+  // The image has no git, which the Codespaces editor needs (source control, the
+  // repository checkout); "os-provided" installs Ubuntu's package rather than building it.
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": { "version": "os-provided", "ppa": false }
+  },
+  "forwardPorts": [8080],
+  "portsAttributes": {
+    "8080": { "label": "Bowser", "onAutoForward": "openBrowser" }
+  },
+  "postStartCommand": "nohup bash demo/run_demo.sh > /tmp/bowser-demo.log 2>&1 &",
+  "hostRequirements": { "cpus": 2, "memory": "4gb" }
+}

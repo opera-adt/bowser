@@ -41,6 +41,7 @@ export interface RasterGroup {
   label?: string;
   unit?: string;
   description?: string;
+  summary?: string;
   description_source?: 'bowser' | 'source' | 'unknown';
   // Bowser's general text when the producer's own description leads (absent otherwise).
   guidance?: string;
@@ -247,6 +248,8 @@ export interface Overlay {
   pendingSourceLayers?: OverlayFeatures;
   color?: string;
   lineWidth?: number;
+  polygonStyle?: 'outline' | 'fill' | 'both';
+  fillOpacity?: number;  // polygon fill fraction, multiplied by layer opacity
   pointRadius?: number;
   marker?: PointMarker;  // point shape (circle unless set)
   labelField?: string;   // the attribute written beside each point (none unless set)
@@ -264,6 +267,7 @@ export interface Overlay {
   // --- pmtiles (a custom archive; url is the archive) ---
   pmtilesKind?: 'raster' | 'vector';
   sourceLayers?: string[];
+  hasPolygons?: boolean;  // a vector archive's tilestats say whether it has polygons (unset: unknown)
   minzoom?: number;
   // vector colour by an attribute: text classes, or numeric classes split at `breaks`
   classColors?: { property: string; classes: [string, string][]; breaks?: number[]; other?: string };
