@@ -62,6 +62,11 @@ def _exercise(work: Path) -> None:
         assert measurement["positive_direction"] == "away from the satellite"
         assert measurement["kind"] == "unknown"
         assert measurement["sensitivity"] is None
+        assert "in the measured direction" in displacement["summary"]
+        short_wavelength = data["short_wavelength_displacement"]
+        assert short_wavelength["measurement"]["kind"] == "line_of_sight"
+        assert "toward or away from the satellite" in short_wavelength["summary"]
+        assert "broad-scale patterns removed" in short_wavelength["summary"]
         assert data["water_mask"]["measurement"] is None
         assert data["water_mask"]["source_flags"] == [
             {"value": "0", "label": "land"},
@@ -126,6 +131,11 @@ def test_actual_dataset_endpoints_and_point_values(tmp_path):
                     "flag_values": [0, 1],
                     "flag_meanings": "land water",
                 },
+            ),
+            "short_wavelength_displacement": (
+                ("y", "x"),
+                values,
+                {"units": "cm", "description": "Short-wavelength LOS displacement."},
             ),
             "unfamiliar": (
                 ("y", "x"),

@@ -223,3 +223,67 @@ def test_radar_wavelength_from_a_centre_frequency_in_hertz():
         radar_wavelength({"centerFrequency": 1257.5e6, "wavelength": 0.0555}) == 0.0555
     )
     assert radar_wavelength({"centerFrequency": 50.0}) is None
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "displacement",
+        "short_wavelength_displacement",
+        "temporal_coherence",
+        "phase_similarity",
+        "estimated_phase_quality",
+        "persistent_scatterer_mask",
+        "shp_counts",
+        "connected_component_labels",
+        "timeseries_inversion_residuals",
+        "recommended_mask",
+        "water_mask",
+        "dem",
+        "layover_shadow_mask",
+        "line_of_sight_enu",
+        "ionospheric_delay",
+        "solid_earth_tide",
+        "perpendicular_baseline",
+    ],
+)
+def test_official_fields_have_briefs_without_inventing_source_metadata(name):
+    result = describe_layer(name)
+    assert result["summary"]
+    assert result["unit"] == ""
+    assert result["source_flags"] == []
+    attrs = {
+        "description": "Provider explanation; positive is away.",
+        "units": "cm",
+        "flag_values": [0, 1],
+        "flag_meanings": "keep reject",
+    }
+    original = copy.deepcopy(attrs)
+    supplied = describe_layer(name, attrs)
+    assert supplied["description"] == attrs["description"]
+    assert supplied["source_description"] == attrs["description"]
+    assert supplied["unit"] == "cm"
+    assert supplied["source_flags"][0] == {"value": "0", "label": "keep"}
+    assert attrs == original
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "downslope displacement",
+        "local velocity",
+        "linear ramp removed displacement",
+        "OPERA mask (80% rejection limit)",
+        "tracking support",
+        "custom_short_wavelength_displacement",
+        "short_wavelength_velocity",
+    ],
+)
+def test_custom_processing_catalog_is_not_added_by_official_brief_descriptions(name):
+    assert "summary" not in describe_layer(name)
+
+
+def test_official_short_wavelength_friendly_label_is_an_exact_alias():
+    assert describe_layer("OPERA short-wavelength displacement") == describe_layer(
+        "short_wavelength_displacement"
+    )

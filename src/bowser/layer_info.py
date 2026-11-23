@@ -22,6 +22,7 @@ class LayerInfo(TypedDict):
     source_flags: list[dict[str, str]]
     unit: str
     unit_status: Literal["provided", "missing", "mixed"]
+    summary: NotRequired[str]
     guidance: NotRequired[str]
     metadata_notes: NotRequired[list[str]]
 
@@ -150,11 +151,109 @@ _GUIDANCE = {
     ),
 }
 
+# Brief catalog for official DISP-S1 and DISP-STATIC fields only.
+_SUMMARIES = {
+    "displacement": (
+        "How far the ground has moved in the measured direction since "
+        "the reference date."
+    ),
+    "short_wavelength_displacement": (
+        "Movement in the measured direction with broad-scale patterns removed "
+        "to make local changes easier to see."
+    ),
+    "temporal_coherence": (
+        "How consistent the radar signal is over time. Higher values "
+        "generally indicate more consistent measurements."
+    ),
+    "phase_similarity": (
+        "How similar the radar measurements are to nearby locations. "
+        "Higher values indicate greater similarity."
+    ),
+    "estimated_phase_quality": (
+        "An estimate of radar measurement quality based on consistency "
+        "with nearby measurements."
+    ),
+    "persistent_scatterer_mask": (
+        "Locations with consistently strong radar reflections, making "
+        "them useful for measuring ground movement."
+    ),
+    "shp_counts": (
+        "The number of nearby pixels with similar radar signals used to "
+        "support each measurement."
+    ),
+    "connected_component_labels": (
+        "Groups of pixels connected during radar processing. Movement "
+        "between separate groups may not be directly comparable."
+    ),
+    "inversion_residuals": (
+        "How well the calculated movement history matches the input "
+        "measurements. Lower values indicate better agreement."
+    ),
+    "recommended_mask": (
+        "The data provider's suggested locations to keep for ground movement analysis."
+    ),
+    "water_mask": ("Shows which areas are land and which are water."),
+    "elevation": ("The height of the ground in the terrain model."),
+    "layover_shadow_mask": (
+        "Identifies areas where terrain interferes with the radar's view of the ground."
+    ),
+    "line_of_sight_enu": (
+        "The radar viewing direction expressed as east, north, and vertical components."
+    ),
+    "ionospheric_delay": (
+        "An estimate of the radar signal delay caused by the ionosphere."
+    ),
+    "solid_earth_tide": (
+        "Ground movement caused by the solid Earth tide, expressed along "
+        "the radar viewing direction."
+    ),
+    "perpendicular_baseline": (
+        "The separation between satellite orbits perpendicular to the "
+        "radar viewing direction."
+    ),
+}
+
+_LOS_SUMMARIES = {
+    "displacement": (
+        "How far the ground has moved toward or away from the satellite "
+        "since the reference date."
+    ),
+    "short_wavelength_displacement": (
+        "Movement toward or away from the satellite, with broad-scale patterns "
+        "removed to make local changes easier to see."
+    ),
+}
+
+_STATIC_AND_CORRECTION_GUIDANCE = {
+    "line_of_sight_enu": (
+        "These values describe viewing geometry, not ground movement. "
+        "Source metadata defines the vector direction, band order and "
+        "convention."
+    ),
+    "ionospheric_delay": (
+        "This is a supplied correction estimate, not necessarily an "
+        "applied correction. Consult the product version, units and sign "
+        "before applying it."
+    ),
+    "solid_earth_tide": (
+        "This is a supplied correction estimate, not necessarily an "
+        "applied correction. Consult the product version, units and sign "
+        "before applying it."
+    ),
+    "perpendicular_baseline": (
+        "Orbit separation can help assess terrain-related effects. It is "
+        "not ground displacement; consult source units and the baseline "
+        "sign convention."
+    ),
+}
+_GUIDANCE.update(_STATIC_AND_CORRECTION_GUIDANCE)
+
 _ALIASES = {
     "time_series": "displacement",
     "los_displacement": "displacement",
     "los_velocity": "velocity",
     "filtered_time_series": "short_wavelength_displacement",
+    "opera_short_wavelength_displacement": "short_wavelength_displacement",
     "phase_cosine_similarity": "phase_similarity",
     "ps_mask": "persistent_scatterer_mask",
     "persistent_scatterers": "persistent_scatterer_mask",
@@ -218,7 +317,9 @@ def _flags(attrs: Mapping[str, Any]) -> list[dict[str, str]]:
         return []
 
 
-def describe_layer(name: str, attrs: Mapping[str, Any] | None = None) -> LayerInfo:
+def describe_layer(
+    name: str, attrs: Mapping[str, Any] | None = None, *, line_of_sight: bool = False
+) -> LayerInfo:
     """Return general guidance and separately identified source metadata.
 
     Parameters
@@ -229,6 +330,8 @@ def describe_layer(name: str, attrs: Mapping[str, Any] | None = None) -> LayerIn
     attrs : mapping, optional
         Read-only source attributes. Units, sign conventions and mask thresholds
         are never assigned from a name or from the description catalog.
+    line_of_sight : bool, optional
+        Whether measurement metadata identifies motion along the radar line of sight.
 
     Returns
     -------
@@ -304,12 +407,17 @@ def describe_layer(name: str, attrs: Mapping[str, Any] | None = None) -> LayerIn
         "unit": unit,
         "unit_status": "provided" if unit else "missing",
     }
+    if key in _SUMMARIES:
+        summaries = _LOS_SUMMARIES if line_of_sight else {}
+        info["summary"] = summaries.get(key, _SUMMARIES[key])
     if guidance and producer:
         info["guidance"] = guidance
     return info
 
 
-def describe_raster_group(name: str, headers: Sequence[Mapping[str, Any]]) -> LayerInfo:
+def describe_raster_group(
+    name: str, headers: Sequence[Mapping[str, Any]], *, line_of_sight: bool = False
+) -> LayerInfo:
     """Describe cached raster headers without implying identical units or flags.
 
     Producer text is from the first raster. A shared unit or category dictionary
@@ -317,8 +425,10 @@ def describe_raster_group(name: str, headers: Sequence[Mapping[str, Any]]) -> La
     Differing units are not converted or inferred to be equivalent.
 
     """
-    items = [describe_layer(name, attrs) for attrs in headers]
-    info = items[0].copy() if items else describe_layer(name)
+    items = [
+        describe_layer(name, attrs, line_of_sight=line_of_sight) for attrs in headers
+    ]
+    info = items[0].copy() if items else describe_layer(name, line_of_sight=line_of_sight)
     notes = []
     if len(items) > 1:
         notes.append("Producer text is from the first raster in this group.")

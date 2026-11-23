@@ -78,3 +78,49 @@ describe('LayerInfo', () => {
     expect(container.innerHTML).toBe('');
   });
 });
+
+
+it('shows the producer explanation once directly after the brief', () => {
+  render(<LayerInfo info={info({ summary: 'Ground movement accumulated over time.',
+    description: 'Positive values indicate motion away from the satellite.', description_source: 'source',
+    source_description: 'Positive values indicate motion away from the satellite.', guidance: 'Not total 3D movement.' })} />);
+  const note = screen.getByRole('note', { name: 'Layer information' });
+  expect(note.querySelector('p')?.textContent).toBe('Ground movement accumulated over time.');
+  const producer = screen.getAllByText(/Positive values indicate/);
+  expect(producer).toHaveLength(1);
+  expect(note.querySelector('p')?.nextElementSibling).toBe(producer[0]);
+  expect(producer[0].closest('details')).toBeNull();
+  expect(screen.getByText('Not total 3D movement.').closest('details')).not.toBeNull();
+  expect(note.querySelector('details')?.open).toBe(false);
+});
+
+it('shows recommended mask values supplied only in the producer description', () => {
+  const description = 'A value of 0 indicates a bad pixel and 1 indicates a good pixel.';
+  render(<LayerInfo info={info({
+    name: 'recommended_mask', summary: 'Pixels that pass the product quality checks.',
+    description, description_source: 'source', source_description: description,
+  })} />);
+  expect(screen.getByText(description).closest('details')).toBeNull();
+  expect(screen.queryByText(/Value meanings:/)).toBeNull();
+  expect(screen.queryByText('More about this layer')).toBeNull();
+});
+
+it('reads actual measurement conventions without substituting OPERA signs', () => {
+  render(<LayerInfo info={info({ summary: 'How far the ground has moved toward or away from the satellite since the reference date.',
+    unit: 'centimeters', measurement: { kind: 'line_of_sight', positive_direction: 'away from the satellite' },
+    reference_date: '2025-11-01', source_flags: [{ value: '0', label: 'valid' }] })} />);
+  expect(screen.getByText('How to read this layer')).toBeTruthy();
+  expect(screen.getByText('Source units: centimeters')).toBeTruthy();
+  expect(screen.getByText('Positive values: away from the satellite')).toBeTruthy();
+  expect(screen.getByText('Source reference date: 2025-11-01')).toBeTruthy();
+  expect(screen.getByText('Value meanings: 0: valid').closest('details')).toBeNull();
+  expect(screen.queryByText(/Positive values: toward/)).toBeNull();
+});
+
+it('does not guess directions, signs or dates from a generic summary', () => {
+  render(<LayerInfo info={info({ summary: 'How far the ground has moved in the measured direction since the reference date.', unit: '' })} />);
+  expect(screen.queryByText(/Measurement direction:/)).toBeNull();
+  expect(screen.queryByText(/Positive values:/)).toBeNull();
+  expect(screen.queryByText(/Source reference date:/)).toBeNull();
+  expect(screen.getByText('Units not supplied')).toBeTruthy();
+});
