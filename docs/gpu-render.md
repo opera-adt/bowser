@@ -128,10 +128,23 @@ more by the map; the value drawn at a cube pixel is the same.
 `GET /zarr/{path}` (and `HEAD`) serves the files of the cube the page has open:
 the server's own cube, or the catalog entry named by `?dataset=` (the page adds
 it). Both the full server and bowser-lite serve it, the same way. It is
-read-only and serves only `zarr.json` metadata and chunk files of a store on the
-server's disk: any other file of the folder, hidden files, paths that lead out
-of the store (`..`, absolute paths, encoded forms, symlinks pointing out) and
-remote stores answer 404; a request from another web site answers 403.
+read-only and serves only `zarr.json` metadata and chunk files, of a store on the
+server's disk or on S3: any other file of the folder, hidden files, paths that
+lead out of the store (`..`, absolute paths, encoded forms, symlinks pointing
+out) and other remote stores (`https://`, `gs://`) answer 404; a request from
+another web site answers 403.
+
+For a cube on S3 (`s3://bucket/cube.zarr`) the server reads each requested file
+from the bucket and relays it unchanged, with the access it already uses for
+tiles (anonymous unless `BOWSER_S3_ANON=0`, then the usual AWS credentials).
+Byte ranges, including the end-of-object ranges a sharded store reads its index
+with, are passed through as ranges, and an absent chunk is a 404 that the reader
+treats as fill. The bucket needs no CORS rule, since the browser only talks to
+Bowser. The bytes pass through the server, but it does no decoding or rendering.
+
+The reader takes each pyramid level's grid from its `spatial:transform`, or,
+for a derived level that only the root's `multiscales` layout describes, from
+the level's `x`/`y` pixel centres, as the servers do.
 
 It also serves two computed arrays for each dated `(date, y, x)` mask:
 `<mask>@lowest_over_dates` and `<mask>@highest_over_dates`, the mask's lowest

@@ -26,8 +26,8 @@ import json
 import re
 import threading
 from collections import OrderedDict
+from collections.abc import Callable
 from functools import lru_cache
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -283,17 +283,20 @@ def _spatial_chunks(meta: dict) -> list[int]:
     return list(meta["chunk_grid"]["configuration"]["chunk_shape"][-2:])
 
 
-def virtual_file(root: Path, path: str, resolve) -> tuple[bytes, str] | None:
+def virtual_file(
+    store: str, path: str, read: Callable[[str], bytes]
+) -> tuple[bytes, str] | None:
     """Return a virtual array's file as ``(content, media type)``, or None.
 
     Parameters
     ----------
-    root
-        The store's folder.
+    store
+        The store's folder or ``s3://`` URL (opened as the servers open cubes).
     path
         The requested key, e.g. ``recommended_mask@lowest_over_dates/c/0/1``.
-    resolve
-        ``resolve_inside(root, rel)``: the real file, or a 404.
+    read
+        Returns one of the store's real files by key, or raises (a 404, or
+        LookupError when it is missing).
 
     Returns
     -------
@@ -311,8 +314,7 @@ def virtual_file(root: Path, path: str, resolve) -> tuple[bytes, str] | None:
     if match is None:
         return None
     base, var, which = match["base"], match["var"], match["which"]
-    meta_path = resolve(root, f"{base}{var}/zarr.json")
-    meta = json.loads(meta_path.read_text())
+    meta = json.loads(read(f"{base}{var}/zarr.json"))
     names = meta.get("dimension_names") or []
     if len(meta.get("shape", [])) != 3 or list(names[-2:]) != ["y", "x"]:
         raise LookupError("Not a dated mask")
@@ -346,7 +348,7 @@ def virtual_file(root: Path, path: str, resolve) -> tuple[bytes, str] | None:
     if row * cy >= rows or col * cx >= cols:
         raise LookupError("Chunk outside the array")
     group = base.rstrip("/") or None
-    mask = _open_level(str(root), group)[var].transpose(names[0], "y", "x")
+    mask = _open_level(store, group)[var].transpose(names[0], "y", "x")
 
     def compute():
         part = mask.isel(
@@ -354,7 +356,7 @@ def virtual_file(root: Path, path: str, resolve) -> tuple[bytes, str] | None:
         )
         return block_range(np.asarray(part.values), mask.attrs)
 
-    block = BLOCKS.get(("store", str(root), base, var, cy, cx, row, col), compute)
+    block = BLOCKS.get(("store", store, base, var, cy, cx, row, col), compute)
     out = np.full((cy, cx), np.nan, "<f4" if float32 else "<f8")
     values = block[_WHICH[which]]
     out[: values.shape[0], : values.shape[1]] = values
