@@ -47,12 +47,40 @@ export default defineConfig({
 		// shipped; for readable code in the browser, build with `npx vite build --minify false`.
 		minify: true,
 		cssMinify: true,
+        chunkSizeWarningLimit: 1100,
 		rollupOptions: {
 			output: {
 				entryFileNames: `[name].js`,
-				assetFileNames: `[name].[ext]`
-			}
-		}
+				assetFileNames: `[name].[ext]`,
+				manualChunks(id) {
+					if (!id.includes('node_modules')) return;
+					if (id.includes('/maplibre-gl/') || id.includes('/pmtiles/')) {
+						return 'vendor-maplibre';
+					}
+					if (id.includes('/leaflet/') || id.includes('/react-leaflet/')) {
+						return 'vendor-leaflet';
+					}
+					if (
+						id.includes('/chart.js/') ||
+						id.includes('/react-chartjs-2/') ||
+						id.includes('/chartjs-') ||
+						id.includes('/hammerjs/')
+					) {
+						return 'vendor-charts';
+					}
+					if (id.includes('/zarrita/') || id.includes('/shpjs/')) {
+						return 'vendor-geo';
+					}
+					if (
+						id.includes('/react/') ||
+						id.includes('/react-dom/') ||
+						id.includes('/scheduler/')
+					) {
+						return 'vendor-react';
+					}
+				},
+			},
+		},
 	},
 	test: {
 		environment: 'jsdom',
