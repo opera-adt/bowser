@@ -65,6 +65,15 @@ class Cube {
   }
 }
 
+/** A grid's affine transform from the first two x and y pixel centres of ``group``. */
+async function centresTransform(group: zarr.Location<zarr.FetchStore>): Promise<Affine> {
+  const first2 = async (name: string) => (await zarr.get(
+    await zarr.open.v3(group.resolve(name), { kind: 'array' }), [zarr.slice(0, 2)],
+  )).data as unknown as ArrayLike<number>;
+  const [xs, ys] = await Promise.all([first2('x'), first2('y')]);
+  return affineFromCentres(Number(xs[0]), Number(xs[1]), Number(ys[0]), Number(ys[1]));
+}
+
 /** The zarrita DecodeSource the worker answers with (one store per cube URL). */
 export class ZarrSource implements DecodeSource {
   private cubes = new Map<string, Cube>();
@@ -96,7 +105,10 @@ export class ZarrSource implements DecodeSource {
         const chunks = arr.chunks;
         levels.push({
           prefix: `${asset}/`,
-          transform: ga['spatial:transform'] as Affine,
+          // A derived level may carry no spatial attributes of its own (only the root's
+          // layout says "scale 2"): take its grid from its x/y pixel centres, as the
+          // servers do.
+          transform: (ga['spatial:transform'] as Affine | undefined) ?? await centresTransform(root.resolve(asset)),
           shape: (ga['spatial:shape'] as [number, number]) ?? [arr.shape[arr.shape.length - 2], arr.shape[arr.shape.length - 1]],
           chunk: [chunks[chunks.length - 2], chunks[chunks.length - 1]],
         });
@@ -104,13 +116,10 @@ export class ZarrSource implements DecodeSource {
       }
     } else {
       const arr = await cube.array(probe);
-      const x = await zarr.get(await zarr.open.v3(root.resolve('x'), { kind: 'array' }), [zarr.slice(0, 2)]);
-      const y = await zarr.get(await zarr.open.v3(root.resolve('y'), { kind: 'array' }), [zarr.slice(0, 2)]);
-      const xs = x.data as unknown as ArrayLike<number>, ys = y.data as unknown as ArrayLike<number>;
       const n = arr.shape.length;
       levels.push({
         prefix: '',
-        transform: affineFromCentres(Number(xs[0]), Number(xs[1]), Number(ys[0]), Number(ys[1])),
+        transform: await centresTransform(root),
         shape: [arr.shape[n - 2], arr.shape[n - 1]],
         chunk: [arr.chunks[n - 2], arr.chunks[n - 1]],
       });

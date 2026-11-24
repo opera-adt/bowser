@@ -6,6 +6,21 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **GPU rendering for cubes on S3.** The page's GPU renderer reads a cube's zarr files
+  through Bowser's `/zarr/` route, which only served cubes on the server's disk; for an
+  `s3://` cube the map fell back to server tiles. The server now relays the cube's files
+  from S3 unchanged, with the access it already uses for tiles, so S3 cubes draw on the GPU
+  too, the bucket needs no CORS rule, and private buckets work.
+
+### Fixed
+
+- The GPU renderer opens pyramids whose derived levels carry no spatial attributes of their
+  own (only the root's `multiscales` layout describes them), taking each such level's grid
+  from its `x`/`y` pixel centres, as the servers do. It used to fail with "Cannot read
+  properties of undefined" and fall back to server tiles.
+
 ## [0.8.0] - 2026-11-23
 
 ### Added

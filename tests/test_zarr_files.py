@@ -3,7 +3,8 @@
 - a local zarr v3 store's metadata and chunks are served, with Range and HEAD;
 - nothing else is: no other file of the folder, no hidden file, nothing outside
   the store (``..``, absolute paths, encoded variants, symlinks pointing out), no
-  remote store, no method but GET and HEAD, no request from another web site, and
+  remote store but S3 (relayed: tests/test_zarr_s3_relay.py), no method but GET
+  and HEAD, no request from another web site, and
   nothing when the route is turned off.
 
 The router is built here on a bare FastAPI app; the servers' own routing (and
@@ -201,7 +202,8 @@ def test_only_bowsers_own_page(store):
 
 def test_no_local_store_or_turned_off(tmp_path, store):
     assert _client(None).get("/zarr/zarr.json").status_code == 404  # COG / catalog
-    remote = _client("s3://bucket/cube.zarr")
+    # Only S3 is relayed (tests/test_zarr_s3_relay.py); other remote stores draw tiles.
+    remote = _client("https://example.com/cube.zarr")
     assert remote.get("/zarr/zarr.json").status_code == 404
     gone = _client(str(tmp_path / "gone.zarr"))
     assert gone.get("/zarr/zarr.json").status_code == 404
