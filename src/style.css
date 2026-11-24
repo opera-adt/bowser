@@ -2207,6 +2207,38 @@ img.huechange { filter: hue-rotate(120deg); }
   padding: 8px 0;
 }
 
+/* Rail › Open: the catalog's datasets, Open data and the picker (OpenDataset.tsx). */
+.panel-open-btn { margin-top: auto; }
+.panel-open-btn + .panel-theme-btn { margin-top: 0; }
+.open-dataset-popover {
+  width: 280px;
+  max-height: min(70vh, 520px);
+  z-index: 4200;
+  color: var(--sb-text);
+}
+.open-dataset-heading {
+  font-size: 0.7em;
+  color: var(--sb-muted);
+  padding: 4px 10px 2px;
+}
+.open-dataset-note {
+  font-size: 0.78em;
+  color: var(--sb-muted);
+  padding: 2px 10px 6px;
+}
+.open-dataset-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  min-height: 0;
+}
+.open-dataset-popover .hist-btn { flex: 1; }
+.open-dataset-sep {
+  border-top: 1px solid var(--sb-border);
+  margin: 4px 0;
+}
+
 /* ── The time step on the map (click the date in Main › Layers) ── */
 .date-toggle {
   padding: 0 4px;

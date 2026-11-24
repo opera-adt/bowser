@@ -4,8 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Bowser</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css"
+        integrity="sha384-uTttxo/aOKbdE5RlD/SPzSDoDmNvGlUYPjONi2MN/b7c9HPSvW07OIuyP7uL6jxK" crossorigin="" />
   <link rel="icon" type="image/svg+xml" href="/bowser-mark.svg" />
   <script>
     // Same theme as the app (Project › Appearance, or the rail toggle).
@@ -77,7 +77,17 @@
     #folder-row[hidden] { display: none; }
     #open-error { color: var(--red); }
     .empty { color: var(--muted); font-size: 0.85rem; }
-    .leaflet-container { background: var(--bg); }
+    .maplibregl-map { background: var(--bg); }
+    .maplibregl-popup-content { background: var(--surface); color: var(--text); border-radius: 8px; padding: 8px 10px; font-size: 0.8rem; }
+    .maplibregl-popup-tip { display: none; }
+    .maplibregl-popup-content code { font-family: var(--mono); color: var(--muted); font-size: 0.74rem; }
+    #search {
+      width: 100%; box-sizing: border-box; padding: 8px 10px; margin-bottom: 6px;
+      background: var(--surface2); color: var(--text); border: 1px solid var(--border); border-radius: 8px; font: inherit; font-size: 0.85rem;
+    }
+    #search:focus { outline: 2px solid var(--accent); outline-offset: 0; border-color: transparent; }
+    #search-note { margin: 0 0 6px; }
+    #search-note[hidden], #list li[hidden] { display: none; }
   </style>
 </head>
 <body>
@@ -87,6 +97,9 @@
     <p class="subtitle">Open an InSAR cube: pick one below or on the map, open a path or link, or find the cubes in a folder.</p>
     <div>
       <p class="section-label">Datasets</p>
+      <input id="search" type="search" aria-label="Search datasets or places" autocomplete="off"
+             placeholder="Search datasets, or a place (Enter)" />
+      <p id="search-note" class="subtitle" role="status" hidden></p>
       <ul id="list"><li class="empty">Loading catalog…</li></ul>
     </div>
     <div class="paste">
@@ -110,15 +123,32 @@
     </div>
   </div>
 
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"
+          integrity="sha384-5+cfbwT0iiub6VsQAdn6yz16nr6sDiQoHx6tm4O8OVYXHYOxcffFmCJBL0dgdvGp" crossorigin=""></script>
   <script>
-    const map = L.map("map", { zoomControl: false }).setView([20, 0], 2);
-    L.control.zoom({ position: "topright" }).addTo(map);  // the panel covers the top left
-    L.tileLayer(
-      "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-      { attribution: "© OpenStreetMap", maxZoom: 19 }
-    ).addTo(map);
+    // A globe, as the app's map library draws it; flat Mercator again when zoomed in.
+    const map = new maplibregl.Map({
+      container: "map",
+      style: {
+        version: 8,
+        sources: {
+          osm: { type: "raster", tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"], tileSize: 256,
+                 maxzoom: 19, attribution: "© OpenStreetMap" },
+        },
+        layers: [{ id: "osm", type: "raster", source: "osm" }],
+      },
+      center: [0, 20], zoom: 1.4, attributionControl: { compact: true },
+    });
+    map.addControl(new maplibregl.NavigationControl(), "top-right");  // the panel covers the top left
+    map.on("style.load", () => map.setProjection({ type: "globe" }));
+    const accent = () => getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#0a7d7b";
+    // Keep what is shown clear of the panel on the left.
+    const padding = () => {
+      const panel = document.getElementById("panel").getBoundingClientRect();
+      const wide = window.innerWidth > panel.right + 240;
+      return { top: 40, bottom: 40, right: 40, left: wide ? panel.right + 40 : 40 };
+    };
+    const mapReady = new Promise((resolve) => map.on("load", resolve));
 
     function launch(datasetId) {
       // Redirect to the main app carrying the dataset id. The frontend
@@ -158,34 +188,120 @@
       const list = document.getElementById("list");
       list.textContent = "";
 
-      const layer = L.featureGroup().addTo(map);
+      catalog = datasets;
       for (const d of datasets) {
-        const [minX, minY, maxX, maxY] = d.bbox;
-        const poly = L.rectangle(
-          [[minY, minX], [maxY, maxX]],
-          { color: getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#0a7d7b", weight: 2, fillOpacity: 0.15 }
-        );
-        const tip = document.createElement("div");
-        tip.appendChild(mkEl("strong", null, d.name));
-        tip.appendChild(document.createElement("br"));
-        tip.appendChild(mkEl("code", null, d.id));
-        poly.bindTooltip(tip);
-        poly.on("click", () => launch(d.id));
-        poly.addTo(layer);
-
         const li = document.createElement("li");
+        li.dataset.id = d.id;
+        li.dataset.search = `${d.name} ${d.id} ${d.description ?? ""}`.toLowerCase();
         li.appendChild(mkEl("div", "name", d.name));
         li.appendChild(mkEl("div", "id", d.id));
         if (d.description) li.appendChild(mkEl("div", "desc", d.description));
         li.addEventListener("click", () => launch(d.id));
-        li.addEventListener("mouseenter", () => poly.setStyle({ weight: 4, fillOpacity: 0.3 }));
-        li.addEventListener("mouseleave", () => poly.setStyle({ weight: 2, fillOpacity: 0.15 }));
+        li.addEventListener("mouseenter", () => highlight(d.id));
+        li.addEventListener("mouseleave", () => highlight(null));
         list.appendChild(li);
       }
-
-      const bounds = layer.getBounds();
-      if (bounds.isValid()) map.fitBounds(bounds.pad(0.2));
+      await mapReady;
+      drawFootprints(datasets);
+      fitTo(datasets, false);
     }
+
+    // The catalog's footprints on the globe: hover to name one, click to open it.
+    let catalog = [];
+    const footprint = (d) => {
+      const [w, s, e, n] = d.bbox;
+      return { type: "Feature", properties: { id: d.id, name: d.name },
+               geometry: { type: "Polygon", coordinates: [[[w, s], [e, s], [e, n], [w, n], [w, s]]] } };
+    };
+    function drawFootprints(datasets) {
+      map.addSource("cubes", { type: "geojson", promoteId: "id",
+                               data: { type: "FeatureCollection", features: datasets.map(footprint) } });
+      const hovered = ["boolean", ["feature-state", "hover"], false];
+      map.addLayer({ id: "cubes-fill", type: "fill", source: "cubes",
+                     paint: { "fill-color": accent(), "fill-opacity": ["case", hovered, 0.3, 0.15] } });
+      map.addLayer({ id: "cubes-line", type: "line", source: "cubes",
+                     paint: { "line-color": accent(), "line-width": ["case", hovered, 4, 2] } });
+      // Zoomed out, a small cube's outline is too small to see: a dot at its centre marks it.
+      map.addSource("cube-dots", { type: "geojson", promoteId: "id", data: { type: "FeatureCollection", features: datasets.map((d) => {
+        const [w, s, e, n] = d.bbox;
+        return { type: "Feature", properties: { id: d.id, name: d.name }, geometry: { type: "Point", coordinates: [(w + e) / 2, (s + n) / 2] } };
+      }) } });
+      map.addLayer({ id: "cubes-dot", type: "circle", source: "cube-dots", maxzoom: 6,
+                     paint: { "circle-color": accent(), "circle-radius": ["case", ["boolean", ["feature-state", "hover"], false], 8, 6],
+                              "circle-stroke-color": "#ffffff", "circle-stroke-width": 1.5 } });
+      const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 8 });
+      const onHover = (e) => {
+        const f = e.features[0];
+        map.getCanvas().style.cursor = "pointer";
+        highlight(f.properties.id);
+        const tip = document.createElement("div");
+        tip.appendChild(mkEl("strong", null, f.properties.name));
+        tip.appendChild(document.createElement("br"));
+        tip.appendChild(mkEl("code", null, f.properties.id));
+        popup.setLngLat(e.lngLat).setDOMContent(tip).addTo(map);
+      };
+      for (const layer of ["cubes-fill", "cubes-dot"]) {
+        map.on("mousemove", layer, onHover);
+        map.on("mouseleave", layer, () => { map.getCanvas().style.cursor = ""; highlight(null); popup.remove(); });
+        map.on("click", layer, (e) => launch(e.features[0].properties.id));
+      }
+    }
+    let lit = null;
+    function highlight(id) {
+      if (!map.getSource("cubes")) return;
+      for (const source of ["cubes", "cube-dots"]) {
+        if (lit) map.setFeatureState({ source, id: lit }, { hover: false });
+        if (id) map.setFeatureState({ source, id }, { hover: true });
+      }
+      lit = id;
+    }
+    function fitTo(datasets, animate = true) {
+      if (!datasets.length) return;
+      const b = datasets.map((d) => d.bbox).reduce((a, c) => [Math.min(a[0], c[0]), Math.min(a[1], c[1]), Math.max(a[2], c[2]), Math.max(a[3], c[3])]);
+      map.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: padding(), maxZoom: 9, duration: animate ? 900 : 0 });
+    }
+
+    // Search: typing narrows the datasets (list and globe); Enter shows the matches, or goes to
+    // a place when none match (the server's place search, on where the Assistant is).
+    const searchBox = document.getElementById("search");
+    const searchNote = document.getElementById("search-note");
+    const note = (text) => { searchNote.textContent = text || ""; searchNote.hidden = !text; };
+    function matches() {
+      const q = searchBox.value.trim().toLowerCase();
+      return catalog.filter((d) => !q || `${d.name} ${d.id} ${d.description ?? ""}`.toLowerCase().includes(q));
+    }
+    searchBox.addEventListener("input", () => {
+      const q = searchBox.value.trim().toLowerCase();
+      note("");
+      for (const li of document.querySelectorAll("#list li[data-search]")) li.hidden = !!q && !li.dataset.search.includes(q);
+      if (map.getLayer("cubes-fill")) {
+        const ids = matches().map((d) => d.id);
+        const filter = q ? ["in", ["get", "id"], ["literal", ids]] : null;
+        for (const layer of ["cubes-fill", "cubes-line", "cubes-dot"]) map.setFilter(layer, filter);
+      }
+      if (q && catalog.length && !matches().length) note("No dataset matches. Press Enter to go to the place.");
+    });
+    searchBox.addEventListener("keydown", async (e) => {
+      if (e.key !== "Enter") return;
+      const q = searchBox.value.trim();
+      if (!q) return;
+      const found = matches();
+      if (found.length) { fitTo(found); return; }
+      note(`Looking for ${q}…`);
+      try {
+        const res = await fetch(`/geocode?${new URLSearchParams({ q, limit: "1" })}`);
+        const body = await res.json();
+        if (!res.ok) throw new Error(res.status === 404 || res.status === 503 || res.status === 403
+          ? "Place search is off on this server." : (body.detail || `HTTP ${res.status}`));
+        const place = body.results?.[0];
+        if (!place) { note(`No place found for ${q}.`); return; }
+        if (place.bbox) map.fitBounds([[place.bbox[0], place.bbox[1]], [place.bbox[2], place.bbox[3]]], { padding: padding(), maxZoom: 12 });
+        else map.flyTo({ center: [place.lon, place.lat], zoom: 10, padding: padding() });
+        note(`${place.name}${body.attribution ? ` (${body.attribution})` : ""}`);
+      } catch (err) {
+        note(err.message || String(err));
+      }
+    });
 
     // Open a store by path or URL (POST /catalog/open), when the server allows
     // it (`bowser run` does for a local single-worker server).

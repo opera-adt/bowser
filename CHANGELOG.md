@@ -6,6 +6,8 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-23
+
 ### Added
 
 - Plain-language descriptions for OPERA DISP-S1 layers, with producer explanations
@@ -14,8 +16,18 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   its own fill opacity, kept in saved projects. Shown for layers with polygons; a tiled
   (PMTiles) layer shows it unless its metadata says it has none.
 - **A demo to try without installing:** an *Open in GitHub Codespaces* button in the README
-  starts Bowser on a small Hawaii cube (OPERA DISP-S1, 2016–2026, 240 m, 70 dates), and a
-  workflow publishes the same demo to a Hugging Face Space on each release. See `demo/`.
+  starts Bowser on a small Hawaii cube (OPERA DISP-S1, 2016–2026, 240 m, 70 dates). A
+  workflow can publish the same demo to a Hugging Face Docker Space (a paid plan; off until
+  `HF_SPACE` and `HF_TOKEN` are set). See `demo/`.
+- **Open another dataset from the app.** The side panel's new Open button (and Ctrl/Cmd+O)
+  lists the catalog's datasets, links to Project › Open data for a cube by path or folder
+  search, and goes back to the dataset picker. When there is work on the page (points, areas,
+  annotations, masks or overlays) it offers to save the project first, since switching reloads
+  the page. The desktop app adds a File menu with Open Dataset… and Dataset Picker.
+- **Dataset picker on a globe, with search.** The start screen draws the catalog on a MapLibre
+  globe (small cubes get a dot when zoomed out). Its search box narrows the datasets as you
+  type; Enter zooms to the matches, or to a place when none match and the server's place
+  search is on (the desktop app and `bowser run`).
 - Configured/uploaded masks in GIFs reuse map alignment, including cropped exports.
 
 - Optional GIF background snapshots, opacity and text annotations.
@@ -86,6 +98,10 @@ versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   player. Each part now follows only what it shows. A divider drag redraws none of the
   side panel's tabs (it was all five), an opacity tick one, a map move two, a date step
   three. Nothing looks different; the Leaflet map (`?map=leaflet`) is unchanged.
+
+- Build and test tools updated within their version ranges (`npm audit fix`): known
+  advisories in the development dependencies down from 18 to 11. Nothing in the page bundle
+  changed; the rest need major upgrades (Vite, Vitest, ESLint).
 
 ### Fixed
 
@@ -863,7 +879,8 @@ the diff — see [`v0.4.0...v0.5.0`](https://github.com/opera-adt/bowser/compare
   dependency tree pulls them in, so a pip-only install of the writer extra will
   fail at run time.
 
-[Unreleased]: https://github.com/opera-adt/bowser/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/opera-adt/bowser/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/opera-adt/bowser/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/opera-adt/bowser/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/opera-adt/bowser/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/opera-adt/bowser/compare/v0.5.1...v0.6.0
