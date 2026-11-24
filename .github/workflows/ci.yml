@@ -29,7 +29,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
       - name: Build frontend bundle
         # bowser.main mounts src/bowser/dist/ at import time, so the backend
@@ -73,7 +73,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
       - name: Build frontend bundle
         # Dockerfile copies src/ which must contain the built frontend at

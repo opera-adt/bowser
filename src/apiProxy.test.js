@@ -29,6 +29,10 @@ beforeAll(async () => {
   // Load the repository's actual config rather than duplicating its route list.
   vite = await createServer({
     logLevel: 'silent',
+    // Only the proxy is under test: no dependency scan, which Vite 8 starts in the
+    // background when the server opens and which can hold up proxied requests for
+    // seconds on a busy machine.
+    optimizeDeps: { noDiscovery: true, include: [], entries: [] },
     server: {
       host: '127.0.0.1', port: 0, strictPort: false,
       hmr: false, preTransformRequests: false,
@@ -36,7 +40,7 @@ beforeAll(async () => {
   });
   await vite.listen();
   base = `http://127.0.0.1:${vite.httpServer.address().port}`;
-});
+}, 30_000);  // Vite 8 takes seconds, not milliseconds, to create a dev server.
 
 afterAll(async () => {
   try {
