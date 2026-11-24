@@ -47,5 +47,8 @@
     "react-leaflet": "^4.2.1",
     "shpjs": "^6.2.0",
     "zarrita": "^0.7.5"
+  },
+  "engines": {
+    "node": ">=22.12"
   }
 }
