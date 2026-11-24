@@ -1,5 +1,14 @@
 # Bowser
 
+[![CI](https://github.com/opera-adt/bowser/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/opera-adt/bowser/actions/workflows/ci.yml)
+[![Desktop app](https://github.com/opera-adt/bowser/actions/workflows/desktop.yml/badge.svg?branch=main)](https://github.com/opera-adt/bowser/actions/workflows/desktop.yml)
+[![PyPI](https://img.shields.io/pypi/v/bowser-insar)](https://pypi.org/project/bowser-insar/)
+[![Python](https://img.shields.io/pypi/pyversions/bowser-insar)](https://pypi.org/project/bowser-insar/)
+[![Downloads](https://img.shields.io/pypi/dm/bowser-insar)](https://pypistats.org/packages/bowser-insar)
+[![Release](https://img.shields.io/github/v/release/opera-adt/bowser)](https://github.com/opera-adt/bowser/releases/latest)
+[![Docker](https://img.shields.io/badge/docker-ghcr.io%2Fopera--adt%2Fbowser-blue?logo=docker)](https://github.com/opera-adt/bowser/pkgs/container/bowser)
+[![License](https://img.shields.io/badge/license-BSD--3--Clause%20OR%20Apache--2.0-blue)](LICENSE)
+
 Map-based viewer for InSAR time-series outputs — GeoZarr cubes, dolphin workflow directories, or loose GeoTIFFs — served through a local FastAPI server and rendered by titiler in the browser.
 
 ![Bowser: OPERA DISP-S1 velocity over the Island of Hawaiʻi, with five points in the time-series chart: Kīlauea's 2018 collapse and recovery, its south flank and east rift, and Mauna Loa's 2022 eruption](docs/images/viewer.jpg)
